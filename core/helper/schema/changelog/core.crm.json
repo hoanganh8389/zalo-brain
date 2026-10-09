@@ -102,7 +102,12 @@
         "lead_score": {
           "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",
           "since": "1.18.0",
-          "comment": "0-100 scoring for broadcast segment targeting"
+          "comment": "0-100 scoring for broadcast segment targeting. PHASE-0.95 D95-6: written by a PERSON only (0 = not set); effective score = this when > 0 else lead_score_cell (BizCity_CRM_Lead_Score)."
+        },
+        "lead_score_cell": {
+          "type": "TINYINT UNSIGNED NULL DEFAULT NULL",
+          "since": "2.1.0",
+          "comment": "PHASE-0.95 D95-6 (owner 2026-10-10): 0-100 score the assistant (cell, action.crm_signal) writes when it labels nóng/ấm/lạnh; a reference, never overwrites lead_score. NULL = none."
         },
         "segment": {
           "type": "VARCHAR(32) NOT NULL DEFAULT ''",
@@ -1212,6 +1217,11 @@
       "version": "2.0.0",
       "date": "2026-10-09",
       "change": "PHASE-0.96 S96-2.4 (R-DCL) — crm-spine@1: the 15 spine tables move from modules.twin-crm (plugin bundle) to core/crm, same DDL as plugin 1.38.0 (no ALTER on upgrade). Owner core/crm, installer BizCity_CRM_DB_Installer_V2 (one dbDelta pass, extension DDL appended through the bizcity_crm_install_tables filter). crm_events stays with core/scheduler."
+    },
+    {
+      "version": "2.1.0",
+      "date": "2026-10-10",
+      "change": "PHASE-0.95 D95-6 (owner 2026-10-10) — contacts.lead_score_cell TINYINT UNSIGNED NULL (migrate_phase_095): the assistant's score lives apart from the person's lead_score; effective = person when > 0 else cell (BizCity_CRM_Lead_Score). No new table."
     }
   ]
 }

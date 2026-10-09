@@ -80,6 +80,9 @@ final class BizCity_MCP_Error {
 	const ROLE_GROUP_DENIED               = 'MCP_ROLE_GROUP_DENIED';
 	// [2026-10-07 10:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 gap B — the caller has no Google account that may send mail (not connected / no "Gửi email" permission).
 	const GOOGLE_NOT_CONNECTED            = 'MCP_GOOGLE_NOT_CONNECTED';
+	// [2026-10-09 10:49 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — a write/admin CRM tool (stage, note, task) needs the
+	// Zalo Brain CRM plugin (D-W20-1). Same code as BizCity_CRM_Spine::unavailable_error() so the message + hint survive the envelope.
+	const CRM_FEATURE_UNAVAILABLE         = 'crm_feature_unavailable';
 
 	/**
 	 * @return string e.g. "trc_5f2c..."
@@ -171,6 +174,7 @@ final class BizCity_MCP_Error {
 			self::WRITE_IN_PROGRESS, // [2026-10-01 Claude Opus 5.5] PHASE-0.88 D-MCP-2 — write idempotency.
 			self::ROLE_GROUP_DENIED, // [2026-10-01 Claude Opus 5.5] PHASE-0.88 R-MCP-OAUTH-ID §0b.5 — role group gate.
 			self::GOOGLE_NOT_CONNECTED, // [2026-10-07 10:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 gap B.
+			self::CRM_FEATURE_UNAVAILABLE, // [2026-10-09 10:49 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5.
 		), true );
 	}
 
@@ -190,6 +194,8 @@ final class BizCity_MCP_Error {
 			self::WRITE_IN_PROGRESS            => array( 'hint' => 'Thao tác này đang được xử lý. Đợi khoảng một phút rồi hỏi lại để xem kết quả, đừng gửi lại lệnh mới.', 'help_code' => 'write_in_progress' ),
 			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 R-MCP-OAUTH-ID §0b.5 — where the admin turns the group on for that role.
 			self::GOOGLE_NOT_CONNECTED         => array( 'hint' => 'Vào Channel Gateway → Kết nối → Google, đăng nhập và tick "Gửi email" (4 bước) rồi thử lại.', 'help_code' => 'google_not_connected' ),
+			// [2026-10-09 10:49 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — where the owner gets the missing feature.
+			self::CRM_FEATURE_UNAVAILABLE      => array( 'hint' => 'Việc này cần plugin Zalo Brain CRM. Quản trị viên vào Cài đặt › Mở rộng, cài và kích hoạt Zalo Brain CRM rồi thử lại.', 'help_code' => 'crm_feature_unavailable' ),
 			self::ROLE_GROUP_DENIED            => array( 'hint' => 'Vai trò WordPress của người này chưa được bật nhóm quyền MCP này. Quản trị viên vào Channel Gateway → MCP Access → "Quyền MCP theo vai trò" để bật nhóm Tri thức hoặc Hành động cho vai trò đó.', 'help_code' => 'role_group_denied' ),
 		);
 		if ( isset( $s88[ $code ] ) ) {

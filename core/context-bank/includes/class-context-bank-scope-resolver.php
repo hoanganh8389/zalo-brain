@@ -89,18 +89,11 @@ final class BizCity_Context_Bank_Scope_Resolver {
 		if ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
 			return array( 'ok' => true, 'state' => 'admin_bypass', 'plan' => 'admin' );
 		}
-		if ( ! class_exists( 'BizCity_Membership_Entitlement' ) ) {
-			return array( 'ok' => false, 'reason' => 'entitlement_owner_unavailable' );
-		}
-		try {
-			$entitlement = BizCity_Membership_Entitlement::instance()->for_user( (int) $user_id );
-		} catch ( \Throwable $e ) {
-			return array( 'ok' => false, 'reason' => 'entitlement_lookup_failed' );
-		}
-		if ( ! is_array( $entitlement ) ) {
-			return array( 'ok' => false, 'reason' => 'entitlement_unavailable' );
-		}
-		$plan = sanitize_key( (string) ( $entitlement['user_plan'] ?? $entitlement['site_tier'] ?? 'free' ) );
+		// [2026-10-09 09:20 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-0 (PHASE-0.96 D96-23) — core/membership is retired and
+		// licensing is the 1API master tier, so no per-user plan exists any more. The old branch failed CLOSED without
+		// BizCity_Membership_Entitlement (every non-admin skipped Context Bank); every user now gets 'free', which met
+		// the policy minimum ('free') before the retirement too — same outcome as before D96-23.
+		$plan = 'free';
 		$plan_rank = array( 'free' => 0, 'plus' => 1, 'pro' => 2, 'premium' => 3 );
 		$minimum = 'free';
 		if ( class_exists( 'BizCity_Context_Bank_Mode_Policy' ) ) {
@@ -110,7 +103,7 @@ final class BizCity_Context_Bank_Scope_Resolver {
 		if ( ! isset( $plan_rank[ $plan ] ) || ! isset( $plan_rank[ $minimum ] ) || $plan_rank[ $plan ] < $plan_rank[ $minimum ] ) {
 			return array( 'ok' => false, 'reason' => 'entitlement_plan_insufficient' );
 		}
-		return array( 'ok' => true, 'state' => ! empty( $entitlement['_degraded'] ) ? 'degraded' : 'available', 'plan' => $plan );
+		return array( 'ok' => true, 'state' => 'site_licence', 'plan' => $plan );
 	}
 
 	private static function resolve_channel_grant_scope( array $request_context ) {

@@ -2621,3 +2621,11 @@ msgstr "Kịch bản"
 #: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
 msgid "Zalo Brain"
 msgstr "Zalo Brain"
+
+#: CORE-REDUCTION WP-20 W20-L7 Apps launcher (2026-10-09)
+msgid "Apps"
+msgstr "Ứng dụng"
+
+#: CORE-REDUCTION WP-20 W20-L7 Apps launcher (2026-10-09)
+msgid "Open an app installed on this site."
+msgstr "Mở một ứng dụng đã cài trên site này."

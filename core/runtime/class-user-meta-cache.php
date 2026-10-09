@@ -47,8 +47,8 @@ final class BizCity_User_Meta_Cache {
         'bzvideo_tc_workflows'  => true,
         'bzvideo_tc_library'    => true,
         // [2026-06-22 Johnny Chu] R-PERF — astro full chart can be 50-100 KB JSON blob
-        'bccm_astro_full_chart' => true,
-        'bccm_astro_birth_data' => true,
+        // [2026-10-09 10:39 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — the two astro keys moved to the bizcoach-pro plugin, which adds them
+        // through `bizcity_user_meta_cache_heavy_keys` (D-W20-8: core names no app meta key).
         // [2026-06-22 Johnny Chu] R-PERF — small strings but ANY get_user_meta() primes ALL user meta
         // (including 5MB blobs). Force direct SQL to prevent WP meta prime on chat requests.
         'first_name'            => true,
@@ -179,9 +179,35 @@ final class BizCity_User_Meta_Cache {
      * @param mixed  $default
      * @return mixed
      */
+    /** @var array<string,true>|null heavy keys contributed by extension plugins, read once per request. */
+    private static $extension_heavy_keys = null;
+
+    /**
+     * [2026-10-09 10:39 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — extension plugins declare their own large user-meta keys
+     * (filter `bizcity_user_meta_cache_heavy_keys`: string[] → string[]), so core keeps no app key list.
+     */
+    private static function is_extension_heavy_key( string $meta_key ): bool {
+        if ( null !== self::$extension_heavy_keys ) {
+            return isset( self::$extension_heavy_keys[ $meta_key ] );
+        }
+        $keys = function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_user_meta_cache_heavy_keys', array() ) : array();
+        $set  = array();
+        foreach ( (array) $keys as $k ) {
+            if ( is_string( $k ) && '' !== $k ) {
+                $set[ $k ] = true;
+            }
+        }
+        // Freeze only once plugins have loaded; an earlier call must not hide a key a plugin adds later.
+        if ( function_exists( 'did_action' ) && did_action( 'plugins_loaded' ) ) {
+            self::$extension_heavy_keys = $set;
+        }
+        return isset( $set[ $meta_key ] );
+    }
+
     private static function fetch( $uid, $meta_key, $default ) {
         // [2026-07-27 Johnny Chu] PHASE-0.51 W1 — workspace JSON can grow and must not prime all user meta.
         if ( isset( self::$heavy_keys[ $meta_key ] )
+            || self::is_extension_heavy_key( (string) $meta_key )
             || strpos( (string) $meta_key, 'bizcity_kg_workspaces' ) === 0
             || strpos( (string) $meta_key, 'bizcity_twin_profile_' ) === 0
             || strpos( (string) $meta_key, 'bizcity_diag_wizard_seen_blog_' ) === 0 ) {

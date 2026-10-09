@@ -98,11 +98,11 @@ class BizCity_Twin_Snapshot_Builder {
         ];
 
         // Enrich from BizCoach profile if available
-        if ( function_exists( 'bccm_get_coachee' ) ) {
-            $coachee = bccm_get_coachee( $user_id );
-            if ( $coachee ) {
-                $identity['display_name'] = $coachee->full_name ?: $identity['display_name'];
-            }
+        // [2026-10-09 10:37 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — no direct bccm_* call (D-W20-8): an app plugin
+        // (bizcoach-pro) answers `bizcity_astro_coachee( null, $user_id )` with {full_name, …}; plugin off ⇒ null, default name kept.
+        $coachee = apply_filters( 'bizcity_astro_coachee', null, $user_id );
+        if ( is_array( $coachee ) && ! empty( $coachee['full_name'] ) ) {
+            $identity['display_name'] = (string) $coachee['full_name'];
         }
 
         // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14d / R-VERTICAL-AXIS R-VA-6 (CUT, owner 2026-09-30) — companion bond score retired; bond_score keeps its default.

@@ -242,27 +242,20 @@ class BizCity_KG_Cost_Guard {
 		$used = $this->user_passages_today( $user_id );
 		if ( $used + $estimated_passages > $this->quota_per_user() ) {
 			// [2026-06-08 Johnny Chu] R-TRAINING-QUOTA — Layer 3 (End-user plan quota).
-			// Resolve plan label for actionable CTA in FE banner.
-			$plan_slug  = class_exists( 'BizCity_Membership_Manager' )
-				? (string) BizCity_Membership_Manager::instance()->plan_for_user( $user_id )
-				: 'free';
-			$plan_label = class_exists( 'BizCity_Membership_Plan_Registry' )
-				? (string) ( BizCity_Membership_Plan_Registry::instance()->plan( $plan_slug )['label'] ?? ucfirst( $plan_slug ) )
-				: ucfirst( $plan_slug );
+			// [2026-10-09 09:22 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-0 (PHASE-0.96 D96-23) — core/membership retired:
+			// no per-user plan and no /pricing page any more, so the message names the daily limit and the reset only.
 			$retry_ts   = BizCity_TwinChat_Learning_Quota_Cooldown::seconds_until_daily_reset() + time();
 			$msg = sprintf(
-				'Gói %s cho phép đào tạo %d đoạn/ngày. Hôm nay đã dùng %d/%d. Nâng cấp gói để tiếp tục.',
-				$plan_label, $this->quota_per_user(), $used, $this->quota_per_user()
+				'Mỗi ngày được đào tạo %d đoạn. Hôm nay đã dùng %d/%d. Hạn mức đặt lại vào ngày mai.',
+				$this->quota_per_user(), $used, $this->quota_per_user()
 			);
 			return new WP_Error( 'quota_exceeded', $msg, array_merge( $diag, [
 				'layer'       => 'end_user',
 				'used'        => $used,
 				'cap'         => $this->quota_per_user(),
 				'user_id'     => $user_id,
-				'user_plan'   => $plan_slug,
-				'plan_label'  => $plan_label,
+				'user_plan'   => 'free',
 				'retry_after' => $retry_ts,
-				'upgrade_url' => home_url( '/pricing' ),
 			] ) );
 		}
 

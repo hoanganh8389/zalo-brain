@@ -185,11 +185,25 @@ final class BizCity_Bot_Config_Repo {
 			}
 			$bot['context_source'] = $src;
 		}
+		// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13/F14/G4 — the Bot Studio Guru sheet may send the three consult keys at the top
+		// level too; they are scope settings, so they travel into `scope` (scope wins when both are sent).
+		foreach ( array( 'product_cat_ids', 'consult_enabled', 'consult_min_score' ) as $consult_key ) {
+			if ( array_key_exists( $consult_key, $patch ) ) {
+				$scope_patch = array_key_exists( 'scope', $patch ) ? $patch['scope'] : array(); // a non-array scope is refused just below
+				if ( is_array( $scope_patch ) && ! array_key_exists( $consult_key, $scope_patch ) ) {
+					$scope_patch[ $consult_key ] = $patch[ $consult_key ];
+					$patch['scope']              = $scope_patch;
+				}
+			}
+		}
+		if ( isset( $patch['scope']['product_cat_ids'] ) && ! is_array( $patch['scope']['product_cat_ids'] ) ) {
+			return new WP_Error( 'invalid_param', 'product_cat_ids must be a list.', array( 'status' => 422, 'hint' => 'Send the ids of the WooCommerce product categories this Guru advises on ([] = all).', 'help_code' => 'guru_product_cat_ids_shape' ) );
+		}
 		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-3 (R-GS-3) — knowledge scope is a setting of THIS Guru; the resolver
 		// owns the allowed values so the Bot Studio sheet, the PHP engine and the Hub contract read one definition.
 		if ( array_key_exists( 'scope', $patch ) ) {
 			if ( ! is_array( $patch['scope'] ) ) {
-				return new WP_Error( 'invalid_param', 'scope must be an object.', array( 'status' => 422, 'hint' => 'Send {knowledge, notebook_ids, max_context_chars, max_blocks, contact_block, compose_prefer, customer_tools}.', 'help_code' => 'bot_scope_shape' ) );
+				return new WP_Error( 'invalid_param', 'scope must be an object.', array( 'status' => 422, 'hint' => 'Send {knowledge, notebook_ids, max_context_chars, max_blocks, contact_block, compose_prefer, customer_tools, product_cat_ids, consult_enabled, consult_min_score}.', 'help_code' => 'bot_scope_shape' ) );
 			}
 			// [2026-10-05 09:34 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-R-AP-6 (doc 92 G-A3) — a tool outside the knowledge read group is refused
 			// out loud, never dropped silently: customers must never get business data or a write tool.

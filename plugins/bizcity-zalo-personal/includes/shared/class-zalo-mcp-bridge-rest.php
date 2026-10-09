@@ -129,6 +129,9 @@ final class BizCity_Zalo_MCP_Bridge_REST {
 		$guest = strtolower( trim( (string) $request->get_header( self::GUEST_HASH_HDR ) ) );
 		$guest = preg_match( '/^[0-9a-f]{64}$/', $guest ) ? $guest : ''; // [2026-10-06 12:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM
 		$ctx  = BizCity_MCP_Delegation::context_guru_public( (int) $guru['character_id'], $account, $turn, (array) $guru['scope'], $guest );
+		// [2026-10-09 03:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-A2 (G95-1, luật 2b) — the WordPress owner of THIS number (site binding, never
+		// the request). Read only by BizCity_MCP_Action_Support::run_as for automation.list_scenarios / run_scenario; user_id stays 0, role customer.
+		$ctx['acting_user_id'] = self::owner_of_account( $account );
 		$info = array( 'account_id' => $account, 'user_id' => 0, 'role' => 'customer', 'modes' => $ctx['modes'], 'scopes' => $ctx['scopes'], 'turn_id' => $turn );
 		if ( empty( $ctx['allowed_tools'] ) || empty( $ctx['scopes'] ) ) {
 			BizCity_MCP_Delegation::log( 'delegation_no_scope', $info );
@@ -169,6 +172,23 @@ final class BizCity_Zalo_MCP_Bridge_REST {
 		}
 		$profile = BizCity_Guru_Context_Resolver::profile( $cid );
 		return array( 'character_id' => $cid, 'scope' => (array) ( $profile['scope'] ?? array() ) );
+	}
+
+	/**
+	 * [2026-10-09 03:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-A2 — owner_user_id of the number: the Zalo mapping row (same source as
+	 * BizCity_Zalo_Agent_Principals), else the channel binding's owner column when it has one. 0 = unknown (guest automation then stays 401).
+	 * Seam `$readers['owner']`.
+	 */
+	private static function owner_of_account( string $account ): int {
+		if ( isset( self::$readers['owner'] ) ) {
+			return max( 0, (int) call_user_func( self::$readers['owner'], $account ) );
+		}
+		$uid = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? (int) BizCity_Zalo_Agent_Principals::owner_user_id( $account ) : 0;
+		if ( $uid <= 0 && class_exists( 'BizCity_Channel_Binding' ) ) {
+			$b   = BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $account );
+			$uid = is_array( $b ) ? (int) ( $b['owner_user_id'] ?? 0 ) : 0;
+		}
+		return max( 0, $uid );
 	}
 
 	/** HTTP 401 + JSON-RPC error like core/mcp auth errors (bridge.denied.json). */

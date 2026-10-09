@@ -69,6 +69,9 @@
     funnel:    '<path d="M22 3H2l8 9.46V19l4 2V12.46L22 3z"/>',
     users:     '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     explore:   '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U1 — 3×3 grid for the "Apps" tile; puzzle for app tiles without an icon.
+    grid:      '<rect x="3" y="3" width="5" height="5" rx="1"/><rect x="9.5" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="16" y="9.5" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><rect x="9.5" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/>',
+    puzzle:    '<path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/>',
     marketplace:'<path d="M3 9h18"/><path d="M5 9v11h14V9"/><path d="M4 9l1-5h14l1 5"/><path d="M8 9a4 4 0 0 0 8 0"/><path d="M9 20v-6h6v6"/>',
     // External-link icon (used when inside admin iframe → click to pop out to /twin/).
     'external':'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
@@ -342,7 +345,130 @@
     for (var i = 0; i < cfg.plugins.length; i++) {
       if (cfg.plugins[i].id === id) return cfg.plugins[i];
     }
+    // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U1 — apps (cfg.apps, from the server's
+    // `apps[]`) open in the same iframe stack as ActivityBar plugins, so every lookup also knows them.
+    return findApp(id);
+  }
+
+  // ── Apps launcher (D-W20-2) ───────────────────────────────────────────
+  // One "Apps" tile (mode 'launcher') on the ActivityBar; a click opens a grid of square tiles built ONLY
+  // from cfg.apps (no hard-coded list here). Desktop = popover next to the tile, phone = bottom sheet.
+  var APPS = Array.isArray(cfg.apps) ? cfg.apps : [];
+
+  function findApp(id) {
+    for (var j = 0; j < APPS.length; j++) {
+      if (APPS[j] && APPS[j].id === id) return APPS[j];
+    }
     return null;
+  }
+
+  function isAppId(id) {
+    return !!findApp(id);
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function launcherEl() {
+    return root.querySelector('.ts-apps-launcher');
+  }
+
+  function closeAppsLauncher() {
+    var el = launcherEl();
+    if (el) el.parentNode.removeChild(el);
+    var tile = root.querySelector('.ts-ab-item[data-role="apps-launcher"]');
+    if (tile) tile.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('mousedown', onLauncherOutside, true);
+    document.removeEventListener('keydown', onLauncherKey, true);
+  }
+
+  function onLauncherOutside(ev) {
+    var el = launcherEl();
+    var tile = root.querySelector('.ts-ab-item[data-role="apps-launcher"]');
+    if (!el) return;
+    if (el.contains(ev.target) || (tile && tile.contains(ev.target))) return;
+    closeAppsLauncher();
+  }
+
+  function onLauncherKey(ev) {
+    if (ev.key === 'Escape') closeAppsLauncher();
+  }
+
+  function openApp(app) {
+    closeAppsLauncher();
+    if (!app) return;
+    if (app.plan_locked || app.plugin_locked) {
+      var shellUrl = cfg.shellUrl || '/twin/';
+      var sep = shellUrl.indexOf('?') !== -1 ? '&' : '?';
+      window.location.href = shellUrl + sep + 'plugin=' + encodeURIComponent(app.id);
+      return;
+    }
+    navigate(app.id, {});
+  }
+
+  function toggleAppsLauncher(tileBtn) {
+    if (launcherEl()) { closeAppsLauncher(); return; }
+
+    var pop = document.createElement('div');
+    pop.className = 'ts-apps-launcher';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', 'Ứng dụng');
+    pop.dataset.count = String(APPS.length);
+
+    var html = '<div class="ts-apps-head"><span class="ts-apps-title">Ứng dụng</span>' +
+      '<button type="button" class="ts-apps-close" aria-label="Đóng">✕</button></div>';
+    if (APPS.length === 0) {
+      html += '<div class="ts-apps-empty"><p>Chưa có ứng dụng nào</p>' +
+        (cfg.appsManage ? '<button type="button" class="ts-apps-add">Thêm ứng dụng</button>' : '') +
+        '</div>';
+    } else {
+      html += '<div class="ts-apps-grid" role="list">';
+      APPS.forEach(function (app) {
+        var locked = app.plan_locked || app.plugin_locked || app.lock_kind;
+        html += '<button type="button" role="listitem" class="ts-apps-tile' + (locked ? ' is-plan-locked' : '') +
+          (current.pluginId === app.id ? ' is-active' : '') + '" data-app-id="' + escapeHtml(app.id) + '"' +
+          ' title="' + escapeHtml(app.desc || app.label || app.id) + '">' +
+          '<span class="ts-apps-tile-icon">' + renderIcon(app.icon || 'puzzle') + '</span>' +
+          '<span class="ts-apps-tile-label">' + escapeHtml(app.label || app.id) + '</span>' +
+          (app.plan_badge ? '<span class="ts-ab-plan-badge ts-ab-plan-badge--' + escapeHtml(String(app.plan_badge).toLowerCase()) + '">' + escapeHtml(app.plan_badge) + '</span>' : '') +
+          '</button>';
+      });
+      html += '</div>';
+    }
+    pop.innerHTML = html;
+    root.appendChild(pop);
+
+    // Desktop popover: anchor beside the tile (the ActivityBar is on the left). Phone: CSS turns it into a bottom sheet.
+    try {
+      var r = tileBtn.getBoundingClientRect();
+      var top = Math.max(8, Math.min(r.top, window.innerHeight - pop.offsetHeight - 8));
+      pop.style.setProperty('--ts-apps-left', (r.right + 8) + 'px');
+      pop.style.setProperty('--ts-apps-top', top + 'px');
+    } catch (e) {}
+
+    pop.querySelector('.ts-apps-close').addEventListener('click', closeAppsLauncher);
+    var addBtn = pop.querySelector('.ts-apps-add');
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        var m = cfg.appsManage || {};
+        closeAppsLauncher();
+        if (m.plugin && findPlugin(m.plugin)) navigate(m.plugin, {}, { iurl: m.iurl || '' });
+      });
+    }
+    var tiles = pop.querySelectorAll('.ts-apps-tile');
+    for (var t = 0; t < tiles.length; t++) {
+      tiles[t].addEventListener('click', function (ev) {
+        openApp(findApp(ev.currentTarget.getAttribute('data-app-id')));
+      });
+    }
+    tileBtn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('mousedown', onLauncherOutside, true);
+    document.addEventListener('keydown', onLauncherKey, true);
+    var firstTile = pop.querySelector('.ts-apps-tile, .ts-apps-add');
+    if (firstTile) { try { firstTile.focus(); } catch (e) {} }
   }
 
   function buildIframeUrl(pluginId, paramsObj) {
@@ -907,6 +1033,15 @@
         p.plan_badge.toLowerCase() + '">' + p.plan_badge + '</span>';
     }
     btn.innerHTML = iconHtml;
+    // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U1 — the "Apps" tile opens the launcher, never an iframe.
+    if (p.mode === 'launcher') {
+      btn.dataset.role = 'apps-launcher';
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.addEventListener('click', function () { toggleAppsLauncher(btn); });
+      return btn;
+    }
     btn.addEventListener('click', function () {
       // Plan-locked or plugin-locked: navigate to notice page (PHP renders it).
       if (p.plan_locked || p.plugin_locked) {
@@ -1105,7 +1240,8 @@
     for (var i = 0; i < btns.length; i++) {
       var pid = btns[i].dataset.pluginId || '';
       if (!pid) continue;
-      var on = pid === pluginId;
+      // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U1 — an open app lights the "Apps" tile.
+      var on = pid === pluginId || (btns[i].dataset.role === 'apps-launcher' && isAppId(pluginId));
       btns[i].classList.toggle('is-active', on);
       btns[i].setAttribute('aria-selected', on ? 'true' : 'false');
     }
@@ -1169,6 +1305,11 @@
     var iframe = document.createElement('iframe');
     iframe.className = 'ts-frame';
     iframe.dataset.pluginId = pluginId;
+    // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U1 — an app opened from the launcher is marked for selfchecks.
+    if (isAppId(pluginId)) {
+      iframe.dataset.surface = 'apps';
+      iframe.dataset.page = pluginId;
+    }
     iframe.title = (findPlugin(pluginId) || {}).label || pluginId;
     iframe.src = url;
     iframe.setAttribute('allow', 'clipboard-read; clipboard-write; fullscreen; microphone; camera');
@@ -1354,7 +1495,9 @@
         }
       }
     } else if (data.type === 'navigate-shell' && typeof data.pluginId === 'string') {
-      navigate(data.pluginId, data.params || {});
+      // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — TwinChat's "Thêm ứng dụng" passes a same-origin path.
+      var navIurl = (typeof data.iurl === 'string' && data.iurl.charAt(0) === '/') ? data.iurl : '';
+      navigate(data.pluginId, data.params || {}, navIurl ? { iurl: navIurl } : undefined);
     } else if (data.type === 'upload:chip') {
       // Phase 0.13 W3 — child now renders its own floating chip; parent suppresses ActivityBar dupe.
       // upsertUploadChip({...}) intentionally disabled.

@@ -20,6 +20,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — one-shot canonical-platform migration (dry_run / run, never auto-run).
+// Above the double-load guard: PHP hoists the class below, so the guard returns even on a first load.
+require_once __DIR__ . '/class-crm-identity-canon-migration.php';
+// [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — read-only order box (channel · name · masked UID).
+require_once __DIR__ . '/class-crm-order-identity-metabox.php';
+
 // [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — double-load guard.
 if ( class_exists( 'BizCity_CRM_Contact_Identity', false ) ) {
 	return;
@@ -36,6 +42,126 @@ final class BizCity_CRM_Contact_Identity {
 
 	/** @var bool[] Per-request install cache keyed by blog_id. */
 	private static $ensured = array();
+
+	// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — one spelling per platform (R-CID-5b, G95-6a): the cell sends
+	// `zalo`, the inbox bridge sent `ZALO_PERSONAL`, older rows hold `ZALO` ⇒ three identities for one person. Keys are lowercase.
+	const PLATFORM_CANON = array(
+		'zalo'          => 'zalo',
+		'zalo_personal' => 'zalo',
+		'zalo_oa'       => 'zalo_oa',
+		'facebook'      => 'fb',
+		'fb'            => 'fb',
+		'messenger'     => 'messenger',
+		'webchat'       => 'web_guest',
+		'web_guest'     => 'web_guest',
+		'telegram'      => 'telegram',
+	);
+
+	/**
+	 * [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — canonical platform of an identity: lowercase, mapped through
+	 * PLATFORM_CANON; anything else keeps its own lowercase name (`wp`, `zalo_bot` …), [a-z0-9_] only, ≤ 32 chars.
+	 */
+	/**
+	 * [2026-10-09 10:20 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — router hint for metadata queries (same rule as BizCity_Table_Metadata::route_hint):
+	 * a `wp_<blog>_…` table name in a comment makes BizCity_WPDB_Router run the information_schema query on that blog's shard.
+	 */
+	/**
+	 * [2026-10-09 10:55 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — the two silent "return 0" of resolve_or_create leave one log line, so the next
+	 * failure proves its cause: which branch, which shard the router is on (`current_bizname`), the blog. Never the UID or a name; the
+	 * DB error has its digits masked (a duplicate-key message would echo the UID).
+	 */
+	private static function log_unresolved( string $why, string $table ): void {
+		global $wpdb;
+		$err = preg_replace( '/\d{4,}/', '#', substr( (string) ( $wpdb->last_error ?? '' ), 0, 160 ) );
+		error_log( '[BIZCITY_CRM_IDENTITY] ' . wp_json_encode( array(
+			'step'  => $why,
+			'blog'  => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0,
+			'table' => $table,
+			'shard' => isset( $wpdb->current_bizname ) ? (string) $wpdb->current_bizname : '',
+			'err'   => $err,
+		) ) );
+	}
+
+	public static function route_hint( string $table ): string {
+		return preg_match( '/^wp_\d+_[a-z0-9_]+$/i', $table ) ? ' /* route:' . $table . ' */' : '';
+	}
+
+	public static function canon_platform( string $platform ): string {
+		$p = strtolower( trim( $platform ) );
+		if ( isset( self::PLATFORM_CANON[ $p ] ) ) {
+			return self::PLATFORM_CANON[ $p ];
+		}
+		return substr( (string) preg_replace( '/[^a-z0-9_]/', '', $p ), 0, 32 );
+	}
+
+	/**
+	 * [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — every stored spelling of a canonical platform (the canon itself
+	 * first, then the legacy names mapping to it) so a lookup still finds rows the migration has not rewritten yet.
+	 *
+	 * @return string[]
+	 */
+	public static function platform_aliases( string $canon ): array {
+		$canon = self::canon_platform( $canon );
+		$out   = array( $canon );
+		foreach ( self::PLATFORM_CANON as $raw => $to ) {
+			if ( $to === $canon && ! in_array( $raw, $out, true ) ) {
+				$out[] = $raw;
+			}
+		}
+		return $out;
+	}
+
+	/** [2026-10-09 03:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — order meta keys of the person an order is for (doc 25 §3, HPOS order meta). */
+	const ORDER_META_KEYS = array( '_bizcity_platform', '_bizcity_channel_ref', '_bizcity_platform_uid', '_bizcity_display_name', '_bizcity_contact_id', '_bizcity_person_ref', '_bizcity_source' );
+
+	/**
+	 * [2026-10-09 03:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — the 7 identity meta of an order, pure. `person_ref` = a hash of
+	 * (canon | channel_ref | uid) when the UID is known, else the given ref (the cell's sender hash): never the raw UID. The UID itself
+	 * is stored only under `_bizcity_platform_uid` (site DB, R-CID-11) — callers never put it in a note or an email.
+	 *
+	 * @param array $in {platform, channel_ref, platform_uid, display_name, contact_id, person_ref, source}
+	 * @return array<string,string|int>
+	 */
+	public static function order_identity_meta( array $in ): array {
+		$canon = self::canon_platform( (string) ( $in['platform'] ?? '' ) );
+		$ref   = substr( trim( (string) ( $in['channel_ref'] ?? '' ) ), 0, 190 );
+		$uid   = substr( trim( (string) ( $in['platform_uid'] ?? '' ) ), 0, 190 );
+		$name  = trim( (string) ( $in['display_name'] ?? '' ) );
+		$name  = function_exists( 'mb_substr' ) ? mb_substr( $name, 0, 120, 'UTF-8' ) : substr( $name, 0, 120 );
+		$pref  = '' !== $uid ? substr( hash( 'sha256', $canon . '|' . $ref . '|' . $uid ), 0, 32 ) : substr( (string) preg_replace( '/[^a-f0-9]/i', '', (string) ( $in['person_ref'] ?? '' ) ), 0, 64 );
+		return array(
+			'_bizcity_platform'     => $canon,
+			'_bizcity_channel_ref'  => $ref,
+			'_bizcity_platform_uid' => $uid,
+			'_bizcity_display_name' => $name,
+			'_bizcity_contact_id'   => max( 0, (int) ( $in['contact_id'] ?? 0 ) ),
+			'_bizcity_person_ref'   => $pref,
+			'_bizcity_source'       => substr( (string) preg_replace( '/[^a-z0-9_.:\-]/i', '', (string) ( $in['source'] ?? '' ) ), 0, 64 ),
+		);
+	}
+
+	/**
+	 * [2026-10-09 03:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — the platform UID of a contact on one channel (canon + account), '' when
+	 * none. Used to stamp an order made by a cell run, whose `_cell` never carries the UID.
+	 */
+	public static function uid_of_contact( int $contact_id, string $platform, string $account_id ): string {
+		if ( $contact_id <= 0 ) {
+			return '';
+		}
+		$canon = self::canon_platform( $platform );
+		$alias = self::platform_aliases( $canon );
+		foreach ( self::get_by_contact( $contact_id ) as $row ) {
+			if ( in_array( strtolower( (string) $row['platform'] ), $alias, true ) && (string) $row['account_id'] === $account_id ) {
+				return (string) $row['platform_uid'];
+			}
+		}
+		return '';
+	}
+
+	/** "%s, %s, …" for an IN list of $n values. */
+	private static function in_placeholders( int $n ): string {
+		return implode( ', ', array_fill( 0, max( 1, $n ), '%s' ) );
+	}
 
 	/* ================================================================
 	 *  Table helpers
@@ -107,12 +233,13 @@ final class BizCity_CRM_Contact_Identity {
 	public static function find_contact_id( string $platform, string $platform_uid, string $account_id = '' ): int {
 		global $wpdb;
 		self::ensure();
-		$row = $wpdb->get_row(
+		// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — canonical platform; legacy spellings still match until the
+		// migration rewrites them (canonical row first).
+		$aliases = self::platform_aliases( $platform );
+		$row     = $wpdb->get_row(
 			$wpdb->prepare(
-				'SELECT contact_id FROM ' . self::table() . ' WHERE platform = %s AND platform_uid = %s AND account_id = %s LIMIT 1',
-				$platform,
-				$platform_uid,
-				$account_id
+				'SELECT contact_id FROM ' . self::table() . ' WHERE platform IN (' . self::in_placeholders( count( $aliases ) ) . ') AND platform_uid = %s AND account_id = %s ORDER BY (platform = %s) DESC, is_primary DESC, id ASC LIMIT 1',
+				array_merge( $aliases, array( $platform_uid, $account_id, $aliases[0] ) )
 			),
 			ARRAY_A
 		);
@@ -142,6 +269,14 @@ final class BizCity_CRM_Contact_Identity {
 	): int {
 		// [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — resolve_or_create canonical.
 		self::ensure();
+		// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — the identity row stores the canonical platform; the contacts
+		// row keeps the caller's upper-case code (CRM UI / repository read `ZALO_BOT`, `FB_MESS` … there).
+		$raw_platform = $platform;
+		$platform     = self::canon_platform( $platform );
+		$platform_uid = trim( $platform_uid );
+		if ( '' === $platform || '' === $platform_uid ) {
+			return 0;
+		}
 
 		// 1. Check existing identity.
 		$contact_id = self::find_contact_id( $platform, $platform_uid, $account_id );
@@ -157,11 +292,17 @@ final class BizCity_CRM_Contact_Identity {
 		// 3. Check if contacts table exists (guard: CRM may not be active).
 		global $wpdb;
 		$contacts_table = $wpdb->prefix . 'bizcity_crm_contacts';
-		$has_contacts   = (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
-			$contacts_table
-		) );
+		// [2026-10-09 10:20 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — shard-aware check. The bare information_schema query carried no route hint, so
+		// BizCity_WPDB_Router ran it on the main DB, found no wp_<blog>_ table there and this returned 0 ("CRM not active") for every new
+		// sender: the owner of 0562 608 899 got scenario_contact_unresolved on "đăng web" (2026-10-09 20:23).
+		$has_contacts = class_exists( 'BizCity_Table_Metadata' )
+			? (bool) BizCity_Table_Metadata::table_exists( $contacts_table )
+			: (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s' . self::route_hint( $contacts_table ),
+				$contacts_table
+			) );
 		if ( ! $has_contacts ) {
+			self::log_unresolved( 'contacts_table_missing', $contacts_table );
 			return 0;
 		}
 
@@ -172,18 +313,23 @@ final class BizCity_CRM_Contact_Identity {
 		$now            = current_time( 'mysql' );
 
 		// Try to find by existing contacts.platform_uid first (legacy dedup).
-		$existing = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$contacts_table} WHERE platform = %s AND platform_uid = %s LIMIT 1",
-			$platform,
-			$platform_uid
-		) );
+		// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F12 (G95-6b) — only for an identity WITHOUT an account: the same
+		// Zalo UID seen by two numbers (two account_id) is two contacts, never folded into the first one by contacts.platform_uid.
+		$existing = 0;
+		if ( '' === $account_id ) {
+			$legacy   = array_map( 'strtoupper', self::platform_aliases( $platform ) );
+			$existing = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$contacts_table} WHERE platform IN (" . self::in_placeholders( count( $legacy ) ) . ') AND platform_uid = %s LIMIT 1',
+				array_merge( $legacy, array( $platform_uid ) )
+			) );
+		}
 		if ( $existing ) {
 			$contact_id = (int) $existing;
 		} else {
 			// Insert new contact row.
 			$new_contact = array(
 				'name'       => $contact_name,
-				'platform'   => strtoupper( $platform ),
+				'platform'   => strtoupper( $raw_platform ),
 				'platform_uid' => $platform_uid,
 				'source'     => $contact_source,
 				'created_at' => $now,
@@ -203,6 +349,7 @@ final class BizCity_CRM_Contact_Identity {
 		}
 
 		if ( $contact_id <= 0 ) {
+			self::log_unresolved( 'contact_insert_failed', $contacts_table );
 			return 0;
 		}
 
@@ -212,7 +359,7 @@ final class BizCity_CRM_Contact_Identity {
 			(contact_id, platform, platform_uid, account_id, is_primary, created_at, updated_at)
 			VALUES (%d, %s, %s, %s, 1, %s, %s)',
 			$contact_id,
-			strtoupper( $platform ),
+			$platform, // [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — canonical, was strtoupper()
 			$platform_uid,
 			$account_id,
 			$now,
@@ -253,13 +400,18 @@ final class BizCity_CRM_Contact_Identity {
 	public static function link( int $contact_id, string $platform, string $platform_uid, string $account_id = '' ): bool {
 		global $wpdb;
 		self::ensure();
+		// [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — a legacy spelling of the same identity already linked ⇒ no
+		// second row under the canonical name (INSERT IGNORE alone would not see `ZALO_PERSONAL` vs `zalo`).
+		if ( self::find_contact_id( $platform, $platform_uid, $account_id ) > 0 ) {
+			return true;
+		}
 		$now = current_time( 'mysql' );
 		return false !== $wpdb->query( $wpdb->prepare(
 			'INSERT IGNORE INTO ' . self::table() . '
 			(contact_id, platform, platform_uid, account_id, is_primary, created_at, updated_at)
 			VALUES (%d, %s, %s, %s, 0, %s, %s)',
 			$contact_id,
-			strtoupper( $platform ),
+			self::canon_platform( $platform ), // [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — canonical, was strtoupper()
 			$platform_uid,
 			$account_id,
 			$now,
@@ -281,11 +433,24 @@ final class BizCity_CRM_Contact_Identity {
 		$result         = $wpdb->query(
 			"INSERT IGNORE INTO " . self::table() . "
 			(contact_id, platform, platform_uid, account_id, is_primary, created_at, updated_at)
-			SELECT id, UPPER(platform), platform_uid, '', 1, '{$now}', '{$now}'
+			SELECT id, " . self::canon_sql( 'platform' ) . ", platform_uid, '', 1, '{$now}', '{$now}'
 			FROM {$contacts_table}
 			WHERE platform_uid IS NOT NULL AND platform_uid <> ''"
 		);
 		return (int) $result;
+	}
+
+	/**
+	 * [2026-10-09 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F11 — SQL mirror of canon_platform() for a column (backfill): the map
+	 * keys are fixed identifiers of this class, never user input.
+	 */
+	public static function canon_sql( string $column ): string {
+		$col  = preg_replace( '/[^a-z0-9_]/i', '', $column );
+		$sql  = 'CASE LOWER(TRIM(' . $col . '))';
+		foreach ( self::PLATFORM_CANON as $raw => $to ) {
+			$sql .= " WHEN '" . $raw . "' THEN '" . $to . "'";
+		}
+		return $sql . ' ELSE LOWER(TRIM(' . $col . ')) END';
 	}
 
 	/* ================================================================

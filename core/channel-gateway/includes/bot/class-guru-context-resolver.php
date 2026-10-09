@@ -68,13 +68,145 @@ final class BizCity_Guru_Context_Resolver {
 		// channels may call: only read tools of the `knowledge` group, over this Guru's attached notebooks. Default = search +
 		// read a passage, effective only with knowledge 'base+notebooks' (the same notebooks customers already get today).
 		'customer_tools'    => array( 'knowledge.search', 'knowledge.get_passage' ),
+		// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13/G4 (D95-18/20) — product categories this Guru advises customers on
+		// ([] = every category) and the doctor-style consult switch + suggestion threshold (40–90).
+		'product_cat_ids'   => array(),
+		'consult_enabled'   => true,
+		'consult_min_score' => 60,
 	);
 
 	/** R-AP-6: the only MCP tools a Guru may open to customers (read-only, knowledge group). Anything else is dropped. */
 	// [2026-10-05 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — + automation.list_scenarios / run_scenario: the Guru may open audience-guest scenarios
 	// (khách vãng lai) to customers; the site still refuses every owner_agent scenario to them (R-AUTOMATION-PERMISSION).
-	const CUSTOMER_TOOLS_ALLOWED = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks', 'automation.list_scenarios', 'automation.run_scenario' );
+	// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 — + commerce.search_products (public catalog consult). Order = fixture guru.profile.consult.json `allowed`.
+	const CUSTOMER_TOOLS_ALLOWED = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks', 'commerce.search_products', 'automation.list_scenarios', 'automation.run_scenario' );
 	const CUSTOMER_AUTOMATION_TOOLS = array( 'automation.list_scenarios', 'automation.run_scenario' );
+
+	/**
+	 * [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 (D95-18) — customer tools by GROUP: `knowledge` needs notebooks shared by
+	 * the Guru, `commerce` needs WooCommerce, `automation` needs nothing. A tool outside every group is dropped.
+	 */
+	const CUSTOMER_TOOL_GROUPS = array(
+		'knowledge'  => array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks' ),
+		'commerce'   => array( 'commerce.search_products' ),
+		'automation' => array( 'automation.list_scenarios', 'automation.run_scenario' ),
+	);
+	const CUSTOMER_TOOLS_NEED_NOTEBOOK = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks' );
+	const CONSULT_MIN_SCORE_MIN = 40;
+	const CONSULT_MIN_SCORE_MAX = 90;
+
+	/**
+	 * PHASE-0.95 S95-F13/G4 — pure: the consult part of a Guru profile (fixture zalo-hub/contracts/fixtures/consult/guru.profile.consult.json).
+	 *
+	 * @param array $raw              stored scope (customer_tools?, product_cat_ids?, consult_enabled?, consult_min_score?)
+	 * @param bool  $has_woo          WooCommerce is active
+	 * @param bool  $has_notebooks    the Guru uses notebooks (knowledge base+notebooks with ≥ 1 notebook)
+	 * @param int[] $existing_cat_ids product_cat ids that exist on the site
+	 * @return array{customer_tools:string[],product_cat_ids:int[],consult:array{enabled:bool,min_score:int}}
+	 */
+	public static function consult_parts( array $raw, bool $has_woo, bool $has_notebooks, array $existing_cat_ids ): array {
+		$tools = isset( $raw['customer_tools'] ) && is_array( $raw['customer_tools'] )
+			? array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_map( 'strval', $raw['customer_tools'] ) ) )
+			: self::default_customer_tools( $has_woo );
+		return array(
+			'customer_tools'  => self::filter_customer_tools( $tools, $has_notebooks, $has_woo ),
+			'product_cat_ids' => self::clean_product_cat_ids( $raw['product_cat_ids'] ?? array(), $has_woo, $existing_cat_ids ),
+			'consult'         => array(
+				'enabled'   => self::clean_consult_enabled( $raw['consult_enabled'] ?? true ),
+				'min_score' => self::clean_consult_min_score( $raw['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ),
+			),
+		);
+	}
+
+	/** Default customer tools: search + read a passage, + the product consult search when WooCommerce is active (D95-19, auto). */
+	public static function default_customer_tools( bool $has_woo ): array {
+		$tools = self::SCOPE_DEFAULTS['customer_tools'];
+		if ( $has_woo ) {
+			$tools[] = 'commerce.search_products';
+		}
+		return array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, $tools ) );
+	}
+
+	/** Keep each tool whose group is usable (order kept). */
+	public static function filter_customer_tools( array $tools, bool $has_notebooks, bool $has_woo ): array {
+		$out = array();
+		foreach ( array_map( 'strval', $tools ) as $t ) {
+			if ( in_array( $t, self::CUSTOMER_TOOL_GROUPS['knowledge'], true ) ) {
+				$ok = $has_notebooks;
+			} elseif ( in_array( $t, self::CUSTOMER_TOOL_GROUPS['commerce'], true ) ) {
+				$ok = $has_woo;
+			} else {
+				$ok = in_array( $t, self::CUSTOMER_TOOL_GROUPS['automation'], true );
+			}
+			if ( $ok && ! in_array( $t, $out, true ) ) {
+				$out[] = $t;
+			}
+		}
+		return $out;
+	}
+
+	/** Only ids of product categories that exist; [] without WooCommerce. Order kept, duplicates dropped. */
+	public static function clean_product_cat_ids( $raw, bool $has_woo, array $existing_cat_ids ): array {
+		if ( ! $has_woo || ! is_array( $raw ) ) {
+			return array();
+		}
+		$exist = array_map( 'intval', $existing_cat_ids );
+		$out   = array();
+		foreach ( $raw as $id ) {
+			$id = (int) $id;
+			if ( $id > 0 && in_array( $id, $exist, true ) && ! in_array( $id, $out, true ) ) {
+				$out[] = $id;
+			}
+		}
+		return $out;
+	}
+
+	public static function clean_consult_enabled( $v ): bool {
+		if ( is_string( $v ) ) {
+			return ! in_array( strtolower( trim( $v ) ), array( '0', 'false', 'off', 'no', '' ), true );
+		}
+		return (bool) $v;
+	}
+
+	public static function clean_consult_min_score( $v ): int {
+		$n = is_numeric( $v ) ? (int) round( (float) $v ) : (int) self::SCOPE_DEFAULTS['consult_min_score'];
+		return max( self::CONSULT_MIN_SCORE_MIN, min( self::CONSULT_MIN_SCORE_MAX, $n ) );
+	}
+
+	/** WooCommerce is active (test seam `has_woo`). */
+	public static function has_woo(): bool {
+		if ( isset( self::$readers['has_woo'] ) ) {
+			return (bool) call_user_func( self::$readers['has_woo'] );
+		}
+		return function_exists( 'wc_get_products' );
+	}
+
+	/**
+	 * Product categories of the site, for the Bot Studio picker (S95-F14 route) and the scope sanitizer.
+	 *
+	 * @return list<array{id:int,name:string,parent:int,count:int}>
+	 */
+	public static function product_categories(): array {
+		if ( isset( self::$readers['product_categories'] ) ) {
+			$rows = (array) call_user_func( self::$readers['product_categories'] );
+		} elseif ( self::has_woo() && function_exists( 'get_terms' ) ) {
+			$rows  = array();
+			$terms = get_terms( array( 'taxonomy' => 'product_cat', 'hide_empty' => false, 'number' => 1000 ) );
+			foreach ( is_array( $terms ) ? $terms : array() as $t ) {
+				$rows[] = array( 'id' => (int) $t->term_id, 'name' => (string) $t->name, 'parent' => (int) $t->parent, 'count' => (int) $t->count );
+			}
+		} else {
+			$rows = array();
+		}
+		$out = array();
+		foreach ( $rows as $r ) {
+			$r = (array) $r;
+			if ( (int) ( $r['id'] ?? 0 ) > 0 ) {
+				$out[] = array( 'id' => (int) $r['id'], 'name' => (string) ( $r['name'] ?? '' ), 'parent' => (int) ( $r['parent'] ?? 0 ), 'count' => (int) ( $r['count'] ?? 0 ) );
+			}
+		}
+		return $out;
+	}
 
 	/**
 	 * PHASE-0.91 doc 92 G-A3 — tools a save asked for that a customer may never use, or null when the list is fine.
@@ -356,6 +488,20 @@ final class BizCity_Guru_Context_Resolver {
 		if ( isset( $raw['customer_tools'] ) && is_array( $raw['customer_tools'] ) ) {
 			// [2026-10-05 09:34 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-R-AP-6 — keep only allowed knowledge read tools, in a stable order.
 			$s['customer_tools'] = array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_map( 'strval', $raw['customer_tools'] ) ) );
+		} else {
+			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 (D95-19) — never chosen ⇒ + commerce.search_products when Woo is active.
+			$s['customer_tools'] = self::default_customer_tools( self::has_woo() );
+		}
+		// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13/F14/G4 — product categories (existing ones only) + consult switch/threshold.
+		if ( array_key_exists( 'product_cat_ids', $raw ) ) {
+			$has_woo              = self::has_woo();
+			$s['product_cat_ids'] = self::clean_product_cat_ids( $raw['product_cat_ids'], $has_woo, $has_woo ? array_column( self::product_categories(), 'id' ) : array() );
+		}
+		if ( array_key_exists( 'consult_enabled', $raw ) ) {
+			$s['consult_enabled'] = self::clean_consult_enabled( $raw['consult_enabled'] );
+		}
+		if ( array_key_exists( 'consult_min_score', $raw ) ) {
+			$s['consult_min_score'] = self::clean_consult_min_score( $raw['consult_min_score'] );
 		}
 		if ( isset( $raw['providers'] ) && is_array( $raw['providers'] ) ) {
 			// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A1 — project Guru context only to registered transports that support it.
@@ -424,7 +570,16 @@ final class BizCity_Guru_Context_Resolver {
 				// Empty unless the Guru shares notebooks: no notebooks ⇒ nothing for these tools to read. A cell that does not know
 				// the key treats it as [] (customers keep the old pack-only path).
 				// [2026-10-05 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — automation tools do not read notebooks, so they pass without them.
-				'customer_tools'    => 'base+notebooks' === $scope['knowledge'] && ! empty( $scope['notebook_ids'] ) ? $scope['customer_tools'] : array_values( array_intersect( $scope['customer_tools'], self::CUSTOMER_AUTOMATION_TOOLS ) ),
+				// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 (D95-18) — filtered by GROUP: knowledge.* needs the notebooks,
+				// commerce.search_products needs WooCommerce, automation.* needs nothing (no longer "notebooks or automation only").
+				'customer_tools'    => self::filter_customer_tools( (array) $scope['customer_tools'], 'base+notebooks' === $scope['knowledge'] && ! empty( $scope['notebook_ids'] ), self::has_woo() ),
+				// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F14 (D95-20) — [] = every category; the site expands descendants per call.
+				'product_cat_ids'   => self::has_woo() ? array_values( array_map( 'intval', (array) ( $scope['product_cat_ids'] ?? array() ) ) ) : array(),
+			),
+			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G4 — doctor-style consult rule: on/off + suggestion threshold (40–90).
+			'consult'     => array(
+				'enabled'   => self::clean_consult_enabled( $scope['consult_enabled'] ?? true ),
+				'min_score' => self::clean_consult_min_score( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ),
 			),
 			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C2.1 (C-8) — the cell puts these rules before the Guru instruction, the same
 			// order compose_system() uses here, so both engines answer under one rule set.

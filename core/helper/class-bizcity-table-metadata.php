@@ -42,7 +42,8 @@ final class BizCity_Table_Metadata {
 	 * missing on their shard never got it auto-created. Comments are not stripped by the router.
 	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] R-METADATA-CACHE shard routing.
 	 */
-	private static function route_hint( $table_name ) {
+	// [2026-10-09 10:40 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — public: every hand-written information_schema query on a sharded site needs this hint
+	public static function route_hint( $table_name ) {
 		$table_name = (string) $table_name;
 		return preg_match( '/^wp_\d+_[a-z0-9_]+$/i', $table_name ) ? ' /* route:' . $table_name . ' */' : '';
 	}

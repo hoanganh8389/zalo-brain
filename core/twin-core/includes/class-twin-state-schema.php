@@ -131,7 +131,11 @@ class BizCity_Twin_State_Schema {
 		$charset = function_exists( 'bizcity_get_charset_collate' ) ? bizcity_get_charset_collate() : $wpdb->get_charset_collate();
 
 		// [2026-07-29 Johnny Chu] PHASE-1.21-C — keep only state tables with active consumers.
-		self::create_prompt_specs_table( $charset );
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — prompt_specs is quarantined: its only writer
+		// (BizCity_Twin_Prompt_Parser::parse) and reader (::get_latest) have zero callers. Fail-closed: no policy, no install.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( self::prompt_specs_table() ) ) {
+			self::create_prompt_specs_table( $charset );
+		}
 		self::create_milestones_table( $charset );
 		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not provision the retired context-log SQL projection.
 		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a missing lifecycle policy must not recreate the retired context-log table.
@@ -261,6 +265,11 @@ class BizCity_Twin_State_Schema {
 
 		$missing = [];
 		foreach ( $tables as $t ) {
+			// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — a quarantined table is not required,
+			// otherwise ensure_tables() would never record DB_VERSION on a fresh site and re-run dbDelta on every load.
+			if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::is_legacy( 'bizcity_' . $t ) ) {
+				continue;
+			}
 			if ( ! BizCity_Twin_Data_Contract::table_exists( $t ) ) {
 				$missing[] = $t;
 			}

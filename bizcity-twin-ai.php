@@ -269,6 +269,10 @@ require_once __DIR__ . '/core/twin-core/contracts/content-contracts.php';
 require_once __DIR__ . '/core/twin-core/contracts/class-admin-navigation-registry.php';
 // Phase 0.99.3 — Module registry (implements `bizcity_register_module` filter).
 require_once __DIR__ . '/core/twin-core/contracts/class-module-registry.php';
+// [2026-10-09 11:46 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-2b — load the Zalo Brain registry class (record-only,
+// no side effects at load) before the Twin Plugin SDK and Setting Panel registry, so their D96-16 wrappers can mirror the
+// items core modules register at file load (channel-gateway, twinshell, …). boot() + REST stay where they are below.
+require_once __DIR__ . '/core/runtime/class-zalo-brain.php';
 // [2026-08-29 Johnny Chu] PHASE-VIBE-SDK — expose the seven-verb facade before extension plugins load.
 if ( file_exists( __DIR__ . '/core/twin-core/contracts/class-twin-plugin-sdk.php' ) ) {
     require_once __DIR__ . '/core/twin-core/contracts/class-twin-plugin-sdk.php';

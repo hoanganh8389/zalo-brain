@@ -326,16 +326,7 @@ class BizCity_Admin_Menu {
 			self::SLUG_PLUGINS,
 			[ __CLASS__, 'render_plugins_page' ]
 		);
-		if ( class_exists( 'BizCity_Membership_Admin_Page', false ) ) {
-			add_submenu_page(
-				self::SLUG_WORKSPACE,
-				__( 'Twin Membership', $td ),
-				__( 'Account & Usage', $td ),
-				self::menu_cap(),
-				'bizcity-membership',
-				[ 'BizCity_Membership_Admin_Page', 'render' ]
-			);
-		}
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: 'Account & Usage' (bizcity-membership) submenu removed; its admin page class is archived.
 
 		/* ─────────────────────────────────────────────
 		 *  B. Đào tạo kết nối — Gateway dashboard (read-only)
@@ -827,44 +818,10 @@ class BizCity_Admin_Menu {
 		remove_menu_page( 'bizcity-zalo-bots' );
 		remove_menu_page( 'bizcity-facebook-bots' );
 
-		// [2026-08-19 Johnny Chu] HOTFIX — reparent the active BizCoach legacy menu without changing its direct page slugs or callbacks.
-		if ( isset( $submenu['bccm_user_profiles'] ) && is_array( $submenu['bccm_user_profiles'] ) ) {
-			$profile_items = array();
-			foreach ( $submenu['bccm_user_profiles'] as $profile_item ) {
-				if ( isset( $profile_item[2] ) && 'bccm_user_profiles' === (string) $profile_item[2] ) {
-					continue;
-				}
-				$profile_items[] = $profile_item;
-			}
-			if ( function_exists( 'bccm_admin_user_profiles_page' ) ) {
-				add_submenu_page(
-					self::SLUG_PLUGINS,
-					'My AI Profile',
-					'My AI Profile',
-					'edit_posts',
-					'bccm_user_profiles',
-					'bccm_admin_user_profiles_page'
-				);
-			}
-			$submenu[ self::SLUG_PLUGINS ] = array_merge(
-				isset( $submenu[ self::SLUG_PLUGINS ] ) && is_array( $submenu[ self::SLUG_PLUGINS ] ) ? $submenu[ self::SLUG_PLUGINS ] : array(),
-				$profile_items
-			);
-			unset( $submenu['bccm_user_profiles'] );
-			remove_menu_page( 'bccm_user_profiles' );
-		}
-		if ( class_exists( 'BizCoach_Pro_Self_Service_Page', false ) ) {
-			// [2026-08-19 Johnny Chu] HOTFIX — keep Astro self-service inside Twin Plugins when the legacy BizCoach root is unavailable.
-			add_submenu_page(
-				self::SLUG_PLUGINS,
-				'🌙 Chiêm tinh của tôi',
-				'🌙 Chiêm tinh',
-				'read',
-				'bcpro_my_astro',
-				[ 'BizCoach_Pro_Self_Service_Page', 'render_admin_page' ]
-			);
-			remove_menu_page( 'bcpro_my_astro' );
-		}
+		// [2026-10-09 10:35 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — the BizCoach/Astro submenus
+		// (`bccm_user_profiles` reparent, `bcpro_my_astro`) moved into the bizcoach-pro plugin (D-W20-8). Extension plugins add
+		// their own items under the Twin Plugins parent here; core names no app slug.
+		do_action( 'bizcity_admin_plugins_submenu', self::SLUG_PLUGINS );
 
 		// Chat menu: remove items already in Đào tạo kết nối
 		remove_submenu_page( self::SLUG_CHAT, self::SLUG_GATEWAY );

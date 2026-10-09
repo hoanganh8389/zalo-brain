@@ -3233,6 +3233,8 @@ class BizCity_TwinWeb_REST {
 		$label_param = sanitize_key( (string) $request->get_param( 'label' ) );
 		if ( 'none' === $label_param ) { $list_args['unlabeled'] = true; }
 		elseif ( ctype_digit( $label_param ) && (int) $label_param > 0 ) { $list_args['label_id'] = (int) $label_param; }
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — ?signal=nong|am|lanh|khong_hai_long (crm_signal tags on the contact, filtered in SQL; also part of the sync token).
+		if ( class_exists( 'BizCity_CRM_Contact_Signals' ) ) { $list_args['signal'] = BizCity_CRM_Contact_Signals::filter_key( $request->get_param( 'signal' ) ); }
 		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CACHE — an unchanged list fingerprint answers not_modified before the list + 5 count queries.
 		$sync_token   = method_exists( 'BizCity_CRM_Repository', 'get_inbox_sync_token' ) ? BizCity_CRM_Repository::get_inbox_sync_token( $list_args ) : '';
 		$client_token = sanitize_key( (string) $request->get_param( 'sync_token' ) );
@@ -4951,6 +4953,10 @@ class BizCity_TwinWeb_REST {
 		if ( $avatar_url === '' && $resolve_group_name && 'zalo_personal' === sanitize_key( (string) ( $row['channel_type'] ?? 'zalo_personal' ) ) && class_exists( 'BizCity_Zalo_Bridge_Client' ) ) {
 			$avatar_url = $this->resolve_mychannels_contact_avatar( $row, $is_group );
 		}
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — crm_signal read projection (groups never carry signals).
+		$signal = ! $is_group && class_exists( 'BizCity_CRM_Contact_Signals' )
+			? BizCity_CRM_Contact_Signals::project( $row['contact_tags_json'] ?? '', is_array( $contact_attributes ) ? $contact_attributes : array(), true )
+			: array( 'signal_tags' => array(), 'heat_score' => null, 'signals' => array() );
 		return array(
 			'id'               => (int) ( $row['id'] ?? 0 ),
 			'inbox_id'         => (int) ( $row['inbox_id'] ?? 0 ),
@@ -4981,6 +4987,10 @@ class BizCity_TwinWeb_REST {
 				'avatar_url' => $avatar_url !== '' ? $avatar_url : null,
 			),
 			'channel'          => sanitize_key( (string) ( $row['channel_type'] ?? 'zalo_personal' ) ),
+			// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — signal_tags (nhiet:/cam_xuc:/y_dinh: only), heat_score and the 5 newest signals (evidence masked at write) for chips + contact card.
+			'signal_tags'      => $signal['signal_tags'],
+			'heat_score'       => $signal['heat_score'],
+			'signals'          => $signal['signals'],
 			'c_surface_safe'   => true,
 		);
 	}
@@ -6759,15 +6769,10 @@ class BizCity_TwinWeb_REST {
 
 	/**
 	 * GET /me — identity + entitlement (fail-OPEN).
+	 *
+	 * [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — is_video_kling_active() removed: Video Studio
+	 * shows when the registry entry 'video' passes its `requires` (BIZCITY_VIDEO_KLING_VERSION) in apps_for_user().
 	 */
-	private function is_video_kling_active() {
-		// [2026-08-19 Johnny Chu] PHASE-TWINWEB — show Video Studio only when the bundled/regular plugin is loaded and its file exists.
-		if ( ! defined( 'BIZCITY_VIDEO_KLING_VERSION' ) || ! defined( 'BIZCITY_VIDEO_KLING_DIR' ) ) {
-			return false;
-		}
-		return is_readable( trailingslashit( BIZCITY_VIDEO_KLING_DIR ) . 'bizcity-video-kling.php' );
-	}
-
 	public function handle_me( WP_REST_Request $request ) {
 		$identity = BizCity_TwinWeb_Identity::current();
 
@@ -6810,14 +6815,10 @@ class BizCity_TwinWeb_REST {
 		// [2026-07-17 Johnny Chu] SPRINT-9 WC-1 — expose server-owned subscription/offer payload for UpgradeModal.
 		$subscription   = $this->build_subscription_for_me( $identity );
 		$eligible_offers = $this->build_eligible_offers_for_me( $identity, $subscription );
-		$video_kling_active = $this->is_video_kling_active();
 		$legacy_apps = array(
 			array( 'id' => 'chat',    'label' => 'Chat',        'icon' => 'chat',    'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — expose My Workflows shortcut in legacy /me fallback app list.
 			array( 'id' => 'myworkflows', 'label' => 'My Workflows', 'icon' => 'workflow', 'enabled' => true ),
-			// [2026-08-23 Johnny Chu] PHASE-TBP-6.1 — split the two Profile roles in the legacy fallback catalog.
-			array( 'id' => 'profile', 'label' => 'My profile', 'icon' => 'profile', 'enabled' => true ),
-			array( 'id' => 'profile_card_qr', 'label' => 'My card QR', 'icon' => 'profile', 'enabled' => true ),
 			// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-MY-CONTENT-TRACE — expose My Plan artifact workspace in legacy /me fallback app list.
 			// [2026-08-21 Johnny Chu] PHASE-PROFILE-QR — Wave 5 item 11: display label renamed to My Artifacts; id/route unchanged (R-TWEB-6).
 			array( 'id' => 'mycontent', 'label' => 'My Artifacts', 'icon' => 'doc', 'enabled' => true ),
@@ -6825,12 +6826,11 @@ class BizCity_TwinWeb_REST {
 			array( 'id' => 'myfiles', 'label' => 'My Files', 'icon' => 'file', 'enabled' => true ),
 			// [2026-07-30 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — expose My MCP through the server-owned app catalog.
 			array( 'id' => 'mymcp', 'label' => 'My MCP', 'icon' => 'mcp', 'enabled' => true ),
-			array( 'id' => 'astro',   'label' => 'My Astro',    'icon' => 'moon',    'enabled' => class_exists( 'BizCoach_Pro_Self_Service_Page' ), 'pro_package' => 'BizCoach Pro' ),
-			array( 'id' => 'creator', 'label' => 'Nội Dung',    'icon' => 'pencil',  'enabled' => class_exists( 'BZCC_Frontend' ) ),
-			array( 'id' => 'image',   'label' => 'Image AI',    'icon' => 'image',   'enabled' => defined( 'BZTIMG_VERSION' ) ),
 		);
-		if ( $video_kling_active ) {
-			$legacy_apps[] = array( 'id' => 'video', 'label' => 'Video Studio', 'icon' => 'video', 'enabled' => true );
+		// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — the fallback list's apps (Astro, Creator,
+		// Image, Video, Profile, card QR) come from the one launcher source too, instead of their own hardcoded rows.
+		foreach ( $this->registry_apps_for_twinweb( (int) $identity['user_id'] ) as $registry_app ) {
+			$legacy_apps[] = $registry_app + array( 'enabled' => true );
 		}
 
 		$response = rest_ensure_response( array(
@@ -6862,6 +6862,91 @@ class BizCity_TwinWeb_REST {
 	}
 
 	/**
+	 * Launcher apps for Twin GPT, read from the ONE source (D-W20-2): BizCity_Twin_Shell_Registry::apps_for_user(),
+	 * i.e. registry entries with `group => 'apps'` + the `zalo_brain_apps` filter, already vetted for `requires`
+	 * and capability (module-access@1). Mapped to the Twin GPT sidebar DTO (id/label/icon/href/iframe_href/…).
+	 *
+	 * Registry ids that already have a /gpt/{slug}/ page keep their Twin GPT id + deep link (so old bookmarks and
+	 * GPT_IFRAME_APPS in the FE keep working); any other embed app opens its own public page inside the /gpt/
+	 * iframe; a link app (admin page / url) opens in a new tab.
+	 *
+	 * [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — replaces the hardcoded app rows.
+	 *
+	 * @param int $user_id Viewer (0 = guest ⇒ no app passes a capability check ⇒ empty list).
+	 * @return array<int, array<string, mixed>>
+	 */
+	private function registry_apps_for_twinweb( $user_id ) {
+		if ( ! class_exists( 'BizCity_Twin_Shell_Registry' ) || ! method_exists( 'BizCity_Twin_Shell_Registry', 'apps_for_user' ) ) {
+			return array();
+		}
+		// registry id => [ Twin GPT id, /gpt/{slug}/ route (class-twinweb-page.php contract), FE icon key, iframe path override ].
+		$routes = array(
+			'astro'          => array( 'astro', 'astro', 'moon' ),
+			'creator'        => array( 'creator', 'creator', 'pencil' ),
+			'doc'            => array( 'doc', 'doc', 'doc' ),
+			'image'          => array( 'image', 'image', 'image' ),
+			'video'          => array( 'video', 'video', 'video' ),
+			// Twin GPT's "My profile" keeps its /profile-care/ workspace (PHASE-PROFILE-QR-DDV 2026-09-01, probed by DDV).
+			'personal'       => array( 'profile', 'profile-care', 'profile', '/profile-care/' ),
+			'profile-public' => array( 'profile_card_qr', 'profile-public', 'qr' ),
+			// Portrait Studio is registry id 'profile', which Twin GPT already uses for the personal page.
+			'profile'        => array( 'portrait', '', 'profile' ),
+		);
+		$reserved = array( 'chat', 'mychannels', 'myworkflows', 'mycontent', 'myfiles', 'mymcp', 'workflow', 'twinchat', 'account' );
+
+		$out  = array();
+		$seen = array();
+		foreach ( BizCity_Twin_Shell_Registry::instance()->apps_for_user( (int) $user_id ) as $a ) {
+			$reg_id = isset( $a['id'] ) ? (string) $a['id'] : '';
+			if ( '' === $reg_id ) {
+				continue;
+			}
+			$map   = isset( $routes[ $reg_id ] ) ? $routes[ $reg_id ] : null;
+			$tw_id = null !== $map ? $map[0] : str_replace( '-', '_', sanitize_key( $reg_id ) );
+			if ( '' === $tw_id || in_array( $tw_id, $reserved, true ) || isset( $seen[ $tw_id ] ) ) {
+				continue;
+			}
+			$seen[ $tw_id ] = true;
+
+			$mode  = isset( $a['mode'] ) ? (string) $a['mode'] : 'embed';
+			$slug  = isset( $a['public_slug'] ) ? (string) $a['public_slug'] : '';
+			$open  = 'iframe';
+			$href  = '';
+			$inner = '';
+			if ( 'link' === $mode || '' === $slug ) {
+				$target = ! empty( $a['target_url'] ) ? (string) $a['target_url'] : ( ! empty( $a['url'] ) ? (string) $a['url'] : '' );
+				if ( '' === $target ) {
+					continue; // nothing Twin GPT can open
+				}
+				$open = 'link';
+				$href = $target;
+			} else {
+				$page  = home_url( ( null !== $map && ! empty( $map[3] ) ) ? $map[3] : $slug );
+				$inner = add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), $page );
+				$href  = ( null !== $map && '' !== $map[1] ) ? home_url( '/gpt/' . $map[1] . '/' ) : $page;
+			}
+
+			$icon = null !== $map ? $map[2] : ( isset( $a['icon'] ) ? (string) $a['icon'] : 'app' );
+			$out[] = array(
+				'id'            => $tw_id,
+				'label'         => isset( $a['label'] ) ? (string) $a['label'] : $tw_id,
+				'icon'          => $icon,
+				'href'          => $href,
+				'iframe_href'   => $inner,
+				'state'         => 'available',
+				'auth_required' => true,
+				'open'          => $open,
+				// Plans are retired: only a premium add-on keeps a chip (FE shows "PRO" when pro_package is set).
+				'pro_package'   => ( isset( $a['license'] ) && 'premium' === $a['license'] )
+					? ( ! empty( $a['addon_name'] ) ? (string) $a['addon_name'] : ( ! empty( $a['pro_package'] ) ? (string) $a['pro_package'] : 'Premium' ) )
+					: '',
+				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
+			);
+		}
+		return $out;
+	}
+
+	/**
 	 * GET /apps/effective — server-authorized app catalog for Twin GPT surface.
 	 *
 	 * Returns capability-aware app states so FE never hard-codes product access.
@@ -6875,37 +6960,8 @@ class BizCity_TwinWeb_REST {
 		$is_guest = ! empty( $identity['is_guest'] );
 		$user_id  = isset( $identity['user_id'] ) ? (int) $identity['user_id'] : 0;
 		$can_manage_options = current_user_can( 'manage_options' );
-
-		$plan_slug = 'free';
-		if ( ! $is_guest && $user_id > 0 ) {
-			$plan_slug = sanitize_key( (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $user_id ) );
-			if ( $plan_slug === '' ) {
-				$plan_slug = 'free';
-			}
-		}
-
-		$plan_ranks = array(
-			'free'    => 0,
-			'student' => 50,
-			'pro'     => 100,
-			'plus'    => 200,
-			'premium' => 200,
-		);
-		if ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			$all_plans = BizCity_Membership_Plan_Registry::instance()->all();
-			if ( is_array( $all_plans ) ) {
-				foreach ( $all_plans as $slug => $plan ) {
-					$slug = sanitize_key( (string) $slug );
-					if ( $slug === '' || ! is_array( $plan ) ) {
-						continue;
-					}
-					$plan_ranks[ $slug ] = isset( $plan['rank'] ) ? (int) $plan['rank'] : ( isset( $plan_ranks[ $slug ] ) ? (int) $plan_ranks[ $slug ] : 0 );
-				}
-			}
-		}
-
-		$plan_rank = isset( $plan_ranks[ $plan_slug ] ) ? (int) $plan_ranks[ $plan_slug ] : 0;
-		$video_kling_active = $this->is_video_kling_active();
+		// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — membership/plans are retired: no plan
+		// rank gates any row any more. `plan`/`plan_rank` stay in the response as neutral values for old cached FE bundles.
 
 		$chat_usage = array(
 			'used'      => 0,
@@ -6921,20 +6977,12 @@ class BizCity_TwinWeb_REST {
 				'limit'     => $limit,
 				'remaining' => max( 0, $limit - $used ),
 			);
-		} elseif ( $user_id > 0 && class_exists( 'BizCity_Membership_Usage' ) ) {
-			$snapshot = (array) BizCity_Membership_Usage::instance()->snapshot( $user_id );
-			if ( isset( $snapshot['chat'] ) && is_array( $snapshot['chat'] ) ) {
-				$chat_limit = isset( $snapshot['chat']['limit'] ) ? (int) $snapshot['chat']['limit'] : 0;
-				$chat_used  = isset( $snapshot['chat']['used'] ) ? (int) $snapshot['chat']['used'] : 0;
-				$chat_rem   = isset( $snapshot['chat']['remaining'] ) ? (int) $snapshot['chat']['remaining'] : 0;
-				$chat_usage = array(
-					'used'      => $chat_used,
-					'limit'     => $chat_limit < 0 ? null : $chat_limit,
-					'remaining' => $chat_limit < 0 ? null : max( 0, $chat_rem ),
-				);
-			}
 		}
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: member chat usage stays the default (no Membership usage snapshot).
 
+		// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b (D-W20-2) — Twin GPT's own sections
+		// (Chat, Kênh, Workflows, Artifacts, Files, MCP, Automation) stay here; every app (Astro, Creator, Doc, Image, Video,
+		// Profile, …) now comes from the ONE launcher source: BizCity_Twin_Shell_Registry::apps_for_user() (see registry_apps_for_twinweb()).
 		$apps = array(
 			array(
 				'id'            => 'chat',
@@ -6942,8 +6990,6 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'chat',
 				'href'          => home_url( '/gpt/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => true,
 				'usage'         => $chat_usage,
 			),
@@ -6953,8 +6999,6 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'channels',
 				'href'          => home_url( '/gpt/mychannels/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => true,
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
@@ -6966,35 +7010,8 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'workflow',
 				'href'          => home_url( '/gpt/myworkflows/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				// [2026-08-20 Johnny Chu] PHASE-PROFILE-QR — workflow APIs lazy-load Automation; do not report OFF before the route is used.
 				'dependency_ok' => true,
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			// [2026-08-23 Johnny Chu] PHASE-TBP-6.1 — keep Profile Care and Profile Public as two server-authorized Twin GPT apps.
-			array(
-				'id'            => 'profile',
-				'label'         => 'My profile',
-				'icon'          => 'profile',
-				'href'          => home_url( '/gpt/profile-care/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-care/' ) ),
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			array(
-				'id'            => 'profile_card_qr',
-				'label'         => 'My card QR',
-				'icon'          => 'profile',
-				'href'          => home_url( '/gpt/profile-public/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/profile-public/' ) ),
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BIZCITY_PERSONAL_VERSION' ) || class_exists( 'BizCity_Personal_Page' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
@@ -7006,8 +7023,6 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'doc',
 				'href'          => home_url( '/gpt/myplan/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => class_exists( 'BizCity_Content_Artifact_Service' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
@@ -7019,8 +7034,6 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'file',
 				'href'          => home_url( '/gpt/myfiles/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => class_exists( 'BizCity_KG_Database' ) && class_exists( 'BizCity_KG_Notebook_Service' ),
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
@@ -7032,112 +7045,23 @@ class BizCity_TwinWeb_REST {
 				'icon'          => 'mcp',
 				'href'          => home_url( '/gpt/mymcp/' ),
 				'iframe_href'   => '',
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
 				'dependency_ok' => true,
 				'auth_required' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
 			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — the "My Brain" (Twin Chat) card left Twin GPT.
 			array(
-				'id'            => 'astro',
-				'label'         => 'My Astro',
-				'icon'          => 'moon',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
-				'href'          => home_url( '/gpt/astro/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/astro/' ) ),
-				'required_plan' => 'pro',
-				'required_rank' => isset( $plan_ranks['pro'] ) ? (int) $plan_ranks['pro'] : 100,
-				'dependency_ok' => class_exists( 'BizCoach_Pro_Self_Service_Page' ),
-				'pro_package'   => 'BizCoach Pro',
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			array(
-				'id'            => 'creator',
-				'label'         => 'Content Creator',
-				'icon'          => 'pencil',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
-				'href'          => home_url( '/gpt/creator/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/creator/' ) ),
-				'required_plan' => 'free',
-				'required_rank' => isset( $plan_ranks['free'] ) ? (int) $plan_ranks['free'] : 0,
-				'dependency_ok' => defined( 'BZCC_VERSION' ) || class_exists( 'BZCC_Frontend' ),
-				// [2026-07-17 Johnny Chu] FIX-BUG-3 — creator requires login; guests see AuthModal.
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			array(
-				'id'            => 'doc',
-				'label'         => 'Doc Studio',
-				'icon'          => 'doc',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
-				'href'          => home_url( '/gpt/doc/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/tool-doc/' ) ),
-				'required_plan' => 'pro',
-				'required_rank' => isset( $plan_ranks['pro'] ) ? (int) $plan_ranks['pro'] : 100,
-				'dependency_ok' => defined( 'BZDOC_VERSION' ),
-				'pro_package'   => 'BizCity Doc',
-				// [2026-07-17 Johnny Chu] FIX-BUG-3 — doc requires login; guests see AuthModal.
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			// [2026-07-17 Johnny Chu] SPRINT-15 SB-4 — add image/profile/twinchat to apps effective catalog.
-			array(
-				'id'            => 'image',
-				'label'         => 'Product Images',
-				'icon'          => 'image',
-				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — parent URL stays /gpt/{app}/ while iframe opens the legacy workspace.
-				'href'          => home_url( '/gpt/image/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/tool-image/' ) ),
-				'required_plan' => 'pro',
-				'required_rank' => isset( $plan_ranks['pro'] ) ? (int) $plan_ranks['pro'] : 100,
-				'dependency_ok' => defined( 'BZTIMG_VERSION' ),
-				'pro_package'   => 'BizCity Tool Image',
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			),
-			array(
 				'id'            => 'workflow',
 				'label'         => 'Automation',
 				'icon'          => 'workflow',
 				'href'          => $can_manage_options ? admin_url( 'admin.php?page=bizcity-automation' ) : '',
 				'iframe_href'   => '',
-				'required_plan' => 'plus',
-				'required_rank' => isset( $plan_ranks['plus'] ) ? (int) $plan_ranks['plus'] : 200,
 				'dependency_ok' => true,
 				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
 			),
 		);
-		if ( $video_kling_active ) {
-			$apps[] = array(
-				'id'            => 'video',
-				'label'         => 'Video Studio',
-				'icon'          => 'video',
-				'href'          => home_url( '/gpt/video/' ),
-				'iframe_href'   => add_query_arg( array( 'ref' => 'twinweb', 'bizcity_iframe' => '1' ), home_url( '/kling-video/' ) ),
-				'required_plan' => 'pro',
-				'required_rank' => isset( $plan_ranks['pro'] ) ? (int) $plan_ranks['pro'] : 100,
-				'dependency_ok' => true,
-				'pro_package'   => 'BizCity Video Kling',
-				'auth_required' => true,
-				'usage'         => array( 'used' => 0, 'limit' => null, 'remaining' => null ),
-			);
-		}
-
-		// [2026-07-17 Johnny Chu] SPRINT-15 SB-4 — apply admin visibility config; hidden apps removed from catalog.
-		$visible_ids = $this->get_apps_visible_ids();
-		if ( ! empty( $visible_ids ) ) {
-			$apps = array_values( array_filter( $apps, function ( $app ) use ( $visible_ids ) {
-				return in_array( (string) ( $app['id'] ?? '' ), $visible_ids, true );
-			} ) );
-		}
 
 		foreach ( $apps as $idx => $app ) {
-			$required_plan = isset( $app['required_plan'] ) ? sanitize_key( (string) $app['required_plan'] ) : 'free';
-			$required_rank = isset( $plan_ranks[ $required_plan ] )
-				? (int) $plan_ranks[ $required_plan ]
-				: ( isset( $app['required_rank'] ) ? (int) $app['required_rank'] : 0 );
-
 			$state = 'available';
 			if ( (string) $app['id'] === 'workflow' ) {
 				if ( $is_guest ) {
@@ -7150,23 +7074,25 @@ class BizCity_TwinWeb_REST {
 				if ( $state !== 'available' ) {
 					$apps[ $idx ]['href'] = '';
 				}
-			} else {
-				$dep_ok = ! empty( $app['dependency_ok'] );
-				if ( ! $dep_ok ) {
-					$state = ! empty( $app['pro_package'] ) ? 'locked' : 'unavailable';
-					$apps[ $idx ]['href'] = '';
-				} elseif ( ! $can_manage_options && $plan_rank < $required_rank ) {
-					$state = 'locked';
-				}
+			} elseif ( empty( $app['dependency_ok'] ) ) {
+				$state = 'unavailable';
+				$apps[ $idx ]['href'] = '';
 			}
 
 			$apps[ $idx ]['state'] = $state;
-			unset( $apps[ $idx ]['dependency_ok'], $apps[ $idx ]['required_rank'] );
+			unset( $apps[ $idx ]['dependency_ok'] );
+		}
+
+		// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — the launcher apps this user may open
+		// (registry `requires` + capability already checked there). The CG "Apps Sidebar" visibility list is retired:
+		// the launcher's own `requires`/caps decide; the stored option `bizcity_twinweb_apps_visible` is left untouched.
+		foreach ( $this->registry_apps_for_twinweb( $user_id ) as $registry_app ) {
+			$apps[] = $registry_app;
 		}
 
 		$apps = (array) apply_filters( 'bizcity_twinweb_apps_effective', $apps, $identity, array(
-			'plan_slug' => $plan_slug,
-			'plan_rank' => $plan_rank,
+			'plan_slug' => 'free',
+			'plan_rank' => 0,
 		) );
 
 		$normalized_apps = array();
@@ -7207,8 +7133,12 @@ class BizCity_TwinWeb_REST {
 				// [2026-07-20 Johnny Chu] PHASE-TWINWEB-DEEPLINK — FE opens this URL inside iframe while address bar uses href.
 				'iframe_href'   => ( $state === 'available' && $iframe_href !== '' ) ? esc_url_raw( $iframe_href ) : '',
 				'state'         => $state,
-				'required_plan' => isset( $app['required_plan'] ) ? sanitize_key( (string) $app['required_plan'] ) : 'free',
+				// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — plans are retired: no plan gate, so
+				// required_plan is always empty; pro_package is set only for a 'license => premium' add-on (FE shows the PRO chip).
+				'required_plan' => '',
 				'pro_package'   => isset( $app['pro_package'] ) ? sanitize_text_field( (string) $app['pro_package'] ) : '',
+				// 'link' ⇒ FE opens href in a new tab (admin page / external URL) instead of the /gpt/ iframe.
+				'open'          => ( isset( $app['open'] ) && 'link' === $app['open'] ) ? 'link' : 'iframe',
 				// [2026-07-17 Johnny Chu] FIX-BUG-3 — forward auth_required so FE shows AuthModal for guests.
 				'auth_required' => ! empty( $app['auth_required'] ),
 				'usage'         => array(
@@ -7221,8 +7151,8 @@ class BizCity_TwinWeb_REST {
 
 		$response = rest_ensure_response( array(
 			'success'         => true,
-			'plan'            => $plan_slug,
-			'plan_rank'       => $plan_rank,
+			'plan'            => 'free',
+			'plan_rank'       => 0,
 			'subscription'    => $this->build_subscription_for_me( $identity ),
 			'apps'            => $normalized_apps,
 			'catalog_version' => (string) get_option( 'bizcity_twinweb_cp_ver_' . (int) get_current_blog_id(), '1' ),
@@ -7246,41 +7176,9 @@ class BizCity_TwinWeb_REST {
 	 * @return array
 	 */
 	private function build_plan_catalog_for_me( array $identity ) {
-		if ( ! class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			return array();
-		}
-		$registry  = BizCity_Membership_Plan_Registry::instance();
-		$all_plans = $registry->all();
-		$out       = array();
-		foreach ( $all_plans as $slug => $plan ) {
-			$price      = (float) $plan['price'];
-			$cycle      = isset( $plan['billing_cycle'] ) ? (string) $plan['billing_cycle'] : 'month';
-			$rank       = isset( $plan['rank'] ) ? (int) $plan['rank'] : 0;
-			$is_free    = $price <= 0;
-			// Checkout URL: members go to /twin/pricing or admin membership page.
-			$checkout_url = $is_free ? ''
-				: add_query_arg( 'plan', $slug, home_url( '/twin/' ) );
-			$checkout_url = (string) apply_filters(
-				'bizcity_twinweb_plan_checkout_url',
-				$checkout_url,
-				$slug,
-				$plan
-			);
-			$out[] = array(
-				'slug'          => $slug,
-				'label'         => isset( $plan['label'] ) ? sanitize_text_field( (string) $plan['label'] ) : ucfirst( $slug ),
-				'rank'          => $rank,
-				'price_usd'     => $price,
-				'billing_cycle' => $cycle,
-				'is_free'       => $is_free,
-				'features'      => isset( $plan['features'] ) && is_array( $plan['features'] ) ? $plan['features'] : array(),
-				'limits'        => isset( $plan['limits'] ) && is_array( $plan['limits'] ) ? $plan['limits'] : array(),
-				'checkout_url'  => $checkout_url,
-			);
-		}
-		// Sort by rank ascending.
-		usort( $out, static function ( $a, $b ) { return $a['rank'] - $b['rank']; } );
-		return $out;
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no plan catalog; key kept so /me keeps its shape.
+		unset( $identity );
+		return array();
 	}
 
 	/**
@@ -7290,43 +7188,9 @@ class BizCity_TwinWeb_REST {
 	 * @return array|null
 	 */
 	private function build_subscription_for_me( array $identity ) {
-		if ( $identity['is_guest'] || $identity['user_id'] <= 0 ) {
-			return null;
-		}
-		if ( ! class_exists( 'BizCity_Membership_Manager' ) ) {
-			return null;
-		}
-		$uid  = (int) $identity['user_id'];
-		$sub  = BizCity_Membership_Manager::instance()->latest_subscription( $uid );
-		if ( ! $sub ) {
-			return array(
-				'plan_slug'      => 'free',
-				'status'         => 'active',
-				'expiration'     => null,
-				'days_remaining' => null,
-				'offer_code'     => '',
-			);
-		}
-		$expiry       = ! empty( $sub['expiration_date'] ) ? $sub['expiration_date'] : null;
-		$days         = null;
-		if ( $expiry ) {
-			$ts   = strtotime( $expiry );
-			$days = $ts ? max( 0, (int) ceil( ( $ts - time() ) / DAY_IN_SECONDS ) ) : null;
-		}
-		$source     = isset( $sub['source'] ) ? (string) $sub['source'] : '';
-		$offer_code = '';
-		if ( $source === 'woo_order' ) {
-			$offer_code = sanitize_key( (string) get_user_meta( $uid, 'bizcity_member_offer_code', true ) );
-		}
-		return array(
-			'plan_slug'      => isset( $sub['plan_slug'] ) ? (string) $sub['plan_slug'] : 'free',
-			'status'         => isset( $sub['status'] ) ? (string) $sub['status'] : 'active',
-			'started_at'     => isset( $sub['started_date'] ) ? (string) $sub['started_date'] : null,
-			'expiration'     => $expiry,
-			'days_remaining' => $days,
-			'source'         => $source,
-			'offer_code'     => $offer_code,
-		);
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no subscriptions exist; same null the absent Manager class already produced.
+		unset( $identity );
+		return null;
 	}
 
 	/**
@@ -7337,72 +7201,9 @@ class BizCity_TwinWeb_REST {
 	 * @return array
 	 */
 	private function build_eligible_offers_for_me( array $identity, $subscription = null ) {
-		if ( $identity['is_guest'] || $identity['user_id'] <= 0 ) {
-			return array();
-		}
-		if ( ! class_exists( 'BizCity_Membership_Woo_Mapper' ) ) {
-			return array();
-		}
-
-		$plan_slug = '';
-		if ( is_array( $subscription ) && ! empty( $subscription['plan_slug'] ) ) {
-			$plan_slug = sanitize_key( (string) $subscription['plan_slug'] );
-		}
-		if ( $plan_slug === '' && class_exists( 'BizCity_Membership_Manager' ) ) {
-			$plan_slug = sanitize_key( (string) BizCity_Membership_Manager::instance()->plan_for_user( (int) $identity['user_id'] ) );
-		}
-		if ( $plan_slug === '' ) {
-			$plan_slug = 'free';
-		}
-
-		$map = BizCity_Membership_Woo_Mapper::instance()->get_map();
-		$items = isset( $map['items'] ) && is_array( $map['items'] ) ? $map['items'] : array();
-		if ( empty( $items ) ) {
-			return array();
-		}
-
-		$out = array();
-		foreach ( $items as $offer_code => $row ) {
-			if ( ! is_array( $row ) ) {
-				continue;
-			}
-			$row_plan = sanitize_key( (string) ( $row['plan_slug'] ?? '' ) );
-			if ( $row_plan !== $plan_slug ) {
-				continue;
-			}
-
-			$duration_unit = sanitize_key( (string) ( $row['duration_unit'] ?? 'month' ) );
-			if ( ! in_array( $duration_unit, array( 'day', 'week', 'month', 'year', 'lifetime' ), true ) ) {
-				$duration_unit = 'month';
-			}
-
-			$out[] = array(
-				'offer_code'     => sanitize_key( (string) $offer_code ),
-				'plan_slug'      => $row_plan,
-				'duration_count' => max( 1, (int) ( $row['duration_count'] ?? 1 ) ),
-				'duration_unit'  => $duration_unit,
-				'grant_mode'     => sanitize_key( (string) ( $row['grant_mode'] ?? 'replace' ) ),
-				'product_id'     => (int) ( $row['product_id'] ?? 0 ),
-				'variation_id'   => (int) ( $row['variation_id'] ?? 0 ),
-				'source'         => isset( $row['source'] ) ? sanitize_key( (string) $row['source'] ) : '',
-			);
-		}
-
-		if ( empty( $out ) ) {
-			return array();
-		}
-
-		$unit_weight = array( 'day' => 1, 'week' => 2, 'month' => 3, 'year' => 4, 'lifetime' => 5 );
-		usort( $out, static function ( $a, $b ) use ( $unit_weight ) {
-			$ua = isset( $unit_weight[ $a['duration_unit'] ] ) ? (int) $unit_weight[ $a['duration_unit'] ] : 99;
-			$ub = isset( $unit_weight[ $b['duration_unit'] ] ) ? (int) $unit_weight[ $b['duration_unit'] ] : 99;
-			if ( $ua === $ub ) {
-				return (int) $a['duration_count'] - (int) $b['duration_count'];
-			}
-			return $ua - $ub;
-		} );
-
-		return $out;
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no Woo plan offers (Woo mapper is gone).
+		unset( $identity, $subscription );
+		return array();
 	}
 	// [2026-07-17 Johnny Chu] HOTFIX — remove stray class-close brace that caused unexpected public parse error.
 
@@ -9696,12 +9497,7 @@ class BizCity_TwinWeb_REST {
 			'plus' => 200,
 			'pro'  => 300,
 		);
-		if ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			$plan = BizCity_Membership_Plan_Registry::instance()->get( $plan_min );
-			if ( is_array( $plan ) && isset( $plan['rank'] ) ) {
-				return (int) $plan['rank'];
-			}
-		}
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: tool gating uses the static rank table only.
 		return isset( $ranks[ $plan_min ] ) ? (int) $ranks[ $plan_min ] : 0;
 	}
 
@@ -9989,25 +9785,20 @@ class BizCity_TwinWeb_REST {
 		return $this->normalize_model_preset( $best_slug, $presets[ $best_slug ], $presets[ $best_slug ] );
 	}
 
-	/** Resolve local membership plan context. Hub tier is deliberately not used as plan label. */
+	/** Resolve local plan context from the bizcity_twinweb_user_tier filter. Hub tier is deliberately not used as plan label. */
 	private function resolve_twinweb_plan_context( array $identity ) {
 		$plan_slug = 'free';
 		$user_id = isset( $identity['user_id'] ) ? (int) $identity['user_id'] : 0;
 		if ( empty( $identity['is_guest'] ) && $user_id > 0 ) {
-			if ( class_exists( 'BizCity_Membership_Manager' ) ) {
-				$plan_slug = sanitize_key( (string) BizCity_Membership_Manager::instance()->plan_for_user( $user_id ) );
-			} else {
-				$plan_slug = sanitize_key( (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $user_id ) );
-			}
+			// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: plan slug comes from the tier filter only (Manager class is gone).
+			$plan_slug = sanitize_key( (string) apply_filters( 'bizcity_twinweb_user_tier', 'free', $user_id ) );
 		}
 		if ( '' === $plan_slug ) {
 			$plan_slug = 'free';
 		}
 
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: label/rank fall back to the slug (registry class is gone).
 		$plan = array( 'label' => ucfirst( $plan_slug ), 'rank' => 0 );
-		if ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			$plan = BizCity_Membership_Plan_Registry::instance()->get( $plan_slug );
-		}
 
 		return array(
 			'plan_slug'  => $plan_slug,
@@ -10164,7 +9955,7 @@ class BizCity_TwinWeb_REST {
 		 *   PUT   /admin/grounding      — write TwinWeb grounding/prompt policy (admin)
 	 *   GET   /admin/usage          — read usage dashboard payload (admin)
 	 *   GET   /admin/commerce       — seat capacity + Woo offers + projection queue (admin)
-	 *   GET   /admin/customer-queue — CRM care + membership revenue queue foundation (admin)
+	 *   GET   /admin/customer-queue — CRM care queue (admin); revenue_queue empty since PHASE-0.96 D96-23 (membership retired)
 	 *   GET   /admin/connections    — connected identity health (admin)
 	 *   GET   /admin/astro          — Astro readiness / R-COACHEE health (admin)
 	 *   GET   /admin/automation     — Automation ownership / run health (admin)
@@ -10399,22 +10190,9 @@ class BizCity_TwinWeb_REST {
 			),
 		) );
 
-		// [2026-07-17 Johnny Chu] SPRINT-15 SB-4 — admin app visibility config endpoint.
-		register_rest_route( $ns, '/admin/apps-config', array(
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'admin_get_apps_config' ),
-				'permission_callback' => array( $this, 'admin_cap_check' ),
-			),
-			array(
-				'methods'             => 'PUT',
-				'callback'            => array( $this, 'admin_put_apps_config' ),
-				'permission_callback' => array( $this, 'admin_cap_check' ),
-				'args'                => array(
-					'visible_ids' => array( 'type' => 'array', 'required' => false ),
-				),
-			),
-		) );
+		// [2026-10-09 11:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U3b — /admin/apps-config (CG tab "Apps Sidebar") removed:
+		// it only picked which hardcoded Twin GPT apps show; apps now come from the one launcher (TwinShell registry, `requires` + caps).
+		// Its only caller (TwinWebAppsConfig in the CG frontend) is gone; option bizcity_twinweb_apps_visible is left in the DB untouched.
 
 		// [2026-07-18 Johnny Chu] SPRINT-19 UIS-1 — admin Appearance / skin policy endpoint.
 		register_rest_route( $ns, '/admin/appearance', array(
@@ -10440,121 +10218,6 @@ class BizCity_TwinWeb_REST {
 	 */
 	public function admin_cap_check() {
 		return current_user_can( 'manage_options' );
-	}
-
-	/* ── Apps visibility config ─────────────────────────────────────────── */
-
-	/**
-	 * All canonical app IDs that can be configured.
-	 * Order defines the default display order.
-	 */
-	private static function all_known_app_ids() {
-		return array( 'mychannels', 'astro', 'creator', 'doc', 'image', 'profile', 'profile_card_qr', 'video', 'workflow' );
-	}
-
-	/**
-	 * [2026-07-17 Johnny Chu] SPRINT-15 SB-4 — return ordered list of enabled app IDs.
-	 * Empty array = show all (backward compat / first-install default).
-	 *
-	 * @return string[]
-	 */
-	private function get_apps_visible_ids() {
-		$raw = get_option( 'bizcity_twinweb_apps_visible', array() );
-		if ( ! is_array( $raw ) || empty( $raw ) ) {
-			return array();   // empty = show all
-		}
-		$ids = array();
-		// Always include 'chat' (cannot be hidden)
-		$ids[] = 'chat';
-		// [2026-07-20 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — show My Channels after upgrade even when old app visibility config exists.
-		$ids[] = 'mychannels';
-		foreach ( $raw as $item ) {
-			$id = sanitize_key( (string) $item );
-			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — drop a stored 'twinchat' id.
-			if ( $id !== '' && $id !== 'chat' && $id !== 'mychannels' && $id !== 'twinchat' ) {
-				$ids[] = $id;
-			}
-		}
-		return array_unique( $ids );
-	}
-
-	/**
-	 * GET /admin/apps-config
-	 * Returns current app visibility + order config.
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function admin_get_apps_config( $request ) {
-		unset( $request );
-		$stored     = get_option( 'bizcity_twinweb_apps_visible', array() );
-		$known      = self::all_known_app_ids();
-		$visible    = is_array( $stored ) && ! empty( $stored ) ? $stored : $known;
-		$visible    = array_values( array_filter( array_map( 'sanitize_key', $visible ) ) );
-		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-13 — retired ids (twinchat) never come back as rows.
-		$visible    = array_values( array_intersect( $visible, $known ) );
-
-		$rows = array();
-		// Merge: configured order first, then remaining known apps
-		$ordered = $visible;
-		foreach ( $known as $id ) {
-			if ( ! in_array( $id, $ordered, true ) ) {
-				$ordered[] = $id;
-			}
-		}
-		foreach ( $ordered as $id ) {
-			$rows[] = array(
-				'id'      => $id,
-				'enabled' => in_array( $id, $visible, true ),
-			);
-		}
-
-		return new WP_REST_Response( array(
-			'success' => true,
-			'apps'    => $rows,
-		), 200 );
-	}
-
-	/**
-	 * PUT /admin/apps-config
-	 * Saves app visibility + order config.
-	 *
-	 * Body: { visible_ids: ["astro","creator","doc"] }
-	 *
-	 * @param WP_REST_Request $request REST request.
-	 * @return WP_REST_Response
-	 */
-	public function admin_put_apps_config( $request ) {
-		$raw = $request->get_param( 'visible_ids' );
-		if ( ! is_array( $raw ) ) {
-			return new WP_REST_Response( array(
-				'success'   => false,
-				'code'      => 'invalid_param',
-				'message'   => 'visible_ids phải là mảng.',
-				'hint'      => 'Gửi lại với body {"visible_ids":["astro","creator",...]}',
-				'help_code' => 'invalid_param_generic',
-			), 200 );
-		}
-
-		$known   = self::all_known_app_ids();
-		$cleaned = array();
-		foreach ( $raw as $item ) {
-			$id = sanitize_key( (string) $item );
-			if ( in_array( $id, $known, true ) ) {
-				$cleaned[] = $id;
-			}
-		}
-		$cleaned = array_unique( $cleaned );
-
-		update_option( 'bizcity_twinweb_apps_visible', array_values( $cleaned ), false );
-		// Bump catalog version so FE knows to re-fetch apps/effective
-		update_option( 'bizcity_twinweb_cp_ver_' . (int) get_current_blog_id(), (string) time(), false );
-		do_action( 'bizcity_twinweb_flush_effective_config', (int) get_current_blog_id() );
-
-		return new WP_REST_Response( array(
-			'success'    => true,
-			'visible_ids' => array_values( $cleaned ),
-		), 200 );
 	}
 
 	/* ── Effective config ─────────────────────────────────────────────── */
@@ -11120,13 +10783,13 @@ class BizCity_TwinWeb_REST {
 		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — include membership plan catalog for plan-matrix editing.
 		$blog_id = (int) get_current_blog_id();
 		$policy  = $this->get_access_policy( $blog_id );
-		$plans   = $this->get_membership_plan_catalog();
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no plan catalog; 'plans' kept empty because the Channel Gateway control-plane tab still reads it.
 
 		return rest_ensure_response( array(
 			'success' => true,
 			'blog_id' => $blog_id,
 			'policy'  => $policy,
-			'plans'   => $plans,
+			'plans'   => array(),
 		) );
 	}
 
@@ -11588,17 +11251,7 @@ class BizCity_TwinWeb_REST {
 				'limit'     => -1,
 				'remaining' => -1,
 			);
-			if ( class_exists( 'BizCity_Membership_Usage' ) ) {
-				$snapshot = (array) BizCity_Membership_Usage::instance()->snapshot( $uid );
-				if ( isset( $snapshot['chat_msgs_per_day'] ) && is_array( $snapshot['chat_msgs_per_day'] ) ) {
-					$chat = array(
-						'used'      => isset( $snapshot['chat_msgs_per_day']['used'] ) ? (int) $snapshot['chat_msgs_per_day']['used'] : 0,
-						'limit'     => isset( $snapshot['chat_msgs_per_day']['limit'] ) ? (int) $snapshot['chat_msgs_per_day']['limit'] : -1,
-						'remaining' => isset( $snapshot['chat_msgs_per_day']['remaining'] ) ? (int) $snapshot['chat_msgs_per_day']['remaining'] : -1,
-					);
-				}
-			}
-
+			// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no Membership usage snapshot; the twinweb transient counter below is the only source.
 			// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — fallback to twinweb transient counter if membership snapshot not available.
 			if ( $chat['used'] === 0 && $chat['limit'] < 0 ) {
 				$transient_used = (int) get_transient( 'tw_user_' . $uid . '_quota_' . gmdate( 'Y-m-d' ) );
@@ -11757,56 +11410,7 @@ class BizCity_TwinWeb_REST {
 			$summary['care_items'] = count( $care_queue );
 		}
 
-		if ( class_exists( 'BizCity_Membership_Revenue_Report' ) ) {
-			$report = BizCity_Membership_Revenue_Report::instance();
-			$headline = method_exists( $report, 'headline' ) ? (array) $report->headline() : array();
-			$cohorts = method_exists( $report, 'expiry_cohorts' ) ? (array) $report->expiry_cohorts() : array();
-			$summary['month_usd'] = (float) ( $headline['month_usd'] ?? 0 );
-			$summary['mrr_usd'] = (float) ( $headline['mrr_usd'] ?? 0 );
-			$summary['expiring_7d'] = (int) ( $cohorts['7d'] ?? 0 );
-			$summary['expiring_30d'] = (int) ( $cohorts['30d'] ?? 0 );
-		} else {
-			$degraded_reasons[] = 'membership_revenue_report_missing';
-		}
-
-		$subscriptions_table = $wpdb->prefix . 'bizcity_member_subscriptions';
-		if ( ! self::table_exists( $subscriptions_table ) ) {
-			$degraded_reasons[] = 'membership_subscriptions_table_missing';
-		} else {
-			$has_plan = $this->table_has_column( $subscriptions_table, 'plan_slug' );
-			$has_exp = $this->table_has_column( $subscriptions_table, 'expiration_date' );
-			if ( ! $has_exp ) {
-				$degraded_reasons[] = 'membership_expiration_date_missing';
-			} else {
-				$rows = $wpdb->get_results(
-					$wpdb->prepare(
-						// [2026-08-19 Johnny Chu] HOTFIX-MYSQL8-DATETIME — comparing a DATETIME column with an empty string fails under strict MySQL 8 SQL mode.
-						"SELECT user_id" . ( $has_plan ? ', plan_slug' : '' ) . ", expiration_date FROM {$subscriptions_table} WHERE status = %s AND expiration_date IS NOT NULL AND expiration_date >= %s AND expiration_date <= %s ORDER BY expiration_date ASC LIMIT %d",
-						'active',
-						current_time( 'mysql' ),
-						gmdate( 'Y-m-d H:i:s', strtotime( '+30 days', (int) current_time( 'timestamp' ) ) ),
-						$limit
-					),
-					ARRAY_A
-				);
-				$now_ts = (int) current_time( 'timestamp' );
-				foreach ( (array) $rows as $row ) {
-					$uid = (int) ( $row['user_id'] ?? 0 );
-					$exp = sanitize_text_field( (string) ( $row['expiration_date'] ?? '' ) );
-					$exp_ts = $exp !== '' ? strtotime( $exp ) : false;
-					$user = $uid > 0 ? get_userdata( $uid ) : false;
-					$revenue_queue[] = array(
-						'user_id'         => $uid,
-						'display_name'    => $user ? sanitize_text_field( (string) $user->display_name ) : ( $uid > 0 ? 'User#' . $uid : '' ),
-						'email'           => $user ? sanitize_email( (string) $user->user_email ) : '',
-						'plan_slug'       => $has_plan ? sanitize_key( (string) ( $row['plan_slug'] ?? '' ) ) : '',
-						'expiration_date' => $exp,
-						'days_left'       => $exp_ts ? max( 0, (int) ceil( ( $exp_ts - $now_ts ) / DAY_IN_SECONDS ) ) : 0,
-						'priority'        => $exp_ts && ( ( $exp_ts - $now_ts ) <= 7 * DAY_IN_SECONDS ) ? 'renewal_due_7d' : 'renewal_due_30d',
-					);
-				}
-			}
-		}
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no revenue report / subscription renewals; revenue_queue + money/expiry summary stay empty/0 (keys kept for the Channel Gateway tab).
 
 		$payload = array(
 			'success'          => true,
@@ -11831,83 +11435,38 @@ class BizCity_TwinWeb_REST {
 	 */
 	public function admin_get_astro( WP_REST_Request $request ) {
 		// [2026-07-18 Johnny Chu] SPRINT-18 CP-ASTRO-AUTO — read-only Astro readiness payload for Control Plane.
-		global $wpdb;
-		$blog_id = (int) get_current_blog_id();
+		// [2026-10-09 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — core no longer reads the bccm_* tables
+		// (D-W20-8): the bizcoach-pro plugin fills the payload through `bizcity_twinweb_admin_astro_readiness`. Plugin off ⇒ the
+		// same shape with module_loaded=false and no table query.
+		$blog_id   = (int) get_current_blog_id();
 		$cache_key = 'tw_admin_astro_' . $blog_id;
-		$cached = wp_cache_get( $cache_key, 'bizcity_twinweb' );
+		$cached    = wp_cache_get( $cache_key, 'bizcity_twinweb' );
 		if ( false !== $cached && is_array( $cached ) ) {
 			return rest_ensure_response( $cached );
-		}
-
-		$coachees_table = $wpdb->prefix . 'bccm_coachees';
-		$astro_table    = $wpdb->prefix . 'bccm_astro';
-		$relations_table = $wpdb->prefix . 'bccm_astro_relations';
-		$checklist_table = $wpdb->prefix . 'bccm_astro_checklist';
-		$degraded_reasons = array();
-
-		$tables = array(
-			'coachees'  => array( 'exists' => self::table_exists( $coachees_table ), 'table' => 'bccm_coachees' ),
-			'astro'     => array( 'exists' => self::table_exists( $astro_table ), 'table' => 'bccm_astro' ),
-			'relations' => array( 'exists' => self::table_exists( $relations_table ), 'table' => 'bccm_astro_relations' ),
-			'checklist' => array( 'exists' => self::table_exists( $checklist_table ), 'table' => 'bccm_astro_checklist' ),
-		);
-
-		$summary = array(
-			'total_subjects'        => 0,
-			'owners_total'          => 0,
-			'owners_with_self'      => 0,
-			'duplicate_self_owners' => 0,
-			'subjects_without_owner'=> 0,
-			'astro_rows'            => 0,
-			'relation_rows'         => 0,
-		);
-
-		$module_loaded = class_exists( 'BizCoach_Pro_Self_Service_Page' ) || function_exists( 'bccm_get_self_coachee' );
-		if ( ! $module_loaded ) {
-			$degraded_reasons[] = 'bizcoach_astro_module_not_loaded';
-		}
-
-		if ( ! $tables['coachees']['exists'] ) {
-			$degraded_reasons[] = 'coachees_table_missing';
-		} else {
-			$has_user_id = $this->table_has_column( $coachees_table, 'user_id' );
-			$has_is_self = $this->table_has_column( $coachees_table, 'is_self' );
-			$tables['coachees']['has_user_id'] = $has_user_id;
-			$tables['coachees']['has_is_self'] = $has_is_self;
-
-			$summary['total_subjects'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$coachees_table}" );
-			if ( $has_user_id ) {
-				$summary['owners_total'] = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT user_id) FROM {$coachees_table} WHERE user_id > 0" );
-				$summary['subjects_without_owner'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$coachees_table} WHERE user_id IS NULL OR user_id = 0" );
-			} else {
-				$degraded_reasons[] = 'coachees_user_id_missing';
-			}
-
-			if ( $has_user_id && $has_is_self ) {
-				$summary['owners_with_self'] = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT user_id) FROM {$coachees_table} WHERE user_id > 0 AND is_self = 1" );
-				$summary['duplicate_self_owners'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM ( SELECT user_id FROM {$coachees_table} WHERE user_id > 0 AND is_self = 1 GROUP BY user_id HAVING COUNT(*) > 1 ) dup" );
-			} elseif ( $has_user_id ) {
-				$degraded_reasons[] = 'coachees_is_self_missing';
-			}
-		}
-
-		if ( $tables['astro']['exists'] ) {
-			$summary['astro_rows'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$astro_table}" );
-		}
-		if ( $tables['relations']['exists'] ) {
-			$summary['relation_rows'] = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$relations_table}" );
 		}
 
 		$payload = array(
 			'success'          => true,
 			'blog_id'          => $blog_id,
 			'generated_at'     => gmdate( 'c' ),
-			'module_loaded'    => $module_loaded,
-			'tables'           => $tables,
-			'summary'          => $summary,
-			'_degraded'        => ! empty( $degraded_reasons ),
-			'degraded_reasons' => array_values( array_unique( $degraded_reasons ) ),
+			'module_loaded'    => false,
+			'tables'           => array(),
+			'summary'          => array(
+				'total_subjects'         => 0,
+				'owners_total'           => 0,
+				'owners_with_self'       => 0,
+				'duplicate_self_owners'  => 0,
+				'subjects_without_owner' => 0,
+				'astro_rows'             => 0,
+				'relation_rows'          => 0,
+			),
+			'_degraded'        => true,
+			'degraded_reasons' => array( 'bizcoach_astro_module_not_loaded' ),
 		);
+		$filtered = apply_filters( 'bizcity_twinweb_admin_astro_readiness', $payload, $blog_id );
+		if ( is_array( $filtered ) && ! empty( $filtered['module_loaded'] ) ) {
+			$payload = array_merge( $payload, $filtered );
+		}
 
 		wp_cache_set( $cache_key, $payload, 'bizcity_twinweb', 60 );
 		return rest_ensure_response( $payload );
@@ -12027,7 +11586,7 @@ class BizCity_TwinWeb_REST {
 	}
 
 	/**
-	 * GET /admin/commerce — seat capacity + Woo offer map + projector queue.
+	 * GET /admin/commerce — seat capacity + Woo offer map + projector queue (empty defaults since PHASE-0.96 D96-23, membership retired).
 	 *
 	 * @param WP_REST_Request $request REST request.
 	 * @return WP_REST_Response
@@ -12050,28 +11609,8 @@ class BizCity_TwinWeb_REST {
 			'over_capacity'   => false,
 			'capacity_bucket' => 'capacity_available',
 		);
-		if ( class_exists( 'BizCity_Membership_Woo_Projector' ) && method_exists( 'BizCity_Membership_Woo_Projector', 'get_capacity_snapshot' ) ) {
-			$raw_capacity = (array) BizCity_Membership_Woo_Projector::get_capacity_snapshot();
-			$capacity = array(
-				'seat_limit'      => ( isset( $raw_capacity['seat_limit'] ) && (int) $raw_capacity['seat_limit'] > 0 ) ? (int) $raw_capacity['seat_limit'] : null,
-				'seat_used'       => isset( $raw_capacity['seat_used'] ) ? max( 0, (int) $raw_capacity['seat_used'] ) : 0,
-				'seat_remaining'  => ( isset( $raw_capacity['seat_remaining'] ) && $raw_capacity['seat_remaining'] !== null ) ? max( 0, (int) $raw_capacity['seat_remaining'] ) : null,
-				'at_capacity'     => ! empty( $raw_capacity['at_capacity'] ),
-				'over_capacity'   => ! empty( $raw_capacity['over_capacity'] ),
-				'capacity_bucket' => isset( $raw_capacity['capacity_bucket'] ) ? sanitize_key( (string) $raw_capacity['capacity_bucket'] ) : 'capacity_available',
-			);
-			if ( ! empty( $raw_capacity['_degraded'] ) ) {
-				$degraded_reasons = array_merge(
-					$degraded_reasons,
-					( isset( $raw_capacity['degraded_reasons'] ) && is_array( $raw_capacity['degraded_reasons'] ) )
-						? $raw_capacity['degraded_reasons']
-						: array( 'capacity_degraded' )
-				);
-			}
-		} else {
-			$degraded_reasons[] = 'projector_missing';
-		}
-
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: Woo plan projector/mapper are gone, so capacity, offers and the projection queue are
+		// always the empty defaults. Route + shape kept because the Channel Gateway 'commerce' tab still reads it.
 		$queue = array(
 			'summary' => array(
 				'total'            => 0,
@@ -12083,61 +11622,9 @@ class BizCity_TwinWeb_REST {
 			),
 			'items' => array(),
 		);
-		if ( class_exists( 'BizCity_Membership_Woo_Projector' ) && method_exists( 'BizCity_Membership_Woo_Projector', 'get_projection_queue' ) ) {
-			$raw_queue = (array) BizCity_Membership_Woo_Projector::get_projection_queue( $limit );
-			if ( isset( $raw_queue['summary'] ) && is_array( $raw_queue['summary'] ) ) {
-				$queue['summary'] = array_merge( $queue['summary'], $raw_queue['summary'] );
-			}
-			$queue['items'] = isset( $raw_queue['items'] ) && is_array( $raw_queue['items'] ) ? array_values( $raw_queue['items'] ) : array();
-			if ( ! empty( $raw_queue['_degraded'] ) ) {
-				$degraded_reasons = array_merge( $degraded_reasons, isset( $raw_queue['degraded_reasons'] ) && is_array( $raw_queue['degraded_reasons'] ) ? $raw_queue['degraded_reasons'] : array( 'projection_queue_degraded' ) );
-			}
-		} else {
-			$degraded_reasons[] = 'projection_queue_unavailable';
-		}
-
-		$plan_labels = array();
-		if ( class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			$all_plans = BizCity_Membership_Plan_Registry::instance()->all();
-			if ( is_array( $all_plans ) ) {
-				foreach ( $all_plans as $slug => $plan ) {
-					$plan_slug = sanitize_key( (string) ( is_array( $plan ) && isset( $plan['slug'] ) ? $plan['slug'] : $slug ) );
-					if ( $plan_slug === '' ) {
-						continue;
-					}
-					$plan_labels[ $plan_slug ] = is_array( $plan ) && ! empty( $plan['label'] )
-						? sanitize_text_field( (string) $plan['label'] )
-						: ucfirst( $plan_slug );
-				}
-			}
-		}
-
-		$offers = array();
-		$offer_updated_at = '';
-		if ( class_exists( 'BizCity_Membership_Woo_Mapper' ) ) {
-			$map = (array) BizCity_Membership_Woo_Mapper::instance()->get_map();
-			$offer_updated_at = isset( $map['updated_at'] ) ? (string) $map['updated_at'] : '';
-			$items = isset( $map['items'] ) && is_array( $map['items'] ) ? $map['items'] : array();
-			foreach ( $items as $offer_code => $row ) {
-				if ( ! is_array( $row ) ) {
-					continue;
-				}
-				$plan_slug = sanitize_key( (string) ( $row['plan_slug'] ?? '' ) );
-				$offers[] = array(
-					'offer_code'     => sanitize_key( (string) $offer_code ),
-					'plan_slug'      => $plan_slug,
-					'plan_label'     => isset( $plan_labels[ $plan_slug ] ) ? $plan_labels[ $plan_slug ] : ( $plan_slug !== '' ? ucfirst( $plan_slug ) : '' ),
-					'duration_count' => max( 1, (int) ( $row['duration_count'] ?? 1 ) ),
-					'duration_unit'  => sanitize_key( (string) ( $row['duration_unit'] ?? 'month' ) ),
-					'grant_mode'     => sanitize_key( (string) ( $row['grant_mode'] ?? 'replace' ) ),
-					'product_id'     => (int) ( $row['product_id'] ?? 0 ),
-					'variation_id'   => (int) ( $row['variation_id'] ?? 0 ),
-					'source'         => sanitize_key( (string) ( $row['source'] ?? 'product' ) ),
-				);
-			}
-		} else {
-			$degraded_reasons[] = 'woo_mapper_missing';
-		}
+		$offers             = array();
+		$offer_updated_at   = '';
+		$degraded_reasons[] = 'membership_retired';
 
 		$payload = array(
 			'success' => true,
@@ -14108,19 +13595,7 @@ class BizCity_TwinWeb_REST {
 			'plus' => array( 'daily_quota' => 100, 'max_output_tokens' => 2400 ),
 			'pro'  => array( 'daily_quota' => -1,  'max_output_tokens' => 4096 ),
 		);
-		$membership_plans = $this->get_membership_plan_catalog();
-		if ( ! empty( $membership_plans ) ) {
-			foreach ( $membership_plans as $plan ) {
-				$slug = isset( $plan['slug'] ) ? sanitize_key( (string) $plan['slug'] ) : '';
-				if ( $slug === '' || isset( $plan_matrix[ $slug ] ) ) {
-					continue;
-				}
-				$plan_matrix[ $slug ] = array(
-					'daily_quota'       => isset( $plan['limits']['chat_msgs_per_day'] ) ? (int) $plan['limits']['chat_msgs_per_day'] : 30,
-					'max_output_tokens' => 1200,
-				);
-			}
-		}
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: plan_matrix is the static seed above (no plan registry to merge).
 
 		$policy = array(
 			'guest'  => array(
@@ -14255,40 +13730,7 @@ class BizCity_TwinWeb_REST {
 		return $ids;
 	}
 
-	/**
-	 * Read membership plan catalog from Core Membership stack.
-	 *
-	 * @return array
-	 */
-	private function get_membership_plan_catalog() {
-		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W2 — helper bridge used by Access control-plane tab.
-		if ( ! class_exists( 'BizCity_Membership_Plan_Registry' ) ) {
-			return array();
-		}
-		$all = BizCity_Membership_Plan_Registry::instance()->all();
-		if ( ! is_array( $all ) || empty( $all ) ) {
-			return array();
-		}
-
-		$out = array();
-		foreach ( $all as $slug => $plan ) {
-			if ( ! is_array( $plan ) ) {
-				continue;
-			}
-			$plan_slug = sanitize_key( (string) ( $plan['slug'] ?? $slug ) );
-			if ( $plan_slug === '' ) {
-				continue;
-			}
-			$out[] = array(
-				'slug'   => $plan_slug,
-				'label'  => isset( $plan['label'] ) ? sanitize_text_field( (string) $plan['label'] ) : ucfirst( $plan_slug ),
-				'price'  => isset( $plan['price'] ) ? (float) $plan['price'] : 0,
-				'limits' => isset( $plan['limits'] ) && is_array( $plan['limits'] ) ? $plan['limits'] : array(),
-			);
-		}
-
-		return $out;
-	}
+	// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: get_membership_plan_catalog() removed (both callers now use the static/empty value).
 
 	/**
 	 * Evaluate access matrix for the current identity.

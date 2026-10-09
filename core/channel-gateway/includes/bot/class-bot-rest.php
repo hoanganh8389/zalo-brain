@@ -67,6 +67,11 @@ final class BizCity_Bot_REST {
 		register_rest_route( self::NAMESPACE_V1, '/bot/runtime/(?P<character_id>\d+)/test', array(
 			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_runtime' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
+		// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F14 (D95-20) — the real WooCommerce product category tree for the
+		// Bot Studio "danh mục được tư vấn" picker. Same trust boundary as every Guru edit route here (manage_options / network admin).
+		register_rest_route( self::NAMESPACE_V1, '/guru/product-categories', array(
+			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_product_categories' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
+		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/tuning', array(
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_tuning' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
 			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_tuning' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
@@ -192,6 +197,18 @@ final class BizCity_Bot_REST {
 			}
 		}
 		return self::ok( $data );
+	}
+
+	/**
+	 * [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F14 — GET /guru/product-categories ⇒
+	 * { ok: true, data: { woo: bool, items: [ {id, name, parent, count} ] } } (items empty without WooCommerce).
+	 */
+	public static function rest_get_product_categories( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			return self::not_loaded();
+		}
+		$woo = BizCity_Guru_Context_Resolver::has_woo();
+		return self::ok( array( 'woo' => $woo, 'items' => $woo ? BizCity_Guru_Context_Resolver::product_categories() : array() ) );
 	}
 
 	/** PUT /bot/default-guru {character_id} — the site default Guru (gate 0, `guru:0` on the wire). */

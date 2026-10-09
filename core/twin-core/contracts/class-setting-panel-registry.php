@@ -495,6 +495,18 @@ if ( ! class_exists( 'BizCity_Setting_Panel_Registry' ) ) {
 
 			self::$items[ $id ] = $normalized;
 			self::$renderer_owners[ $renderer_id ] = $normalized;
+			// [2026-10-09 11:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-2b — D96-16 wrapper: also record the item under the
+			// Zalo Brain 'setting' surface (record-only; this registry stays the owner and the return value is unchanged).
+			if ( class_exists( 'BizCity_Zalo_Brain', false ) && method_exists( 'BizCity_Zalo_Brain', 'mirror' ) ) {
+				BizCity_Zalo_Brain::mirror( 'setting-panel', array(
+					'id'          => $id,
+					'label_key'   => (string) $normalized['label_key'],
+					'owner'       => (string) $normalized['owner'],
+					'destination' => (string) $normalized['destination'],
+					'cap'         => (string) $normalized['capability'],
+					'position'    => (int) $normalized['position'],
+				), 'setting' );
+			}
 			return true;
 		}
 

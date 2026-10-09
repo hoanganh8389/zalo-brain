@@ -13,6 +13,7 @@
  *   bizcity://customer/{contact_id}/context
  *   bizcity://product/catalog
  *   bizcity://product/{id}
+ *   bizcity://product/group/{id}             PHASE-0.95 S95-F1: one group of the catalog_map pack
  *   bizcity://pack/{kind}
  *
  * Pure string work: no WordPress call, no DB, no LLM. Which principal may read a URI is BizCity_MCP_Resource_Service's job.
@@ -37,6 +38,8 @@ final class BizCity_MCP_Resource_URI {
 	const T_CUSTOMER      = 'bizcity://customer/{contact_id}/context';
 	const T_CATALOG       = 'bizcity://product/catalog';
 	const T_PRODUCT       = 'bizcity://product/{id}';
+	// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 — one product category of the catalog_map pack.
+	const T_PRODUCT_GROUP = 'bizcity://product/group/{id}';
 	const T_PACK          = 'bizcity://pack/{kind}';
 
 	/** Positive id: no sign, no leading zero, ≤ 18 digits. */
@@ -61,6 +64,7 @@ final class BizCity_MCP_Resource_URI {
 			self::T_CUSTOMER      => array( 'mimeType' => 'application/json', 'mode' => 'customers', 'name' => 'Ngữ cảnh khách hàng', 'description' => 'Thông tin CRM của một khách (giai đoạn, nhãn, đơn hàng, lần liên hệ cuối). Số điện thoại đã che.' ),
 			self::T_CATALOG       => array( 'mimeType' => 'application/json', 'mode' => 'stock', 'name' => 'Danh mục sản phẩm', 'description' => 'Tên, giá, tình trạng còn hàng và mô tả ngắn của sản phẩm đang bán.' ),
 			self::T_PRODUCT       => array( 'mimeType' => 'application/json', 'mode' => 'stock', 'name' => 'Sản phẩm', 'description' => 'Thông tin công khai của một sản phẩm.' ),
+			self::T_PRODUCT_GROUP => array( 'mimeType' => 'application/json', 'mode' => 'stock', 'name' => 'Nhóm sản phẩm', 'description' => 'Một nhóm (danh mục) sản phẩm: số món, còn hàng, khoảng giá, thuộc tính để hỏi, câu nên hỏi trước.' ),
 			self::T_PACK          => array( 'mimeType' => 'application/json', 'mode' => '*pack', 'name' => 'Gói dữ liệu', 'description' => 'Toàn bộ một gói dữ liệu của Agent (doanh số, đơn hàng, tồn kho, khách hàng…), cùng nội dung với gói ở cell.' ),
 		);
 	}
@@ -75,6 +79,7 @@ final class BizCity_MCP_Resource_URI {
 			self::T_CUSTOMER      => '#^bizcity://customer/(?P<contact_id>' . self::ID . ')/context$#',
 			self::T_CATALOG       => '#^bizcity://product/catalog$#',
 			self::T_PRODUCT       => '#^bizcity://product/(?P<id>' . self::ID . ')$#',
+			self::T_PRODUCT_GROUP => '#^bizcity://product/group/(?P<id>' . self::ID . ')$#',
 			self::T_PACK          => '#^bizcity://pack/(?P<kind>' . self::KIND . ')$#',
 		);
 	}

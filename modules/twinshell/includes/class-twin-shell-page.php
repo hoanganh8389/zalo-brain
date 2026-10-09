@@ -451,10 +451,8 @@ class BizCity_Twin_Shell_Page {
 		//   - user_plan (local membership: free|pro|plus)
 		// If the hub has set this site to pro/premium, admin users should not see features
 		// gated behind "pro" as locked. Use whichever tier is higher.
+		// [2026-10-09 21:10 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: user_plan is always 'free'; the hub master_level below is the only tier.
 		$user_plan = 'free';
-		if ( class_exists( 'BizCity_Membership_Manager' ) ) {
-			$user_plan = BizCity_Membership_Manager::instance()->plan_for_user( get_current_user_id() );
-		}
 		// Map hub master_level → local plan slug for comparison.
 		// [2026-06-10 Johnny Chu] HOTFIX — per-site option
 		$hub_level        = (string) get_option( 'bizcity_hub_master_level', 'free' );
@@ -571,6 +569,18 @@ class BizCity_Twin_Shell_Page {
 			$visible[ $i ]['activity_primary'] = $order < 100;
 		}
 
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 (D-W20-2) — app entries (group 'apps') leave the
+		// ActivityBar for `apps[]` (one "Apps" tile + square-tile launcher). `$visible` keeps them for ?plugin= resolution below.
+		$split      = $registry->split_activity_bar( $visible, get_current_user_id() );
+		$bar        = $split['bar'];
+		$apps       = $split['apps'];
+		$app_ids    = array_map( static function ( $a ) {
+			return (string) $a['id'];
+		}, $apps );
+		$visible    = array_values( array_filter( $visible, static function ( $p ) use ( $app_ids ) {
+			return ! BizCity_Twin_Shell_Registry::is_app_entry( $p ) || in_array( (string) $p['id'], $app_ids, true );
+		} ) );
+
 		// [2026-10-05 10:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — the in-shell notice page of a locked add-on.
 		$locked_req = isset( $_GET['twin_locked'] ) ? sanitize_key( wp_unslash( $_GET['twin_locked'] ) ) : '';
 		if ( '' !== $locked_req ) {
@@ -579,6 +589,16 @@ class BizCity_Twin_Shell_Page {
 			if ( ! $this->is_embedded ) {
 				wp_safe_redirect( self::shell_url( array( 'plugin' => $locked_req ) ) );
 				exit;
+			}
+			// [2026-10-09 11:30 PM Johnny Chu - Chu Hoàng Anh] owner: a site without the add-on still sees its page (e.g. "Đội Zalo") and
+			// ACTIVATES IN PLACE — the notice posts back here, the plugin is activated, the top window reopens the module. No plugins.php trip.
+			if ( isset( $notice_map[ $locked_req ] ) && 'POST' === strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) && ! empty( $_POST['bizcity_addon_activate'] ) ) {
+				$err = $this->activate_addon_in_place( $notice_map[ $locked_req ] );
+				if ( '' === $err ) {
+					$this->render_top_redirect( self::shell_url( array( 'plugin' => $locked_req ) ) );
+					return;
+				}
+				$notice_map[ $locked_req ]['activate_error'] = $err;
 			}
 			if ( isset( $notice_map[ $locked_req ] ) ) {
 				$this->emit_activity_event( 'shell.guard.addon_locked', array(
@@ -657,6 +677,10 @@ class BizCity_Twin_Shell_Page {
 
 		$initial = '';
 		foreach ( $visible as $p ) {
+			// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — ?plugin=apps (the launcher tile) is no page.
+			if ( 'launcher' === $p['mode'] ) {
+				continue;
+			}
 			if ( $p['id'] === $req_plugin ) {
 				$initial = $p['id'];
 				break;
@@ -698,7 +722,10 @@ class BizCity_Twin_Shell_Page {
 			'nonce'         => wp_create_nonce( 'wp_rest' ),
 			// [2026-09-28 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 UI-10 — owner surfaces build same-origin admin links from the canonical WP admin base.
 			'adminUrl'      => esc_url_raw( admin_url() ),
-			'plugins'       => $visible,
+			'plugins'       => $bar,
+			// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7/U1 — launcher tiles + the admin's "Thêm ứng dụng" target.
+			'apps'          => $apps,
+			'appsManage'    => BizCity_Twin_Shell_Registry::apps_manage_target( get_current_user_id() ),
 			'defaultPlugin' => $initial,
 			'initialUrl'    => $initial_url,
 			// [2026-09-16 02:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX — carry the embed + loop-breaker markers so nested navigations resolve to the embedded shell instead of bouncing back into wp-admin.
@@ -853,22 +880,28 @@ class BizCity_Twin_Shell_Page {
 		} else {
 			$badge    = '' !== (string) ( $p['plan_badge'] ?? '' ) ? (string) $p['plan_badge'] : 'PRO';
 			$badge_bg = 'linear-gradient(135deg,#f59e0b,#d97706)';
-			$act      = class_exists( 'BizCity_Twin_Addon_License' ) ? BizCity_Twin_Addon_License::plugin_action() : array( 'kind' => 'download', 'label' => 'Tải BizCity Automation (GitHub)', 'url' => 'https://github.com/hoanganh8389/bizcity-automation' );
+			// [2026-10-09 11:05 PM Johnny Chu - Chu Hoàng Anh] the notice names THIS entry's add-on (CRM, Automation…), never a hard-coded one.
+			$addon    = class_exists( 'BizCity_Twin_Addon_License' ) ? BizCity_Twin_Addon_License::addon_of( $p ) : array( 'name' => 'BizCity Automation', 'github' => 'https://github.com/hoanganh8389/bizcity-automation' );
+			$act      = class_exists( 'BizCity_Twin_Addon_License' ) ? BizCity_Twin_Addon_License::plugin_action( $p ) : array( 'kind' => 'download', 'label' => 'Tải ' . $addon['name'] . ' (GitHub)', 'url' => $addon['github'] );
 			$lines    = array( sprintf( 'Tài khoản đủ điều kiện. Website cần cài và kích hoạt plugin %s để dùng %s.', ! empty( $p['pro_package'] ) ? (string) $p['pro_package'] : 'tương ứng', $label ) );
 			if ( 'download' !== $act['kind'] ) {
 				$lines = array( sprintf( 'Tài khoản đủ điều kiện. Plugin %s đã được cài trên website, chỉ cần kích hoạt để dùng %s.', ! empty( $p['pro_package'] ) ? (string) $p['pro_package'] : 'tương ứng', $label ) );
 			}
-			$action = '' !== $act['url'] ? array( 'label' => $act['label'], 'url' => $act['url'], 'target' => 'activate' === $act['kind'] ? '_top' : '_blank' ) : null;
+			// [2026-10-09 11:30 PM Johnny Chu - Chu Hoàng Anh] `activate` = a POST back to this notice (activate in place, see activate_addon_in_place).
+			$action = '' !== $act['url'] ? array( 'label' => $act['label'], 'url' => $act['url'], 'target' => 'activate' === $act['kind'] ? '_top' : '_blank', 'post' => 'activate' === $act['kind'] ) : null;
+			if ( ! empty( $p['activate_error'] ) ) {
+				array_unshift( $lines, (string) $p['activate_error'] );
+			}
 
 			// [2026-10-05 11:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — concrete steps + plugins.php link even when the
 			// viewer cannot one-click activate (no button was shown when the viewer lacked activate_plugins), and the twin-ai GitHub prerequisite.
 			$plugins_url = admin_url( 'plugins.php' );
 			$twin_url    = 'https://github.com/hoanganh8389/bizcity-twin-ai';
-			$lines[]     = 'Lưu ý: BizCity Automation chỉ kích hoạt được khi website đã cài plugin BizCity Twin AI (bản tải từ GitHub: hoanganh8389/bizcity-twin-ai). Hãy tải và cài bản này trước.';
+			$lines[]     = 'Lưu ý: ' . $addon['name'] . ' chỉ kích hoạt được khi website đã cài plugin BizCity Twin AI (bản tải từ GitHub: hoanganh8389/bizcity-twin-ai). Hãy tải và cài bản này trước.';
 			if ( 'download' === $act['kind'] ) {
-				$lines[] = 'Các bước: (1) tải BizCity Twin AI và BizCity Automation từ GitHub, (2) vào Plugins → Add New → Upload Plugin để cài, (3) bấm Kích hoạt BizCity Automation rồi tải lại trang này.';
+				$lines[] = 'Các bước: (1) tải BizCity Twin AI và ' . $addon['name'] . ' từ GitHub, (2) vào Plugins → Add New → Upload Plugin để cài, (3) bấm Kích hoạt ' . $addon['name'] . ' rồi tải lại trang này.';
 			} else {
-				$lines[] = 'Các bước: (1) mở trang Plugins, (2) tìm "BizCity Automation" và bấm Kích hoạt, (3) tải lại trang này.';
+				$lines[] = 'Các bước: (1) mở trang Plugins, (2) tìm "' . $addon['name'] . '" và bấm Kích hoạt, (3) tải lại trang này.';
 			}
 			$links = array();
 			if ( 'activate' !== $act['kind'] ) {
@@ -914,12 +947,52 @@ class BizCity_Twin_Shell_Page {
 		if ( $buttons ) {
 			echo '<div class="actions">';
 			foreach ( $buttons as $b ) {
+				if ( ! empty( $b['post'] ) ) {
+					echo '<form method="post" style="margin:0;">'
+						. wp_nonce_field( 'bizcity_addon_activate_' . (string) $p['id'], '_wpnonce', false, false )
+						. '<input type="hidden" name="bizcity_addon_activate" value="1">'
+						. '<button class="btn" type="submit" style="border:0;cursor:pointer;">' . esc_html( $b['label'] ) . '</button></form>';
+					continue;
+				}
 				echo '<a class="btn" href="' . esc_url( $b['url'] ) . '" target="' . esc_attr( $b['target'] ) . '"'
 					. ( '_blank' === $b['target'] ? ' rel="noopener"' : '' ) . '>' . esc_html( $b['label'] ) . '</a>';
 			}
 			echo '</div>' . "\n";
 		}
 		echo '</div></div></body></html>' . "\n";
+	}
+
+	/**
+	 * [2026-10-09 11:30 PM Johnny Chu - Chu Hoàng Anh] Activate a locked add-on from its in-shell notice. Only a `plugin` lock (never
+	 * `premium`), only the entry's own plugin file, only when it is on disk, only for a user with activate_plugins, nonce per entry.
+	 *
+	 * @param array $p registry entry with lock_kind
+	 * @return string '' on success, else a short reason shown on the notice
+	 */
+	private function activate_addon_in_place( array $p ): string {
+		$id = (string) ( $p['id'] ?? '' );
+		if ( ! isset( $_POST['_wpnonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'bizcity_addon_activate_' . $id ) ) {
+			return 'Phiên đã hết hạn, hãy tải lại trang và bấm lại.';
+		}
+		if ( ! current_user_can( 'activate_plugins' ) ) {
+			return 'Tài khoản của bạn không có quyền kích hoạt plugin. Nhờ quản trị viên website.';
+		}
+		if ( 'plugin' !== (string) ( $p['lock_kind'] ?? '' ) || ! class_exists( 'BizCity_Twin_Addon_License' ) ) {
+			return 'Mục này không thể kích hoạt tại chỗ.';
+		}
+		$addon = BizCity_Twin_Addon_License::addon_of( $p );
+		if ( ! BizCity_Twin_Addon_License::plugin_on_disk( $addon['file'] ) ) {
+			return 'Chưa thấy plugin ' . $addon['name'] . ' trên website. Hãy tải về và cài (Plugins → Add New → Upload Plugin) rồi bấm lại.';
+		}
+		if ( ! function_exists( 'activate_plugin' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		$r = activate_plugin( $addon['file'] );
+		if ( is_wp_error( $r ) ) {
+			return 'Kích hoạt chưa được: ' . wp_strip_all_tags( $r->get_error_message() );
+		}
+		$this->emit_activity_event( 'shell.addon.activated', array( 'outcome' => 'ok', 'plugin_id' => $id ) );
+		return '';
 	}
 
 	/** Tiny page that sends the TOP window (not the shell iframe) to $url. */

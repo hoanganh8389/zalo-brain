@@ -36,7 +36,8 @@ final class BizCity_Zalo_Pack_Invalidate {
 	/** Every owner pack kind — an access change can flip the enabled state of any of them. */
 	// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L2-6 — + catalog (product facts, moves with Woo product / stock changes).
 	// [2026-10-06 09:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92 S92-CL-6 — + `automation` (scenario cards, BizCity_Automation_Cell_Pack_Exporter).
-	const ALL_KINDS      = array( 'owner_knowledge', 'notebook_meta', 'sales', 'orders', 'customers', 'stock', 'astro_self', 'catalog', 'automation' );
+	// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 — + `catalog_map` (product category tree, moves with categories / products / advice meta).
+	const ALL_KINDS      = array( 'owner_knowledge', 'notebook_meta', 'sales', 'orders', 'customers', 'stock', 'astro_self', 'catalog', 'automation', 'catalog_map' );
 	/** Reason priority when several kinds of change share one call. */
 	const REASONS        = array( 'access_changed', 'source_changed', 'notebook_changed' );
 	const MAX_ITEMS      = 200;

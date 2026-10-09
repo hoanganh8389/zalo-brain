@@ -206,7 +206,8 @@ class BizCity_CRM_Repository {
 
 		global $wpdb;
 		$rows = $wpdb->get_col( $wpdb->prepare(
-			'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
+			// [2026-10-09 10:20 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — route hint: without it BizCity_WPDB_Router answers from the main DB, not this blog's shard
+			'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s' . ( class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::route_hint( $table ) : '' ),
 			$table
 		) );
 
@@ -1136,6 +1137,7 @@ class BizCity_CRM_Repository {
 
 		$limit = max( 1, min( 200, (int) ( $args['limit'] ?? 50 ) ) );
 
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — also select ct.tags_json (contact_tags_json) for the nhiet:/cam_xuc: chips on the list row.
 		$sql = "SELECT
 					c.id, c.inbox_id, c.contact_inbox_id, c.status, c.assignee_id,
 					i.channel_type, i.channel_ref_id AS inbox_ref_id,
@@ -1148,6 +1150,7 @@ class BizCity_CRM_Repository {
 					ci.source_id, ci.contact_id,
 					ct.name AS contact_name, ct.avatar_url AS contact_avatar,
 					ct.additional_attributes AS contact_attributes,
+					ct.tags_json AS contact_tags_json,
 					m.content_preview AS last_message_content,
 					m.message_type AS last_message_type,
 					m.sender_type AS last_sender_type,
@@ -1252,6 +1255,15 @@ class BizCity_CRM_Repository {
 			} elseif ( preg_match( '/^[a-z][a-z0-9_-]{0,31}$/', $role ) ) {
 				$where[]  = 'ct.tags_json LIKE %s';
 				$params[] = '%' . $wpdb->esc_like( '"role:' . $role . '"' ) . '%';
+			}
+		}
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — `signal` filter (nong|am|lanh|khong_hai_long) on the
+		// crm_signal tags in contacts.tags_json, pushed into SQL like `role` above so list, count and sync token agree.
+		if ( ! empty( $args['signal'] ) && class_exists( 'BizCity_CRM_Contact_Signals' ) ) {
+			$needles = BizCity_CRM_Contact_Signals::filter_needles( BizCity_CRM_Contact_Signals::filter_key( $args['signal'] ) );
+			if ( $needles ) {
+				$where[] = '(' . implode( ' OR ', array_fill( 0, count( $needles ), 'ct.tags_json LIKE %s' ) ) . ')';
+				foreach ( $needles as $needle ) { $params[] = '%' . $wpdb->esc_like( $needle ) . '%'; }
 			}
 		}
 		if ( ! empty( $args['pipeline_kind'] ) && preg_match( '/^[a-z][a-z0-9_-]{0,31}$/', (string) $args['pipeline_kind'] ) ) {
@@ -1465,6 +1477,112 @@ class BizCity_CRM_Repository {
 			BizCity_Cache::set( 'crm_repository', $cache_key, $result, BizCity_Cache::TTL_SHORT );
 		}
 		return $result;
+	}
+
+	/* ================================================================
+	 * [2026-10-09 10:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L3 — customer facts for the core `customers`
+	 * pack and the MCP customer reads (D-W20-1): the cell answers about customers without the Zalo Brain CRM plugin. Same
+	 * reads as the plugin pipeline facts loader (BizCity_CRM_Customer_Pipeline::contact_ids_for_inboxes / load), minus the
+	 * pipeline tables (opportunities, tasks): no stage here — the plugin decorates through `bizcity_crm_pack_customer_row`.
+	 * ================================================================ */
+
+	/**
+	 * Customer contact ids, newest first, capped. The number's owner / staff (`role:owner|staff`, CL-D2) are never customers.
+	 *
+	 * @param int[]|null $inbox_ids null = whole shop; array = contacts seen in these inboxes (ordered by their latest activity).
+	 * @return int[]
+	 */
+	public static function list_customer_ids( $inbox_ids, int $cap = 1000 ): array {
+		global $wpdb;
+		$ct_t   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$ci_t   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$conv_t = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$cap    = max( 1, min( 5000, $cap ) );
+		$not_owner = class_exists( 'BizCity_CRM_Contact_Roles' ) ? ' AND ' . BizCity_CRM_Contact_Roles::sql_without_role( 'ct', BizCity_CRM_Contact_Roles::INTERNAL ) : '';
+		if ( is_array( $inbox_ids ) ) {
+			$inbox_ids = array_values( array_filter( array_map( 'intval', $inbox_ids ) ) );
+			if ( empty( $inbox_ids ) ) { return array(); }
+			$ph  = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
+			$sql = $wpdb->prepare(
+				"SELECT ci.contact_id, MAX(c.last_activity_at) AS last_at FROM `{$ci_t}` ci
+				 INNER JOIN `{$ct_t}` ct ON ct.id = ci.contact_id AND ct.deleted_at IS NULL{$not_owner}
+				 LEFT JOIN `{$conv_t}` c ON c.contact_inbox_id = ci.id
+				 WHERE ci.inbox_id IN ({$ph}) GROUP BY ci.contact_id ORDER BY last_at DESC LIMIT {$cap}",
+				$inbox_ids
+			);
+		} else {
+			$sql = "SELECT ct.id AS contact_id FROM `{$ct_t}` ct WHERE ct.deleted_at IS NULL{$not_owner} ORDER BY ct.updated_at DESC LIMIT {$cap}";
+		}
+		return array_values( array_filter( array_map( 'intval', (array) $wpdb->get_col( $sql ) ) ) );
+	}
+
+	/** The contact was seen in one of these inboxes (null = whole shop ⇒ true). */
+	public static function contact_in_inboxes( int $contact_id, $inbox_ids ): bool {
+		if ( $contact_id <= 0 ) { return false; }
+		if ( null === $inbox_ids ) { return true; }
+		$inbox_ids = array_values( array_filter( array_map( 'intval', (array) $inbox_ids ) ) );
+		if ( empty( $inbox_ids ) ) { return false; }
+		global $wpdb;
+		$ci_t = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$ph   = implode( ',', array_fill( 0, count( $inbox_ids ), '%d' ) );
+		return (bool) $wpdb->get_var( $wpdb->prepare( "SELECT 1 FROM `{$ci_t}` WHERE contact_id = %d AND inbox_id IN ({$ph}) LIMIT 1", array_merge( array( $contact_id ), $inbox_ids ) ) );
+	}
+
+	/**
+	 * Base facts of these contacts (no pipeline): name, phone, latest conversation (its assignee = owner_id, its inbox channel),
+	 * last activity, last outgoing message. Deleted / unknown ids are left out.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,array{contact_id:int,name:string,phone:string,owner_id:int,conversation_id:int,inbox_id:int,platform:string,channel_ref:string,last_activity_ts:int,last_out_ts:int}>
+	 */
+	public static function customer_base_facts( array $ids ): array {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		$out = array();
+		if ( empty( $ids ) ) { return $out; }
+		$ct_t   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$ci_t   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$conv_t = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$msg_t  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$ibx_t  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		foreach ( array_chunk( $ids, 500 ) as $chunk ) {
+			$ph = implode( ',', array_fill( 0, count( $chunk ), '%d' ) );
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT id, name, first_name, last_name, phone FROM `{$ct_t}` WHERE deleted_at IS NULL AND id IN ({$ph})", $chunk ), ARRAY_A ) as $r ) {
+				$name = trim( (string) ( $r['name'] ?? '' ) );
+				if ( '' === $name ) { $name = trim( (string) ( $r['first_name'] ?? '' ) . ' ' . (string) ( $r['last_name'] ?? '' ) ); }
+				$out[ (int) $r['id'] ] = array(
+					'contact_id' => (int) $r['id'], 'name' => '' !== $name ? $name : 'Khách #' . (int) $r['id'], 'phone' => (string) ( $r['phone'] ?? '' ),
+					'owner_id' => 0, 'conversation_id' => 0, 'inbox_id' => 0, 'platform' => '', 'channel_ref' => '',
+					'last_activity_ts' => 0, 'last_out_ts' => 0,
+				);
+			}
+			// Touches: the latest outgoing message (human or bot) per contact.
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT ci.contact_id, MAX(m.created_at) AS last_out FROM `{$msg_t}` m
+				 INNER JOIN `{$conv_t}` c ON c.id = m.conversation_id INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id
+				 WHERE m.message_type = 'outgoing' AND ci.contact_id IN ({$ph}) GROUP BY ci.contact_id", $chunk ), ARRAY_A ) as $r ) {
+				$cid = (int) $r['contact_id'];
+				if ( isset( $out[ $cid ] ) ) { $out[ $cid ]['last_out_ts'] = (int) strtotime( (string) $r['last_out'] ); }
+			}
+			// Latest conversation (owner = its assignee, channel = its inbox) + last activity.
+			foreach ( (array) $wpdb->get_results( $wpdb->prepare(
+				"SELECT ci.contact_id, c.id, c.inbox_id, c.assignee_id, c.last_activity_at, i.channel_type, i.channel_ref_id FROM `{$conv_t}` c
+				 INNER JOIN `{$ci_t}` ci ON ci.id = c.contact_inbox_id LEFT JOIN `{$ibx_t}` i ON i.id = c.inbox_id
+				 WHERE ci.contact_id IN ({$ph}) ORDER BY c.last_activity_at DESC", $chunk ), ARRAY_A ) as $r ) {
+				$cid = (int) $r['contact_id'];
+				if ( ! isset( $out[ $cid ] ) ) { continue; }
+				$ts = (int) strtotime( (string) $r['last_activity_at'] );
+				if ( $ts > $out[ $cid ]['last_activity_ts'] ) { $out[ $cid ]['last_activity_ts'] = $ts; }
+				if ( 0 === $out[ $cid ]['conversation_id'] ) {
+					$out[ $cid ]['conversation_id'] = (int) $r['id'];
+					$out[ $cid ]['inbox_id']        = (int) $r['inbox_id'];
+					$out[ $cid ]['platform']        = (string) ( $r['channel_type'] ?? '' );
+					$out[ $cid ]['channel_ref']     = (string) ( $r['channel_ref_id'] ?? '' );
+				}
+				if ( 0 === $out[ $cid ]['owner_id'] && (int) $r['assignee_id'] > 0 ) { $out[ $cid ]['owner_id'] = (int) $r['assignee_id']; }
+			}
+		}
+		return $out;
 	}
 
 	/**

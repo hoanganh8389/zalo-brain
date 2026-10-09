@@ -38,6 +38,10 @@ if ( class_exists( 'BizCity_Scheduler_Cell_Dispatch' ) ) {
 final class BizCity_Scheduler_Cell_Dispatch {
 
 	const CONTRACT     = 'channel-inbound@1.2.0';
+	/** PHASE-0.95 S95-W1 — dòng neo workflow (thêm workflow_id, publish_scenario). */
+	const CONTRACT_WORKFLOW = 'channel-inbound@1.3.0';
+	/** PHASE-0.95 S95-W4 — fired after the cell accepted a row (status accepted|duplicate): ($event_id, $op, $status). */
+	const SETTLED_HOOK = 'bizcity_scheduler_cell_push_settled';
 	const KIND         = 'job_upsert';
 	const RETRY_HOOK   = 'bizcity_scheduler_cell_push_retry';
 	const MAX_ATTEMPTS = 6;
@@ -155,6 +159,52 @@ final class BizCity_Scheduler_Cell_Dispatch {
 		}
 	}
 
+	/**
+	 * [2026-10-09 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W7 — "Làm mới": read the cell's truth for one row handed over
+	 * (`job_get`, channel-inbound@1.3.0, fixture cid/channel-inbound.job-get.json). Read only, never writes the row. Never throws.
+	 *
+	 * @return array{ok:bool,found?:bool,job?:array,http?:int,reason?:string}
+	 */
+	public static function fetch( int $event_id ): array {
+		try {
+			$obj = BizCity_Scheduler_Manager::instance()->get_event( $event_id );
+			$row = $obj ? (array) $obj : null;
+			if ( ! $row || BizCity_Scheduler_Manager::DISPATCHER_CELL !== (string) ( $row['dispatcher'] ?? '' ) ) {
+				return array( 'ok' => false, 'reason' => 'not_cell' );
+			}
+			$readers  = self::readers();
+			$target   = BizCity_Scheduler_Hub_Pipe::target( $readers );
+			$key_id   = BizCity_Scheduler_Hub_Pipe::key_id( $readers );
+			$instance = BizCity_Scheduler_Hub_Pipe::client_instance( $readers );
+			if ( null === $target || $key_id <= 0 || '' === $instance ) {
+				return array( 'ok' => false, 'reason' => 'hub_not_ready' );
+			}
+			$channel = array( 'platform' => BizCity_Scheduler_Hub_Pipe::PLATFORM, 'channel_ref' => $instance );
+			$letter  = array(
+				'contract' => self::CONTRACT_WORKFLOW,
+				'kind'     => 'job_get',
+				'trace_id' => 'schg.' . ( function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1 ) . '.' . $event_id,
+				'thread_key' => 'sch:' . $event_id, // [2026-10-10 12:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W7 — envelope carries thread_key for every kind (doc 30 §3), same as job_upsert
+				'tenant'   => array( 'key_id' => $key_id ),
+				'channel'  => $channel,
+				'contact'  => $channel + array( 'platform_uid' => strtolower( (string) ( $row['owner_agent_hash'] ?? '' ) ) ),
+				'job'      => array( 'site_event_id' => $event_id ),
+			);
+			BizCity_Scheduler_Hub_Pipe::ensure_registered( $target, $instance, $readers );
+			$res  = BizCity_Scheduler_Hub_Pipe::post_letter( $target, $letter, $readers );
+			$code = (int) $res['status'];
+			$body = is_array( $res['body'] ) ? $res['body'] : array();
+			if ( $code < 200 || $code >= 300 || 'job_get' !== (string) ( $body['kind'] ?? '' ) ) {
+				return array( 'ok' => false, 'http' => $code, 'reason' => substr( sanitize_key( (string) ( $body['code'] ?? 'http_' . $code ) ), 0, 60 ) );
+			}
+			$job = isset( $body['job'] ) && is_array( $body['job'] ) ? self::scrub( $body['job'] ) : array();
+			return array( 'ok' => true, 'http' => $code, 'found' => ! empty( $body['found'] ), 'job' => $job );
+		} catch ( \Throwable $e ) {
+			error_log( '[scheduler][cell-dispatch] fetch ' . $event_id . ' swallowed ' . get_class( $e ) . ': ' . $e->getMessage() );
+			return array( 'ok' => false, 'reason' => 'error' );
+		}
+	}
+
 	/** wp-cron retry. */
 	public static function on_retry( $event_id, $op = 'upsert', $attempt = 1, $snapshot = null ): void {
 		self::push( (int) $event_id, (string) $op, max( 1, (int) $attempt ), is_array( $snapshot ) ? $snapshot : null );
@@ -213,8 +263,14 @@ final class BizCity_Scheduler_Cell_Dispatch {
 			if ( '' !== $job_id ) {
 				$cols['cell_job_id'] = $job_id;
 			}
-			return self::settle( $event_id, $live, $cols, array( 'status' => $ack_status, 'rev' => $rev, 'http' => $code, 'next_run_at' => (string) ( $ack['next_run_at'] ?? '' ) ) )
+			$out = self::settle( $event_id, $live, $cols, array( 'status' => $ack_status, 'rev' => $rev, 'http' => $code, 'next_run_at' => (string) ( $ack['next_run_at'] ?? '' ) ) )
 				+ array( 'job_id' => $job_id, 'letter' => $letter );
+			// [2026-10-09 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W4 — the cell now owns this row (also after a wp-cron retry):
+			// Automation cancels the old site-clock rows of a workflow anchor only from here, never before the ack.
+			if ( function_exists( 'do_action' ) ) {
+				do_action( self::SETTLED_HOOK, $event_id, $op, $ack_status );
+			}
+			return $out;
 		}
 		$err = substr( sanitize_key( (string) ( $ack['code'] ?? $ack['error'] ?? 'http_' . $code ) ), 0, 60 );
 		if ( 409 === $code && 'stale_rev' === $err ) {
@@ -255,8 +311,19 @@ final class BizCity_Scheduler_Cell_Dispatch {
 				'event_start_utc' => self::utc( (string) ( $row['start_at'] ?? '' ) ),
 			);
 		}
+		// [2026-10-09 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W1 — channel-inbound@1.3.0 (fixture job-upsert.workflow): dòng neo
+		// workflow mang workflow_id + kịch bản đăng duy nhất; cell chạy lượt chủ như job_due khi tới giờ.
+		$workflow_id = 'cron' === (string) ( $meta['recurrence'] ?? '' ) && 'cell' === (string) ( $meta['clock'] ?? '' ) ? (int) ( $meta['workflow_id'] ?? 0 ) : 0;
+		if ( 'upsert' === $op && $workflow_id > 0 ) {
+			$job['kind']        = 'agent';
+			$job['workflow_id'] = $workflow_id;
+			$pub = strtolower( (string) ( $meta['publish_scenario'] ?? '' ) );
+			if ( preg_match( '/^[a-z0-9][a-z0-9_-]{0,79}$/', $pub ) ) {
+				$job['publish_scenario'] = $pub;
+			}
+		}
 		$letter = array(
-			'contract'   => self::CONTRACT,
+			'contract'   => $workflow_id > 0 ? self::CONTRACT_WORKFLOW : self::CONTRACT,
 			'kind'       => self::KIND,
 			'trace_id'   => 'schj.' . $blog . '.' . $event_id . '.' . $rev,
 			'idem'       => 'schj_' . $blog . '_' . $event_id . '_' . $rev,
@@ -276,6 +343,11 @@ final class BizCity_Scheduler_Cell_Dispatch {
 	 */
 	public static function schedule( array $row, array $meta ): array {
 		$tz    = self::timezone();
+		// [2026-10-09 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W4 — dòng neo workflow (D95-21): cron của chính workflow, giờ site.
+		$expr = trim( (string) ( $meta['cron_expr'] ?? '' ) );
+		if ( 'cron' === (string) ( $meta['recurrence'] ?? '' ) && preg_match( '/^[0-9*\/,\-]+(\s+[0-9*\/,\-]+){4}$/', $expr ) ) {
+			return array( 'kind' => 'cron', 'expr' => $expr, 'timezone' => $tz->getName() );
+		}
 		$start = self::local_dt( (string) ( $row['start_at'] ?? '' ), $tz );
 		$fire  = $start ? $start->modify( '-' . max( 0, (int) ( $row['reminder_min'] ?? 0 ) ) . ' minutes' ) : null;
 		$rec   = (string) ( $meta['recurrence'] ?? '' );

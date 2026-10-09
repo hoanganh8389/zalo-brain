@@ -106,6 +106,36 @@ require_once BIZCITY_MCP_DIR . 'includes/brain/class-pipeline-mcp-service.php';
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-knowledge-stats-mcp-service.php';
 // [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave R — load read-only WooCommerce catalog/order/customer bridge.
 require_once BIZCITY_MCP_DIR . 'includes/brain/class-commerce-brain-mcp-service.php';
+// [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F4/F6 — product-advice@1 meta + D95-16 consult score (commerce.search_products).
+require_once BIZCITY_MCP_DIR . 'includes/brain/class-product-advice.php';
+require_once BIZCITY_MCP_DIR . 'includes/brain/class-commerce-consult-score.php';
+if ( class_exists( 'BizCity_Product_Advice' ) ) {
+	BizCity_Product_Advice::init();
+	// [2026-10-09 03:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F5 — "Tư vấn AI" metaboxes (product + product_cat) + advice CSV import, admin only.
+	if ( is_admin() ) {
+		require_once BIZCITY_MCP_DIR . 'includes/admin/class-product-advice-form.php';
+		require_once BIZCITY_MCP_DIR . 'includes/admin/class-product-advice-admin.php';
+		BizCity_Product_Advice_Admin::init();
+	}
+}
+// [2026-10-09 10:46 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L2 — D-W20-1: the 5 Woo packs (sales, orders, stock,
+// catalog, catalog_map) and the shop money rule live in core, so the cell keeps its product-group map without the Zalo Brain CRM
+// plugin. WooCommerce loads after this plugin, so the packs register on plugins_loaded (priority 20), only when Woo is active.
+require_once BIZCITY_MCP_DIR . 'verticals/woo/class-woo-reports-bridge.php';
+require_once BIZCITY_MCP_DIR . 'verticals/woo/class-woo-pack-exporter.php';
+if ( class_exists( 'BizCity_Woo_Pack_Exporter' ) ) {
+	$bizcity_mcp_woo_packs = static function () {
+		if ( class_exists( 'WooCommerce' ) || function_exists( 'wc_get_orders' ) ) {
+			BizCity_Woo_Pack_Exporter::register();
+		}
+	};
+	if ( did_action( 'plugins_loaded' ) ) {
+		$bizcity_mcp_woo_packs();
+	} else {
+		add_action( 'plugins_loaded', $bizcity_mcp_woo_packs, 20 );
+	}
+	unset( $bizcity_mcp_woo_packs );
+}
 // [2026-10-01 Claude Opus 5.5] PHASE-0.88 CL-B — one-MCP-standard action tools (CRM, orders/inventory, booking, automation);
 // each registers on `bizcity_mcp_register_tools` and skips its tools when the business owner is not loaded.
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-mcp-action-support.php';

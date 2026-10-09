@@ -358,6 +358,13 @@ class BizCity_Persona_Registry {
         }
 
         // All checks passed — commit.
+        // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — BizCity_Persona_Tool_Provider is a
+        // legacy extension API (no provider exists in any installed plugin today). Its tools no longer bridge into the
+        // Twin tool registry (adapter archived to core/_archived/z3-20261010/); register them with register_tool().
+        if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+            $file = ( new ReflectionClass( $candidate ) )->getFileName();
+            bizcity_z3_legacy_api_notice( 'BizCity_Persona_Tool_Provider', 'BizCity_Zalo_Brain::register_tool()', is_string( $file ) ? $file : '' );
+        }
         $this->providers[ $slug ] = $candidate;
         foreach ( $kinds as $kind ) {
             $this->kind_index[ $kind ] = $slug;

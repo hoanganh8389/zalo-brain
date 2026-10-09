@@ -36,6 +36,9 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'items'         => array( 'type' => 'array', 'minItems' => 1, 'items' => array( 'type' => 'object', 'required' => array( 'product_id', 'qty' ), 'properties' => array( 'product_id' => array( 'type' => 'integer', 'minimum' => 1 ), 'qty' => array( 'type' => 'integer', 'minimum' => 1 ) ) ) ),
 			'hold_minutes'  => array( 'type' => 'integer', 'minimum' => 5, 'maximum' => 1440 ),
 			'note'          => array( 'type' => 'string' ),
+			// [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — the handler also reads a top-level `contact{platform, channel_ref,
+			// platform_uid, display_name}` (doc 25 §2.1). Not listed here yet: this descriptor is frozen byte-for-byte in the shared fixture
+			// zalo-hub/contracts/fixtures/mcp/bridge.tools_list.owner.json — the schema line lands with that fixture bump (S95-R2).
 			'confirm_token' => array( 'type' => 'string' ),
 		) );
 		$order_output = BizCity_MCP_Tool_Registry::envelope_schema( array(
@@ -270,8 +273,68 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'currency'     => function_exists( 'get_woocommerce_currency' ) ? (string) get_woocommerce_currency() : 'VND',
 			'hold_minutes' => self::hold_minutes( $args['hold_minutes'] ?? 0 ),
 			'contact'      => $contact,
+			'identity'     => self::identity_of( $args ),
 			'note'         => trim( sanitize_textarea_field( (string) ( $args['note'] ?? '' ) ) ),
 		);
+	}
+
+	/**
+	 * [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — top-level `contact` of order.create, cleaned (no lookup, no write:
+	 * the plan is shared with the preview). null when there is no UID.
+	 */
+	private static function identity_of( array $args ) {
+		$raw = isset( $args['contact'] ) && is_array( $args['contact'] ) ? $args['contact'] : array();
+		$uid = substr( trim( (string) ( $raw['platform_uid'] ?? '' ) ), 0, 190 );
+		if ( '' === $uid ) {
+			return null;
+		}
+		$platform = (string) ( $raw['platform'] ?? 'zalo' );
+		return array(
+			'platform'     => class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::canon_platform( $platform ) : strtolower( $platform ),
+			'channel_ref'  => substr( trim( (string) ( $raw['channel_ref'] ?? '' ) ), 0, 190 ),
+			'platform_uid' => $uid,
+			'display_name' => trim( sanitize_text_field( (string) ( $raw['display_name'] ?? '' ) ) ),
+		);
+	}
+
+	/** @var callable|null test seam: fn(string $canon, string $uid, string $channel_ref, array $data): int — replaces resolve_or_create */
+	public static $contact_resolver = null;
+
+	/**
+	 * [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — stamp the 7 identity meta (before the caller's save()) and fill an empty
+	 * billing name: named CRM contact > CRM contact of the identity > display_name. The UID never goes into a note.
+	 */
+	private static function stamp_identity( $order, array $plan ) {
+		$id = $plan['identity'] ?? null;
+		if ( ! is_array( $id ) || ! is_object( $order ) || ! class_exists( 'BizCity_CRM_Contact_Identity' ) ) {
+			return;
+		}
+		$cid  = $plan['contact'] ? (int) $plan['contact']['contact_id'] : 0;
+		$name = $plan['contact'] ? (string) $plan['contact']['name'] : '';
+		if ( $cid <= 0 ) {
+			$data = array( 'name' => '' !== $id['display_name'] ? $id['display_name'] : 'Khách ' . $id['platform'], 'source' => 'mcp_order_create' );
+			$cid  = is_callable( self::$contact_resolver )
+				? (int) call_user_func( self::$contact_resolver, $id['platform'], $id['platform_uid'], $id['channel_ref'], $data )
+				: (int) BizCity_CRM_Contact_Identity::resolve_or_create( $id['platform'], $id['platform_uid'], $id['channel_ref'], $data );
+			$known = $cid > 0 ? BizCity_MCP_Action_Support::contact( $cid ) : null;
+			$name  = is_array( $known ) ? (string) $known['name'] : '';
+		}
+		foreach ( BizCity_CRM_Contact_Identity::order_identity_meta( array(
+			'platform'     => $id['platform'],
+			'channel_ref'  => $id['channel_ref'],
+			'platform_uid' => $id['platform_uid'],
+			'display_name' => $id['display_name'],
+			'contact_id'   => $cid,
+			'source'       => 'mcp_order_create',
+		) ) as $k => $v ) {
+			$order->update_meta_data( $k, $v );
+		}
+		if ( method_exists( $order, 'get_billing_first_name' ) && '' === trim( (string) $order->get_billing_first_name() ) ) {
+			$bill = '' !== trim( $name ) ? $name : $id['display_name'];
+			if ( '' !== trim( $bill ) ) {
+				$order->set_billing_first_name( $bill );
+			}
+		}
 	}
 
 	/** [5, woocommerce_hold_stock_minutes or 60]; default 30 (or the cap when lower). */
@@ -324,6 +387,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 		if ( ! $order || ! is_object( $order ) ) {
 			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INVENTORY_RESERVE_UNAVAILABLE, 'WooCommerce chưa sẵn sàng để tạo đơn.', 503 );
 		}
+		self::stamp_identity( $order, $plan ); // [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — saved by commit()
 		return $order;
 	}
 

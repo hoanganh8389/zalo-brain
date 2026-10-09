@@ -107,8 +107,9 @@ abstract class BizCity_Persona_Tool_Provider {
 
     /**
      * Optional: hook fired after a personal artifact is ingested. Providers
-     * may use it to update their own side-table (e.g. mark `bccm_astro` row
-     * linked) WITHOUT mutating kg_sources directly (R-PP-4).
+     * may use it to update their own side-table (e.g. mark the plugin's own
+     * row linked) WITHOUT mutating kg_sources directly (R-PP-4).
+     * [2026-10-09 10:39 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — no app table named in core (D-W20-8).
      *
      * @param int    $source_id kg_sources.id of the freshly-created row.
      * @param string $kind      Source kind that was ingested.

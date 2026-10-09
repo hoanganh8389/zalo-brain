@@ -70,9 +70,15 @@ class BizCity_TwinChat_Admin_Menu {
 			$plugins = BizCity_Twin_Shell_Registry::instance()->all();
 			if ( ! empty( $plugins ) ) {
 				$out = [];
+				// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 (D-W20-2) — Pro apps (group 'apps') leave this
+				// list for `apps[]` behind the one "Apps" tile (shown to an admin, or to a member with ≥ 1 app).
+				$show_apps = BizCity_Twin_Shell_Registry::show_apps_tile( get_current_user_id(), self::build_apps() );
 				foreach ( $plugins as $p ) {
 					// Skip items the current user cannot access.
 					if ( ! empty( $p['capability'] ) && ! current_user_can( $p['capability'] ) ) {
+						continue;
+					}
+					if ( BizCity_Twin_Shell_Registry::is_app_entry( $p ) || ( 'launcher' === $p['mode'] && ! $show_apps ) ) {
 						continue;
 					}
 					$mode = (string) $p['mode'];
@@ -105,14 +111,11 @@ class BizCity_TwinChat_Admin_Menu {
 
 		// Fallback (registry not loaded yet) — inline minimal list.
 		$td   = 'bizcity-twin-ai';
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — creator/doc/image/video/web removed: Pro apps are
+		// only reachable through the "Apps" tile (its list comes from `apps[]`, empty without the registry; the tile is admin-only then).
 		$items = [
 			[ 'id' => 'home',         'label' => __( 'Home',             $td ), 'icon' => 'home',       'emoji' => '', 'mode' => 'home',  'target' => '',                                                                          'pluginId' => 'home',         'section' => 'top' ],
-			[ 'id' => 'creator',      'label' => __( 'Plans & Scripts',  $td ), 'icon' => 'creator',    'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'creator',      'section' => 'top' ],
-			[ 'id' => 'doc',          'label' => __( 'Documents',        $td ), 'icon' => 'doc',        'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'doc',          'section' => 'top' ],
 			[ 'id' => 'crm',          'label' => __( 'CRM Inbox',        $td ), 'icon' => 'gateway',    'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'crm',          'section' => 'top' ],
-			[ 'id' => 'image',        'label' => __( 'Product Images',   $td ), 'icon' => 'image',      'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'image',        'section' => 'top' ],
-			[ 'id' => 'video',        'label' => __( 'Video',            $td ), 'icon' => 'video',      'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'video',        'section' => 'top' ],
-			[ 'id' => 'web',          'label' => __( 'Web Builder',      $td ), 'icon' => 'web',        'emoji' => '', 'mode' => 'embed', 'target' => '',                                                                          'pluginId' => 'web',          'section' => 'top' ],
 			[ 'id' => 'twin-builder', 'label' => __( 'TwinBuilder',      $td ), 'icon' => 'brain',      'emoji' => '', 'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-twin-builder' ),                         'pluginId' => '',             'section' => 'top' ],
 			// [2026-06-08 Johnny Chu] HOTFIX — account navigates into twinchat #/account
 			[ 'id' => 'account',      'label' => __( 'Account',          $td ), 'icon' => 'wallet',     'emoji' => '', 'mode' => 'link',  'target' => 'https://bizcity.vn/my-account/', 'nav_plugin' => 'twinchat', 'nav_iurl' => '/twinchat/?bizcity_iframe=1#/account', 'pluginId' => '',             'section' => 'bottom' ],
@@ -124,7 +127,42 @@ class BizCity_TwinChat_Admin_Menu {
 			// R3 (2026-09-26), same dead-page issue already fixed in the primary registry (modules/twinshell/includes/
 			// default-plugins.php). This array is a fallback used only when BizCity_Twin_Shell_Registry isn't loaded.
 		];
+		if ( current_user_can( 'manage_options' ) ) {
+			$items[] = [ 'id' => 'apps', 'label' => __( 'Apps', $td ), 'icon' => 'grid', 'emoji' => '', 'mode' => 'launcher', 'target' => '', 'pluginId' => '', 'section' => 'bottom' ];
+		}
 		return $items;
+	}
+
+	/**
+	 * "Apps" launcher tiles for the current user — same list as /twin/ and /twinchat/.
+	 *
+	 * [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 (D-W20-2).
+	 *
+	 * @return array
+	 */
+	public static function build_apps(): array {
+		if ( class_exists( 'BizCity_TwinChat_Public_Page' ) ) {
+			return BizCity_TwinChat_Public_Page::get_apps();
+		}
+		// The shell-only admin request does not load the public page class: same mapping, straight from the registry.
+		$out = [];
+		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) && method_exists( 'BizCity_Twin_Shell_Registry', 'apps_for_user' ) ) {
+			foreach ( BizCity_Twin_Shell_Registry::instance()->apps_for_user( get_current_user_id() ) as $a ) {
+				$out[] = [
+					'id'          => (string) $a['id'],
+					'label'       => (string) $a['label'],
+					'icon'        => (string) $a['icon'],
+					'emoji'       => '',
+					'mode'        => 'link' === $a['mode'] ? 'link' : 'embed',
+					'target'      => 'link' === $a['mode'] ? (string) $a['target_url'] : '',
+					'pluginId'    => (string) $a['id'],
+					'desc'        => isset( $a['desc'] ) ? (string) $a['desc'] : '',
+					'plan_badge'  => isset( $a['plan_badge'] ) ? (string) $a['plan_badge'] : '',
+					'pro_package' => isset( $a['pro_package'] ) ? (string) $a['pro_package'] : '',
+				];
+			}
+		}
+		return $out;
 	}
 
 	/** Keep the legacy admin wrapper as the outer document so WP chrome renders. */
@@ -145,20 +183,20 @@ class BizCity_TwinChat_Admin_Menu {
 	// [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — restored: the body was lost while the admin page and /twin/ still call it.
 	/**
 	 * @param int $user_id
-	 * @return array|null { id, name, email, avatar, plan, planLabel }
+	 * @return array|null { id, name, email, avatar }
 	 */
 	public static function build_current_user( $user_id ) {
 		$user = get_userdata( (int) $user_id );
 		if ( ! $user ) {
 			return null;
 		}
+		// [2026-10-09 21:05 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: no
+		// plan / planLabel in currentUser any more (the SPA no longer shows a local plan).
 		return array(
-			'id'        => (int) $user->ID,
-			'name'      => (string) $user->display_name,
-			'email'     => (string) $user->user_email,
-			'avatar'    => (string) get_avatar_url( $user->ID, array( 'size' => 96 ) ),
-			'plan'      => self::resolve_user_plan( $user->ID ),
-			'planLabel' => self::resolve_user_plan_label( $user->ID ),
+			'id'     => (int) $user->ID,
+			'name'   => (string) $user->display_name,
+			'email'  => (string) $user->user_email,
+			'avatar' => (string) get_avatar_url( $user->ID, array( 'size' => 96 ) ),
 		);
 	}
 
@@ -330,6 +368,9 @@ class BizCity_TwinChat_Admin_Menu {
 			'shellUrl'     => esc_url_raw( class_exists( 'BizCity_Twin_Shell_Page' ) ? BizCity_Twin_Shell_Page::shell_url() : home_url( '/twin/' ) ),
 			// Activity bar — same items as /twin/ so both surfaces look identical.
 			'activityBar'  => self::build_activity_bar(),
+			// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — "Apps" launcher tiles + admin "Thêm ứng dụng" target.
+			'apps'         => self::build_apps(),
+			'appsManage'   => method_exists( 'BizCity_Twin_Shell_Registry', 'apps_manage_target' ) ? BizCity_Twin_Shell_Registry::apps_manage_target( get_current_user_id() ) : null,
 			// Twin Debug bridge — when ON, FE prints BE traces to console and
 			// turns on its own per-stage tracing. Driven by the same gate as
 			// `BizCity_Twin_Debug::is_enabled()` (constant / option / ?twin_debug=1).
@@ -375,10 +416,10 @@ class BizCity_TwinChat_Admin_Menu {
 			'myAstroUrl'    => class_exists( 'BizCity_TwinChat_Public_Page' )
 				? BizCity_TwinChat_Public_Page::resolve_my_astro_url()
 				: '',
-			// [2026-06-07 Johnny Chu] PHASE-D R-BIZ-MODEL — Local membership plan (không phụ thuộc hub).
-			// PlanBadge.tsx đọc userPlan thay vì gọi entitlement API hub.
-			'userPlan'      => self::resolve_user_plan( $user_id ),
-			'userPlanLabel' => self::resolve_user_plan_label( $user_id ),
+			// [2026-10-09 21:05 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired:
+			// userPlan / userPlanLabel (local membership plan) removed; the account menu links to the
+			// WordPress profile page for profile + password instead of the old membership REST.
+			'profileUrl'    => esc_url_raw( admin_url( 'profile.php' ) ),
 		] );
 
 		// ── Main entry script in footer (React needs the DOM node first) ─────────

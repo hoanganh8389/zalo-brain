@@ -5,10 +5,14 @@
  *
  * Thin handlers over the CRM owners (no business logic here):
  *  - scope: BizCity_CRM_Agent_Mode_Delegate::customers_scope() (D-TAA-7: lead/agent only see contacts assigned to them)
- *    + BizCity_CRM_REST_Controller::can_{read,write}_contact_scope() (BizCity_MCP_Action_Support::contact_access()).
- *  - writes: BizCity_CRM_Pipeline_Stage_Service::change() (note + stage), BizCity_CRM_REST_Controller::put_crm_contact()
- *    (tags), BizCity_CRM_Contact_Enrichment::set_birthday(), BizCity_CRM_Task_Handoff::create() (assign; its hook drives
- *    BizCity_CRM_Task_Handoff_Notify), bizcity_channel_send() to the staff member's own Zalo Bot binding (notify).
+ *    + BizCity_CRM_Spine_REST::can_{read,write}_contact_scope() (BizCity_MCP_Action_Support::contact_access()).
+ *  - writes: BizCity_CRM_Pipeline_Stage_Service::change() (note + stage, plugin), BizCity_CRM_Spine_REST::put_crm_contact()
+ *    (tags, core), BizCity_CRM_Contact_Enrichment::set_birthday() (core), BizCity_CRM_Task_Handoff::create() (assign, plugin; its
+ *    hook drives BizCity_CRM_Task_Handoff_Notify), bizcity_channel_send() to the staff member's own Zalo Bot binding (notify).
+ *
+ * [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 (D-W20-1) — reads (crm.customer.lookup) and the core
+ * writes (tags, birthday) run without the Zalo Brain CRM plugin; stage/note and assign need it and answer
+ * BizCity_MCP_Action_Support::crm_unavailable() (crm_feature_unavailable, 4 fields) BEFORE anything is written.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\MCP
@@ -181,12 +185,13 @@ final class BizCity_CRM_Action_MCP_Service {
 	}
 
 	private static function present( array $c, $uid ) {
-		$labels = class_exists( 'BizCity_CRM_Customer_Pipeline' ) ? BizCity_CRM_Customer_Pipeline::LABELS : array();
+		// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — the label comes with the contact (plugin
+		// decorator via bizcity_crm_pack_customer_row); '' without the plugin. Was BizCity_CRM_Customer_Pipeline::LABELS here.
 		return array(
 			'contact_ref'     => 'crm:' . (int) $c['contact_id'],
 			'name'            => (string) $c['name'],
 			'phone_masked'    => BizCity_MCP_Action_Support::mask_phone( $c['phone'] ),
-			'crm_stage'       => (string) ( $labels[ $c['stage'] ] ?? $c['stage'] ),
+			'crm_stage'       => (string) ( '' !== (string) ( $c['stage_label'] ?? '' ) ? $c['stage_label'] : $c['stage'] ),
 			'tags'            => $c['tags'],
 			'orders'          => (int) $c['orders'],
 			'last_order_at'   => BizCity_MCP_Action_Support::iso( $c['last_order_ts'] ),
@@ -219,6 +224,11 @@ final class BizCity_CRM_Action_MCP_Service {
 			if ( strlen( $note ) > self::NOTE_MAX * 4 || ( function_exists( 'mb_strlen' ) && mb_strlen( $note ) > self::NOTE_MAX ) ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Ghi chú tối đa 2000 ký tự.', 422 );
 			}
+			// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — note/stage live in the plugin pipeline: say so
+			// before any write (tags/birthday are core), never a half-done update.
+			if ( ( '' !== $note || '' !== $stage ) && ! class_exists( 'BizCity_CRM_Pipeline_Stage_Service' ) ) {
+				return BizCity_MCP_Action_Support::crm_unavailable( 'crm_pipeline' );
+			}
 			$contact = BizCity_MCP_Action_Support::contact_access( $id, true, $uid );
 			if ( is_wp_error( $contact ) ) {
 				return $contact;
@@ -242,7 +252,7 @@ final class BizCity_CRM_Action_MCP_Service {
 			}
 			if ( '' !== $note || '' !== $stage ) {
 				if ( ! class_exists( 'BizCity_CRM_Pipeline_Stage_Service' ) ) {
-					return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Pipeline CRM chưa sẵn sàng.', 503 );
+					return BizCity_MCP_Action_Support::crm_unavailable( 'crm_pipeline' ); // [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5
 				}
 				$surface = 'person' === BizCity_MCP_Action_Support::customers_scope( $uid ) ? 'c' : 'b2';
 				$r = BizCity_CRM_Pipeline_Stage_Service::change( $uid, $id, array_filter( array( 'to' => $stage, 'note' => $note ), 'strlen' ), $surface );
@@ -260,16 +270,20 @@ final class BizCity_CRM_Action_MCP_Service {
 		} );
 	}
 
-	/** Tags through the CRM's own contact route (scope re-checked there; it replaces the list, so we send the merge). */
+	/**
+	 * Tags through the CRM's own contact route (scope re-checked there; it replaces the list, so we send the merge).
+	 * [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — put_crm_contact() lives in the core spine
+	 * (BizCity_CRM_Spine_REST; the plugin controller only inherits it): tags work without the plugin.
+	 */
 	private static function put_tags( $id, array $tags ) {
-		if ( ! class_exists( 'BizCity_CRM_REST_Controller' ) ) {
+		if ( ! class_exists( 'BizCity_CRM_Spine_REST' ) ) {
 			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'CRM chưa sẵn sàng.', 503 );
 		}
 		$req = new WP_REST_Request( 'PUT', '/bizcity-crm/v1/crm-contacts/' . (int) $id );
 		$req->set_param( 'id', (int) $id );
 		$req->set_header( 'content-type', 'application/json' );
 		$req->set_body( wp_json_encode( array( 'tags' => $tags ) ) );
-		$res  = BizCity_CRM_REST_Controller::put_crm_contact( $req );
+		$res  = BizCity_CRM_Spine_REST::put_crm_contact( $req );
 		if ( is_wp_error( $res ) ) {
 			return BizCity_MCP_Action_Support::from_business( $res );
 		}
@@ -358,7 +372,9 @@ final class BizCity_CRM_Action_MCP_Service {
 				$payload['conversation_id'] = $plan['conversation_id'];
 			}
 			if ( ! class_exists( 'BizCity_CRM_Task_Handoff' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
-				return BizCity_MCP_Action_Support::from_business( class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'tasks', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) ) );
+				// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — from_business() turned the unknown code
+				// into MCP_INTERNAL_ERROR (hint lost); crm_unavailable() is a catalogued code with its hint.
+				return BizCity_MCP_Action_Support::crm_unavailable( 'tasks' );
 			}
 			$res = BizCity_CRM_Task_Handoff::create( $uid, $payload );
 			if ( is_wp_error( $res ) ) {
@@ -378,7 +394,7 @@ final class BizCity_CRM_Action_MCP_Service {
 			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::SCOPE_DENIED, 'Chỉ quản lý (supervisor) hoặc quản trị viên mới giao khách cho nhân viên.', 403 );
 		}
 		if ( ! class_exists( 'BizCity_CRM_Task_Handoff' ) ) {
-			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Giao việc CRM chưa sẵn sàng.', 503 );
+			return BizCity_MCP_Action_Support::crm_unavailable( 'tasks' ); // [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5
 		}
 		$contact_id = BizCity_MCP_Action_Support::contact_id( $args['contact_ref'] ?? '' );
 		$conv_id    = max( 0, (int) ( $args['conversation_id'] ?? 0 ) );

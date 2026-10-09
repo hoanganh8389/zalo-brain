@@ -70,6 +70,11 @@ class BizCity_Intent_Provider_Registry {
      * @param BizCity_Intent_Provider $provider
      */
     public function register( BizCity_Intent_Provider $provider ) {
+        // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — legacy extension API (agent-calo,
+        // gemini-knowledge, automation-legacy, brain-addon knowledge-legacy subclass BizCity_Intent_Provider); dev notice only.
+        if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+            bizcity_z3_legacy_api_notice( 'BizCity_Intent_Provider_Registry::register()', 'BizCity_Zalo_Brain::register_tool()' );
+        }
         $id = $provider->get_id();
         $this->providers[ $id ] = $provider;
 

@@ -64,6 +64,7 @@ final class BizCity_MCP_Resource_Service {
 		'customers'       => 'Khách hàng (gói)',
 		'stock'           => 'Tồn kho (gói)',
 		'catalog'         => 'Danh mục sản phẩm (gói)',
+		'catalog_map'     => 'Bản đồ nhóm sản phẩm (gói)', // [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1
 		'astro_self'      => 'Lá số của tôi (gói)',
 	);
 
@@ -386,6 +387,9 @@ final class BizCity_MCP_Resource_Service {
 			case BizCity_MCP_Resource_URI::T_PRODUCT:
 				// @mcp bizcity-mcp-standard@1 resource bizcity://product/{id}
 				return self::read_product( (int) $a['id'], $p, $with_content );
+			case BizCity_MCP_Resource_URI::T_PRODUCT_GROUP:
+				// @mcp bizcity-mcp-standard@1 resource bizcity://product/group/{id}
+				return self::read_product_group( (int) $a['id'], $p, $with_content ); // [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1
 			case BizCity_MCP_Resource_URI::T_PACK:
 				// @mcp bizcity-mcp-standard@1 resource bizcity://pack/{kind}
 				return self::read_pack( (string) $a['kind'], $p, $with_content );
@@ -536,8 +540,10 @@ final class BizCity_MCP_Resource_Service {
 		$name = self::cut( (string) ( $row['name'] ?? '' ), 120 );
 		$out  = array( 'name' => $name, 'mimeType' => 'application/json', 'lastModified' => $last > 0 ? gmdate( 'Y-m-d\TH:i:s\Z', $last ) : '' );
 		if ( $with_content ) {
+			// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — label from customer() (plugin decorator via
+			// bizcity_crm_pack_customer_row), '' without the plugin. Was BizCity_CRM_Customer_Pipeline::LABELS (plugin only).
 			$stage  = (string) ( $row['stage'] ?? '' );
-			$labels = class_exists( 'BizCity_CRM_Customer_Pipeline' ) ? BizCity_CRM_Customer_Pipeline::LABELS : array();
+			$labels = '' !== (string) ( $row['stage_label'] ?? '' ) ? array( $stage => (string) $row['stage_label'] ) : array();
 			$owner  = (int) ( $row['owner_id'] ?? 0 );
 			$out['text'] = (string) wp_json_encode( array(
 				'contact_id'      => $contact_id,
@@ -577,6 +583,28 @@ final class BizCity_MCP_Resource_Service {
 		}
 		foreach ( self::pack_items( $spec, $p ) as $item ) {
 			if ( (int) ( $item['product_id'] ?? 0 ) === $id ) {
+				$st  = (array) call_user_func( $spec['stats'], self::pack_ctx( $p ) );
+				$out = array( 'name' => (string) ( $item['name'] ?? '' ), 'mimeType' => 'application/json', 'lastModified' => (string) ( $st['as_of'] ?? '' ) );
+				if ( $with_content ) {
+					$out['text'] = (string) wp_json_encode( $item );
+				}
+				return $out;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 — one group of the `catalog_map` pack (same exporter page() as the
+	 * pack: resource == pack item by construction). Unknown / empty group ⇒ not found.
+	 */
+	private static function read_product_group( int $id, array $p, bool $with_content ): ?array {
+		$spec = self::exporter( 'catalog_map' );
+		if ( ! $spec || ! self::pack_allowed( $spec, $p ) ) {
+			return null;
+		}
+		foreach ( self::pack_items( $spec, $p ) as $item ) {
+			if ( (int) ( $item['id'] ?? 0 ) === $id ) {
 				$st  = (array) call_user_func( $spec['stats'], self::pack_ctx( $p ) );
 				$out = array( 'name' => (string) ( $item['name'] ?? '' ), 'mimeType' => 'application/json', 'lastModified' => (string) ( $st['as_of'] ?? '' ) );
 				if ( $with_content ) {
@@ -744,6 +772,9 @@ final class BizCity_MCP_Resource_Service {
 			$uris[] = 'bizcity://pack/' . $kind;
 			if ( 'catalog' === $kind || 'stock' === $kind ) {
 				$uris[] = 'bizcity://product/*';
+			}
+			if ( 'catalog_map' === $kind ) { // [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1
+				$uris[] = 'bizcity://product/group/*';
 			}
 			if ( 'customers' === $kind || 'orders' === $kind ) {
 				$uris[] = 'bizcity://customer/*';
@@ -1088,11 +1119,17 @@ final class BizCity_MCP_Resource_Service {
 			$r = call_user_func( self::$readers['customer'], $contact_id );
 			return is_array( $r ) ? $r : null;
 		}
-		if ( $contact_id <= 0 || ! class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) {
+		// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — base facts from core (BizCity_CRM_Customers_Pack:
+		// owner, orders, revenue, activity) + the stage only when the CRM plugin decorates it. Was BizCity_CRM_Customer_Pipeline::rows().
+		if ( $contact_id <= 0 || ! class_exists( 'BizCity_CRM_Customers_Pack' ) ) {
 			return null;
 		}
-		$rows = BizCity_CRM_Customer_Pipeline::rows( array( $contact_id ) );
-		return isset( $rows[ $contact_id ] ) ? $rows[ $contact_id ] : null;
+		$rows = BizCity_CRM_Customers_Pack::facts( array( $contact_id ) );
+		if ( ! isset( $rows[ $contact_id ] ) ) {
+			return null;
+		}
+		$st = BizCity_CRM_Customers_Pack::stage_of( $contact_id );
+		return $rows[ $contact_id ] + array( 'stage' => $st['stage'], 'stage_label' => $st['label'] );
 	}
 
 	private static function customers_scope( int $user_id ): string {

@@ -11,7 +11,7 @@
 [![WordPress](https://img.shields.io/badge/WordPress-6.0%2B-21759B?logo=wordpress&logoColor=white)](https://wordpress.org/)
 [![License](https://img.shields.io/badge/license-GPL--2.0--or--later-2ea44f)](LICENSE)
 
-[Dùng thử](https://libedemo.bizcity.vn/gpt/) · [Lịch sử phát hành](CHANGELOG.md) · [Bảo mật](SECURITY.md) · [Đóng góp](CONTRIBUTING.md)
+[Dùng thử](https://libedemo.bizcity.vn/twin/) · [Lịch sử phát hành](CHANGELOG.md) · [Bảo mật](SECURITY.md) · [Đóng góp](CONTRIBUTING.md)
 
 ---
 

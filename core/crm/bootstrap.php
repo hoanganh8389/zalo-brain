@@ -25,8 +25,9 @@ if ( ! defined( 'BIZCITY_CRM_REST_NS' ) ) {
 	define( 'BIZCITY_CRM_REST_NS', 'bizcity-crm/v1' );
 }
 // Spine schema version. Same DDL as plugin 1.38.0 for the spine tables; 2.0.0 marks the split (no ALTER on upgrade).
+// [2026-10-10 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-6 — 2.1.0: contacts.lead_score_cell (migrate_phase_095).
 if ( ! defined( 'BIZCITY_CRM_DB_VERSION' ) ) {
-	define( 'BIZCITY_CRM_DB_VERSION', '2.0.0' );
+	define( 'BIZCITY_CRM_DB_VERSION', '2.1.0' );
 }
 if ( ! defined( 'BIZCITY_CRM_SPINE_DIR' ) ) {
 	define( 'BIZCITY_CRM_SPINE_DIR', __DIR__ );
@@ -71,7 +72,12 @@ require_once $bizcity_crm_inc . 'class-conversation-identity-resolver.php';
 require_once $bizcity_crm_inc . 'class-crm-contact-identity.php';
 require_once $bizcity_crm_inc . 'class-contact-roles.php';
 require_once $bizcity_crm_inc . 'class-contact-custom-meta.php';
+require_once $bizcity_crm_inc . 'class-contact-signals.php'; // [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — crm_signal read projection
 require_once $bizcity_crm_inc . 'class-contact-enrichment.php';
+// [2026-10-10 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-6 — person score vs cell score, one effective rule (guarded: new file).
+if ( is_readable( $bizcity_crm_inc . 'class-crm-lead-score.php' ) ) {
+	require_once $bizcity_crm_inc . 'class-crm-lead-score.php';
+}
 require_once $bizcity_crm_inc . 'class-contact-transfer.php';
 require_once $bizcity_crm_inc . 'class-personal-quota-rest.php';
 require_once $bizcity_crm_inc . 'class-system-owner.php';
@@ -122,6 +128,12 @@ BizCity_CRM_Core_Page::register();
 // ── REST (spine routes; the plugin's BizCity_CRM_REST_Controller extends this class) ─────────────────────────
 require_once $bizcity_crm_inc . 'rest/class-crm-spine-rest.php';
 
+// ── `customers` projection pack, base version: the cell answers about customers without the plugin ──────────
+// [2026-10-09 10:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L3 — D-W20-1: the plugin only decorates rows
+// (stage) through `bizcity_crm_pack_customer_row`; it no longer registers the kind.
+require_once $bizcity_crm_inc . 'class-crm-customers-pack.php';
+BizCity_CRM_Customers_Pack::register();
+
 unset( $bizcity_crm_inc );
 
 /**
@@ -132,6 +144,11 @@ final class BizCity_CRM_Spine_Boot {
 	public static function init(): void {
 		// Install / upgrade on admin pages and REST (webhook context has no admin_init).
 		add_action( 'admin_init', array( 'BizCity_CRM_DB_Installer_V2', 'maybe_upgrade' ) );
+		// [2026-10-10 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-13 — canonical identities, once, after the schema upgrade (no backup, owner 2026-10-10).
+		if ( is_readable( __DIR__ . '/includes/class-crm-identity-canon-migration.php' ) ) {
+			require_once __DIR__ . '/includes/class-crm-identity-canon-migration.php';
+			add_action( 'admin_init', array( 'BizCity_CRM_Identity_Canon_Migration', 'maybe_run' ), 20 );
+		}
 		add_action( 'rest_api_init', array( 'BizCity_CRM_DB_Installer_V2', 'maybe_upgrade' ), 1 );
 
 		// Channel adapter registry — eager (FB webhook exits at init@0).

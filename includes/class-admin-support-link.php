@@ -29,8 +29,8 @@ class BizCity_Admin_Support_Link {
 		'bizchat-',
 		'bizgpt-',
 		'bizcoach-',
-		'bccm_',
-		'bccm-',
+		// [2026-10-09 10:42 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-BZ10 — app page prefixes (bccm_, bccm-) come from the app plugin
+		// through `bizcity_admin_support_link_page_markers` (D-W20-8).
 		'bzgk',
 		'bzck',
 		'bzcalo',
@@ -182,8 +182,9 @@ class BizCity_Admin_Support_Link {
 			return false;
 		}
 
+		$markers = array_values( array_filter( array_map( 'strval', (array) apply_filters( 'bizcity_admin_support_link_page_markers', self::$page_markers ) ) ) );
 		foreach ( $haystacks as $value ) {
-			foreach ( self::$page_markers as $marker ) {
+			foreach ( $markers as $marker ) {
 				if ( strpos( $value, $marker ) !== false ) {
 					return true;
 				}

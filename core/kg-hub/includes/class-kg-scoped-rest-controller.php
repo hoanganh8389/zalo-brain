@@ -253,12 +253,8 @@ class BizCity_KG_Scoped_REST_Controller {
 			$skip_gate = $uid > 0 && user_can( $uid, 'manage_options' );
 			if ( ! $skip_gate ) {
 				$allowed = array( 'txt', 'md', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'rtf' ); // safe fallback
-				if ( class_exists( 'BizCity_Membership_Entitlement' ) ) {
-					$ent     = BizCity_Membership_Entitlement::instance()->for_user( $uid );
-					$allowed = isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] )
-						? $ent['accepted_file_types']
-						: $allowed;
-				}
+				// [2026-10-09 09:22 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-0 (PHASE-0.96 D96-23) — the per-plan file-type
+				// list came from core/membership (retired); the safe fallback above is now the only list, as it already was without it.
 				// [2026-07-14 Johnny Chu] HOTFIX — normalize extension list + keep legacy Office aliases.
 				$normalized_allowed = array();
 				foreach ( (array) $allowed as $type_ext ) {

@@ -29,17 +29,19 @@ final class BizCity_Business_MCP_Service {
 		// [2026-07-28 Johnny Chu] PHASE-0.54-MCP — delegate revenue aggregation to the canonical CRM Woo bridge.
 		$from = $this->date_arg( $args, 'from', -30 );
 		$to   = $this->date_arg( $args, 'to', 0 );
-		if ( ! class_exists( 'BizCity_CRM_Woo_Reports_Bridge' ) ) {
+		// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — sales.summary is a read the cell needs: the
+		// money rules live in core (core/mcp/verticals/woo, BizCity_Woo_Reports_Bridge), no CRM plugin needed. The plugin name stays an
+		// alias (fallback for an older layout). The second, unreachable "plugin missing" guard (PHASE-0.96) is gone. `source` keeps
+		// its old label: it is part of the MCP contract fixture (bridge.tools_call.sales_summary.json).
+		$bridge = class_exists( 'BizCity_Woo_Reports_Bridge' ) ? 'BizCity_Woo_Reports_Bridge' : ( class_exists( 'BizCity_CRM_Woo_Reports_Bridge' ) ? 'BizCity_CRM_Woo_Reports_Bridge' : '' );
+		if ( '' === $bridge ) {
 			return array( '_degraded' => true, 'reason' => 'crm_woo_reports_unavailable', 'from' => $from, 'to' => $to, 'summary' => $this->zero_sales( $from, $to ) );
-		}
-		if ( ! class_exists( 'BizCity_CRM_Woo_Reports_Bridge' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
-			return class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'reports', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) );
 		}
 		return array(
 			'from'    => $from,
 			'to'      => $to,
 			'source'  => 'BizCity_CRM_Woo_Reports_Bridge::get_revenue_summary',
-			'summary' => BizCity_CRM_Woo_Reports_Bridge::get_revenue_summary( $from, $to ),
+			'summary' => call_user_func( array( $bridge, 'get_revenue_summary' ), $from, $to ),
 		);
 	}
 
@@ -54,9 +56,8 @@ final class BizCity_Business_MCP_Service {
 		$metrics = array_slice( $metrics, 0, 12 );
 		$group_by = isset( $args['group_by'] ) ? sanitize_key( (string) $args['group_by'] ) : 'none';
 		$out      = array();
-		if ( ! class_exists( 'BizCity_CRM_Report_Builder' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
-			return class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'reports', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) );
-		}
+		// [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — the second "plugin missing" guard (PHASE-0.96)
+		// was unreachable (the first one above already answers `_degraded`, a read never errors); removed.
 		foreach ( $metrics as $metric ) {
 			$result = BizCity_CRM_Report_Builder::aggregate( array(
 				'metric'   => $metric,

@@ -11,13 +11,14 @@
  *   label          string   Human-readable label (i18n-translated by caller)
  *   icon           string   lucide-react icon id
  *   emoji          string   optional, takes precedence over icon (used by legacy sidebars)
- *   mode           string   'embed' (default) | 'home' | 'workspace' | 'route' | 'link'
+ *   mode           string   'embed' (default) | 'home' | 'workspace' | 'route' | 'link' | 'launcher' (the Apps tile)
  *   public_slug    string   Front-end URL fragment for the plugin page (e.g. '/twinchat/')
  *   target_url     string   Absolute URL for `mode = 'link'` entries (admin pages etc.)
  *   capability     string   WP capability required (default 'read'); forced to 'bizcity_use_<id>' when `access` is set
  *   access         array    module-access@1.0.0: { mode: grantable|delegated|admin_only, owner, manage{plugin,r},
  *                           default_roles[] } — resolved by BizCity_Twin_Module_Access (PHASE-0.84)
  *   section        string   'top' | 'bottom'
+ *   group          string   'apps' ⇒ shown in the "Apps" launcher (zalo_brain_apps), not as an ActivityBar icon (WP-20 W20-L7)
  *   params         array    Whitelisted query keys forwarded into the iframe URL
  *   desc           string   Optional one-line description
  *   requires       array    Optional gating spec — keys: const|class|function|plugin.
@@ -55,14 +56,23 @@ class BizCity_Twin_Shell_Registry {
 		'scheduler'      => 50,
 		'workflow'       => 60,
 		'twinkg'         => 70,
-		'personal'       => 110,
-		'qr'             => 120,
-		'web'            => 130,
-		'creator'        => 140,
-		'profile-public' => 150,
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — personal/qr/web/creator/profile-public left the
+		// ActivityBar for the "Apps" launcher (group 'apps', D-W20-2); the one launcher tile sits right above Settings.
 		'marketplace'    => 900,
+		'apps'           => 905,
 		'settings'       => 910,
 	];
+
+	/**
+	 * [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 (D-W20-2) — the "Apps" launcher.
+	 * Entries registered with `'group' => 'apps'` never get their own ActivityBar icon; they are listed in `apps[]`
+	 * and opened from the one launcher tile (id APPS_TILE, mode 'launcher'). Future apps add their tile with
+	 * the published filter APPS_FILTER: `zalo_brain_apps( array $apps, int $user_id ): array`, each item
+	 * { id, label, icon, url|plugin, cap, requires, position } (emoji, desc optional).
+	 */
+	const APPS_FILTER = 'zalo_brain_apps';
+	const APPS_GROUP  = 'apps';
+	const APPS_TILE   = 'apps';
 
 	private static $instance = null;
 	private $cache = null;
@@ -116,6 +126,8 @@ class BizCity_Twin_Shell_Registry {
 				'nav_iurl'    => isset( $entry['nav_iurl'] )   ? (string) $entry['nav_iurl']   : '',
 				'capability'  => isset( $entry['capability'] ) ? (string) $entry['capability'] : 'read',
 				'section'     => ( isset( $entry['section'] ) && 'bottom' === $entry['section'] ) ? 'bottom' : 'top',
+				// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — 'apps' ⇒ listed in the Apps launcher, not the ActivityBar.
+				'group'       => ( isset( $entry['group'] ) && self::APPS_GROUP === $entry['group'] ) ? self::APPS_GROUP : '',
 				'params'      => isset( $entry['params'] ) && is_array( $entry['params'] ) ? array_values( array_unique( array_map( 'sanitize_key', $entry['params'] ) ) ) : [],
 				'desc'        => isset( $entry['desc'] ) ? (string) $entry['desc'] : '',
 				'requires'    => ( isset( $entry['requires'] ) && is_array( $entry['requires'] ) ) ? $entry['requires'] : [],
@@ -132,6 +144,11 @@ class BizCity_Twin_Shell_Registry {
 				'license'     => isset( $entry['license'] ) ? sanitize_key( (string) $entry['license'] ) : '',
 				'upsell'      => ! empty( $entry['upsell'] ),
 				'badge'       => isset( $entry['badge'] ) ? strtoupper( sanitize_key( (string) $entry['badge'] ) ) : '',
+				// [2026-10-09 11:05 PM Johnny Chu - Chu Hoàng Anh] the locked notice of an add-on names ITS plugin: display name, plugin file
+				// (activate button when the folder exists) and GitHub download. Empty ⇒ Automation's (BizCity_Twin_Addon_License defaults).
+				'addon_name'   => isset( $entry['addon_name'] ) ? sanitize_text_field( (string) $entry['addon_name'] ) : '',
+				'addon_file'   => isset( $entry['addon_file'] ) ? (string) preg_replace( '#[^a-z0-9_./-]#i', '', (string) $entry['addon_file'] ) : '',
+				'addon_github' => isset( $entry['addon_github'] ) ? esc_url_raw( (string) $entry['addon_github'] ) : '',
 				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — Twin Route
 				// Contract v1 (TRC). `route_mode` opts a plugin into the canonical `r`
 				// (plugin-relative route, e.g. '/inbox/13/conv/88') query param instead of the
@@ -331,12 +348,206 @@ class BizCity_Twin_Shell_Registry {
 	 */
 	public function default_id( $visible = null ) {
 		$plugins = self::sort_for_activity_bar( is_array( $visible ) ? $visible : $this->all() );
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — the launcher tile has no page of its own.
+		$plugins = array_values( array_filter( $plugins, static function ( $p ) {
+			return 'launcher' !== ( isset( $p['mode'] ) ? $p['mode'] : '' );
+		} ) );
 		foreach ( $plugins as $p ) {
 			if ( 'bottom' !== ( isset( $p['section'] ) ? $p['section'] : 'top' ) ) {
 				return (string) $p['id'];
 			}
 		}
 		return empty( $plugins ) ? '' : (string) $plugins[0]['id'];
+	}
+
+	/**
+	 * True when the entry belongs in the Apps launcher instead of the ActivityBar.
+	 *
+	 * @param mixed $p
+	 * @return bool
+	 */
+	public static function is_app_entry( $p ) {
+		return is_array( $p ) && isset( $p['group'] ) && self::APPS_GROUP === $p['group'];
+	}
+
+	/**
+	 * The apps a user may open from the "Apps" launcher (D-W20-2), sorted by `position`.
+	 *
+	 * Registry entries with `group => 'apps'` come first (their registration order gives the default
+	 * position 110, 120, …), then `zalo_brain_apps` may add, remove or reorder. Every item — registered or
+	 * filter-added — must pass `requires` (requirement_met) and its capability (module-access@1:
+	 * `bizcity_use_<id>` when the entry declares `access`) for this user.
+	 *
+	 * [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7.
+	 *
+	 * @param int        $user_id
+	 * @param array|null $candidates Registry entries already vetted by the caller (e.g. the /twin/ page's visible
+	 *                               list, which carries plan/lock flags); null = every registry entry.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function apps_for_user( $user_id, $candidates = null ) {
+		$user_id = (int) $user_id;
+		$source  = is_array( $candidates ) ? $candidates : $this->all();
+		$apps    = [];
+		$pos     = 100;
+		foreach ( $source as $p ) {
+			if ( ! self::is_app_entry( $p ) ) {
+				continue;
+			}
+			$pos   += 10;
+			$p['position'] = isset( $p['position'] ) ? (int) $p['position'] : $pos;
+			$apps[] = $p;
+		}
+
+		/**
+		 * Add, remove or reorder tiles of the "Apps" launcher.
+		 *
+		 * @param array $apps    Items { id, label, icon, url|plugin, cap, requires, position, emoji?, desc? }.
+		 * @param int   $user_id The viewer.
+		 */
+		$apps = apply_filters( self::APPS_FILTER, $apps, $user_id );
+
+		$out  = [];
+		$seen = [];
+		foreach ( is_array( $apps ) ? array_values( $apps ) : [] as $i => $raw ) {
+			$app = $this->normalize_app( $raw, 100 + ( $i + 1 ) * 10 );
+			if ( null === $app || isset( $seen[ $app['id'] ] ) ) {
+				continue;
+			}
+			if ( ! self::requirement_met( $app['requires'] ) ) {
+				continue;
+			}
+			if ( '' !== $app['cap'] && ! self::user_can_cap( $user_id, $app['cap'] ) ) {
+				continue;
+			}
+			$seen[ $app['id'] ] = true;
+			$out[]              = [ $app['position'], count( $out ), $app ];
+		}
+		usort( $out, static function ( $a, $b ) {
+			return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
+		} );
+		return array_map( static function ( $row ) {
+			return $row[2];
+		}, $out );
+	}
+
+	/**
+	 * Normalize one launcher item. Registry entries keep every field (the shell opens them like any plugin);
+	 * a filter item naming `plugin` borrows that registry entry's fields; a `url`-only item opens as a link.
+	 *
+	 * @param mixed $raw
+	 * @param int   $default_position
+	 * @return array|null
+	 */
+	private function normalize_app( $raw, $default_position ) {
+		if ( ! is_array( $raw ) || empty( $raw['id'] ) ) {
+			return null;
+		}
+		$id = sanitize_key( (string) $raw['id'] );
+		if ( '' === $id || self::APPS_TILE === $id ) {
+			return null;
+		}
+		$plugin = isset( $raw['plugin'] ) ? sanitize_key( (string) $raw['plugin'] ) : '';
+		$base   = [];
+		if ( isset( $raw['public_slug'] ) || isset( $raw['target_url'] ) ) {
+			$base = $raw; // already a registry entry
+		} elseif ( '' !== $plugin && null !== ( $reg = $this->get( $plugin ) ) ) {
+			$base = $reg;
+		}
+		$url = isset( $raw['url'] ) ? esc_url_raw( (string) $raw['url'] ) : '';
+		$cap = isset( $raw['cap'] ) ? (string) $raw['cap'] : ( isset( $base['capability'] ) ? (string) $base['capability'] : 'read' );
+		$app = array_merge( $base, [
+			'id'       => $id,
+			'label'    => isset( $raw['label'] ) ? (string) $raw['label'] : ( isset( $base['label'] ) ? (string) $base['label'] : $id ),
+			'icon'     => isset( $raw['icon'] ) ? (string) $raw['icon'] : ( isset( $base['icon'] ) ? (string) $base['icon'] : 'puzzle' ),
+			'emoji'    => isset( $raw['emoji'] ) ? (string) $raw['emoji'] : ( isset( $base['emoji'] ) ? (string) $base['emoji'] : '' ),
+			'desc'     => isset( $raw['desc'] ) ? (string) $raw['desc'] : ( isset( $base['desc'] ) ? (string) $base['desc'] : '' ),
+			'group'    => self::APPS_GROUP,
+			'section'  => 'top',
+			'plugin'   => '' !== $plugin ? $plugin : ( empty( $base ) ? '' : $id ),
+			'url'      => $url,
+			'cap'      => $cap,
+			'requires' => ( isset( $raw['requires'] ) && is_array( $raw['requires'] ) ) ? $raw['requires'] : [],
+			'position' => isset( $raw['position'] ) ? (int) $raw['position'] : (int) $default_position,
+		] );
+		if ( empty( $base ) ) {
+			if ( '' === $url ) {
+				return null; // nothing to open
+			}
+			$app['mode']        = 'link';
+			$app['target_url']  = $url;
+			$app['public_slug'] = '';
+			$app['params']      = [];
+			$app['route_mode']  = 'legacy';
+			$app['capability']  = $cap;
+		}
+		return $app;
+	}
+
+	/**
+	 * @param int    $user_id
+	 * @param string $cap
+	 * @return bool
+	 */
+	private static function user_can_cap( $user_id, $cap ) {
+		if ( function_exists( 'user_can' ) ) {
+			return (bool) user_can( (int) $user_id, (string) $cap );
+		}
+		return (int) $user_id === (int) get_current_user_id() && current_user_can( (string) $cap );
+	}
+
+	/**
+	 * Whether a user sees the "Apps" tile: an admin always (empty state offers "Thêm ứng dụng"),
+	 * anyone else only with at least one app.
+	 *
+	 * @param int   $user_id
+	 * @param array $apps Output of apps_for_user().
+	 * @return bool
+	 */
+	public static function show_apps_tile( $user_id, array $apps ) {
+		return ! empty( $apps ) || self::user_can_cap( (int) $user_id, 'manage_options' );
+	}
+
+	/**
+	 * Split a list of registry entries the user may see into the ActivityBar and the launcher.
+	 *
+	 * @param array<int, array<string, mixed>> $entries Entries already filtered for this user.
+	 * @param int                              $user_id
+	 * @return array{bar: array, apps: array, show_tile: bool}
+	 */
+	public function split_activity_bar( array $entries, $user_id ) {
+		$apps = $this->apps_for_user( $user_id, $entries );
+		$show = self::show_apps_tile( $user_id, $apps );
+		$bar  = [];
+		foreach ( $entries as $p ) {
+			if ( self::is_app_entry( $p ) ) {
+				continue;
+			}
+			if ( isset( $p['id'] ) && self::APPS_TILE === $p['id'] ) {
+				if ( ! $show ) {
+					continue;
+				}
+				$p['apps_count'] = count( $apps );
+			}
+			$bar[] = $p;
+		}
+		return [ 'bar' => $bar, 'apps' => $apps, 'show_tile' => $show ];
+	}
+
+	/**
+	 * Where the empty launcher's "Thêm ứng dụng" button goes (Settings › Plugins Store), for admins only.
+	 *
+	 * @param int $user_id
+	 * @return array|null { plugin, iurl }
+	 */
+	public static function apps_manage_target( $user_id ) {
+		if ( ! self::user_can_cap( (int) $user_id, 'manage_options' ) ) {
+			return null;
+		}
+		return [
+			'plugin' => 'settings',
+			'iurl'   => '/twin/panel/?bizcity_iframe=1#/setting-panel/plugins-store',
+		];
 	}
 
 	/**
@@ -462,6 +673,10 @@ class BizCity_Twin_Shell_Registry {
 			// Hide locked (non-core, requirement unmet) entries from the
 			// legacy sidebar too — same UX as the Twin Shell ActivityBar.
 			if ( ! empty( $p['locked'] ) ) {
+				continue;
+			}
+			// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — the launcher tile has no URL; app entries keep their old output here.
+			if ( 'launcher' === $p['mode'] ) {
 				continue;
 			}
 

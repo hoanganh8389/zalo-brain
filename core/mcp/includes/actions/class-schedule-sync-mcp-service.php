@@ -156,6 +156,11 @@ final class BizCity_Schedule_Sync_MCP_Service {
 				if ( is_wp_error( $res ) ) {
 					return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Không cập nhật được lịch: ' . $res->get_error_message(), 422 );
 				}
+				// [2026-10-09 09:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W6 — a site row the cell runs (D95-21 workflow anchor, reminders)
+				// just got the cell's truth: Automation keeps "5 lần trước" and follows a schedule changed on the cell. ($event_id, $meta, $args)
+				if ( $site_row && function_exists( 'do_action' ) ) {
+					do_action( 'bizcity_scheduler_cell_job_synced', (int) $existing->id, $merged, $args );
+				}
 				return array( 'event_id' => (int) $existing->id, 'synced' => true, 'status' => $status );
 			}
 

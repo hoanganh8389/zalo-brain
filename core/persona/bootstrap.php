@@ -76,49 +76,10 @@ add_filter(
     5
 );
 
-// [2026-07-05 Johnny Chu] HOTFIX — bridge persona provider tools into Twin Tool Registry.
-add_filter(
-    'bizcity_twin_register_tool',
-    static function ( $registry ) {
-        if ( ! is_array( $registry ) ) {
-            $registry = array();
-        }
-        if ( ! interface_exists( 'BizCity_Twin_Tool' ) ) {
-            return $registry;
-        }
-
-        $adapter_file = BIZCITY_PERSONA_INCLUDES . 'class-persona-provider-tool-adapter.php';
-        if ( file_exists( $adapter_file ) ) {
-            require_once $adapter_file;
-        }
-        if ( ! class_exists( 'BizCity_Persona_Provider_Tool_Adapter' ) ) {
-            return $registry;
-        }
-
-        foreach ( BizCity_Persona_Registry::instance()->all() as $provider ) {
-            if ( ! is_object( $provider ) || ! method_exists( $provider, 'get_tool_definitions' ) ) {
-                continue;
-            }
-            $defs = (array) $provider->get_tool_definitions();
-            foreach ( $defs as $idx => $def ) {
-                if ( ! is_array( $def ) ) {
-                    continue;
-                }
-                if ( empty( $def['name'] ) && is_string( $idx ) && $idx !== '' ) {
-                    $def['name'] = $idx;
-                }
-                $tool_name = isset( $def['name'] ) ? sanitize_key( (string) $def['name'] ) : '';
-                if ( $tool_name === '' || isset( $registry[ $tool_name ] ) ) {
-                    continue;
-                }
-                $registry[ $tool_name ] = new BizCity_Persona_Provider_Tool_Adapter( $provider, $def );
-            }
-        }
-
-        return $registry;
-    },
-    40
-);
+// [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — the bizcity_twin_register_tool bridge for
+// BizCity_Persona_Tool_Provider tools (and BizCity_Persona_Provider_Tool_Adapter) → core/_archived/z3-20261010/persona/.
+// No plugin, sibling plugin or mu-plugin adds to bizcity_persona_tool_providers (census W20-Z3), so the bridge never
+// produced a tool. Extensions expose tools with BizCity_Zalo_Brain::register_tool() (MCP tool-registry@1).
 
 /**
  * Surface validation errors to admins as a notice (debug only — silent in prod).

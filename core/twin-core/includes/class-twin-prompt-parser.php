@@ -364,6 +364,10 @@ class BizCity_Twin_Prompt_Parser {
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — quarantined + writer-stop: refuse SQL writes.
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'insert' ) ) {
+			return 0;
+		}
 
 		$wpdb->insert( $table, $data );
 		return (int) $wpdb->insert_id;

@@ -102,38 +102,57 @@ final class BizCity_Twin_Addon_License {
 		return function_exists( 'apply_filters' ) ? (bool) apply_filters( 'bizcity_addon_on_bizcity_network', $ok, $domain ) : $ok;
 	}
 
+	/**
+	 * [2026-10-09 11:05 PM Johnny Chu - Chu Hoàng Anh] Which add-on a registry entry locks on: display name, plugin file, GitHub URL.
+	 * An entry without `addon_*` keys is Automation (the first licensed add-on), so existing callers keep their exact words.
+	 *
+	 * @param array $p registry entry
+	 * @return array{name:string,file:string,github:string}
+	 */
+	public static function addon_of( array $p = array() ): array {
+		$file = (string) ( $p['addon_file'] ?? '' );
+		return array(
+			'name'   => '' !== (string) ( $p['addon_name'] ?? '' ) ? (string) $p['addon_name'] : 'BizCity Automation',
+			'file'   => '' !== $file ? $file : self::PLUGIN_FILE,
+			'github' => '' !== (string) ( $p['addon_github'] ?? '' ) ? (string) $p['addon_github'] : self::GITHUB_URL,
+		);
+	}
+
 	/** The add-on's plugin folder exists on this install (activation possible without upload). */
-	public static function plugin_on_disk(): bool {
+	public static function plugin_on_disk( string $file = self::PLUGIN_FILE ): bool {
 		if ( isset( self::$readers['on_disk'] ) ) {
-			return (bool) call_user_func( self::$readers['on_disk'] );
+			return (bool) call_user_func( self::$readers['on_disk'], $file );
 		}
 		$base = defined( 'WP_PLUGIN_DIR' ) ? WP_PLUGIN_DIR : '';
-		return '' !== $base && is_file( rtrim( $base, '/\\' ) . '/' . self::PLUGIN_FILE );
+		return '' !== $base && is_file( rtrim( $base, '/\\' ) . '/' . $file );
 	}
 
 	/**
 	 * Call to action of a `plugin` lock: { kind: activate|ask_admin|download, label, url }.
 	 * Activate = per-site activation link with nonce (the plugin header says `Network: false`).
+	 *
+	 * @param array $p registry entry (optional `addon_name` / `addon_file` / `addon_github`; none ⇒ Automation)
 	 */
-	public static function plugin_action(): array {
+	public static function plugin_action( array $p = array() ): array {
 		// [2026-10-05 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — owner rule: plugin folder found ⇒ an ACTIVATE button (any
 		// site, not only bizcity.vn); not found ⇒ download from GitHub.
-		if ( self::plugin_on_disk() ) {
+		$a = self::addon_of( $p );
+		if ( self::plugin_on_disk( $a['file'] ) ) {
 			// [2026-10-05 11:40 PM Johnny Chu - Chu Hoàng Anh] Plugin header is `Network: false` — a normal client site activates it on its
 			// own plugins.php; never send the viewer to the network admin.
 			$can_one = function_exists( 'current_user_can' ) && current_user_can( 'activate_plugins' );
 			if ( $can_one && function_exists( 'admin_url' ) ) {
-				$url = admin_url( 'plugins.php?action=activate&plugin=' . rawurlencode( self::PLUGIN_FILE ) );
+				$url = admin_url( 'plugins.php?action=activate&plugin=' . rawurlencode( $a['file'] ) );
 			} else {
 				return array( 'kind' => 'ask_admin', 'label' => 'Nhờ quản trị viên kích hoạt plugin', 'url' => '' );
 			}
 			return array(
 				'kind'  => 'activate',
-				'label' => 'Kích hoạt plugin BizCity Automation',
-				'url'   => function_exists( 'wp_nonce_url' ) ? wp_nonce_url( $url, 'activate-plugin_' . self::PLUGIN_FILE ) : $url,
+				'label' => 'Kích hoạt plugin ' . $a['name'],
+				'url'   => function_exists( 'wp_nonce_url' ) ? wp_nonce_url( $url, 'activate-plugin_' . $a['file'] ) : $url,
 			);
 		}
-		return array( 'kind' => 'download', 'label' => 'Tải BizCity Automation (GitHub)', 'url' => self::GITHUB_URL );
+		return array( 'kind' => 'download', 'label' => 'Tải ' . $a['name'] . ' (GitHub)', 'url' => $a['github'] );
 	}
 
 	/** Service slugs of the Hub plan (option bizcity_hub_plugins_enabled), [] when not synced. */

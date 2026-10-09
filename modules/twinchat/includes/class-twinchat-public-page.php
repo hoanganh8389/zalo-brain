@@ -257,6 +257,8 @@ class BizCity_TwinChat_Public_Page {
 			'pluginUrl'    => BIZCITY_TWINCHAT_URL,
 			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
 			'activityBar'  => self::get_activity_bar(),
+			'apps'         => self::get_apps(), // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — "Apps" launcher tiles
+			'appsManage'   => self::get_apps_manage(),
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
 			// [2026-10-03 Claude Sonnet 5] CORE-REDUCTION — Ask Brain posts directly to bizcity-twinbrain/v1/turn/stream.
 			// [2026-10-03 Claude Sonnet 5] HOTFIX (B-4 S3a reversal) — TwinBrain is core now, loaded unconditionally
@@ -302,6 +304,9 @@ class BizCity_TwinChat_Public_Page {
 			// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-3A — manual + policies URLs for AccountPage footer
 			'manualUrl'     => esc_url_raw( get_option( 'bizcity_manual_url',   'https://bizcity.vn/huong-dan/' ) ),
 			'policiesUrl'   => esc_url_raw( get_option( 'bizcity_policies_url', 'https://bizcity.vn/chinh-sach/' ) ),
+			// [2026-10-09 21:05 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: profile +
+			// password are edited on the WordPress profile page (the membership REST is gone).
+			'profileUrl'    => esc_url_raw( admin_url( 'profile.php' ) ),
 		] );
 
 		wp_enqueue_script(
@@ -496,6 +501,8 @@ class BizCity_TwinChat_Public_Page {
 			'pluginUrl'    => BIZCITY_TWINCHAT_URL,
 			'shellUrl'     => esc_url_raw( home_url( '/twin/' ) ),
 			'activityBar'  => self::get_activity_bar(),
+			'apps'         => self::get_apps(), // [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — "Apps" launcher tiles
+			'appsManage'   => self::get_apps_manage(),
 			'debug'        => class_exists( 'BizCity_Twin_Debug' ) ? BizCity_Twin_Debug::is_enabled() : false,
 			// [2026-10-03 Claude Sonnet 5] CORE-REDUCTION — Ask Brain posts directly to bizcity-twinbrain/v1/turn/stream.
 			// [2026-10-03 Claude Sonnet 5] HOTFIX (B-4 S3a reversal) — TwinBrain is core now, loaded unconditionally
@@ -541,6 +548,9 @@ class BizCity_TwinChat_Public_Page {
 			// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-3A — manual + policies URLs for AccountPage footer
 			'manualUrl'     => esc_url_raw( get_option( 'bizcity_manual_url',   'https://bizcity.vn/huong-dan/' ) ),
 			'policiesUrl'   => esc_url_raw( get_option( 'bizcity_policies_url', 'https://bizcity.vn/chinh-sach/' ) ),
+			// [2026-10-09 21:05 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: profile +
+			// password are edited on the WordPress profile page (the membership REST is gone).
+			'profileUrl'    => esc_url_raw( admin_url( 'profile.php' ) ),
 		] );
 		if ( file_exists( $manifest ) ) {
 			$ver .= '.' . filemtime( $manifest );
@@ -754,12 +764,18 @@ class BizCity_TwinChat_Public_Page {
 			$plugins = BizCity_Twin_Shell_Registry::instance()->all();
 			if ( ! empty( $plugins ) ) {
 				$out = [];
+				// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 (D-W20-2) — Pro apps (group 'apps') are not
+				// listed here any more; they live in `apps[]` behind the one "Apps" tile (shown to an admin, or to a member with ≥ 1 app).
+				$show_apps = BizCity_Twin_Shell_Registry::show_apps_tile( get_current_user_id(), self::get_apps() );
 				foreach ( $plugins as $p ) {
 					// [2026-10-03 Claude Sonnet 5] CORE-REDUCTION (owner: "plug n play, gỡ ko active thì vẫn
 					// bình thường") — this ActivityBar has no "locked/upgrade" UI (unlike the plan-gate screens
 					// elsewhere), so an entry with an unmet `requires` (e.g. workflow -> bizcity-twin-brain-addon)
 					// must be hidden entirely, not merely annotated. all() already computed `locked` for us.
 					if ( ! empty( $p['locked'] ) ) {
+						continue;
+					}
+					if ( BizCity_Twin_Shell_Registry::is_app_entry( $p ) || ( 'launcher' === $p['mode'] && ! $show_apps ) ) {
 						continue;
 					}
 					$mode      = (string) $p['mode'];
@@ -785,14 +801,11 @@ class BizCity_TwinChat_Public_Page {
 		// Fallback — legacy inline list (kept for installs where twinshell isn't loaded).
 		$bizcity_account_url = 'https://bizcity.vn/my-account/';
 		$td = 'bizcity-twin-ai';
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 — creator/doc/image/video/web removed: Pro apps are
+		// only reachable through the "Apps" tile (its list comes from `apps[]`, empty without the registry; the tile is admin-only then).
 		$items = [
 			[ 'id' => 'home',         'label' => __( 'Home',             $td ), 'icon' => 'home',       'mode' => 'home',  'section' => 'top' ],
-			[ 'id' => 'creator',      'label' => __( 'Plans & Scripts',  $td ), 'icon' => 'creator',    'mode' => 'embed', 'pluginId' => 'creator',   'section' => 'top' ],
-			[ 'id' => 'doc',          'label' => __( 'Documents',        $td ), 'icon' => 'doc',        'mode' => 'embed', 'pluginId' => 'doc',       'section' => 'top' ],
 			[ 'id' => 'crm',          'label' => __( 'CRM Inbox',        $td ), 'icon' => 'gateway',    'mode' => 'embed', 'pluginId' => 'crm',       'section' => 'top' ],
-			[ 'id' => 'image',        'label' => __( 'Product Images',   $td ), 'icon' => 'image',      'mode' => 'embed', 'pluginId' => 'image',     'section' => 'top' ],
-			[ 'id' => 'video',        'label' => __( 'Video',            $td ), 'icon' => 'video',      'mode' => 'embed', 'pluginId' => 'video',     'section' => 'top' ],
-			[ 'id' => 'web',          'label' => __( 'Web Builder',      $td ), 'icon' => 'web',        'mode' => 'embed', 'pluginId' => 'web',       'section' => 'top' ],
 			[ 'id' => 'twin-builder', 'label' => __( 'TwinBuilder',      $td ), 'icon' => 'brain',      'mode' => 'link',  'target' => admin_url( 'admin.php?page=bizcity-twin-builder' ), 'section' => 'top' ],
 			// [2026-06-17 Johnny Chu] UX — removed Account & Billing button from ActivityBar
 			[ 'id' => 'scheduler',    'label' => __( 'Reminders',        $td ), 'icon' => 'scheduler',  'mode' => 'embed', 'pluginId' => 'scheduler', 'section' => 'bottom' ],
@@ -803,6 +816,9 @@ class BizCity_TwinChat_Public_Page {
 			// R3 (2026-09-26), same dead-page issue already fixed in the primary registry (modules/twinshell/includes/
 			// default-plugins.php). This array is a fallback used only when BizCity_Twin_Shell_Registry isn't loaded.
 		];
+		if ( current_user_can( 'manage_options' ) ) {
+			$items[] = [ 'id' => 'apps', 'label' => __( 'Apps', $td ), 'icon' => 'grid', 'mode' => 'launcher', 'section' => 'bottom' ];
+		}
 		$items = apply_filters( 'bizcity_twinchat_activity_bar', $items );
 		$out = [];
 		foreach ( (array) $items as $it ) {
@@ -821,5 +837,50 @@ class BizCity_TwinChat_Public_Page {
 			];
 		}
 		return $out;
+	}
+
+	/**
+	 * Tiles of the "Apps" launcher for the current user, in the TwinChat ActivityBar item shape.
+	 * Same source as /twin/ (BizCity_Twin_Shell_Registry::apps_for_user → `zalo_brain_apps`); empty without the registry.
+	 *
+	 * [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-U2 (D-W20-2).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function get_apps() {
+		static $cache = null;
+		if ( null !== $cache ) {
+			return $cache;
+		}
+		$cache = [];
+		if ( ! class_exists( 'BizCity_Twin_Shell_Registry' ) || ! method_exists( 'BizCity_Twin_Shell_Registry', 'apps_for_user' ) ) {
+			return $cache;
+		}
+		foreach ( BizCity_Twin_Shell_Registry::instance()->apps_for_user( get_current_user_id() ) as $a ) {
+			$cache[] = [
+				'id'          => (string) $a['id'],
+				'label'       => (string) $a['label'],
+				'icon'        => (string) $a['icon'],
+				'emoji'       => '',
+				'mode'        => 'link' === $a['mode'] ? 'link' : 'embed',
+				'target'      => 'link' === $a['mode'] ? (string) $a['target_url'] : '',
+				'pluginId'    => (string) $a['id'],
+				'desc'        => isset( $a['desc'] ) ? (string) $a['desc'] : '',
+				'plan_badge'  => isset( $a['plan_badge'] ) ? (string) $a['plan_badge'] : '',
+				'pro_package' => isset( $a['pro_package'] ) ? (string) $a['pro_package'] : '',
+			];
+		}
+		return $cache;
+	}
+
+	/**
+	 * Where the empty launcher's "Thêm ứng dụng" goes (admins only), or null.
+	 *
+	 * @return array|null { plugin, iurl }
+	 */
+	public static function get_apps_manage() {
+		return method_exists( 'BizCity_Twin_Shell_Registry', 'apps_manage_target' )
+			? BizCity_Twin_Shell_Registry::apps_manage_target( get_current_user_id() )
+			: null;
 	}
 }

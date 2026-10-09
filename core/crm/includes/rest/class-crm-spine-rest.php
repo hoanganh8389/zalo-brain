@@ -1308,6 +1308,8 @@ class BizCity_CRM_Spine_REST {
 				'before_id'   => (int) $req->get_param( 'before_id' ),
 			);
 			$args = array_merge( $args, self::role_kind_filters( $req ) ); // [2026-09-25 PHASE-0.63C GC-21]
+			// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — ?signal=nong|am|lanh|khong_hai_long (crm_signal tags, filtered in SQL).
+			if ( class_exists( 'BizCity_CRM_Contact_Signals' ) ) { $args['signal'] = BizCity_CRM_Contact_Signals::filter_key( $req->get_param( 'signal' ) ); }
 			$scope_user_id = (int) $req->get_param( 'scope_user_id' );
 			if ( $scope_user_id > 0 ) {
 				// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — enforce the selected B2 principal's server-resolved account scope before listing conversations.
@@ -1521,7 +1523,13 @@ class BizCity_CRM_Spine_REST {
 		$snoozed_until = isset( $r['snoozed_until'] ) && $r['snoozed_until'] !== null ? (int) $r['snoozed_until'] : null;
 		$labels_raw    = (string) ( $r['cached_label_list'] ?? '' );
 		$labels        = $labels_raw !== '' ? array_values( array_filter( array_map( 'trim', explode( ',', $labels_raw ) ) ) ) : array();
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — signal_tags (nhiet:/cam_xuc:/y_dinh: only) + heat_score for the list chips.
+		$signal = class_exists( 'BizCity_CRM_Contact_Signals' )
+			? BizCity_CRM_Contact_Signals::project( $r['contact_tags_json'] ?? '', $r['contact_attributes'] ?? '' )
+			: array( 'signal_tags' => array(), 'heat_score' => null );
 		return array(
+			'signal_tags'         => $signal['signal_tags'],
+			'heat_score'          => $signal['heat_score'],
 			'id'                  => (int) $r['id'],
 			'inbox_id'            => (int) $r['inbox_id'],
 			'contact_inbox_id'    => (int) $r['contact_inbox_id'],

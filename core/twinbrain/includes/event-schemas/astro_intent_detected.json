@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "astro_intent_detected",
-  "description": "TwinBrain Web_Astro engine — emitted after period classification (LLM mini → fallback regex bccm_transit_detect_intent → default 'day'). Drives Transit Resolver lookup window. PHASE-A C.3b (2026-06-04).",
+  "description": "TwinBrain Web_Astro engine — emitted after period classification (LLM mini → fallback regex supplied by the astrology app plugin → default 'day'). Drives Transit Resolver lookup window. PHASE-A C.3b (2026-06-04).",
   "type": "object",
   "required": ["trace_id", "period", "label", "source", "tokens", "ms"],
   "properties": {

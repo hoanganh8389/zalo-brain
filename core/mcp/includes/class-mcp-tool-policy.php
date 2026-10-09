@@ -173,10 +173,15 @@ final class BizCity_MCP_Tool_Policy {
 	/** Explicit tool → group exceptions to the prefix rule (brain.order.summary is order data, not knowledge). */
 	const TOOL_GROUP_MAP = array(
 		'brain.order.summary' => 'action',
+		// [2026-10-09 03:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F3 — public catalog consult search: knowledge group, so a customer
+		// turn (guru_public, knowledge only) reaches it when the Guru opens it, and an editor-profile role keeps it.
+		'commerce.search_products' => 'knowledge',
 	);
 
 	/** Tool name prefixes of the knowledge group (plus every tool whose mode is `notebook`). */
-	const KNOWLEDGE_PREFIXES = array( 'knowledge.', 'brain.' );
+	// [2026-10-09 11:52 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-W20-12 — bizcoach-pro astro.* / coach.* tools are read-only
+	// profile/chart reads: knowledge group, so a staff role with knowledge but not action still reaches them.
+	const KNOWLEDGE_PREFIXES = array( 'knowledge.', 'brain.', 'astro.', 'coach.' );
 
 	/** Pack kinds that are knowledge (every other pack kind is action). */
 	const KNOWLEDGE_PACK_KINDS = array( 'owner_knowledge', 'notebook_meta' );

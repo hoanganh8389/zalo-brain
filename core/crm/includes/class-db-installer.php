@@ -183,7 +183,8 @@ class BizCity_CRM_DB_Installer_V2 {
 		}
 		global $wpdb;
 		return (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+			// [2026-10-09 10:20 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — route hint: without it BizCity_WPDB_Router answers from the main DB, not this blog's shard
+			'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1' . ( class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::route_hint( $table ) : '' ),
 			$table
 		) );
 	}
@@ -527,6 +528,7 @@ class BizCity_CRM_DB_Installer_V2 {
 		self::migrate_phase_056();
 		self::migrate_phase_057();
 		self::migrate_phase_060b();
+		self::migrate_phase_095();
 
 		/**
 		 * Extension plugins run their own migrations after the spine is in place.
@@ -653,6 +655,19 @@ class BizCity_CRM_DB_Installer_V2 {
 			if ( ! self::column_exists( $contacts, 'segment' ) ) {
 				$wpdb->query( "ALTER TABLE `{$contacts}` ADD COLUMN segment VARCHAR(32) NOT NULL DEFAULT '' AFTER lead_score" );
 			}
+		}
+	}
+
+	/**
+	 * [2026-10-10 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-6 (chủ 2026-10-10) — điểm của cell để riêng: `lead_score` = người ghi
+	 * (0 = chưa ghi), `lead_score_cell` = cell ghi lúc gắn nhãn nóng/ấm/lạnh (NULL = chưa có). Điểm dùng = người nếu > 0, không thì của cell
+	 * (BizCity_CRM_Lead_Score::effective_sql). Cell không bao giờ ghi đè điểm người nhập.
+	 */
+	public static function migrate_phase_095(): void {
+		global $wpdb;
+		$contacts = self::tbl_contacts();
+		if ( self::table_exists( $contacts ) && self::column_exists( $contacts, 'lead_score' ) && ! self::column_exists( $contacts, 'lead_score_cell' ) ) {
+			$wpdb->query( "ALTER TABLE `{$contacts}` ADD COLUMN lead_score_cell TINYINT UNSIGNED NULL DEFAULT NULL AFTER lead_score" );
 		}
 	}
 

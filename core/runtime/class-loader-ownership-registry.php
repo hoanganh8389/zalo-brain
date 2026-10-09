@@ -12,6 +12,46 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — one dev notice for the old extension
+// APIs (bizcity_intent_register_plugin, Intent_Provider_Registry::register, Persona_Tool_Provider, ::claim).
+// Behaviour is unchanged; only callers outside this plugin are reported, at most once per request (WP_DEBUG only)
+// and one log line per day. New extensions use BizCity_Zalo_Brain::register_tool() / register_surface() /
+// register_extension() (core/runtime/class-zalo-brain.php).
+if ( ! function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+	function bizcity_z3_legacy_api_notice( string $api, string $replacement, string $caller_file = '' ): bool {
+		if ( ! ( defined( 'WP_DEBUG' ) && WP_DEBUG ) ) {
+			return false;
+		}
+		if ( '' === $caller_file ) {
+			$trace       = debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 3 );
+			$caller_file = isset( $trace[1]['file'] ) ? (string) $trace[1]['file'] : '';
+		}
+		$own  = str_replace( '\\', '/', dirname( __DIR__, 2 ) ) . '/';
+		$file = str_replace( '\\', '/', $caller_file );
+		if ( '' !== $file && 0 === strpos( $file, $own ) ) {
+			return false; // This plugin's own remaining wiring (scheduler provider, core claims) is not an extension.
+		}
+		static $seen = array();
+		$key = $api . '|' . $file;
+		if ( isset( $seen[ $key ] ) ) {
+			return false;
+		}
+		$seen[ $key ] = true;
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'deprecated_function_run', $api, $replacement, 'WP-20 Z-3' );
+		}
+		$tkey = 'bizcity_z3_notice_' . md5( $key );
+		if ( function_exists( 'get_transient' ) && get_transient( $tkey ) ) {
+			return true;
+		}
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $tkey, 1, 86400 );
+		}
+		error_log( sprintf( '[BizCity WP-20 Z-3] %s is a legacy extension API (called from %s); use %s.', $api, '' !== $file ? $file : 'unknown', $replacement ) );
+		return true;
+	}
+}
+
 if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
 	return;
 }
@@ -33,6 +73,10 @@ final class BizCity_Loader_Ownership_Registry {
 
 	public static function claim( string $feature_id, string $source, string $canonical_path, string $version = '', string $surface = '', string $phase = 'unknown_phase' ): string {
 		// [2026-08-10 Johnny Chu] PHASE-1.23-CANONICAL-W2 - observe owner claims without blocking secondary loaders.
+		// [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — a claim from outside this plugin is a legacy extension path.
+		if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+			bizcity_z3_legacy_api_notice( 'BizCity_Loader_Ownership_Registry::claim()', 'BizCity_Zalo_Brain::register_extension() + Requires Plugins: bizcity-twin-ai' );
+		}
 		$feature_id = self::normalize_feature( $feature_id );
 		if ( $feature_id === '' ) {
 			return self::STATE_ABSENT;

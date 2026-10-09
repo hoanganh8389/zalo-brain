@@ -126,6 +126,17 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 				'thread'     => '/inbox/{id|inbox|0}/conv/{thread}',
 				'contact_id' => '/contacts/{contact_id}/360',
 			],
+			// [2026-10-09 11:05 PM Johnny Chu - Chu Hoàng Anh] CRM is the add-on plugin bizcity-twin-crm ("Zalo Brain CRM", Pro): same as
+			// `workflow` — the funnel icon always shows with a PRO badge; without the plugin a click opens the in-shell notice
+			// (activate it, or download it from GitHub) instead of embedding a /crm/ route that no longer exists (supperai.vn showed the
+			// site's home page). BIZCITY_CRM_VERSION is defined only by the plugin's main file, never by the core/crm spine.
+			'requires'     => [ 'const' => 'BIZCITY_CRM_VERSION' ],
+			'upsell'       => true,
+			'badge'        => 'PRO',
+			'pro_package'  => 'Zalo Brain CRM',
+			'addon_name'   => 'Zalo Brain CRM',
+			'addon_file'   => 'bizcity-twin-crm/bizcity-twin-crm.php',
+			'addon_github' => 'https://github.com/hoanganh8389/zalo-brain-crm',
 		],
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — PageBuilder is
 		// fourth: turn the brain and CRM context into landing pages and campaigns.
@@ -308,6 +319,19 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// core/skills was archived on 2026-09-26 (R0-R4); its `^skills/?$` rewrite rule lived only in
 		// core/skills/bootstrap.php, which no longer loads, so /skills/ has had no route since — this
 		// entry had no `requires` gate (an "always shown" core entry), so it kept embedding a dead page.
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 (D-W20-2) — ONE "Apps" tile instead of one icon
+		// per Pro app: a click opens the square-tile launcher listing `apps[]` (entries with 'group' => 'apps' + the
+		// `zalo_brain_apps` filter). Core entry (no `requires`); the shell hides it from a member with no app.
+		[
+			'id'          => 'apps',
+			'label'       => __( 'Apps',                          $td ), // vi: Ứng dụng
+			'icon'        => 'grid',
+			'emoji'       => '🧩',
+			'mode'        => 'launcher',
+			'capability'  => 'read',
+			'section'     => 'bottom',
+			'desc'        => __( 'Open an app installed on this site.', $td ),
+		],
 		[
 			'id'          => 'settings',
 			'label'       => __( 'Settings',                      $td ),
@@ -357,9 +381,15 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		'video'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-video-kling' ],
 		'profile'        => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
 	];
+	// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 (D-W20-2) — the ten Pro apps leave the ActivityBar
+	// for the "Apps" launcher. Their `requires`, plan and module-access@1 gates are unchanged; only where they are listed moves.
+	$apps_group = [ 'web', 'astro', 'doc', 'creator', 'image', 'video', 'profile', 'personal', 'profile-public', 'qr' ];
 	foreach ( $defaults as $i => $entry ) {
 		if ( isset( $access[ $entry['id'] ] ) ) {
 			$defaults[ $i ]['access'] = $access[ $entry['id'] ];
+		}
+		if ( in_array( $entry['id'], $apps_group, true ) ) {
+			$defaults[ $i ]['group'] = 'apps';
 		}
 	}
 

@@ -1094,12 +1094,10 @@ class BizCity_TwinChat_Sources_Service {
 	 */
 	private function effective_allowed_file_exts( $user_id ) {
 		$allowed = self::ALLOWED_TEXT_EXT;
-		if ( $user_id > 0 && class_exists( 'BizCity_Membership_Entitlement' ) ) {
-			$ent = BizCity_Membership_Entitlement::instance()->for_user( $user_id );
-			if ( isset( $ent['accepted_file_types'] ) && is_array( $ent['accepted_file_types'] ) ) {
-				$allowed = array_merge( $allowed, $ent['accepted_file_types'] );
-			}
-		}
+		// [2026-10-09 21:05 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 D96-23 — membership retired: the
+		// BizCity_Membership_Entitlement merge of accepted_file_types is gone (class archived, the branch was
+		// already dead). Only affects the "allowed:" list in the unsupported_ext message and the temp
+		// upload_mimes map, which still adds the uploaded file's own ext (build_upload_mimes_for_user()).
 
 		$normalized = [];
 		foreach ( (array) $allowed as $e ) {

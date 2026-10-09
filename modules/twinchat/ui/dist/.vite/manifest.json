@@ -1,13 +1,13 @@
 {
-  "_eye-c9UoamY8.js": {
-    "file": "assets/eye-c9UoamY8.js",
-    "name": "eye",
+  "_arrow-left-CaPRqN1d.js": {
+    "file": "assets/arrow-left-CaPRqN1d.js",
+    "name": "arrow-left",
     "imports": [
       "index.html"
     ]
   },
-  "_shield-check-ikjV_0Hr.js": {
-    "file": "assets/shield-check-ikjV_0Hr.js",
+  "_shield-check-CaUDf7hr.js": {
+    "file": "assets/shield-check-CaUDf7hr.js",
     "name": "shield-check",
     "imports": [
       "index.html"
@@ -43,7 +43,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-s1RYNWH1.js",
+    "file": "assets/index-BHNZWZyD.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -65,11 +65,11 @@
       "src/pages/AccountPage.tsx"
     ],
     "css": [
-      "assets/index-YErnHvAy.css"
+      "assets/index-D-C7jCH-.css"
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-CqILPYEr.js",
+    "file": "assets/KGGraphViewNexus-BWQVAmXr.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,
@@ -82,7 +82,7 @@
     ]
   },
   "src/components/embed/DesignEmbedTab.tsx": {
-    "file": "assets/DesignEmbedTab-4Oie6hCt.js",
+    "file": "assets/DesignEmbedTab-DTRvhwUe.js",
     "name": "DesignEmbedTab",
     "src": "src/components/embed/DesignEmbedTab.tsx",
     "isDynamicEntry": true,
@@ -95,7 +95,7 @@
     ]
   },
   "src/components/embed/ImageStudioTab.tsx": {
-    "file": "assets/ImageStudioTab-DViyVBLl.js",
+    "file": "assets/ImageStudioTab-CYXt5upL.js",
     "name": "ImageStudioTab",
     "src": "src/components/embed/ImageStudioTab.tsx",
     "isDynamicEntry": true,
@@ -109,7 +109,7 @@
     ]
   },
   "src/components/embed/StudioBuilderTab.tsx": {
-    "file": "assets/StudioBuilderTab-DupOCy8z.js",
+    "file": "assets/StudioBuilderTab-DcukhA9w.js",
     "name": "StudioBuilderTab",
     "src": "src/components/embed/StudioBuilderTab.tsx",
     "isDynamicEntry": true,
@@ -123,13 +123,13 @@
     ]
   },
   "src/components/guru/GuruWorkspacePanel.tsx": {
-    "file": "assets/GuruWorkspacePanel-xnS2qAOa.js",
+    "file": "assets/GuruWorkspacePanel-BqWO2YVq.js",
     "name": "GuruWorkspacePanel",
     "src": "src/components/guru/GuruWorkspacePanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
-      "_shield-check-ikjV_0Hr.js",
+      "_shield-check-CaUDf7hr.js",
       "index.html",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
@@ -137,7 +137,7 @@
     ]
   },
   "src/components/workspace/HistoryWorkspace.tsx": {
-    "file": "assets/HistoryWorkspace-I65eK-5A.js",
+    "file": "assets/HistoryWorkspace-DgdcSBbH.js",
     "name": "HistoryWorkspace",
     "src": "src/components/workspace/HistoryWorkspace.tsx",
     "isDynamicEntry": true,
@@ -150,7 +150,7 @@
     ]
   },
   "src/components/workspace/IntegrationsWorkspace.tsx": {
-    "file": "assets/IntegrationsWorkspace-B2OtokAA.js",
+    "file": "assets/IntegrationsWorkspace-BNMpBBPK.js",
     "name": "IntegrationsWorkspace",
     "src": "src/components/workspace/IntegrationsWorkspace.tsx",
     "isDynamicEntry": true,
@@ -163,29 +163,29 @@
     ]
   },
   "src/components/workspace/PlansAndApiKeyWorkspace.tsx": {
-    "file": "assets/PlansAndApiKeyWorkspace-B5IdvQqB.js",
+    "file": "assets/PlansAndApiKeyWorkspace-oF26pYVq.js",
     "name": "PlansAndApiKeyWorkspace",
     "src": "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_shield-check-ikjV_0Hr.js",
-      "_eye-c9UoamY8.js",
+      "_arrow-left-CaPRqN1d.js",
+      "_shield-check-CaUDf7hr.js",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"
     ]
   },
   "src/pages/AccountPage.tsx": {
-    "file": "assets/AccountPage-DaGYwlPF.js",
+    "file": "assets/AccountPage-Dgj1UyYp.js",
     "name": "AccountPage",
     "src": "src/pages/AccountPage.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_eye-c9UoamY8.js",
+      "_arrow-left-CaPRqN1d.js",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"

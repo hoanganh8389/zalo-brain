@@ -106,6 +106,21 @@ final class BizCity_Scheduler_Run_Ledger {
 			}
 			$meta['_cell'] = $cell;
 		}
+		// [2026-10-10 12:23 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-W13 — D95-22: the scheduled turn that asked for this run (cell run id, workflow, anchor Lịch row of the workflow).
+		if ( isset( $a['job'] ) && is_array( $a['job'] ) && $a['job'] ) {
+			$job = array();
+			if ( isset( $a['job']['cell_run_id'] ) && is_scalar( $a['job']['cell_run_id'] ) ) {
+				$job['cell_run_id'] = substr( (string) $a['job']['cell_run_id'], 0, 64 );
+			}
+			foreach ( array( 'workflow_id', 'site_event_id' ) as $k ) {
+				if ( ! empty( $a['job'][ $k ] ) ) {
+					$job[ $k ] = (int) $a['job'][ $k ];
+				}
+			}
+			if ( $job ) {
+				$meta['job'] = $job;
+			}
+		}
 		$meta['trace'] = array( self::entry( 'received', array( 'source' => $source ) ) );
 
 		$id = $mgr->create_event( array(
@@ -304,6 +319,13 @@ final class BizCity_Scheduler_Run_Ledger {
 		}
 		if ( isset( $extra['artifacts'] ) && is_array( $extra['artifacts'] ) ) {
 			$meta['artifacts'] = self::clean_artifacts( $extra['artifacts'] );
+		}
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] R-AF-13 T5 — the run's step log (Report_Back sends it as job.progress.steps).
+		if ( isset( $extra['steps'] ) && is_array( $extra['steps'] ) ) {
+			$steps = self::clean_steps( $extra['steps'] );
+			if ( $steps ) {
+				$meta['steps'] = $steps;
+			}
 		}
 		if ( isset( $extra['log_url'] ) && '' !== (string) $extra['log_url'] ) {
 			$meta['log_url'] = self::clean_url( $extra['log_url'] );
@@ -543,6 +565,36 @@ final class BizCity_Scheduler_Run_Ledger {
 			return (string) esc_url_raw( $url );
 		}
 		return preg_match( '#^https?://#i', $url ) ? $url : '';
+	}
+
+	/**
+	 * [2026-10-09 Johnny Chu - Chu Hoàng Anh] R-AF-13 — {step, label ≤ 80, block ≤ 64, status done|failed|skipped, ms?, note ≤ 160} only, ≤ 20 rows.
+	 * Never an identity key (R-CID-11): unknown keys are dropped.
+	 */
+	public static function clean_steps( array $list ): array {
+		$out = array();
+		foreach ( $list as $s ) {
+			if ( ! is_array( $s ) || ! in_array( (string) ( $s['status'] ?? '' ), array( 'done', 'failed', 'skipped' ), true ) ) {
+				continue;
+			}
+			$row = array(
+				'step'   => max( 1, (int) ( $s['step'] ?? count( $out ) + 1 ) ),
+				'label'  => self::short( (string) ( $s['label'] ?? '' ), 80 ),
+				'block'  => self::short( (string) preg_replace( '/[^a-z0-9_.\-]/i', '', (string) ( $s['block'] ?? '' ) ), 64 ),
+				'status' => (string) $s['status'],
+			);
+			if ( isset( $s['ms'] ) && (int) $s['ms'] >= 0 ) {
+				$row['ms'] = (int) $s['ms'];
+			}
+			if ( '' !== trim( (string) ( $s['note'] ?? '' ) ) ) {
+				$row['note'] = self::short( trim( (string) $s['note'] ), 160 );
+			}
+			$out[] = $row;
+			if ( count( $out ) >= 20 ) {
+				break;
+			}
+		}
+		return $out;
 	}
 
 	private static function clean_artifacts( array $list ): array {

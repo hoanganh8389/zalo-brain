@@ -2,7 +2,7 @@
 /**
  * `astro_self` projection pack (PHASE-0.87 CL-2, projection-pack@1.1 §5): the principal's OWN `is_self` chart.
  *
- * The data belongs to the astrology plugin (bizcoach `bccm_*`, R-COACHEE.4); this file only reads it through the filter
+ * The data belongs to the astrology app plugin (bizcoach-pro, R-COACHEE.4); this file only reads it through the filter
  * `bizcity_agent_astro_self_profile( null, $user_id )` ⇒ `{profile_ref, natal_summary, periods:[{from,to,highlights}]}`
  * (R-BA-10: verticals plug in by filter). No provider ⇒ the pack is listed `source_plugin_missing`, never invented.
  * No FreeAstroAPI / LLM call from PHP (R-PF-2, R-TAA-6).

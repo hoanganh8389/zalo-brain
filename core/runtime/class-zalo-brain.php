@@ -12,6 +12,10 @@
  * This class only records and reports. It never loads plugin code and never changes routing; the existing
  * registries (TwinShell default plugins, Setting Panel, Twin Plugin SDK) keep working and will read from here in W7.
  *
+ * [2026-10-09 11:43 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-2b — doc 50 §4.2 completed: register_tool(),
+ * register_tables(), the "Apps" slot 8 (register_surface('apps') → TwinShell `zalo_brain_apps`@20) and mirror(), the
+ * record-only entry the old registries (Twin Plugin SDK, Setting Panel) call — D96-16 "old classes become wrappers".
+ *
  * @package BizCity_Twin_AI
  * @subpackage Core\Runtime
  */
@@ -47,6 +51,12 @@ final class BizCity_Zalo_Brain {
 	/** @var array<string,array<string,array>> pages registered under a surface: [surface][page_id] => def */
 	private static $pages = array();
 
+	/** Slot 8: the "Apps" launcher (TwinShell `zalo_brain_apps`), not one of the 7 surfaces. */
+	const APPS_SURFACE = 'apps';
+
+	/** @var array<string,array> app id => def · @var array<string,string> tool name / changelog id => owner extension */
+	private static $apps = array(), $tools = array(), $tables = array();
+
 	/** @var bool */
 	private static $loaded = false;
 
@@ -58,18 +68,13 @@ final class BizCity_Zalo_Brain {
 		}
 		$booted = true;
 		add_action( 'plugins_loaded', static function () {
-			/**
-			 * Extension plugins register here (or anywhere before zalo_brain_loaded).
-			 */
-			do_action( 'zalo_brain_register' );
+			do_action( 'zalo_brain_register' ); // Extension plugins register here (or anywhere before zalo_brain_loaded).
 		}, 5 );
 		add_action( 'plugins_loaded', static function () {
 			self::$loaded = true;
-			/**
-			 * Registration is closed; surfaces, features and extensions are final for this request.
-			 */
-			do_action( 'zalo_brain_loaded' );
+			do_action( 'zalo_brain_loaded' ); // Registration is closed; surfaces, features, extensions are final.
 		}, 20 );
+		add_filter( 'zalo_brain_apps', array( __CLASS__, 'bridge_apps' ), 20, 1 );
 	}
 
 	private static function closed( string $what ): bool {
@@ -104,6 +109,13 @@ final class BizCity_Zalo_Brain {
 			foreach ( (array) ( $s['pages'] ?? array() ) as $page ) {
 				self::register_surface( $surface, array( 'id' => (string) $page, 'owner' => $id ) );
 			}
+			if ( self::APPS_SURFACE === $surface && ! empty( $s['app_id'] ) ) {
+				$slug = (string) ( $s['public_slug'] ?? '' );
+				self::register_surface( self::APPS_SURFACE, array( 'id' => (string) $s['app_id'], 'label' => (string) ( $s['label'] ?? $s['app_id'] ), 'url' => ( '' !== $slug && function_exists( 'home_url' ) ) ? home_url( $slug ) : $slug, 'owner' => $id ) );
+			}
+		}
+		if ( ! empty( $manifest['tables_changelog'] ) ) {
+			self::register_tables( (string) $manifest['tables_changelog'], $id );
 		}
 		return true;
 	}
@@ -120,10 +132,8 @@ final class BizCity_Zalo_Brain {
 	}
 
 	/**
-	 * Register a page under one of the 7 surfaces (W7 renders it inside the shell).
-	 *
-	 * @param string $surface One of CORE_SURFACES keys.
-	 * @param array  $def     id, label, cap, position, feature, render (array: spa|callback), owner.
+	 * Register a page under one of the 7 surfaces (W7 renders it inside the shell), or an app under 'apps' (slot 8).
+	 * $def: id, label, cap, position, feature, render (array: spa|callback), owner; apps: + url|plugin, icon, requires.
 	 */
 	public static function register_surface( string $surface, array $def ): bool {
 		if ( self::closed( 'register_surface' ) ) {
@@ -131,12 +141,80 @@ final class BizCity_Zalo_Brain {
 		}
 		$surface = sanitize_key( $surface );
 		$id      = sanitize_key( (string) ( $def['id'] ?? '' ) );
+		if ( self::APPS_SURFACE === $surface && '' !== $id && self::APPS_SURFACE !== $id ) {
+			self::$apps[ $id ] = array_merge( $def, array( 'id' => $id ) ); // launcher picks the position when absent
+			return true;
+		}
 		if ( ! isset( self::CORE_SURFACES[ $surface ] ) || '' === $id ) {
 			return false;
 		}
 		self::$pages[ $surface ][ $id ] = array_merge( array( 'id' => $id, 'position' => 100 ), $def );
 		return true;
 	}
+
+	/**
+	 * MCP tool (tool-registry@1) → BizCity_MCP_Tool_Registry::register() on `bizcity_mcp_register_tools` (at once if it
+	 * already ran). Keys: name, handler + descriptor keys; optional `feature` (skipped when absent), `owner`.
+	 */
+	public static function register_tool( array $tool ): bool {
+		$name = (string) ( $tool['name'] ?? '' );
+		if ( '' === $name || ! isset( $tool['handler'] ) ) {
+			return false;
+		}
+		$feature = sanitize_key( (string) ( $tool['feature'] ?? '' ) );
+		self::$tools[ $name ] = (string) ( $tool['owner'] ?? '' );
+		unset( $tool['feature'], $tool['owner'] );
+		$add = static function () use ( $name, $tool, $feature ): bool {
+			return ( '' === $feature || self::has( $feature ) ) && class_exists( 'BizCity_MCP_Tool_Registry' )
+				&& false !== BizCity_MCP_Tool_Registry::register( $name, $tool );
+		};
+		if ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) {
+			return $add();
+		}
+		add_action( 'bizcity_mcp_register_tools', static function () use ( $add ) { $add(); } );
+		return true;
+	}
+
+	/** Extension-owned R-DCL changelog id → describe()['tables'] (bin/lean-scoreboard.mjs is static, scans the dir instead). */
+	public static function register_tables( string $changelog_id, string $owner = '' ): bool {
+		$ok = (bool) preg_match( '/^[a-z0-9][a-z0-9._-]*$/i', $changelog_id = trim( $changelog_id ) );
+		if ( $ok ) {
+			self::$tables[ $changelog_id ] = $owner;
+		}
+		return $ok;
+	}
+
+	/** Record-only entry for the legacy registries (SDK, Setting Panel): never closed, never warns, never overrides a
+	 * zalo-brain-extension@1 registration. $surface '' = extension/module; else a page (or app). */
+	public static function mirror( string $source, array $def, string $surface = '' ): bool {
+		$id = sanitize_key( str_replace( '.', '-', (string) ( $def['id'] ?? $def['slug'] ?? '' ) ) );
+		if ( '' === $id ) {
+			return false;
+		}
+		$def = array_merge( $def, array( 'id' => $id, 'source' => $source ) );
+		if ( '' === $surface ) {
+			self::$extensions += array( $id => $def );
+		} elseif ( self::APPS_SURFACE === $surface ) {
+			self::$apps += array( $id => $def );
+		} elseif ( isset( self::CORE_SURFACES[ $surface ] ) ) {
+			self::$pages[ $surface ] = ( self::$pages[ $surface ] ?? array() ) + array( $id => array_merge( array( 'position' => 100 ), $def ) );
+		} else {
+			return false;
+		}
+		return true;
+	}
+
+	/** `zalo_brain_apps`@20 — append registered apps whose id no tile already uses (plugins' own entries win). */
+	public static function bridge_apps( $apps ): array {
+		$apps  = is_array( $apps ) ? $apps : array();
+		$taken = array_flip( array_map( static function ( $a ) { return is_array( $a ) ? (string) ( $a['id'] ?? '' ) : ''; }, $apps ) );
+		return array_merge( $apps, array_values( array_diff_key( self::$apps, $taken ) ) );
+	}
+
+	/** Getters: apps (id => def), tables (changelog id => owner), tools (MCP name => owner). */
+	public static function apps(): array { return self::$apps; }
+	public static function tables(): array { return self::$tables; }
+	public static function tools(): array { return self::$tools; }
 
 	public static function has( string $feature ): bool {
 		$feature = sanitize_key( $feature );
@@ -199,6 +277,9 @@ final class BizCity_Zalo_Brain {
 				},
 				array_values( self::$extensions )
 			),
+			'apps'       => array_values( self::$apps ),
+			'tables'     => self::$tables,
+			'tools'      => array_keys( self::$tools ),
 		);
 		return (array) apply_filters( 'zalo_brain_boot_dto', $dto );
 	}

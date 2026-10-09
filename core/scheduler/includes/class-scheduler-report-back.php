@@ -211,6 +211,13 @@ final class BizCity_Scheduler_Report_Back {
 				'event_id'       => $event_id,
 			),
 		);
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] R-AF-13 T5 — the run's step log, additive (older cells drop unknown keys); absent ⇒ frozen 4-key progress.
+		if ( ! empty( $meta['steps'] ) && is_array( $meta['steps'] ) && class_exists( 'BizCity_Scheduler_Run_Ledger' ) ) {
+			$steps = BizCity_Scheduler_Run_Ledger::clean_steps( $meta['steps'] );
+			if ( $steps ) {
+				$letter['job']['progress']['steps'] = $steps;
+			}
+		}
 		// [2026-10-06 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92 S92-LLM-5 — K4 (doc 70 §7): a scheduled run that only woke the cell (action.ask_cell) sends `kind: job_due`
 		// (channel-inbound@1.1): the cell acts on the instruction with its own tools and answers the recipient itself.
 		if ( 'done' === $status && '' !== trim( (string) ( $meta['instruction'] ?? '' ) ) ) {

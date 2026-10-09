@@ -3,7 +3,7 @@
  * Twin Shell — REST endpoint exposing the plugin registry.
  *
  * GET /wp-json/bizcity-twinchat/v1/shell/plugins
-	 *   → { plugins: [ ... ], default: 'crm' }
+	 *   → { plugins: [ ... ], apps: [ ... ], default: 'gpt' }
  *
  * @package Bizcity_Twin_AI
  * @subpackage Modules\TwinShell
@@ -83,13 +83,17 @@ class BizCity_Twin_Shell_REST {
 		}
 		// [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-1/D-84-2 — same order and default as the /twin/ page.
 		$plugins = BizCity_Twin_Shell_Registry::sort_for_activity_bar( $plugins );
+		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — same split as /twin/: ActivityBar
+		// entries in `plugins`, launcher tiles (group 'apps' + zalo_brain_apps) in `apps`.
+		$split = $registry->split_activity_bar( $plugins, get_current_user_id() );
 
 		// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — stable response shape
 		// to keep FE parser resilient in fail-open mode.
 		return new WP_REST_Response( array(
 			'success' => true,
-			'plugins' => $plugins,
-			'default' => $registry->default_id( $plugins ),
+			'plugins' => $split['bar'],
+			'apps'    => $split['apps'],
+			'default' => $registry->default_id( $split['bar'] ),
 		), 200 );
 	}
 

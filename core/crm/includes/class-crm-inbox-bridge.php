@@ -235,7 +235,8 @@ final class BizCity_CRM_Inbox_Bridge {
 		}
 		global $wpdb;
 		$exists = (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s',
+			// [2026-10-09 10:20 PM Johnny Chu - Chu Hoàng Anh] R-AF-16 — route hint: without it BizCity_WPDB_Router answers from the main DB, not this blog's shard
+			'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = %s' . ( class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::route_hint( $table ) : '' ),
 			$table
 		) );
 		$cache[ $table ] = $exists;

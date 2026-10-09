@@ -127,5 +127,10 @@ class BizCity_Intent_Simple_Provider extends BizCity_Intent_Provider {
  * @param array $config  See BizCity_Intent_Simple_Provider::__construct()
  */
 function bizcity_intent_register_plugin( $registry, array $config ) {
+    // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — legacy extension API: still registers
+    // (bizcity-tool-slide, -video-editor, -video-kling, bizgpt-tool-google, gemini-knowledge call it); dev notice only.
+    if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+        bizcity_z3_legacy_api_notice( 'bizcity_intent_register_plugin()', 'BizCity_Zalo_Brain::register_tool()' );
+    }
     $registry->register( new BizCity_Intent_Simple_Provider( $config ) );
 }

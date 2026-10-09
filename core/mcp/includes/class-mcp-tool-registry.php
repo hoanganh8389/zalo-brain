@@ -61,6 +61,7 @@ final class BizCity_MCP_Tool_Registry {
 		self::register_report_brain_tools();
 		self::register_pipeline_brain_tools();
 		self::register_commerce_tools();
+		self::register_proposal_tools(); // [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G8
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 — other services (CRM, orders, inventory, booking, automation: lane CL-B)
 		// register their canonical tools here through self::register() with the same descriptor keys.
 		do_action( 'bizcity_mcp_register_tools' );
@@ -1197,6 +1198,45 @@ final class BizCity_MCP_Tool_Registry {
 	}
 
 	/**
+	 * [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G8 — `registry.proposal.submit`: the cell proposes, the owner approves in
+	 * Automation (BizCity_Automation_Proposals, CPT bizcity_proposal). System tool (CELL_SYSTEM_MCP_TOOLS): the handler refuses
+	 * every principal but a delegated owner/staff of the cell. Skipped when the Automation plugin is not loaded.
+	 */
+	private static function register_proposal_tools() {
+		if ( ! class_exists( 'BizCity_Automation_Proposals' ) ) {
+			return;
+		}
+		// @mcp bizcity-mcp-standard@1 tool registry.proposal.submit
+		self::register( 'registry.proposal.submit', array(
+			'title'          => 'Gửi đề xuất cho chủ duyệt',
+			'description'    => 'Đồng bộ hệ thống (chỉ zalo-hub gọi): đề xuất bổ sung tư vấn sản phẩm, câu hỏi của nhóm sản phẩm hoặc kịch bản từ mẫu. Chủ duyệt trong Automation, không ghi thẳng.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'kind', 'target_ref', 'draft' ), 'properties' => array(
+				'kind'       => array( 'type' => 'string', 'enum' => array( 'product_advice', 'category_ask', 'scenario_from_template' ) ),
+				'target_ref' => array( 'type' => 'string', 'pattern' => '^(product|product_cat|template):[A-Za-z0-9_\\-]{1,80}$' ),
+				'draft'      => array( 'type' => 'object' ),
+				'evidence'   => array( 'type' => 'object', 'properties' => array( 'count' => array( 'type' => 'integer', 'minimum' => 0 ), 'period' => array( 'type' => 'string' ) ) ),
+			) ),
+			'output_schema'  => self::envelope_schema( array(
+				'id'     => array( 'type' => 'integer' ),
+				'status' => array( 'type' => 'string', 'enum' => array( 'pending', 'blocked' ) ),
+			), array( 'id', 'status' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'automation.run',
+			'handler'        => array( 'BizCity_Automation_Proposals', 'submit' ),
+			'mode'           => 'automation',
+			'roles'          => array( 'owner', 'staff' ),
+			'scope'          => 'tenant',
+			'scopes'         => array( 'automation.run' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'registry_proposal_submit',
+			'fallback_pack'  => null,
+			'since'          => '0.95.0',
+		) );
+	}
+
+	/**
 	 * PHASE-0.54-MCP Wave R — read-only WooCommerce catalog/order/customer tools.
 	 */
 	private static function register_commerce_tools() {
@@ -1216,6 +1256,50 @@ final class BizCity_MCP_Tool_Registry {
 			'input_schema'   => array( 'type' => 'object', 'properties' => array_merge( $page_schema, array( 'status' => array( 'type' => 'string' ), 'category' => array( 'type' => 'string' ) ) ) ),
 			'required_scope' => 'commerce.read',
 			'handler'        => array( $svc, 'list_products' ),
+		) );
+		// @mcp bizcity-mcp-standard@1 tool commerce.search_products
+		// [2026-10-09 03:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F3/G1 — consult search (D95-16 score) for owner, staff AND customers:
+		// public catalog data only (no run_as), customer turns limited to the Guru's product categories (S95-F14). Role group
+		// knowledge (BizCity_MCP_Tool_Policy::TOOL_GROUP_MAP) so a customer turn may reach it when the Guru opens it.
+		self::register( 'commerce.search_products', array(
+			'title'          => 'Tìm sản phẩm để tư vấn',
+			'description'    => 'Tìm tối đa 5 sản phẩm hợp với nhu cầu khách (dùng cho ai, tuổi, mục tiêu, điều cần tránh, ngân sách), chấm điểm phù hợp 0–100 kèm lý do, ảnh, giá, tình trạng còn hàng, link và câu nên hỏi tiếp. Chỉ dữ liệu công khai của cửa hàng.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
+				'q'        => array( 'type' => 'string', 'maxLength' => 120 ),
+				'group_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'facets'   => array( 'type' => 'object', 'additionalProperties' => array( 'type' => 'string' ) ),
+				'need'     => array( 'type' => 'object', 'properties' => array(
+					'for_whom'    => array( 'type' => 'string' ),
+					'age'         => array( 'type' => array( 'number', 'null' ) ),
+					'age_unit'    => array( 'type' => 'string', 'enum' => array( 'year', 'month' ) ),
+					'goals'       => array( 'type' => 'array', 'items' => array( 'type' => 'string' ), 'maxItems' => 6 ),
+					'constraints' => array( 'type' => 'array', 'items' => array( 'type' => 'string' ), 'maxItems' => 6 ),
+					'budget_max'  => array( 'type' => array( 'number', 'null' ) ),
+					'form'        => array( 'type' => 'string' ),
+				) ),
+				'limit'    => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 5, 'default' => 5 ),
+				'page'     => array( 'type' => 'integer', 'minimum' => 1, 'default' => 1 ),
+			) ),
+			'output_schema'  => self::envelope_schema( array(
+				'contract'  => array( 'type' => 'string' ),
+				'domain'    => array( 'type' => 'string' ),
+				'items'     => array( 'type' => 'array', 'maxItems' => 5 ),
+				'ask_next'  => array( 'type' => 'array', 'items' => array( 'type' => 'string' ) ),
+				'as_of'     => array( 'type' => 'string' ),
+				'truncated' => array( 'type' => 'boolean' ),
+			) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'search_products' ),
+			'mode'           => 'stock',
+			'roles'          => array( 'owner', 'staff', 'customer' ),
+			'scope'          => 'thread',
+			'scopes'         => array( 'commerce.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'biz_product_search',
+			'fallback_pack'  => 'catalog',
+			'since'          => '0.95.0',
 		) );
 		self::register( 'commerce.get_product', array(
 			'title'          => 'Get WooCommerce product',

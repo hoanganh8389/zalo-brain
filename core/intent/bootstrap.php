@@ -55,7 +55,8 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 
 /* -- infrastructure/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-database.php';
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-logger.php';
+// [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — BizCity_Intent_Logger → core/_archived/z3-20261010/intent/:
+// nothing in any installed plugin calls it (its writers went with WP-11) and its retention job was already a no-op.
 // [2026-09-25 Claude Opus 5.5] WP-11 C5 — Prompt_Context_Logger retired (written only by the old classifier).
 // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Execution_Logger, Trace_Store, Job_Trace → core/runtime.
 
@@ -150,8 +151,11 @@ add_action( 'plugins_loaded', function () {
 
     // [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — bounded cleanup for the two
     // unbounded SQL log tables (bizcity_intent_logs, bizcity_intent_prompt_logs).
-    add_action( 'init', array( 'BizCity_Intent_Logger', 'register_retention_cron' ), 20 );
-    add_action( BizCity_Intent_Logger::RETENTION_HOOK, array( 'BizCity_Intent_Logger', 'gc_logs' ) );
+    // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — Intent_Logger archived: drop its (no-op)
+    // daily retention event so no scheduled hook is left without a handler.
+    if ( wp_next_scheduled( 'bizcity_intent_logs_retention' ) ) {
+        wp_clear_scheduled_hook( 'bizcity_intent_logs_retention' );
+    }
     add_action( 'init', array( 'BizCity_Intent_Database', 'register_retention_cron' ), 20 );
     add_action( BizCity_Intent_Database::PROMPT_LOGS_RETENTION_HOOK, array( 'BizCity_Intent_Database', 'gc_prompt_logs' ) );
 
@@ -243,51 +247,8 @@ add_action( 'plugins_loaded', function () {
         BizCity_Intent_Tool_Index::instance()->unsync_plugin( $slug );
     }, 20 );
 
-    // ── Prompt Log: record every processed request to DB ──
-    add_action( 'bizcity_intent_processed', function ( $result, $params ) {
-        // Avoid logging empty/heartbeat requests
-        if ( empty( $params['message'] ) ) {
-            return;
-        }
-
-        static $start_time = null;
-        if ( $start_time === null ) {
-            $start_time = defined( 'BIZCITY_INTENT_REQUEST_START' )
-                ? BIZCITY_INTENT_REQUEST_START
-                : microtime( true );
-        }
-
-        $meta = $result['meta'] ?? [];
-
-        BizCity_Intent_Database::instance()->insert_prompt_log( [
-            'session_id'        => $params['session_id']   ?? '',
-            'conversation_id'   => $result['conversation_id'] ?? '',
-            'user_id'           => intval( $params['user_id'] ?? 0 ),
-            'channel'           => $params['channel']      ?? 'webchat',
-            'character_id'      => intval( $params['character_id'] ?? 0 ),
-            'blog_id'           => get_current_blog_id(),
-            'message'           => $params['message']      ?? '',
-            'images_count'      => count( $params['images'] ?? [] ),
-            'detected_mode'     => $meta['mode']           ?? ( $meta['pipeline']['pipeline'] ?? '' ),
-            'mode_confidence'   => floatval( $meta['mode_confidence'] ?? $meta['confidence'] ?? 0 ),
-            'mode_method'       => $meta['mode_method']    ?? '',
-            'intent_key'        => $meta['intent_key']     ?? ( $result['goal'] ?? '' ),
-            'goal'              => $result['goal']         ?? '',
-            'goal_label'        => $result['goal_label']   ?? '',
-            'slots'             => $result['slots']        ?? [],
-            'context_summary'   => $meta['context_summary']   ?? '',
-            'context_layers'    => $meta['context_layers']    ?? [],
-            'pipeline_class'    => $meta['pipeline_class']    ?? ( $meta['pipeline']['pipeline'] ?? '' ),
-            'pipeline_action'   => $meta['pipeline_action']   ?? ( $result['action'] ?? '' ),
-            'tool_calls'        => $meta['tool_calls']        ?? [],
-            'provider_used'     => $meta['provider']          ?? '',
-            'executor_trace_id' => $meta['executor_trace_id'] ?? '',
-            'planner_plan_id'   => $meta['planner_plan_id']   ?? '',
-            'response_summary'  => mb_substr( $result['reply'] ?? '', 0, 500, 'UTF-8' ),
-            'response_action'   => $result['action']          ?? '',
-            'duration_ms'       => round( ( microtime( true ) - $start_time ) * 1000, 2 ),
-        ] );
-    }, 99, 2 );
+    // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — the prompt-log listener on
+    // bizcity_intent_processed → core/_archived/z3-20261010/intent/bootstrap-prompt-log-listener.php (no emitter left).
 }, 5 );
 
 /* ======================================================================
@@ -306,6 +267,10 @@ if ( ! function_exists( 'bizcity_intent_register_tool' ) ) {
      * @param callable $callback
      */
     function bizcity_intent_register_tool( $name, array $schema, $callback ) {
+        // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — no caller in any installed plugin; legacy, dev notice only.
+        if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+            bizcity_z3_legacy_api_notice( 'bizcity_intent_register_tool()', 'BizCity_Zalo_Brain::register_tool()' );
+        }
         BizCity_Intent_Tools::instance()->register( $name, $schema, $callback );
     }
 }
@@ -320,6 +285,10 @@ if ( ! function_exists( 'bizcity_intent_get_conversation' ) ) {
      * @return array|null
      */
     function bizcity_intent_get_conversation( $user_id, $channel = 'webchat', $session_id = '' ) {
+        // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — no caller in any installed plugin; legacy, dev notice only.
+        if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
+            bizcity_z3_legacy_api_notice( 'bizcity_intent_get_conversation()', 'core/conversation message store' );
+        }
         return BizCity_Intent_Conversation::instance()->get_active( $user_id, $channel, $session_id );
     }
 }

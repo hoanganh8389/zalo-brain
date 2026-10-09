@@ -13,7 +13,10 @@ if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) ) {
 	final class BizCity_Twin_Plugin_SDK {
 
 		public static function register_plugin( $module ): bool {
-			return self::append_filter( 'bizcity_register_module', $module );
+			$registered = self::append_filter( 'bizcity_register_module', $module );
+			// [2026-10-09 11:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-2b — D96-16 wrapper: also record the module in Zalo Brain (record-only).
+			self::zalo_brain_mirror( is_array( $module ) ? $module : array( 'id' => is_string( $module ) ? $module : '' ) );
+			return $registered;
 		}
 
 		public static function register_tool( $tool ): bool {
@@ -55,7 +58,24 @@ if ( ! class_exists( 'BizCity_Twin_Plugin_SDK' ) ) {
 			if ( isset( $definition['output_renderer'] ) ) {
 				$registered = self::append_filter( 'bizcity_twin_register_extension_capabilities', $definition['output_renderer'], 'output_renderers' ) || $registered;
 			}
+			// [2026-10-09 11:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-2b — D96-16 wrapper: navigation items are also
+			// recorded under the Zalo Brain 'setting' surface (setting_panel items are recorded by BizCity_Setting_Panel_Registry).
+			if ( isset( $definition['navigation'] ) && is_array( $definition['navigation'] ) ) {
+				self::zalo_brain_mirror( $definition['navigation'], 'setting' );
+			}
 			return $registered;
+		}
+
+		/**
+		 * Record-only copy into BizCity_Zalo_Brain (contract zalo-brain-extension@1). Never changes this facade's result.
+		 *
+		 * @param array<string,mixed> $def
+		 * @param string              $surface '' = extension/module, else a Zalo Brain surface key.
+		 */
+		private static function zalo_brain_mirror( array $def, $surface = '' ): void {
+			if ( class_exists( 'BizCity_Zalo_Brain', false ) && method_exists( 'BizCity_Zalo_Brain', 'mirror' ) ) {
+				BizCity_Zalo_Brain::mirror( 'twin-plugin-sdk', $def, (string) $surface );
+			}
 		}
 
 		/**

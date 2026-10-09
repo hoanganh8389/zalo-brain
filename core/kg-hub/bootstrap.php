@@ -112,6 +112,9 @@ if ( class_exists( 'BizCity_Safe_Loader' ) ) {
 }
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — one notebook workspace per Zalo number (Q96-13 = a).
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-zalo-number-notebooks.php';
+BizCity_KG_Zalo_Number_Notebooks::register();
 // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5.3 — dispatch non-text notebook capture ingest via cron single events.
 BizCity_KG_Channel_Notebook_Bridge::bind_async_dispatch();
 // [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-1 / CL-D3 — owner_knowledge + notebook_meta packs (the owner's own daily notebooks of one number).

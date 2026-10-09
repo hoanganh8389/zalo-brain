@@ -2279,6 +2279,16 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$scope_type = (string) ( $scope['scope_type'] ?? 'private' );
 		$scope_id   = (string) ( $scope['scope_id'] ?? '' );
 		$workspace_id = $this->resolve_daily_workspace_id( $user_id, $channel );
+		/**
+		 * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — which workspace a capture lands in. A capture scoped to a Zalo
+		 * number (scope_id = zalo_account:<id>) goes to that number's own workspace (BizCity_KG_Zalo_Number_Notebooks).
+		 *
+		 * @param string $workspace_id per-user channel workspace.
+		 * @param int    $user_id      notebook owner.
+		 * @param string $channel      capture channel.
+		 * @param array  $scope        scope_type / scope_id.
+		 */
+		$workspace_id = (string) apply_filters( 'bizcity_kg_capture_workspace_id', $workspace_id, $user_id, $channel, $scope );
 
 		$existing = $svc->list_for_user( $user_id, array( 'limit' => 200 ) );
 		foreach ( (array) $existing as $row ) {

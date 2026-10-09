@@ -131,7 +131,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	}
 	$plugins[] = array(
 		'id'          => 'gpt',
-		'label'       => __( 'Twin GPT', 'bizcity-twin-ai' ),
+		'label'       => __( 'Assistant', 'bizcity-twin-ai' ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /gpt/ = Trợ lý
 		'icon'        => 'sparkles',
 		'emoji'       => '✦',
 		'mode'        => 'embed',

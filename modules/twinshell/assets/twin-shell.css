@@ -466,3 +466,50 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (doc 60 §0) — mobile first: on a phone the ActivityBar becomes a
+   bottom bar so the 7 Zalo Brain surfaces (Trợ lý · Cấu hình Zalo · Đội Zalo · Sổ tay · Lịch · Kịch bản · Cài đặt) fit one row.
+   Sections sit side by side; extra entries scroll horizontally. Desktop layout is unchanged. */
+@media (max-width: 720px) {
+  #twin-shell {
+    flex-direction: column-reverse;
+    height: 100dvh;
+  }
+  .ts-activitybar {
+    width: 100%;
+    flex: 0 0 56px;
+    height: 56px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0 0 env(safe-area-inset-bottom, 0);
+    border-right: 0;
+    border-top: 1px solid var(--ts-bar-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .ts-activitybar::-webkit-scrollbar { display: none; }
+  .ts-ab-section {
+    flex-direction: row;
+    flex: 0 0 auto;
+  }
+  .ts-ab-item {
+    width: 56px;
+    height: 56px;
+    flex: 0 0 56px;
+  }
+  .ts-ab-item.is-active::before {
+    left: 10px;
+    right: 10px;
+    top: 0;
+    bottom: auto;
+    width: auto;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+  }
+  .ts-ab-sep { display: none; }
+  .ts-main {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}

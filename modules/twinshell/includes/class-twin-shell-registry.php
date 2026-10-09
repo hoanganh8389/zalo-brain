@@ -51,8 +51,9 @@ class BizCity_Twin_Shell_Registry {
 		'gateway'        => 20,
 		'crm'            => 30,
 		'twinchat'       => 40,
-		'workflow'       => 50,
-		'scheduler'      => 60,
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — the 7 Zalo Brain surfaces in order: Trợ lý · Cấu hình Zalo · Đội Zalo · Sổ tay · Lịch & nhiệm vụ · Kịch bản · Cài đặt.
+		'scheduler'      => 50,
+		'workflow'       => 60,
 		'twinkg'         => 70,
 		'personal'       => 110,
 		'qr'             => 120,

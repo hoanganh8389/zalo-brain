@@ -61,7 +61,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// ── Operating center ─────────────────────────────────────────
 		[
 			'id'          => 'twinchat',
-			'label'       => __( 'Twin Chat',                     $td ),
+			'label'       => __( 'Notebook',                      $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /twinchat/ = Sổ tay
 			// [2026-08-29 Johnny Chu] PHASE-TWINSHELL-NAV — identify Twin Chat with the brain icon in the shared ActivityBar.
 			'icon'        => 'brain',
 			'emoji'       => '💬',
@@ -81,7 +81,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// second operating layer: bring every external conversation into the brain.
 		[
 			'id'          => 'gateway',
-			'label'       => __( 'Channels',                      $td ),
+			'label'       => __( 'Zalo Setup',                    $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /gateway/ = Cấu hình Zalo
 			'icon'        => 'gateway',
 			'emoji'       => '🔌',
 			'mode'        => 'link',
@@ -95,7 +95,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// capability of BizCity Twin AI, available on the Free plan.
 		[
 			'id'          => 'crm',
-			'label'       => __( 'Twin CRM',                       $td ),
+			'label'       => __( 'Zalo Team',                     $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /crm/ = Đội Zalo (core when the CRM plugin is absent)
 			'icon'        => 'funnel',
 			'emoji'       => '📥',
 			'mode'        => 'embed',
@@ -270,7 +270,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// [2026-06-17 Johnny Chu] UX — removed Account & Billing button from ActivityBar
 		[
 			'id'          => 'scheduler',
-			'label'       => __( 'Reminders',                     $td ),
+			'label'       => __( 'Schedule & Tasks',              $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /scheduler/ = Lịch & nhiệm vụ
 			'icon'        => 'scheduler',
 			'emoji'       => '📅',
 			'mode'        => 'embed',
@@ -282,7 +282,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		],
 		[
 			'id'          => 'workflow',
-			'label'       => __( 'Automation',                    $td ),
+			'label'       => __( 'Scenarios',                     $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /flow/ = Kịch bản
 			'icon'        => 'automation',
 			'emoji'       => '🔄',
 			'mode'        => 'link',

@@ -115,6 +115,10 @@ if ( is_admin() ) {
 require_once $bizcity_crm_inc . 'class-guru-resolver.php';
 require_once $bizcity_crm_inc . 'class-guru-roles-admin.php';
 
+// ── /crm/ "Đội Zalo" when the Zalo Brain CRM plugin is not active (PHASE-0.96 S96-7.4) ───────────────────────
+require_once $bizcity_crm_inc . 'class-crm-core-page.php';
+BizCity_CRM_Core_Page::register();
+
 // ── REST (spine routes; the plugin's BizCity_CRM_REST_Controller extends this class) ─────────────────────────
 require_once $bizcity_crm_inc . 'rest/class-crm-spine-rest.php';
 

@@ -84,6 +84,9 @@ class BizCity_Admin_Menu {
 		add_action( 'admin_menu', [ __CLASS__, 'register_toplevel_menus' ], 5 );
 		add_action( 'admin_menu', [ __CLASS__, 'register_all_submenus' ], 10 );
 		add_action( 'admin_menu', [ __CLASS__, 'reorder_sidebar' ], 999 );
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — 7 surfaces under "Zalo Brain", then hide the older parents.
+		add_action( 'admin_menu', [ __CLASS__, 'register_zalo_brain_surfaces' ], 9 );
+		add_action( 'admin_menu', [ __CLASS__, 'hide_legacy_parents' ], 1000 );
 		add_action( 'admin_menu', [ __CLASS__, 'cleanup_duplicate_gateway_menus' ], 99999 );
 		// [2026-09-30 Claude Sonnet 5] Owner directive — Twin CRM sits directly above Twin
 		// Setting. Runs after cleanup so it sees the final menu, not a slot a removed legacy item still holds.
@@ -123,14 +126,17 @@ class BizCity_Admin_Menu {
 
 		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — materialize one protected Control Panel root; legacy parents remain direct-link compatible until the observation window ends.
 		// [2026-09-30 Claude Sonnet 5] Owner directive — display label only; slug stays SLUG_CONTROL_PANEL (stable deep links, R-SETTING-PANEL inv.5).
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (D96-15) — the one root menu is "Zalo Brain"; its children are the
+		// 7 surfaces (register_zalo_brain_surfaces). Slug unchanged (deep links). Users who may not manage the site still see it
+		// ('read'): each surface checks its own permission.
 		add_menu_page(
-			__( 'Twin Setting', $td ),
-			__( 'Twin Setting', $td ),
-			self::menu_cap(),
+			__( 'Zalo Brain', $td ),
+			__( 'Zalo Brain', $td ),
+			'read',
 			self::SLUG_CONTROL_PANEL,
 			[ __CLASS__, 'render_control_panel_page' ],
-			'dashicons-admin-generic',
-			4
+			'dashicons-format-chat',
+			3
 		);
 
 		/* ── End-user: Chat React SPA — DISABLED 2026-05-06 ──
@@ -694,6 +700,50 @@ class BizCity_Admin_Menu {
 	 *  ③ Reorder sidebar
 	 *     Chat → Notebook → BizCity AI → rest of WP
 	 * ══════════════════════════════════════ */
+	/**
+	 * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (D96-15) — "Zalo Brain" › the 7 surfaces, in BizCity_Zalo_Brain order.
+	 * Surfaces are public pages (/gpt/, /crm/, …), so the submenu items are absolute URLs (WordPress links them as-is).
+	 * "Cấu hình Zalo" opens the Bot Studio admin SPA; "Cài đặt" is the Control Panel page this root already renders.
+	 */
+	public static function register_zalo_brain_surfaces(): void {
+		if ( ! class_exists( 'BizCity_Zalo_Brain' ) ) {
+			return;
+		}
+		$labels = array(
+			'gpt'       => __( 'Trợ lý', 'bizcity-twin-ai' ),
+			'gateway'   => __( 'Cấu hình Zalo', 'bizcity-twin-ai' ),
+			'crm'       => __( 'Đội Zalo', 'bizcity-twin-ai' ),
+			'twinchat'  => __( 'Sổ tay', 'bizcity-twin-ai' ),
+			'scheduler' => __( 'Lịch & nhiệm vụ', 'bizcity-twin-ai' ),
+			'flow'      => __( 'Kịch bản', 'bizcity-twin-ai' ),
+		);
+		foreach ( BizCity_Zalo_Brain::surfaces() as $id => $surface ) {
+			if ( 'setting' === $id || empty( $surface['available'] ) || ! isset( $labels[ $id ] ) ) {
+				continue;
+			}
+			$url = 'gateway' === $id
+				? admin_url( 'admin.php?page=bizchat-gateway-spa' )
+				: home_url( (string) $surface['slug'] );
+			$cap = 'gateway' === $id ? self::menu_cap() : 'read';
+			add_submenu_page( self::SLUG_CONTROL_PANEL, $labels[ $id ], $labels[ $id ], $cap, $url );
+		}
+		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Cài đặt', 'bizcity-twin-ai' ), __( 'Cài đặt', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );
+	}
+
+	/**
+	 * PHASE-0.96 S96-7.1 — one root menu for Zalo Brain: the older parents of this plugin leave the sidebar. They stay
+	 * registered, so every admin.php?page=… link (and every child page) still opens. Zalo Bot, Facebook and Google keep
+	 * their own menus (owner decision Q96-12). Restore with add_filter( 'zalo_brain_lean_admin_menu', '__return_false' ).
+	 */
+	public static function hide_legacy_parents(): void {
+		if ( ! apply_filters( 'zalo_brain_lean_admin_menu', true ) ) {
+			return;
+		}
+		foreach ( array( self::SLUG_WORKSPACE, self::SLUG_PLUGINS, self::SLUG_ADMIN ) as $slug ) {
+			remove_menu_page( $slug );
+		}
+	}
+
 	public static function reorder_sidebar(): void {
 		// [2026-09-13 Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G4 — keep the canonical Control Panel at the first Twin slot during the migration window.
 		self::move_menu_item( self::SLUG_CONTROL_PANEL, 4 );

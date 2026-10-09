@@ -281,6 +281,8 @@ class BizCity_TwinWeb_Page {
 					: (string) home_url( '/twin/?plugin=settings' ),
 				'skin'         => $query_skin,
 				'mountId'      => 'bizcity-twinweb-root',
+				// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.2 — Việc / Khách / Không gian của tôi exist only with the Zalo Brain CRM plugin (feature 'workspace').
+				'crmWorkspace' => class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'workspace' ),
 			),
 			JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT
 		);

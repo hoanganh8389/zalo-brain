@@ -2593,3 +2593,31 @@ msgstr "Dùng liên kết trên dòng đó để đổi ở nơi quản lý."
 
 msgid "This module is managed elsewhere."
 msgstr "Module này được quản lý ở nơi khác."
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Assistant"
+msgstr "Trợ lý"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Zalo Setup"
+msgstr "Cấu hình Zalo"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Zalo Team"
+msgstr "Đội Zalo"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Notebook"
+msgstr "Sổ tay"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Schedule & Tasks"
+msgstr "Lịch & nhiệm vụ"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Scenarios"
+msgstr "Kịch bản"
+
+#: PHASE-0.96 S96-7.1 Zalo Brain surfaces (2026-10-09)
+msgid "Zalo Brain"
+msgstr "Zalo Brain"

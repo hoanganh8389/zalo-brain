@@ -234,7 +234,11 @@ final class BizCity_Gateway_Admin_SPA {
 			// module should drop its nav icon instead of showing a dead tab.
 			'modules'      => [
 				'automation' => $this->module_tables_exist( [ 'bizcity_automation_workflows', 'bizcity_automation_runs' ] ),
+				// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — Zalo Brain CRM present on this site (plugin registered on the spine).
+				'crm'        => class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'admin_ui' ),
 			],
+			// PHASE-0.96 — crm-spine@1 capability map (features the extension plugin registered), for FE gates.
+			'crmSpine'     => class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::describe() : null,
 		];
 
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — allow external plugins to inject BOOT extras (e.g. zaloBridge config).

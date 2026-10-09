@@ -3492,7 +3492,7 @@ class BizCity_TwinWeb_REST {
 		if ( 'conflict' === (string) ( $mutation['status'] ?? '' ) ) { return $this->mychannels_error( 'invalid_param', 'Mã thao tác đã dùng cho dữ liệu khác.', 'Tạo lại bản nháp rồi thử lại.', 'invalid_param_generic' ); }
 		if ( 'pending' === (string) ( $mutation['status'] ?? '' ) ) { return $this->mychannels_error( 'invalid_param', 'Đơn đang được xử lý.', 'Đợi thao tác hiện tại hoàn tất rồi thử lại.', 'invalid_param_generic' ); }
 		if ( 'replay' === (string) ( $mutation['status'] ?? '' ) ) { $replayed = (array) ( $mutation['response'] ?? array() ); $replayed['idempotency_replayed'] = true; return rest_ensure_response( $replayed ); }
-		$adapter = BizCity_CRM_Order_Adapter_Registry::default_adapter();
+		$adapter = class_exists( 'BizCity_CRM_Order_Adapter_Registry' ) ? BizCity_CRM_Order_Adapter_Registry::default_adapter() : null; // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
 		$contact = BizCity_CRM_Repository::get_contact( (int) $context['contact_id'] );
 		if ( ! $adapter || ! $adapter->is_available() || ! is_array( $contact ) ) { BizCity_Twin_Mutation_Store::release( (string) ( $mutation['key'] ?? '' ) ); return $this->mychannels_error( 'gateway_degraded', 'Order Adapter hoặc hồ sơ khách hàng chưa sẵn sàng.', 'Kiểm tra Woo/CRM rồi thử lại.', 'gateway_degraded', array( '_degraded' => true ) ); }
 		try {
@@ -4109,7 +4109,7 @@ class BizCity_TwinWeb_REST {
 		$contact_ids = array_values( array_unique( array_filter( array_map( static function ( $item ) {
 			return (int) ( $item['contact_id'] ?? 0 );
 		}, $items ) ) ) );
-		if ( empty( $contact_ids ) ) { return $items; }
+		if ( empty( $contact_ids ) || ! class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) { return $items; } // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
 		$rows = BizCity_CRM_Customer_Pipeline::rows( $contact_ids );
 		$out = array();
 		foreach ( $items as $item ) {

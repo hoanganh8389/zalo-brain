@@ -167,14 +167,19 @@ add_action( 'rest_api_init', function () {
 	if ( class_exists( 'BizCity_TwinWeb_Projects_REST', false ) ) {
 		BizCity_TwinWeb_Projects_REST::instance()->register_routes();
 	}
+	// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 Q96-7 — /gpt/crm/ stays in TwinWeb on the core/crm spine; the task and
+	// pipeline projections exist only when the Zalo Brain CRM plugin registered the 'workspace' feature (BizCity_CRM_Spine::has).
+	$_bizcity_twinweb_crm_workspace = class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'workspace' )
+		&& class_exists( 'BizCity_CRM_Task_Handoff' ) && class_exists( 'BizCity_CRM_Customer_Pipeline' );
 	// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W5 — leader-task-handoff member projection.
-	if ( class_exists( 'BizCity_TwinWeb_CRM_Tasks_REST', false ) ) {
+	if ( $_bizcity_twinweb_crm_workspace && class_exists( 'BizCity_TwinWeb_CRM_Tasks_REST', false ) ) {
 		BizCity_TwinWeb_CRM_Tasks_REST::instance()->register_routes();
 	}
 	// [2026-09-18] PHASE-0.52 — R-PIPE member projection (current user only).
-	if ( class_exists( 'BizCity_TwinWeb_CRM_Pipeline_REST', false ) ) {
+	if ( $_bizcity_twinweb_crm_workspace && class_exists( 'BizCity_TwinWeb_CRM_Pipeline_REST', false ) ) {
 		BizCity_TwinWeb_CRM_Pipeline_REST::instance()->register_routes();
 	}
+	unset( $_bizcity_twinweb_crm_workspace );
 } );
 
 // ── Rewrite flush registry (R-CR.1) ───────────────────────────────────────────

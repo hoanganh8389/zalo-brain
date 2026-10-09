@@ -105,7 +105,7 @@ vendor/
 # These are not framework core, channel owners, or must-load dependencies.
 
 
-# bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
+# bizcity-twin-crm — moved out of the bundle 2026-10-09 (PHASE-0.96): spine = core/crm, plugin = wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/zalo-brain-crm).
 
 /core/intent/logs/
 
@@ -169,7 +169,5 @@ vendor/
 # WP-13 DL-5 — module diagnostic pages and probes (same list as bin/dev-only-paths.txt).
 /core/channel-gateway/includes/class-sprint-diagnostic.php
 /core/channel-gateway/includes/class-phase-037-diagnostic.php
-/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic.php
-/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php
 /modules/twinchat/includes/diagnostics/
 /modules/twinweb/includes/class-probe-twinweb-*.php

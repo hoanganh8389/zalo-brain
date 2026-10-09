@@ -51,6 +51,9 @@ final class BizCity_CRM_Pipeline_MCP_Bridge {
 		if ( '' !== $metric && ! in_array( $metric, $allowed_metrics, true ) ) {
 			return new WP_Error( 'pipeline_metric_invalid', 'Metric pipeline không hợp lệ.', array( 'status' => 400 ) );
 		}
+		if ( ! class_exists( 'BizCity_CRM_Reporting_Rollup' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
+			return class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'reports', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) );
+		}
 		$items = BizCity_CRM_Reporting_Rollup::get_rollups( array(
 			'from' => isset( $args['from'] ) ? (string) $args['from'] : '',
 			'to' => isset( $args['to'] ) ? (string) $args['to'] : '',

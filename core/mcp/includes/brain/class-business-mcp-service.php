@@ -32,6 +32,9 @@ final class BizCity_Business_MCP_Service {
 		if ( ! class_exists( 'BizCity_CRM_Woo_Reports_Bridge' ) ) {
 			return array( '_degraded' => true, 'reason' => 'crm_woo_reports_unavailable', 'from' => $from, 'to' => $to, 'summary' => $this->zero_sales( $from, $to ) );
 		}
+		if ( ! class_exists( 'BizCity_CRM_Woo_Reports_Bridge' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
+			return class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'reports', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) );
+		}
 		return array(
 			'from'    => $from,
 			'to'      => $to,
@@ -51,6 +54,9 @@ final class BizCity_Business_MCP_Service {
 		$metrics = array_slice( $metrics, 0, 12 );
 		$group_by = isset( $args['group_by'] ) ? sanitize_key( (string) $args['group_by'] ) : 'none';
 		$out      = array();
+		if ( ! class_exists( 'BizCity_CRM_Report_Builder' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
+			return class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'reports', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) );
+		}
 		foreach ( $metrics as $metric ) {
 			$result = BizCity_CRM_Report_Builder::aggregate( array(
 				'metric'   => $metric,

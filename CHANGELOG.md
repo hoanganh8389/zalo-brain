@@ -18,6 +18,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-09 — Zalo Brain
+
+<!-- [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 -->
+
+The plugin is now branded **Zalo Brain**: the Zalo brain of WordPress. Folder slug, text domain and code names are unchanged.
+
+### Added
+- `core/crm/` — the CRM spine (contract `crm-spine@1`): contacts, inboxes, conversations, messages, attachments, labels, teams and inbox members, archive receipts, magic links and admin-chat grants (15 tables), the channel ingestor and outbound dispatcher, inbox scope and staff policy, the spine REST routes under `bizcity-crm/v1` and the spine DB installer. Always loaded.
+- `BizCity_CRM_Spine` — feature registry for the CRM extension; `GET /wp-json/bizcity-crm/v1/spine`.
+- `BizCity_Zalo_Brain` — framework registry (contract `zalo-brain-extension@1`): the 7 surfaces, extensions, features, standard `feature_unavailable` error; actions `zalo_brain_register` / `zalo_brain_loaded`; `GET /wp-json/bizcity/v1/zalo-brain`.
+- Hook filters `bizcity_crm_install_tables`, action `bizcity_crm_install_migrate`, action `bizcity_crm_spine_loaded`.
+
+### Changed
+- **Zalo Brain CRM is a separate plugin** (`wp-content/plugins/bizcity-twin-crm`, repository `zalo-brain-crm`, `Requires Plugins: bizcity-twin-ai`, `Network: false`). It is no longer bundled or force-loaded. Without it, Zalo Brain still receives, answers, archives and scopes every conversation.
+- MCP tool `staff.assign` is registered only when Zalo Brain CRM provides `tasks`; report tools answer `crm_feature_unavailable` when it is absent.
+- Bot Studio gate card now says "Zalo Brain CRM".
+
+### Removed
+- `core/membership` (plans, subscriptions, payments): licensing is the 1API master tier. Tables `bizcity_member_*` are quarantined, not dropped.
+- Bundled copy `plugins/bizcity-twin-crm` and its must-load contract.
+
+### Upgrade
+- Upload the new plugin, then install and activate **Zalo Brain CRM** on every site that used the CRM, in the same maintenance window. Do not keep an old bundled copy (two copies = "cannot redeclare").
+- No table is altered or dropped: the spine stamps `bizcity_crm_db_ver = 2.0.0`, the CRM plugin stamps `bizcity_crm_ext_db_ver = 1.0.0`.
+
+
 ### Module diagnostic pages are dev-only - 2026-09-28
 
 > Stamp: `[2026-09-28 Claude Opus 5.5]` · docs: `core/knowledge/docs/CORE-REDUCTION-WP-13-DIAGNOSTICS-DEV-LOCAL.md` §20

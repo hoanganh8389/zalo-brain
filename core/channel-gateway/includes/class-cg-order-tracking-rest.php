@@ -188,7 +188,7 @@ final class BizCity_CG_Order_Tracking_REST {
 		if ( ! class_exists( 'BizCity_CRM_Order_Public_Token' ) ) {
 			return 0;
 		}
-		if ( ! function_exists( 'wc_get_orders' ) ) {
+		if ( ! function_exists( 'wc_get_orders' ) || ! class_exists( 'BizCity_CRM_Order_Public_Token' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
 			return 0;
 		}
 		return BizCity_CRM_Order_Public_Token::resolve( $token );

@@ -106,41 +106,45 @@ final class BizCity_CRM_Action_MCP_Service {
 			'since'          => '0.88.3',
 		) );
 
-		// @mcp bizcity-mcp-standard@1 tool staff.assign
-		BizCity_MCP_Tool_Registry::register( 'staff.assign', array(
-			'title'          => 'Giao khách cho nhân viên',
-			'description'    => 'Giao việc chăm sóc một khách (contact_ref) hoặc một hội thoại (conversation_id) cho một nhân viên (user_id hoặc tên). Chỉ quản lý (supervisor) hoặc quản trị viên dùng được. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
-			'input_schema'   => array( 'type' => 'object', 'properties' => array(
-				'contact_ref'      => array( 'type' => 'string' ),
-				'conversation_id'  => array( 'type' => 'integer', 'minimum' => 1 ),
-				'assignee_user_id' => array( 'type' => 'integer', 'minimum' => 1 ),
-				'assignee_name'    => array( 'type' => 'string', 'maxLength' => 120 ),
-				'title'            => array( 'type' => 'string', 'maxLength' => 180 ),
-				'note'             => array( 'type' => 'string', 'maxLength' => self::NOTE_MAX ),
-				'due_date'         => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
-				'confirm_token'    => array( 'type' => 'string' ),
-			) ),
-			'output_schema'  => $S::envelope_schema( array(
-				'status'        => array( 'type' => 'string', 'enum' => array( 'needs_confirmation', 'done' ) ),
-				'preview'       => array( 'type' => 'object' ),
-				'confirm_token' => array( 'type' => 'string' ),
-				'expires_at'    => array( 'type' => 'string' ),
-				'task_ids'      => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
-				'assignee'      => array( 'type' => 'object' ),
-			) ),
-			'read_only'      => false,
-			'destructive'    => false,
-			'idempotent'     => false,
-			'required_scope' => 'staff.write',
-			'handler'        => array( __CLASS__, 'assign' ),
-			'preview'        => array( __CLASS__, 'assign_preview' ),
-			'mode'           => 'customers',
-			'scopes'         => array( 'staff.write' ),
-			'confirm'        => 'always',
-			'llm_alias'      => 'staff_assign',
-			'fallback_pack'  => null,
-			'since'          => '0.88.3',
-		) );
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 — staff.assign creates a CRM task (Zalo Brain CRM plugin). Without the
+		// plugin the tool is not registered at all, so the cell never sees it in the pack (no fake capability).
+		if ( class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'tasks' ) && class_exists( 'BizCity_CRM_Task_Handoff' ) ) {
+			// @mcp bizcity-mcp-standard@1 tool staff.assign
+			BizCity_MCP_Tool_Registry::register( 'staff.assign', array(
+				'title'          => 'Giao khách cho nhân viên',
+				'description'    => 'Giao việc chăm sóc một khách (contact_ref) hoặc một hội thoại (conversation_id) cho một nhân viên (user_id hoặc tên). Chỉ quản lý (supervisor) hoặc quản trị viên dùng được. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
+				'input_schema'   => array( 'type' => 'object', 'properties' => array(
+					'contact_ref'      => array( 'type' => 'string' ),
+					'conversation_id'  => array( 'type' => 'integer', 'minimum' => 1 ),
+					'assignee_user_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+					'assignee_name'    => array( 'type' => 'string', 'maxLength' => 120 ),
+					'title'            => array( 'type' => 'string', 'maxLength' => 180 ),
+					'note'             => array( 'type' => 'string', 'maxLength' => self::NOTE_MAX ),
+					'due_date'         => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
+					'confirm_token'    => array( 'type' => 'string' ),
+				) ),
+				'output_schema'  => $S::envelope_schema( array(
+					'status'        => array( 'type' => 'string', 'enum' => array( 'needs_confirmation', 'done' ) ),
+					'preview'       => array( 'type' => 'object' ),
+					'confirm_token' => array( 'type' => 'string' ),
+					'expires_at'    => array( 'type' => 'string' ),
+					'task_ids'      => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
+					'assignee'      => array( 'type' => 'object' ),
+				) ),
+				'read_only'      => false,
+				'destructive'    => false,
+				'idempotent'     => false,
+				'required_scope' => 'staff.write',
+				'handler'        => array( __CLASS__, 'assign' ),
+				'preview'        => array( __CLASS__, 'assign_preview' ),
+				'mode'           => 'customers',
+				'scopes'         => array( 'staff.write' ),
+				'confirm'        => 'always',
+				'llm_alias'      => 'staff_assign',
+				'fallback_pack'  => null,
+				'since'          => '0.88.3',
+			) );
+		}
 	}
 
 	/* ── crm.customer.lookup ─────────────────────────────────────── */
@@ -352,6 +356,9 @@ final class BizCity_CRM_Action_MCP_Service {
 				$payload['contact_ids'] = array( $plan['contact_id'] );
 			} else {
 				$payload['conversation_id'] = $plan['conversation_id'];
+			}
+			if ( ! class_exists( 'BizCity_CRM_Task_Handoff' ) ) { // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4)
+				return BizCity_MCP_Action_Support::from_business( class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::unavailable_error( 'tasks', 503 ) : new WP_Error( 'crm_feature_unavailable', 'Cần plugin Zalo Brain CRM.', array( 'status' => 503 ) ) );
 			}
 			$res = BizCity_CRM_Task_Handoff::create( $uid, $payload );
 			if ( is_wp_error( $res ) ) {

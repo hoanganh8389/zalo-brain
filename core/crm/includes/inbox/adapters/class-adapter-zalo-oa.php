@@ -1,0 +1,263 @@
+<?php
+/**
+ * BizCity CRM — Zalo OA (Official Account) Channel Adapter.
+ *
+ * Thin subclass of BizCity_CRM_Adapter_Zalo that:
+ *  - Returns code() = 'zalo_oa' so the CRM inbox channel_type = 'zalo_oa'
+ *    and BizCity_CRM_Guru_Resolver::resolve_for_inbox() correctly resolves the
+ *    binding via UPPER('zalo_oa') = 'ZALO_OA' in bizcity_channel_bindings.
+ *  - Overrides send() to use chat_id = 'zalooa_{oa_id}_{uid}' (not 'zalobot_…')
+ *    so BizCity_Gateway_Sender routes via the ZALO_OA delivery path.
+ *
+ * normalize_inbound() is inherited from parent — the $_legacy_payload shape
+ * that handle_webhook() builds for ZALO_OA is identical to what the parent expects.
+ *
+ * @package BizCity_Twin_CRM
+ * @since   PHASE-0.39 GURU-BIND 2026-06-21
+ */
+
+// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — new adapter enabling ZALO_OA auto-reply.
+
+defined( 'ABSPATH' ) || exit;
+
+class BizCity_CRM_Adapter_ZaloOA extends BizCity_CRM_Adapter_Zalo {
+
+	public function code(): string  { return 'zalo_oa'; }
+	public function label(): string { return 'Zalo OA (Kênh khách)'; }
+
+	public function normalize_inbound( array $raw ): ?array {
+		// [2026-08-28 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep every Zalo OA event on the configured OA identity so ref aliases cannot create duplicate CRM inboxes.
+		$oa_id = self::canonical_oa_id( $raw );
+		if ( $oa_id === '' ) {
+			return null;
+		}
+		$raw['conversation_id'] = $oa_id;
+		$raw['account_id']      = $oa_id;
+		$normalized = parent::normalize_inbound( $raw );
+		if ( ! is_array( $normalized ) ) {
+			return null;
+		}
+		$normalized['inbox_ref'] = $oa_id;
+		return $normalized;
+	}
+
+	/**
+	 * Resolve the canonical, configured Zalo OA identity for an inbound event — or fail closed.
+	 *
+	 * [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E4 — the previous version returned the first
+	 * numeric-looking candidate at face value before ever checking the registry, and fell back to an
+	 * unverified alias when nothing matched. Both violated the checklist: a webhook alias, a stray
+	 * `conversation_id`, or an unmapped digit string could mint a new CRM Inbox/conversation under an
+	 * identity nobody configured. Every candidate — including `conversation_id`/`account_id`/
+	 * `instance_id`, which are correlation input only — must now match a stored, configured OA account
+	 * before it can become the identity; nothing configured or nothing matched returns `''`, which
+	 * `normalize_inbound()` already treats as "drop the event", not "invent an Inbox".
+	 *
+	 * @return string Canonical configured `oa_id`, or '' when it cannot be verified.
+	 */
+	private static function canonical_oa_id( array $raw ): string {
+		if ( ! class_exists( 'BizCity_Integration_Registry' ) ) {
+			return '';
+		}
+		$configured_accounts = array();
+		foreach ( (array) BizCity_Integration_Registry::instance()->get_accounts( 'zalo_oa' ) as $account ) {
+			$configured = trim( (string) ( $account['oa_id'] ?? '' ) );
+			if ( $configured === '' ) {
+				continue;
+			}
+			$configured_accounts[] = array(
+				'uid'   => trim( (string) ( $account['_uid'] ?? $account['uid'] ?? '' ) ),
+				'oa_id' => $configured,
+			);
+		}
+		if ( empty( $configured_accounts ) ) {
+			// Nothing to verify against — accepting any candidate here would be a guess, not a match.
+			return '';
+		}
+
+		$match_against = static function ( array $candidates ) use ( $configured_accounts ): string {
+			foreach ( $candidates as $candidate ) {
+				$candidate = trim( (string) $candidate );
+				if ( $candidate === '' ) {
+					continue;
+				}
+				foreach ( $configured_accounts as $account ) {
+					if ( $candidate === $account['oa_id'] || ( '' !== $account['uid'] && $candidate === $account['uid'] ) ) {
+						return $account['oa_id'];
+					}
+				}
+			}
+			return '';
+		};
+
+		$provider_payload = is_array( $raw['raw'] ?? null ) ? $raw['raw'] : array();
+		// Provider-authenticated identity fields — checked first.
+		$matched = $match_against( array(
+			$raw['oa_id'] ?? '',
+			$raw['recipient_id'] ?? '',
+			$provider_payload['recipient']['id'] ?? '',
+			$provider_payload['oa_id'] ?? '',
+		) );
+		if ( '' !== $matched ) {
+			return $matched;
+		}
+		// Correlation-only fields: still checked, but only ever used when they land on a real
+		// configured OA — they never become the identity by simply being present.
+		return $match_against( array(
+			$raw['conversation_id'] ?? '',
+			$raw['account_id'] ?? '',
+			$raw['instance_id'] ?? '',
+		) );
+	}
+
+	/**
+	 * Send outbound reply via ZALO_OA.
+	 *
+	 * Uses BizCity_Integration_Registry to look up the Zalo OA channel integration
+	 * and find the account matching channel_ref_id (OA numeric ID), then calls
+	 * send_outbound(array $msg, array $account) directly — the same pattern used by
+	 * send_legacy() in BizCity_Gateway_Sender for Zalo Bot.
+	 *
+	 * NOTE: We do NOT go through BizCity_Gateway_Sender::send() here because that
+	 * method calls $adapter->send_outbound($chat_id, $message, $options) with 3
+	 * positional string/string/array args, which mismatches the BizCity_Channel_Integration
+	 * signature send_outbound(array $msg, array $account) → TypeError.
+	 *
+	 * @param array $conversation CRM conversation row (must contain inbox_id, contact_inbox_id).
+	 * @param array $message      { content: string, content_type: string, attachments?: array }.
+	 * @return array { success: bool, external_source_id: string|null, error: string|null }
+	 */
+	public function send( array $conversation, array $message ): array {
+		// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — ZALO_OA send via Integration_Registry.
+		$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $conversation['inbox_id'] ?? 0 ) );
+		if ( ! $inbox ) {
+			error_log( '[bizcity-crm-trace] P12 ZaloOA send FAIL: inbox not found inbox_id=' . ( $conversation['inbox_id'] ?? 'NULL' ) );
+			return array( 'success' => false, 'external_source_id' => null, 'error' => 'inbox not found' );
+		}
+
+		$ref = (string) $inbox['channel_ref_id'];  // OA numeric ID e.g. '402129037615218619'
+		$uid = $this->resolve_uid_from_conversation( $conversation );
+		error_log( '[bizcity-crm-trace] P12 ZaloOA send START ref=' . $ref . ' uid=' . $uid );
+		if ( $uid === '' ) {
+			error_log( '[bizcity-crm-trace] P12 ZaloOA send FAIL: cannot resolve uid conv=' . ( $conversation['id'] ?? 'NULL' ) );
+			return array( 'success' => false, 'external_source_id' => null, 'error' => 'cannot resolve Zalo user_id from conversation' );
+		}
+
+		// [2026-08-28 Johnny Chu] PHASE-0.44-ZALO-OA-DUAL-MODE — managed OA sends use the exact Hub account projection and never fall back to self-managed credentials.
+		if ( class_exists( 'BizCity_Integration_Registry' ) && class_exists( 'BizCity_Zalo_OA_Hub_Client' ) ) {
+			foreach ( BizCity_Integration_Registry::instance()->get_accounts( 'zalo_oa' ) as $managed_account ) {
+				$is_managed = (string) ( $managed_account['connection_mode'] ?? '' ) === 'managed_1api';
+				$matches_oa  = (string) ( $managed_account['managed_oa_id'] ?? $managed_account['oa_id'] ?? '' ) === $ref;
+				$hub_id     = (int) ( $managed_account['managed_hub_account_id'] ?? 0 );
+				if ( $is_managed && $matches_oa && $hub_id > 0 && (string) ( $managed_account['managed_status'] ?? 'active' ) === 'active' ) {
+					$result = BizCity_Zalo_OA_Hub_Client::instance()->send( $hub_id, $uid, $message );
+					return array(
+						'success'            => ! empty( $result['success'] ) && empty( $result['_degraded'] ),
+						'external_source_id' => (string) ( $result['external_source_id'] ?? '' ),
+						'error'              => ! empty( $result['success'] ) ? null : (string) ( $result['message'] ?? 'zalo_oa_managed_send_failed' ),
+					);
+				}
+			}
+		}
+
+		$text         = (string) ( $message['content'] ?? '' );
+		$content_type = (string) ( $message['content_type'] ?? 'text' );
+		$attachments  = is_array( $message['attachments'] ?? null ) ? $message['attachments'] : array();
+		$first_att    = $attachments[0] ?? null;
+		$att_url      = is_array( $first_att ) ? (string) ( $first_att['data_url'] ?? '' ) : '';
+		$type         = ( $content_type === 'image' && $att_url !== '' ) ? 'image' : 'text';
+		$payload_text = ( $type === 'image' ) ? $att_url : $text;
+
+		// Path 1 — BizCity_Integration_Registry: find zalo_oa channel + account by oa_id.
+		// Pattern mirrors send_legacy(zalo_bot) in BizCity_Gateway_Sender.
+		if ( class_exists( 'BizCity_Integration_Registry' ) && class_exists( 'BizCity_Channel_Integration' ) ) {
+			$registry = BizCity_Integration_Registry::instance();
+			$channel  = $registry->get( 'zalo_oa' );
+			error_log( '[bizcity-crm-trace] P12 ZaloOA path1 channel=' . ( $channel ? get_class( $channel ) : 'NULL' ) );
+
+			if ( $channel instanceof BizCity_Channel_Integration ) {
+				$raw_accounts = $registry->get_accounts( 'zalo_oa' );  // raw (encrypted)
+				$account_raw  = array();
+
+				foreach ( $raw_accounts as $acc ) {
+					// Match by OA numeric ID ('oa_id') or account slug ('_uid').
+					if (
+						(string) ( $acc['oa_id'] ?? '' ) === $ref ||
+						(string) ( $acc['_uid']  ?? '' ) === $ref
+					) {
+						$account_raw = $acc;
+						break;
+					}
+				}
+
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E3 — removed the single-account
+				// fallback. A ref that matches none of the configured accounts is a binding bug, not
+				// license to guess; sending through "the only account configured" risked delivering a
+				// customer reply under the wrong OA identity. Fail closed via Path 2/no_send_path instead.
+
+				error_log( '[bizcity-crm-trace] P12 ZaloOA path1 accounts=' . count( $raw_accounts ) . ' matched=' . ( ! empty( $account_raw ) ? 'yes' : 'no' ) );
+
+				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E3 — a managed_1api account is owned
+				// entirely by the Hub-only block above (it already returned on any exact/active match).
+				// Reaching here with a managed account means the Hub binding is incomplete/inactive; never
+				// let it fall back to a self-managed-style send with a blank/foreign token.
+				if ( ! empty( $account_raw ) && 'managed_1api' === (string) ( $account_raw['connection_mode'] ?? 'self_managed' ) ) {
+					error_log( '[bizcity-crm-trace] P12 ZaloOA path1 SKIP managed_1api account not Hub-ready ref=' . $ref . ' managed_status=' . (string) ( $account_raw['managed_status'] ?? '' ) );
+					return array( 'success' => false, 'external_source_id' => null, 'error' => 'zalo_oa_managed_not_ready' );
+				}
+
+				if ( ! empty( $account_raw ) ) {
+					// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — prefer BizCity_CG_Zalo_OA_Integration
+					// (new direct PHP, no bridge). The registry may still return the old
+					// BizCity_Zalo_OA_Integration (bridge-based) which fails with 'bridge_account_id missing'.
+					// Instantiate the new class directly when available.
+					if ( class_exists( 'BizCity_CG_Zalo_OA_Integration' ) ) {
+						$sender = new BizCity_CG_Zalo_OA_Integration();
+					} else {
+						$sender = clone $channel;
+					}
+					$sender->set_account( $account_raw );
+					$decrypted = $sender->get_decrypted_params();  // includes access_token
+
+					$msg_payload = array(
+						'recipient' => $uid,
+						'text'      => $payload_text,
+						'type'      => $type,
+					);
+
+					error_log( '[bizcity-crm-trace] P12 ZaloOA path1 sender=' . get_class( $sender ) . ' token_len=' . strlen( $decrypted['access_token'] ?? '' ) );
+					$result = $sender->send_outbound( $msg_payload, $decrypted );
+
+					if ( is_wp_error( $result ) ) {
+						error_log( '[bizcity-crm-trace] P12 ZaloOA path1 FAIL WP_Error=' . $result->get_error_message() );
+						return array( 'success' => false, 'external_source_id' => null, 'error' => $result->get_error_message() );
+					}
+					if ( is_array( $result ) ) {
+						$ok = ! empty( $result['sent'] );
+						error_log( '[bizcity-crm-trace] P12 ZaloOA path1 result sent=' . ( $ok ? 'YES' : 'NO' ) . ' error=' . ( $result['error'] ?? '' ) );
+						return array(
+							'success'            => $ok,
+							'external_source_id' => (string) ( $result['mid'] ?? '' ),
+							'error'              => $ok ? null : (string) ( $result['error'] ?? 'zalo_oa_send_failed' ),
+						);
+					}
+				}
+			}
+		}
+
+		// Path 2 — BizCity_CRM_Bridge_Zalo fallback (legacy access_token lookup).
+		if ( class_exists( 'BizCity_CRM_Bridge_Zalo' ) ) {
+			$token = BizCity_CRM_Bridge_Zalo::lookup_access_token( $ref );
+			error_log( '[bizcity-crm-trace] P12 ZaloOA path2 token=' . ( $token !== '' ? 'found' : 'NOT_FOUND' ) );
+			if ( $token !== '' ) {
+				if ( $type === 'image' && $att_url !== '' ) {
+					return BizCity_CRM_Bridge_Zalo::send_image( $token, $uid, $att_url );
+				}
+				return BizCity_CRM_Bridge_Zalo::send_text( $token, $uid, $text );
+			}
+		}
+
+		error_log( '[bizcity-crm-trace] P12 ZaloOA FAIL no_send_path ref=' . $ref . ' uid=' . $uid );
+		return array( 'success' => false, 'external_source_id' => null, 'error' => 'no_send_path_available' );
+	}
+}

@@ -32,7 +32,7 @@ if ( ! defined( 'BIZCITY_SCHEDULER_VERSION' ) ) {
 /* ── Includes ─────────────────────────────────────────────────────── */
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-manager.php';
 // [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — multi-platform contact identity class.
-require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-contact-identity.php';
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — class-crm-contact-identity.php now lives in core/crm (loaded before this file).
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-rest-api.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-google.php';
 require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-cron.php';
@@ -81,7 +81,7 @@ require_once BIZCITY_SCHEDULER_DIR . 'includes/class-reminder-personal-handler.p
 
 // [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 channel
 // messages → crm_conversations + crm_messages; Zone 2 bails early per R-ZONE).
-require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-inbox-bridge.php';
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — class-crm-inbox-bridge.php now lives in core/crm (loaded before this file).
 
 // [2026-06-03 Johnny Chu] SCH-NC W6 — HIL Router + timeout cron (Human-In-The-Loop
 // confirm flow cho reminder_personal từ TwinBrain master tool).
@@ -116,7 +116,10 @@ BizCity_Scheduler_HIL_Cron::init();
 BizCity_Reminder_Personal_Handler::init();
 
 // [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 only).
-BizCity_CRM_Inbox_Bridge::init();
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — core/crm/bootstrap.php calls BizCity_CRM_Inbox_Bridge::init() once; this only covers a request where core/crm was not loaded.
+if ( class_exists( 'BizCity_CRM_Inbox_Bridge', false ) && ! defined( 'BIZCITY_CRM_SPINE_LOADED' ) ) {
+	BizCity_CRM_Inbox_Bridge::init();
+}
 
 // [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register the canonical
 // Scheduler schema with Site Provisioner so headless Diagnostics can create

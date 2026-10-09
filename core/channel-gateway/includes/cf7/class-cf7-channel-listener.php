@@ -242,7 +242,8 @@ class BizCity_CF7_Channel_Listener {
 			if ( class_exists( 'BizCity_Lead_Source_Tracker' ) ) {
 				$_src_meta = BizCity_Lead_Source_Tracker::capture_from_request( $_src_meta );
 			}
-			BizCity_CRM_Submissions_Repo::sync_from_cf7(
+			// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2 (D96-4) — submissions live in the Zalo Brain CRM plugin.
+			if ( class_exists( 'BizCity_CRM_Submissions_Repo' ) ) BizCity_CRM_Submissions_Repo::sync_from_cf7(
 				$sub_id,
 				array(
 					'email'        => $email_raw ?: '',

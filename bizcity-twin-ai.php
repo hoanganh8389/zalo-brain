@@ -13,10 +13,10 @@
  * Unauthorized copying, modification, or distribution is prohibited.
  * Sao chép, chỉnh sửa hoặc phân phối trái phép bị nghiêm cấm.
  *
- * Plugin Name:       Bizcity Twin Brain
+ * Plugin Name:       Zalo Brain
  * Plugin URI:        https://bizcity.vn
- * Description:       AI Companion Platform — Personalized AI with Identity, Memory, and Intent. Nền tảng AI đồng hành cá nhân hóa.
- * Version:           1.3.7
+ * Description:       Bộ não Zalo của WordPress — mọi số Zalo của doanh nghiệp được một trợ lý tiếp nhận, trả lời, ghi nhớ và giao việc. Mở rộng bằng plugin (Zalo Brain CRM, Automation). [2026-10-09 PHASE-0.96 — brand Zalo Brain; slug, text domain and code names unchanged]
+ * Version:           1.4.0
  * Author:            Johnny Chu (Chu Hoàng Anh)
  * Author URI:        https://bizcity.vn
  * License:           GPL-2.0-or-later
@@ -35,7 +35,7 @@ define( 'BIZCITY_TWIN_AI_MAIN_LOADED', true );
 
 // Constants — guarded because compat mu-plugin may have defined them early
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION' ) ) {
-    define( 'BIZCITY_TWIN_AI_VERSION', '1.3.7' );
+    define( 'BIZCITY_TWIN_AI_VERSION', '1.4.0' ); // [2026-10-09] PHASE-0.96 — Zalo Brain: CRM spine in core, CRM plugin split out
 }
 if ( ! defined( 'BIZCITY_TWIN_AI_VERSION_SOURCE' ) ) {
     // [2026-08-11 Johnny Chu] PHASE-1.23-VERSION-AUTH - identify the main
@@ -689,6 +689,21 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request ) && ! $_bi
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
 
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 (D96-16) — Zalo Brain framework registry (zalo-brain-extension@1):
+// 7 surfaces, extensions, features, standard feature_unavailable error. Loaded before core/crm so the spine can mirror into it.
+require_once __DIR__ . '/core/runtime/class-zalo-brain.php';
+BizCity_Zalo_Brain::boot();
+add_action( 'rest_api_init', array( 'BizCity_Zalo_Brain', 'register_rest' ) );
+
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-2.2 (D96-2) — core/crm = the CRM spine (contacts · inboxes · conversations ·
+// messages · scope · ingest · outbound · magic links · spine REST + installer). Foundation of Zalo Brain: loaded on every
+// request that may write or read the ledger (same contexts as channel-gateway plus the agent/public surfaces), never through
+// a locator and never optional. The extension plugin bizcity-twin-crm (Zalo Brain CRM, its own repository) boots on top at
+// plugins_loaded@6. The old bundled copy under plugins/bizcity-twin-crm is gone (D96-10).
+if ( ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/crm/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/crm/bootstrap.php';
+}
+
 // [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — Twin Client Brain MCP gateway.
 // REST-only (bizcity-mcp/v1/mcp); no frontend HTML footprint, safe to gate
 // behind $_bizcity_admin_ctx same as channel-gateway (R-PERF).
@@ -787,9 +802,9 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exi
 }
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M1 — client-side membership plans
 // (Free/Pro/Plus). Self-written lean core; PayPal self-billing in later phases.
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/membership/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/membership/bootstrap.php';
-}
+// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 (owner 2026-10-09) — core/membership retired: Zalo Brain no longer manages
+// memberships/plans/payments itself (licence = 1API master tier, PHASE-0.91 doc 120). Folder → core/_archived/membership-20261009/.
+// Every caller already degrades through class_exists( 'BizCity_Membership_*' ) (census in PHASE-0.96 doc 00 §3.1 D96-23).
 // Phase 0.13 / 0.15 — TwinShell Runtime (agents, runner, REST /run endpoint)
 // [2026-08-09 Johnny Chu] R-PERF — agent runtime is needed by backend requests and the public TwinShell surface.
 $_bizcity_agent_public_request = ! empty( $_SERVER['REQUEST_URI'] )
@@ -958,9 +973,8 @@ $_bizcity_bundled_must_load = [
     // 'bizcity-automation'          => 'BIZCITY_AUTOMATION_VERSION', // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-automation/. Replaced by core/automation/ (native xyflow runtime, BE-1..BE-5 shipped).
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
-    // [2026-06-14 Johnny Chu] HOTFIX — uncommented; foreach guard (is_dir + file_exists) ensures
-    // this only loads when the folder is deployed. Gitignored on public repo — safe to list here.
-    'bizcity-twin-crm'            => 'BIZCITY_CRM_VERSION',        // PROPRIETARY (PHASE-0.98) — gitignored, commercial-only. Loads when deployed under plugins/bizcity-twin-crm/.
+    // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — bizcity-twin-crm is no longer bundled: its spine is core/crm (loaded above),
+    // the rest is the standalone plugin wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/zalo-brain-crm).
     // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3a (R-LEAN-4, Q-W16-3) — the bundled copy of bizcity-video-kling (never loaded since 2026-08-19) is archived at
     // plugins/_archived/bizcity-video-kling-20260930/; client tools are cut (media runs in brain-core, R-PF-2).
     // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b (R-LEAN-4, Q-W16-3) — bizcity-pagebuilder archived at plugins/_archived/bizcity-pagebuilder-20260930/ (client tools are cut).
@@ -990,22 +1004,10 @@ add_action( 'template_redirect', static function () {
 }, 1 );
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — the Zalo Admin Hook surface gate (/bizhook/, zalo-* admin pages) is gone with the Hotline channel.
 foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
-    $_bizcity_is_crm_bundle = 'bizcity-twin-crm' === $_slug;
-    $_bizcity_crm_api_ready = ! $_bizcity_is_crm_bundle
-        || ( defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' )
-            && 'surfaces_for@1' === BIZCITY_CRM_MUSTLOAD_CONTRACT
-            && class_exists( 'BizCity_CRM_Plugin', false ) );
-    // [2026-09-22 09:30 AM GitHub Copilot] PHASE-CRM-MUSTLOAD — a version
-    // constant alone is not proof that the bundled CRM runtime is loaded. A
-    // stale MU/regular-plugin loader may define BIZCITY_CRM_VERSION first and
-    // leave the current Twin AI bundle unbooted.
-    if ( defined( $_guard_const ) && $_bizcity_crm_api_ready ) {
+    if ( defined( $_guard_const ) ) {
         continue; // Already loaded (activated as regular plugin or by mu-plugin)
     }
-    // CRM is a mandatory bundled runtime. It must also be present while the
-    // TwinChat admin shell is being assembled because the central menu consumes
-    // CRM-owned surface descriptors during that request.
-    if ( $_bizcity_twinchat_admin_shell_request && ! $_bizcity_is_crm_bundle ) {
+    if ( $_bizcity_twinchat_admin_shell_request ) {
         continue;
     }
     // [2026-06-09 Johnny Chu] PERF-2 — Skip admin-only plugins on plain frontend HTML renders.
@@ -1024,30 +1026,6 @@ foreach ( $_bizcity_bundled_must_load as $_slug => $_guard_const ) {
         && class_exists( 'BizCity_Safe_Loader', false ) ) {
         BizCity_Safe_Loader::require_file( $_bundled_file, 'bundled.' . $_slug );
     }
-    if ( $_bizcity_is_crm_bundle
-        && ! $_bizcity_twinchat_admin_shell_request
-        && ! defined( 'BIZCITY_CRM_MUSTLOAD_RUNTIME_CHECK_REGISTERED' ) ) {
-        // [2026-09-24 11:28 PM GitHub Copilot] PHASE-CRM-MUSTLOAD — the CRM plugin declares its contract and class before plugins_loaded, but Admin_Menu is loaded during CRM boot. Defer the readiness check until after the CRM boot callback instead of logging a false partial-artifact warning on every request.
-        add_action( 'plugins_loaded', static function () {
-            if ( defined( 'BIZCITY_CRM_MUSTLOAD_CONTRACT' )
-                && 'surfaces_for@1' === BIZCITY_CRM_MUSTLOAD_CONTRACT
-                && class_exists( 'BizCity_CRM_Plugin', false )
-                && class_exists( 'BizCity_CRM_Admin_Menu', false )
-                && method_exists( 'BizCity_CRM_Admin_Menu', 'surfaces_for' ) ) {
-                return;
-            }
-            // [2026-09-27] PHASE-0.80 doc 27 L-01 #5 — a partial upload made this line fire on every request (~55 lines in 2 minutes); once a minute per network is enough.
-            if ( function_exists( 'get_site_transient' ) && get_site_transient( 'bizcity_crm_bundle_not_ready_logged' ) ) {
-                return;
-            }
-            if ( function_exists( 'set_site_transient' ) ) {
-                set_site_transient( 'bizcity_crm_bundle_not_ready_logged', 1, MINUTE_IN_SECONDS );
-            }
-            error_log( '[BizCity_Twin_AI] CRM mandatory bundle contract is not ready after plugins_loaded; check for a stale or partial CRM artifact set.' );
-        }, 7 );
-        define( 'BIZCITY_CRM_MUSTLOAD_RUNTIME_CHECK_REGISTERED', true );
-    }
-    unset( $_bizcity_is_crm_bundle, $_bizcity_crm_api_ready );
 }
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13e — the /profile/, /profile-care/, /profile-public/ force-loader is gone with plugins/bizcity-profile.
 // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b-G (R-LEAN-4, owner 2026-09-30) — Google connection (channel ⇒ CRM: Gmail IMAP channel, CRM Google bridge,

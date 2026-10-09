@@ -134,6 +134,12 @@ final class BizCity_Legacy_Table_Policy {
 		// core/diagnostics/includes/class-diagnostics-table-registry.php (lines 348-350); is_legacy() fell back to
 		// that class, so deleting core/diagnostics (D-35) would have silently un-quarantined them. Same reason as
 		// the registry: session/conversation metadata callers now use the filestore / webchat_messages.
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 (owner decisions Q96-4, identity = cell) — the CRM rule engine and the
+		// site-side identity reconciliation left with the CRM split; no reader/writer remains (archived in bizcity-twin-crm/_archived/PHASE-0.96).
+		'bizcity_crm_automation_rules', 'bizcity_crm_contact_id_map', 'bizcity_crm_identity_conflicts', 'bizcity_crm_identity_conflict_audit',
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 (owner 2026-10-09) — core/membership retired (core/_archived/membership-20261009): plans,
+		// subscriptions and payments are not Zalo Brain's job (licence = 1API master tier). Rows stay; nothing reads or writes them.
+		'bizcity_member_subscriptions', 'bizcity_member_usage', 'bizcity_member_payments',
 		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
 	);
 
@@ -174,6 +180,12 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_market_hub_rollups', 'bizcity_market_plugins_meta',
 		// [2026-09-28 Claude Sonnet 5] CORE-REDUCTION WP-13 — mirrors the registry's quarantine_only for both
 		// (install blocked, writes refused, reads allowed) so the state does not depend on core/diagnostics.
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 (owner decisions Q96-4, identity = cell) — the CRM rule engine and the
+		// site-side identity reconciliation left with the CRM split; no reader/writer remains (archived in bizcity-twin-crm/_archived/PHASE-0.96).
+		'bizcity_crm_automation_rules', 'bizcity_crm_contact_id_map', 'bizcity_crm_identity_conflicts', 'bizcity_crm_identity_conflict_audit',
+		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 (owner 2026-10-09) — core/membership retired (core/_archived/membership-20261009): plans,
+		// subscriptions and payments are not Zalo Brain's job (licence = 1API master tier). Rows stay; nothing reads or writes them.
+		'bizcity_member_subscriptions', 'bizcity_member_usage', 'bizcity_member_payments',
 		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
 	);
 

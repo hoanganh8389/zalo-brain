@@ -1,0 +1,153 @@
+<?php
+/**
+ * BizCity CRM — Guru-on-Duty Resolver
+ *
+ * Translates an inbox (channel_type, channel_ref_id) into:
+ *   1. character_id   ← `_bizcity_channel_bindings` (PHASE 0.31 binding table)
+ *   2. notebook_ids[] ← `bizcity_notebook_character_attachments` JOIN
+ *                        `bizcity_characters` ON guru_uuid
+ *
+ * Used by AI Replier + Auto-Reply Listener so the conversation auto-reply
+ * is grounded in the notebooks the **Twin Guru on Duty** has attached
+ * (per character-edit screen "Notebooks" tab), not just the inbox-level
+ * default_notebook_id fallback.
+ *
+ * Returns trace-friendly arrays for inclusion in `ai_metadata.steps[]`.
+ *
+ * @package BizCity_Twin_CRM
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+class BizCity_CRM_Guru_Resolver {
+
+	/**
+	 * Resolve full Guru-on-Duty context for a CRM inbox row.
+	 *
+	 * @param array $inbox  CRM inbox row (with channel_type + channel_ref_id).
+	 * @return array {
+	 *   character_id : int  (0 if no binding),
+	 *   guru_uuid    : string,
+	 *   notebooks    : int[] (attached notebook ids; empty when none),
+	 *   binding_mode : string ('auto'|'hybrid'|'manual'|''),
+	 *   auto_reply   : int (0|1; opt-in reply flag from the binding row),
+	 *   trace        : array (ready to push into ai_metadata.steps[].detail),
+	 * }
+	 */
+	public static function resolve_for_inbox( array $inbox ): array {
+		// [2026-08-23 Johnny Chu] HOTFIX-CRM-WPDB — resolve the WordPress DB handle before notebook queries.
+		global $wpdb;
+		$out = array(
+			'character_id' => 0,
+			'guru_uuid'    => '',
+			'notebooks'    => array(),
+			'binding_mode' => '',
+			'auto_reply'   => 0,
+			'trace'        => array(
+				'platform'        => (string) ( $inbox['channel_type']   ?? '' ),
+				'account_id'      => (string) ( $inbox['channel_ref_id'] ?? '' ),
+				'binding_found'   => false,
+				'attachments_qry' => '',
+			),
+		);
+
+		$platform   = strtoupper( (string) ( $inbox['channel_type']   ?? '' ) );
+		$account_id = (string) ( $inbox['channel_ref_id'] ?? '' );
+		if ( $platform === '' || $account_id === '' ) {
+			return $out;
+		}
+		if ( ! class_exists( 'BizCity_Channel_Binding' ) ) {
+			return $out;
+		}
+
+		// [2026-06-29 Johnny Chu] HOTFIX — CRM inbox stores channel_type='facebook' → UPPER='FACEBOOK'
+		// but Channel Gateway binding is saved as 'FB_MESS' (FacebookPages.jsx PLATFORM const).
+		// Build a search list so both canonical values can resolve through the
+		// binding repository.
+		$platform_aliases = array( $platform );
+		if ( $platform === 'FACEBOOK' ) {
+			$platform_aliases[] = 'FB_MESS';
+		} elseif ( $platform === 'FB_MESS' ) {
+			$platform_aliases[] = 'FACEBOOK';
+		}
+		// [2026-08-14 Johnny Chu] R-MSDB/R-ZONE — resolve through the canonical
+		// binding API so blog_id, exact-account precedence, cache generation, and
+		// wildcard fallback stay identical across Channel Gateway and CRM.
+		$row      = null;
+		$wildcard = null;
+		foreach ( $platform_aliases as $platform_alias ) {
+			$candidate = BizCity_Channel_Binding::resolve( $platform_alias, $account_id );
+			if ( ! is_array( $candidate ) || (int) ( $candidate['character_id'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			if ( (string) ( $candidate['account_id'] ?? '' ) === $account_id ) {
+				$row = $candidate;
+				break;
+			}
+			if ( null === $wildcard ) {
+				$wildcard = $candidate;
+			}
+		}
+		if ( null === $row ) {
+			$row = $wildcard;
+		}
+
+		if ( ! $row ) {
+			return $out;
+		}
+		// [2026-08-22 Johnny Chu] PHASE-0.39B — expose the binding-level AI opt-in to CRM autoreply.
+		$out['character_id'] = (int) $row['character_id'];
+		$out['binding_mode'] = (string) ( $row['mode'] ?? 'auto' );
+		$out['auto_reply']   = (int) ( $row['auto_reply'] ?? 0 );
+		$out['trace']['binding_found'] = true;
+		$out['trace']['binding_mode']  = $out['binding_mode'];
+		$out['trace']['auto_reply']    = $out['auto_reply'];
+
+		// Step 2 — character_id → attached notebooks.
+		// TWO schemas live side-by-side:
+		//   (A) PHASE 0.34.2 — `kg_notebooks.character_id = ?` (1:N FK column).
+		//       This is what the character-edit UI's "Notebooks" tab writes
+		//       (admin_post_bizcity_character_notebook_attach @ class-admin-menu.php:5000).
+		//   (B) PHASE 0.21+ — `bizcity_notebook_character_attachments(notebook_id, guru_uuid)`
+		//       N:N table for marketplace-imported gurus.
+		// Merge both, dedupe.
+		$char_tbl = $wpdb->prefix . 'bizcity_characters';
+		$guru_uuid = (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT guru_uuid FROM {$char_tbl} WHERE id=%d LIMIT 1",
+			$out['character_id']
+		) );
+		$out['guru_uuid']            = $guru_uuid;
+		$out['trace']['guru_uuid']   = $guru_uuid ? substr( $guru_uuid, 0, 8 ) . '…' : '';
+
+		$nb_ids = array();
+
+		// (A) bizcity_kg_notebooks.character_id = ? — the canonical, UI-writable path.
+		$nb_tbl = class_exists( 'BizCity_KG_Database' )
+			? BizCity_KG_Database::instance()->tbl_notebooks()
+			: $wpdb->prefix . 'bizcity_kg_notebooks';
+		$rows_a = $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$nb_tbl} WHERE character_id=%d ORDER BY id ASC",
+			$out['character_id']
+		) );
+		foreach ( (array) $rows_a as $id ) { $nb_ids[ (int) $id ] = true; }
+		$out['trace']['notebooks_by_character_id'] = array_map( 'intval', (array) $rows_a );
+
+		// (B) bizcity_notebook_character_attachments JOIN by guru_uuid.
+		if ( $guru_uuid ) {
+			$att_tbl = $wpdb->prefix . 'bizcity_notebook_character_attachments';
+			$rows_b  = $wpdb->get_col( $wpdb->prepare(
+				"SELECT DISTINCT notebook_id FROM {$att_tbl} WHERE guru_uuid=%s",
+				$guru_uuid
+			) );
+			foreach ( (array) $rows_b as $id ) { $nb_ids[ (int) $id ] = true; }
+			$out['trace']['notebooks_by_guru_uuid'] = array_map( 'intval', (array) $rows_b );
+		}
+
+		ksort( $nb_ids );
+		$out['notebooks']               = array_keys( $nb_ids );
+		$out['trace']['notebook_count'] = count( $out['notebooks'] );
+		$out['trace']['notebook_ids']   = $out['notebooks'];
+
+		return $out;
+	}
+}

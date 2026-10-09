@@ -1,0 +1,7 @@
+tFPDF 1.33 (https://github.com/setasign/tfpdf) — UTF-8 extension of FPDF 1.85.
+Authors: Ian Back; Tycho Veltmeijer. Licence stated in tfpdf.php header: LGPL (full text: COPYING.LGPL.txt).
+Bundled UNMODIFIED. BizCity uses it (via BizCity_Bot_PDF, a subclass) only to render Bot Studio "create_document" PDFs
+with an embedded Noto Sans subset, because plain FPDF is Latin-1 only and cannot print Vietnamese.
+
+font/unifont/ttfonts.php is part of the same tFPDF distribution.
+The fonts live in ../../assets/fonts/ (Noto Sans, SIL Open Font License 1.1, see OFL.txt there).

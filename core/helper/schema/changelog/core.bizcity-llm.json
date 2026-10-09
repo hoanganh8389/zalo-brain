@@ -1,0 +1,69 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.bizcity-llm",
+  "owner": "core/bizcity-llm",
+  "installer_id": "bizcity_llm_usage",
+  "current_version": "1.2.0",
+  "version_option": "bizcity_llm_usage_db_ver",
+  "history": [
+    { "version": "1.0.0", "date": "2025-12-01", "change": "Initial table bizcity_llm_usage (per-call LLM log: mode, purpose, endpoint, model, tokens, latency, success/error)." },
+    { "version": "1.1.0", "date": "2026-06-02", "change": "R-1API Phase B — add `service` column (VARCHAR 20) + index to break down usage stats by service domain (llm/embedding/search/video/image/astro/market/tools). Default 'llm' for backward compat." },
+    { "version": "1.2.0", "date": "2026-09-01", "change": "B2C-G7.2/G7.4 — add bounded domain policy state/reason/source/hash/action/correlation fields and support-hold fields to the Hub usage audit contract; retain usage rows while redacting expired policy evidence." }
+  ],
+  "tables": {
+    "bizcity_llm_usage": {
+      "since": "1.0.0",
+      "purpose": "Per-call usage log for every gateway request — LLM chat, embeddings, search (Tavily), video (Kling), image (FLUX/Gemini), astrology, market lookup. One row per outbound call; UsageWorkspace (React) + bizcity-llm admin dashboard read aggregates from here.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "blog_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1",      "since": "1.0.0" },
+        "user_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.0.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.0.0" },
+        "service":            { "type": "VARCHAR(20) NOT NULL DEFAULT 'llm'",      "since": "1.1.0", "doc": "Service bucket: llm|embedding|search|video|image|astro|market|tools. Allows per-service usage breakdown in UsageWorkspace tabs." },
+        "mode":               { "type": "VARCHAR(20) NOT NULL DEFAULT 'gateway'",  "since": "1.0.0" },
+        "purpose":            { "type": "VARCHAR(50) NOT NULL DEFAULT 'chat'",     "since": "1.0.0" },
+        "endpoint":           { "type": "VARCHAR(20) NOT NULL DEFAULT 'chat'",     "since": "1.0.0", "doc": "chat|stream|embeddings|search|video|image|astro|tool" },
+        "model_requested":    { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "model_used":         { "type": "VARCHAR(200) NOT NULL DEFAULT ''",        "since": "1.0.0" },
+        "fallback_used":      { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "success":            { "type": "TINYINT(1) NOT NULL DEFAULT 0",           "since": "1.0.0" },
+        "tokens_prompt":      { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "tokens_completion":  { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "latency_ms":         { "type": "INT NOT NULL DEFAULT 0",                  "since": "1.0.0" },
+        "error":              { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.0.0" }
+      },
+      "indexes": {
+        "idx_created":         { "cols": ["created_at"],              "since": "1.0.0" },
+        "idx_blog":            { "cols": ["blog_id", "created_at"],   "since": "1.0.0" },
+        "idx_user":            { "cols": ["user_id"],                 "since": "1.0.0" },
+        "idx_service_created": { "cols": ["service", "created_at"],   "since": "1.1.0" }
+      }
+    },
+    "bizcity_llm_usage_logs": {
+      "since": "1.2.0",
+      "purpose": "Hub-owned per-request policy audit fields attached to the canonical usage log; old policy fields may be redacted by retention while usage accounting remains intact.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "columns": {
+        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.2.0", "pk": true },
+        "created_at":              { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.2.0" },
+        "domain_policy_state":   { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.2.0" },
+        "domain_policy_reason":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.2.0" },
+        "domain_signal_source":  { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "1.2.0" },
+        "domain_allowed_hash":   { "type": "CHAR(12) NOT NULL DEFAULT ''",    "since": "1.2.0" },
+        "domain_client_hash":    { "type": "CHAR(12) NOT NULL DEFAULT ''",    "since": "1.2.0" },
+        "domain_policy_action":  { "type": "VARCHAR(16) NOT NULL DEFAULT 'warn'", "since": "1.2.0" },
+        "policy_correlation_id": { "type": "VARCHAR(64) NULL DEFAULT NULL",   "since": "1.2.0" },
+        "support_hold_until":    { "type": "DATETIME NULL DEFAULT NULL",       "since": "1.2.0" },
+        "support_hold_reason":   { "type": "VARCHAR(120) NOT NULL DEFAULT ''", "since": "1.2.0" }
+      },
+      "indexes": {
+        "idx_policy_state":       { "cols": ["domain_policy_state", "created_at"], "since": "1.2.0" },
+        "idx_policy_correlation": { "cols": ["policy_correlation_id"], "since": "1.2.0" },
+        "idx_policy_hold":        { "cols": ["support_hold_until", "created_at"], "since": "1.2.0" }
+      }
+    }
+  }
+}

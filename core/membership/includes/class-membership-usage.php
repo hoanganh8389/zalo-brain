@@ -1,0 +1,333 @@
+<?php
+/**
+ * Bizcity Twin AI — Membership_Usage
+ *
+ * PHASE-MEMBERSHIP M3.
+ *
+ * Per-user, per-day, per-feature request counter + gate. Lets the plan limits
+ * (chat / image / kg) actually be enforced per WP user, resetting daily by UTC
+ * date (mirrors bizcity_kg_usage_log).
+ *
+ * Effective limit comes from BizCity_Membership_Entitlement (already clamps the
+ * user plan by the hub site-tier ceiling). 0 = blocked, negative = unlimited.
+ *
+ * Owns table bizcity_member_usage (declared in core.membership.json @1.1.0).
+ *
+ * PHP 7.4-safe.
+ *
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Membership
+ * @since      2026-06-04
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+class BizCity_Membership_Usage {
+
+	/** Feature key → entitlement limit key. */
+	const LIMIT_MAP = array(
+		'chat'  => 'chat_msgs_per_day',
+		'image' => 'image_per_day',
+		'kg'    => 'kg_passages_per_day',
+		'video' => 'video_per_day',
+	);
+
+	/**
+	 * [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — support both canonical
+	 * feature keys and legacy limit keys from older callers.
+	 */
+	const FEATURE_ALIASES = array(
+		'chat_msgs_per_day'   => 'chat',
+		'image_per_day'       => 'image',
+		'kg_passages_per_day' => 'kg',
+		'video_per_day'       => 'video',
+	);
+
+	/** @var BizCity_Membership_Usage|null */
+	private static $instance = null;
+
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	/* ── Schema ─────────────────────────────────────────────────────────── */
+
+	public function table() {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_member_usage';
+	}
+
+	/**
+	 * Create the usage table. Idempotent (ADD-only via dbDelta).
+	 *
+	 * @return void
+	 */
+	public function ensure_table() {
+		global $wpdb;
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		$cs = $wpdb->get_charset_collate();
+		$t  = $this->table();
+		dbDelta( "CREATE TABLE {$t} (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			day DATE NOT NULL,
+			feature VARCHAR(32) NOT NULL DEFAULT '',
+			count INT UNSIGNED NOT NULL DEFAULT 0,
+			PRIMARY KEY  (id),
+			UNIQUE KEY user_day_feature (user_id, day, feature)
+		) {$cs};" );
+		// [2026-07-14 Johnny Chu] HOTFIX — invalidate table-exists cache after dbDelta create.
+		wp_cache_delete( 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $t ), 'bizcity_tbl' );
+	}
+
+	/* ── Gate API ───────────────────────────────────────────────────────── */
+
+	/**
+	 * Today's UTC date (sync with bizcity_kg_usage_log day column).
+	 *
+	 * @return string Y-m-d
+	 */
+	private function today() {
+		return gmdate( 'Y-m-d' );
+	}
+
+	/**
+	 * [2026-07-14 Johnny Chu] HOTFIX — guard usage reads/writes when a shard blog
+	 * has not been provisioned yet. Try one self-heal create, else fail-open.
+	 */
+	private function table_ready() {
+		$t = $this->table();
+		$exists = function_exists( 'bizcity_tbl_exists' )
+			? bizcity_tbl_exists( $t )
+			: $this->table_exists_fallback( $t );
+
+		if ( ! $exists ) {
+			$this->ensure_table();
+			$exists = function_exists( 'bizcity_tbl_exists' )
+				? bizcity_tbl_exists( $t )
+				: $this->table_exists_fallback( $t );
+		}
+
+		return (bool) $exists;
+	}
+
+	/**
+	 * Fallback table existence check when helper isn't loaded yet.
+	 */
+	private function table_exists_fallback( $table_name ) {
+		static $s = array();
+		if ( isset( $s[ $table_name ] ) ) {
+			return $s[ $table_name ];
+		}
+
+		global $wpdb;
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			$present = (int) (bool) $wpdb->get_var( $wpdb->prepare(
+				'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$table_name
+			) );
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+
+		$s[ $table_name ] = (bool) $present;
+		return $s[ $table_name ];
+	}
+
+	/**
+	 * Normalize incoming feature/limit-key into canonical feature key.
+	 *
+	 * @param string $feature
+	 * @return string
+	 */
+	private function normalize_feature( $feature ) {
+		$feature = sanitize_key( (string) $feature );
+		if ( isset( self::FEATURE_ALIASES[ $feature ] ) ) {
+			return self::FEATURE_ALIASES[ $feature ];
+		}
+		return $feature;
+	}
+
+	/**
+	 * Read tokens for SQL lookup (canonical + legacy alias) so old rows remain visible.
+	 *
+	 * @param string $feature
+	 * @return string[]
+	 */
+	private function feature_tokens_for_read( $feature ) {
+		$canonical = $this->normalize_feature( $feature );
+		if ( $canonical === '' ) {
+			return array();
+		}
+
+		$tokens = array( $canonical );
+		if ( isset( self::LIMIT_MAP[ $canonical ] ) ) {
+			$legacy = (string) self::LIMIT_MAP[ $canonical ];
+			if ( $legacy !== '' ) {
+				$tokens[] = $legacy;
+			}
+		}
+
+		return array_values( array_unique( $tokens ) );
+	}
+
+	/**
+	 * Effective daily limit for a feature (0 = blocked, < 0 = unlimited).
+	 *
+	 * @param int    $user_id
+	 * @param string $feature
+	 * @return int
+	 */
+	public function limit_for( $user_id, $feature ) {
+		$feature = $this->normalize_feature( $feature );
+		if ( ! isset( self::LIMIT_MAP[ $feature ] ) ) {
+			return -1; // unknown feature = not gated.
+		}
+		if ( ! class_exists( 'BizCity_Membership_Entitlement' ) ) {
+			return -1;
+		}
+		$limit_key = self::LIMIT_MAP[ $feature ];
+		return (int) BizCity_Membership_Entitlement::instance()->limit( (int) $user_id, $limit_key );
+	}
+
+	/**
+	 * Count used today for a feature.
+	 *
+	 * @param int    $user_id
+	 * @param string $feature
+	 * @return int
+	 */
+	public function used( $user_id, $feature ) {
+		global $wpdb;
+		$t = $this->table();
+		if ( ! $this->table_ready() ) {
+			return 0;
+		}
+		$tokens = $this->feature_tokens_for_read( $feature );
+		if ( empty( $tokens ) ) {
+			return 0;
+		}
+
+		if ( count( $tokens ) === 1 ) {
+			// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			$val = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT count FROM {$t} WHERE user_id = %d AND day = %s AND feature = %s LIMIT 1",
+					(int) $user_id,
+					$this->today(),
+					$tokens[0]
+				)
+			);
+			return $val ? (int) $val : 0;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $tokens ), '%s' ) );
+		$params       = array_merge( array( (int) $user_id, $this->today() ), $tokens );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$sql = "SELECT COALESCE(SUM(count),0) FROM {$t} WHERE user_id = %d AND day = %s AND feature IN ({$placeholders})";
+		$val = $wpdb->get_var( $wpdb->prepare( $sql, $params ) );
+		return $val ? (int) $val : 0;
+	}
+
+	/**
+	 * Remaining quota today (PHP_INT_MAX when unlimited).
+	 *
+	 * @param int    $user_id
+	 * @param string $feature
+	 * @return int
+	 */
+	public function remaining( $user_id, $feature ) {
+		$limit = $this->limit_for( $user_id, $feature );
+		if ( $limit < 0 ) {
+			return PHP_INT_MAX;
+		}
+		$left = $limit - $this->used( $user_id, $feature );
+		return $left > 0 ? $left : 0;
+	}
+
+	/**
+	 * Whether the user may perform N more units of a feature today.
+	 *
+	 * @param int    $user_id
+	 * @param string $feature
+	 * @param int    $units
+	 * @return bool
+	 */
+	public function can( $user_id, $feature, $units = 1 ) {
+		$limit = $this->limit_for( $user_id, $feature );
+		if ( $limit < 0 ) {
+			return true; // unlimited / not gated.
+		}
+		if ( $limit === 0 ) {
+			return false; // feature not allowed on this plan.
+		}
+		$units = max( 1, (int) $units );
+		return ( $this->used( $user_id, $feature ) + $units ) <= $limit;
+	}
+
+	/**
+	 * Increment today's counter for a feature (atomic upsert).
+	 *
+	 * @param int    $user_id
+	 * @param string $feature
+	 * @param int    $units
+	 * @return void
+	 */
+	public function incr( $user_id, $feature, $units = 1 ) {
+		$user_id = (int) $user_id;
+		$feature = $this->normalize_feature( $feature );
+		$units   = max( 1, (int) $units );
+		if ( $user_id <= 0 || $feature === '' ) {
+			return;
+		}
+		if ( ! $this->table_ready() ) {
+			return;
+		}
+		global $wpdb;
+		$t   = $this->table();
+		$day = $this->today();
+		// Atomic upsert — unique key (user_id, day, feature) handles concurrency.
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query(
+			$wpdb->prepare(
+				"INSERT INTO {$t} (user_id, day, feature, count)
+				 VALUES (%d, %s, %s, %d)
+				 ON DUPLICATE KEY UPDATE count = count + %d",
+				$user_id,
+				$day,
+				$feature,
+				$units,
+				$units
+			)
+		);
+	}
+
+	/**
+	 * Snapshot of all feature usage today for a user (for FE /membership/me).
+	 *
+	 * @param int $user_id
+	 * @return array feature => { used, limit, remaining }
+	 */
+	public function snapshot( $user_id ) {
+		$out = array();
+		foreach ( self::LIMIT_MAP as $feature => $limit_key ) {
+			$limit = $this->limit_for( $user_id, $feature );
+			$used  = $this->used( $user_id, $feature );
+			$row = array(
+				'used'      => $used,
+				'limit'     => $limit,
+				'remaining' => $limit < 0 ? -1 : max( 0, $limit - $used ),
+			);
+
+			// Canonical key used by internal callers.
+			$out[ $feature ] = $row;
+			// Legacy/contract key used by existing FE and diagnostics.
+			$out[ $limit_key ] = $row;
+		}
+		return $out;
+	}
+}

@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "contract": "pipeline-sla-state",
+  "version": "1.0.0",
+  "run_id": 42,
+  "items": [
+    {
+      "rule_id": "qc_finish",
+      "layer": "step",
+      "stage_key": "P5.3",
+      "due_at": "2026-09-21 10:45:00",
+      "state": "unknown",
+      "level": -1,
+      "remaining_s": -5
+    }
+  ],
+  "phone": "0901234111"
+}

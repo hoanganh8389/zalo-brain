@@ -1,0 +1,516 @@
+<?php
+/**
+ * BizCity Zalo Personal — Branch 19 client wrapper.
+ *
+ * All managed bridge calls cross the existing BizCity_LLM_Client boundary.
+ * This class never reads Hub sitemeta and never exposes the Hub service secret.
+ *
+ * @package BizCity_Zalo_Personal
+ * @since 1.2.0
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+if ( class_exists( 'BizCity_Zalo_Personal_Hub_Client', false ) ) {
+	return;
+}
+
+final class BizCity_Zalo_Personal_Hub_Client {
+
+	const CALLBACK_TOKENS_OPTION = 'bizcity_zalo_managed_callback_tokens';
+	const CLIENT_INSTANCE_OPTION = 'bizcity_zalo_client_instance_id';
+	const TENANT_KEY_OPTION      = 'bizcity_zalo_tenant_key';
+	const CALLBACK_PREFIX        = 'zcb1_';
+	const CALLBACK_CONTEXT       = 'zalo-personal-callback';
+
+	private static $instance = null;
+
+	/** Return the process-local managed Hub client singleton. */
+	public static function instance(): self {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — provide the singleton boundary used by bridge, /gpt/, and diagnostics callsites.
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	/** Whether the client has the canonical 1API boundary and a key. */
+	public function is_ready_fast(): bool {
+		// [2026-08-22 Johnny Chu] R-GW-8/R-1API-AUTH — managed mode requires the canonical client and opaque BizCity key.
+		return class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->get_api_key( false ) !== '';
+	}
+
+	/** Get managed sidecar health through the Hub. */
+	public function health(): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — managed health stays behind same-origin client proxy boundary.
+		return $this->get( '/zalo-personal-bridge/health' );
+	}
+
+	/**
+	 * Where a streamed Hub call goes (PHASE-0.87 CL-6/CL-7 web turn): full URL + this blog's own 1API key + the client-site
+	 * header. Same boundary as every managed call (current-blog key only, no main-site fallback). Never sent to a browser.
+	 *
+	 * @return array{url:string,key:string,headers:array<string,string>}|null
+	 */
+	public function stream_target( string $path ): ?array {
+		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6 — the web-turn bridge streams with cURL, so it needs the target, not a JSON helper.
+		if ( ! $this->is_ready_fast() ) {
+			return null;
+		}
+		$llm = BizCity_LLM_Client::instance();
+		return array(
+			'url'     => rtrim( $llm->get_gateway_url(), '/' ) . '/wp-json/bizcity/v1' . $path,
+			'key'     => $llm->get_api_key( false ),
+			'headers' => method_exists( $llm, 'get_client_domain_headers' ) ? (array) $llm->get_client_domain_headers() : array(),
+		);
+	}
+
+	/** Read redacted managed bridge diagnostics through the Hub relay. */
+	public function diagnostics( array $args = array() ): array {
+		// [2026-08-23 Johnny Chu] PHASE-0.39E — keep managed diagnostics behind the exact-key Hub boundary.
+		$path = '/zalo-personal-bridge/diagnostics';
+		$query = array();
+		foreach ( array( 'account_id', 'before_id', 'since', 'level', 'phase', 'trace_id', 'limit' ) as $key ) {
+			if ( isset( $args[ $key ] ) && $args[ $key ] !== '' ) {
+				$query[ $key ] = sanitize_text_field( (string) $args[ $key ] );
+			}
+		}
+		return $this->get( $query ? $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 ) : $path );
+	}
+
+	/** Get the exact current-blog API key's managed Zalo capability. */
+	public function capability(): array {
+		// [2026-08-22 Johnny Chu] R-B2B2C — client capability projection must use current-blog key only.
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return $this->degraded( 'llm_client_missing' );
+		}
+		$config = BizCity_LLM_Client::instance()->get_plan_config( array( 'allow_main_site_fallback' => false ) );
+		if ( is_wp_error( $config ) ) {
+			return array( 'success' => false, '_degraded' => true, 'code' => $config->get_error_code(), 'message' => 'Chưa đọc được quyền Zalo Personal từ BizCity Hub.', 'hint' => 'Cấu hình API key riêng trên blog hiện tại rồi thử lại.', 'help_code' => 'api_key_missing' );
+		}
+		$channel = isset( $config['channels']['zalo_personal'] ) && is_array( $config['channels']['zalo_personal'] )
+			? $config['channels']['zalo_personal']
+			: array( 'allowed' => false, 'account_limit' => 0, 'accounts_used' => 0, 'accounts_remaining' => 0, 'source' => 'missing' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 (D-L43) — over_limit_accounts[] is the Hub's full list of AI-off numbers.
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			BizCity_Zalo_Account_Flags::observe_capability( $channel );
+		}
+		return array( 'success' => true, 'capability' => $channel, 'master_level' => (string) ( $config['master_level'] ?? 'free' ) );
+	}
+
+	/** List only accounts assigned to this exact API key at the Hub. */
+	public function list_accounts(): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — account list is key-scoped by Branch 19.
+		$result = $this->get( '/zalo-personal-bridge/accounts' );
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-2/4a-3 — each Hub row says its provider and whether its AI is on.
+		if ( ! empty( $result['success'] ) && isset( $result['accounts'] ) && is_array( $result['accounts'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			BizCity_Zalo_Account_Flags::observe_accounts( $result['accounts'], 'hub_list' );
+		}
+		return $result;
+	}
+
+	/**
+	 * Owner choice (D-L36/D-L43): keep or stop AI on one number inside the plan's pool.
+	 * Hub route `PUT|POST zalo-personal-bridge/accounts/{id}/ai-enabled`; the Hub refuses
+	 * `account_limit_reached` when switching on would exceed the pool.
+	 */
+	public function set_ai_enabled( string $account_id, bool $enabled ): array {
+		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3.
+		$result = $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/ai-enabled', array( 'enabled' => $enabled ) );
+		if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+			BizCity_Zalo_Account_Flags::record( $account_id, array_filter( array(
+				'provider'   => $account['provider'] ?? null,
+				'ai_enabled' => array_key_exists( 'ai_enabled', $account ) ? (bool) $account['ai_enabled'] : $enabled,
+			), static function ( $v ) { return null !== $v; } ), 'owner_switch' );
+			if ( isset( $result['capability'] ) && is_array( $result['capability'] ) ) {
+				BizCity_Zalo_Account_Flags::observe_capability( $result['capability'] );
+			}
+		}
+		return $result;
+	}
+
+	/** Create a managed Personal account and retain only its encrypted callback credential locally. */
+	public function create_account( array $data ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — provision managed account and callback URL through 1API.
+		$data['callback_url'] = rest_url( 'bizcity-channel/v1/zalo-bridge/inbound' );
+		$data['client_request_id'] = sanitize_key( (string) ( $data['client_request_id'] ?? wp_generate_uuid4() ) );
+		// [2026-08-23 Johnny Chu] R-GW-8 — preserve standalone B2 installation identity through Managed provisioning.
+		$data['client_instance_id'] = $this->client_instance_id();
+		$data['tenant_key'] = $this->tenant_key();
+		// [2026-09-26 Claude Opus 5.5 / 2026-09-29 Claude Sonnet 5] PHASE-0.80 Lane C 4a-2 (T-13) → PHASE-0.82 D82-40 —
+		// provider per NEW number: explicit choice, else the site default; `zca` keeps the historical request body
+		// (unset field) when the escape hatch allows it. This client only ever talks to the BizCity-managed Hub,
+		// which understands exactly two values (`zca` implicit, `zalo_hub` explicit) — `remote_zalo_hub` is a
+		// third-party transport this Hub has never heard of, and `PROVIDER_UNKNOWN` means the caller asked for a
+		// retired/unrecognized value. Both must be refused locally, before any network call.
+		$provider = class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::requested_provider( $data['provider'] ?? '' ) : 'zca';
+		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) && in_array( $provider, array( BizCity_Zalo_Account_Flags::PROVIDER_REMOTE_ZALO_HUB, BizCity_Zalo_Account_Flags::PROVIDER_UNKNOWN ), true ) ) {
+			return array(
+				'success'   => false,
+				'code'      => 'provider_retired',
+				'message'   => 'Kết nối zca-bridge đã ngừng cho số mới.',
+				'hint'      => 'Chọn Zalo Hub hoặc Remote Zalo Hub.',
+				'help_code' => 'provider_retired',
+			);
+		}
+		if ( 'zca' === $provider ) {
+			unset( $data['provider'] );
+		} else {
+			$data['provider'] = $provider;
+		}
+		// [2026-09-29 Claude Sonnet 5] PHASE-0.82 D82-40 — the silent one-time fallback to `zca` when the Hub
+		// refuses `zalo_hub` is REMOVED: `zca` is retired for new numbers, so falling back to it would create a
+		// number on a connection the operator can no longer choose. The Hub's refusal (e.g. `zalo_hub_not_enabled`)
+		// now reaches the caller as-is; see `class-zalo-bridge-rest.php::create_account_for_owner()` for how it is
+		// surfaced instead of the generic mapping error the empty-account-id branch used to produce.
+		$result = $this->post( '/zalo-personal-bridge/accounts', $data );
+		if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+			$created = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+			if ( isset( $created['id'] ) ) {
+				BizCity_Zalo_Account_Flags::record( (string) $created['id'], array( 'provider' => (string) ( $created['provider'] ?? $result['provider'] ?? $provider ), 'ai_enabled' => true ), 'create' );
+			}
+		}
+		$account = isset( $result['account'] ) && is_array( $result['account'] ) ? $result['account'] : array();
+		$account_id = (string) ( $account['id'] ?? '' );
+		$callback_token = (string) ( $result['callback_token'] ?? '' );
+		if ( ! empty( $result['success'] ) && $account_id !== '' && $callback_token !== '' && ! $this->save_callback_token( $account_id, $callback_token ) ) {
+			return array( 'success' => false, '_degraded' => true, 'code' => 'callback_token_store_failed', 'message' => 'Không lưu được quyền nhận tin Zalo managed.', 'hint' => 'Không tiếp tục sử dụng tài khoản này; liên hệ quản trị viên để dọn kết nối rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
+		}
+		if ( ! empty( $result['success'] ) && ( $account_id === '' || $callback_token === '' ) ) {
+			return array( 'success' => false, '_degraded' => true, 'code' => 'managed_callback_secret_missing', 'message' => 'Managed bridge chưa cấp quyền nhận tin.', 'hint' => 'Kiểm tra trạng thái Branch 19 tại Hub rồi thử lại.', 'help_code' => 'zalo_bridge_bad_response' );
+		}
+		unset( $result['callback_token'] );
+		return $result;
+	}
+
+	private function client_instance_id(): string {
+		// [2026-08-23 Johnny Chu] R-B2B2C — use a stable per-installation identity independent of blog_id.
+		$current = sanitize_key( (string) get_option( self::CLIENT_INSTANCE_OPTION, '' ) );
+		if ( $current !== '' ) {
+			return $current;
+		}
+		$value = 'b2i_' . str_replace( '-', '', wp_generate_uuid4() );
+		update_option( self::CLIENT_INSTANCE_OPTION, $value, false );
+		return $value;
+	}
+
+	private function tenant_key(): string {
+		// [2026-08-23 Johnny Chu] R-B2B2C — generate an opaque tenant correlation key once per installation.
+		$current = sanitize_key( (string) get_option( self::TENANT_KEY_OPTION, '' ) );
+		if ( $current !== '' ) {
+			return $current;
+		}
+		$value = 'tnt_' . str_replace( '-', '', wp_generate_uuid4() );
+		update_option( self::TENANT_KEY_OPTION, $value, false );
+		return $value;
+	}
+
+	/** Delete a key-owned managed account. */
+	public function delete_account( string $account_id ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — revoke managed account through Hub ownership boundary.
+		$result = $this->delete( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) );
+		if ( ! empty( $result['success'] ) ) {
+			$this->delete_callback_token( $account_id );
+			if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
+				BizCity_Zalo_Account_Flags::forget( $account_id );
+			}
+		}
+		return $result;
+	}
+
+	/** Start a QR session for an owned managed account. */
+	public function start_qr( string $account_id ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — QR command is key/account scoped at the Hub.
+		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr', $this->rebind_context() );
+	}
+
+	/** Reset the managed runtime session and start QR without deleting the account. */
+	public function reset_qr( string $account_id ): array {
+		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — request controlled session reset through the exact-key Hub boundary.
+		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr/reset', $this->rebind_context() );
+	}
+
+	/** Poll QR/session status for an owned managed account. */
+	public function get_qr_status( string $account_id ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — status projection contains no bridge credential.
+		$result = $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — when this site's QR login moved the account here, keep the rotated callback credential and never pass it upward.
+		if ( array_key_exists( 'callback_token', $result ) ) {
+			$token = (string) $result['callback_token'];
+			unset( $result['callback_token'] );
+			if ( ! empty( $result['rebound'] ) && ( $token === '' || ! $this->save_callback_token( $account_id, $token ) ) ) {
+				$result['rebound'] = false;
+				$result['rebind_error'] = 'callback_token_store_failed';
+			}
+		}
+		return $result;
+	}
+
+	/** Callback identity sent with QR start/reset so the Hub can move an account to this site after login. */
+	private function rebind_context(): array {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48E-E5 — the Hub validates this against the key domain; it is ignored for accounts already bound here.
+		return array(
+			'callback_url'       => rest_url( 'bizcity-channel/v1/zalo-bridge/inbound' ),
+			'client_instance_id' => $this->client_instance_id(),
+			'tenant_key'         => $this->tenant_key(),
+		);
+	}
+
+	/** Read hash-only experimental group candidates for an owned managed account. */
+	public function get_group_candidates( string $account_id ): array {
+		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — discover groups through the exact-key Hub wrapper without exposing provider IDs.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/history/groups' );
+	}
+
+	/** Read one bounded experimental group-history page for an owned managed account. */
+	public function get_group_history( string $account_id, string $thread_ref, int $count = 20 ): array {
+		// [2026-09-03 02:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H1-GROUP — keep group history behind the exact-key Hub route and bounded page size.
+		$count = max( 1, min( 50, $count ) );
+		$path = '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/history/group?thread_ref=' . rawurlencode( $thread_ref ) . '&count=' . $count;
+		return $this->get( $path );
+	}
+
+	/** Read the provider-backed group roster for an exact key-owned account. */
+	public function get_group_members( string $account_id, string $group_id ): array {
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — route managed roster reads through Hub Branch 19 instead of degrading locally.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-members?group_id=' . rawurlencode( $group_id ) );
+	}
+
+	/**
+	 * PHASE-0.80 doc 28 T-5 — ask the Hub whether the copy a zalo-hub cell would serve THIS number right now
+	 * matches this site's own live Guru etag (T-3). Read-only, no site round trip on the Hub side (see T-4).
+	 *
+	 * @return array{ok?:bool,in_sync?:bool,hub_etag?:string,checked_at?:?string,code?:string}
+	 */
+	public function guru_sync_check( string $account_id, string $ref, string $expected_etag ): array {
+		$query = http_build_query( array( 'account_id' => $account_id, 'expected_etag' => $expected_etag ), '', '&', PHP_QUERY_RFC3986 );
+		return $this->get( '/zalo-hub/guru/' . rawurlencode( $ref ) . '/sync-check?' . $query );
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C3.5 (C-7) — trace metadata of the latest turn of one zalo-hub number: `turn_id` plus the C-7 blocks
+	 * (`reply_kind`, `guru`, `context`, `knowledge`, `llm`, `denied`). Never the step texts (they hold message content).
+	 *
+	 * @return array|null null = unreadable; array() = no turn yet.
+	 */
+	public function brain_last_turn( string $account_id ): ?array {
+		$q    = 'account_id=' . rawurlencode( $account_id );
+		$list = $this->get( '/zalo-personal-bridge/brain/traces?' . $q . '&limit=1' );
+		if ( empty( $list['ok'] ) ) {
+			return null;
+		}
+		$first = is_array( $list['turns'] ?? null ) ? reset( $list['turns'] ) : null;
+		$turn  = is_array( $first ) ? (int) ( $first['id'] ?? 0 ) : 0;
+		if ( $turn <= 0 ) {
+			return array();
+		}
+		$t = $this->get( '/zalo-personal-bridge/brain/traces/' . $turn . '?' . $q );
+		if ( empty( $t['ok'] ) ) {
+			return null;
+		}
+		return array( 'turn_id' => $turn ) + array_intersect_key( $t, array_flip( array( 'reply_kind', 'guru', 'context', 'knowledge', 'llm', 'denied' ) ) );
+	}
+
+	/**
+	 * [2026-09-27 Claude Opus 5.5] PHASE-0.81 C-7 read path (A4.3 ↔ C3.2/C3.3) — the config state the zalo-hub cell holds for THIS
+	 * number: `config_version`, `agent_ref`, `persona_chars`, `persona_source`, `snapshot{allowed,updated_at,expires_at}`,
+	 * `platform_config_version`. Read through the Hub's existing `brain/*` relay (15 s cache, exact key + bound site); never the
+	 * persona text. `null` when the Hub/cell cannot answer (old cell, zca number, network) — callers must say so, not guess.
+	 *
+	 * @return array<string,mixed>|null
+	 */
+	public function brain_overview( string $bridge_account_id ): ?array {
+		$id = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( $id === '' ) {
+			return null;
+		}
+		$r = $this->get( '/zalo-personal-bridge/brain/overview?account_id=' . rawurlencode( $id ) );
+		if ( ! is_array( $r ) || empty( $r['ok'] ) || ! array_key_exists( 'config_version', $r ) ) {
+			return null;
+		}
+		return $r;
+	}
+
+	/**
+	 * [2026-10-03 Claude Sonnet 5] PHASE-0.87 BC-12 (CL-11 close-out) — recent turns of one zalo-hub number with
+	 * the trục axis already attached by the cell (`axisOfMeta`): `role`, `modes`, `blocks`, `packs_read`,
+	 * `captured`. Never the message text or step content (that stays at `brain/traces/{turn}`, not called here).
+	 *
+	 * @return array{ok:bool,turns:list<array<string,mixed>>}|null null = unreadable (old Hub/cell or network).
+	 */
+	public function brain_recent_traces( string $bridge_account_id, int $limit = 20 ): ?array {
+		$id = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( '' === $id ) {
+			return null;
+		}
+		$limit = max( 1, min( 50, $limit ) );
+		$r = $this->get( '/zalo-personal-bridge/brain/traces?account_id=' . rawurlencode( $id ) . '&limit=' . $limit );
+		if ( ! is_array( $r ) || empty( $r['ok'] ) || ! array_key_exists( 'turns', $r ) ) {
+			return null;
+		}
+		return $r;
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K0 (C85-4) — read usage/budget/alerts of THIS site's OWN key.
+	 * `$route` must be one of the whitelisted C85-4 routes; anything else is refused locally, before any
+	 * network call, so a typo never becomes a request to an arbitrary Hub path. Never logs the response body
+	 * (only the caller-visible mã HTTP via the shared gateway logger) — these bodies can carry cost figures.
+	 *
+	 * @return array<string,mixed>|null null = route not whitelisted, Hub unreachable, or body missing `contract`.
+	 */
+	public function usage_read( string $route, array $query = array() ): ?array {
+		$allowed = array( 'summary', 'by-day', 'by-tool', 'by-account', 'by-request', 'budget', 'alerts' );
+		if ( ! in_array( $route, $allowed, true ) ) {
+			return null;
+		}
+		return $this->get_report( '/zalo-hub/usage/' . $route, $query );
+	}
+
+	/**
+	 * [2026-09-30 Claude Sonnet 5] PHASE-0.85 §K0 (C85-5/C85-6) — read one tenant-scoped root through the
+	 * existing Hub relay `brain/{root}` (15 s cache, exact key + bound site). `$root` whitelist mirrors what
+	 * S85-H8 adds to the relay; `tools` is already served by this same relay for T-5/Bot Studio, listed here
+	 * so K4/K5 can reuse this one method instead of a second ad-hoc `get()` call.
+	 *
+	 * @return array<string,mixed>|null null = root not whitelisted, Hub/cell unreachable, or body missing `contract`.
+	 */
+	public function brain_read( string $root, array $query = array() ): ?array {
+		$allowed = array( 'usage', 'uptime', 'alerts', 'tools' );
+		if ( ! in_array( $root, $allowed, true ) ) {
+			return null;
+		}
+		return $this->get_report( '/zalo-personal-bridge/brain/' . $root, $query );
+	}
+
+	/**
+	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
+	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
+	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.
+	 */
+	private function get_report( string $path, array $query = array() ): ?array {
+		if ( ! $this->is_ready_fast() ) {
+			return null;
+		}
+		$full = $query ? $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 ) : $path;
+		$result = BizCity_LLM_Client::instance()->gateway_get( $full, array(), 'GET', 5, false );
+		return ( is_array( $result ) && ! empty( $result['contract'] ) ) ? $result : null;
+	}
+
+	/** Read the provider group label for an exact key-owned account. */
+	public function get_group_name( string $account_id, string $group_id ): array {
+		// [2026-09-17 11:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-CX2 — route managed group-label reads through Hub Branch 19.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/group-info?group_id=' . rawurlencode( $group_id ) );
+	}
+
+	/** Read one Zalo user's display name + avatar for an exact key-owned account. */
+	public function get_user_profile( string $account_id, string $user_id ): array {
+		// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-AVATAR — route managed avatar reads through Hub Branch 19.
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/user-profile?user_id=' . rawurlencode( $user_id ) );
+	}
+
+	/** Enqueue Personal outbound through the managed Hub. */
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user', array $mentions = array(), string $idempotency_key = '', array $quote = array() ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — keep native mentions inside the managed exact-key outbound boundary.
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — outbound remains inside exact key/account scope.
+		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — forward the stable outbound idempotency key to Branch 19.
+		return $this->post( '/zalo-personal-bridge/outbound', array(
+			'account_id'  => $account_id,
+			'recipient'   => $recipient,
+			'text'        => $text,
+			'type'        => $type,
+			'attachments' => $attachments,
+			'thread_kind' => in_array( $thread_kind, array( 'user', 'group' ), true ) ? $thread_kind : 'user',
+			'mentions'    => $mentions,
+			'idempotency_key' => sanitize_key( $idempotency_key ),
+			'quote'       => $quote,
+		) );
+	}
+
+	/** Internal delegation for the shared bridge client. */
+	public function get_managed_path( string $path ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — preserve one wrapper boundary for managed reads.
+		return $this->get( $path );
+	}
+
+	/** Internal delegation for the shared bridge client. */
+	public function post_managed_path( string $path, array $body ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — preserve one wrapper boundary for managed mutations.
+		return $this->post( $path, $body );
+	}
+
+	/** Internal delegation for the shared bridge client. */
+	public function delete_managed_path( string $path ): array {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — preserve one wrapper boundary for managed revocations.
+		return $this->delete( $path );
+	}
+
+	/** Resolve the callback token for the managed inbound relay. */
+	public function get_callback_token( string $account_id ): string {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — decrypt only the local tenant callback token at the inbound boundary.
+		$tokens = (array) get_option( self::CALLBACK_TOKENS_OPTION, array() );
+		$encoded = (string) ( $tokens[ $account_id ] ?? '' );
+		if ( $encoded === '' || ! class_exists( 'BizCity_Codec' ) ) {
+			return '';
+		}
+		$key = function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : '';
+		$decoded = BizCity_Codec::decrypt_json_payload( $encoded, $key, self::CALLBACK_PREFIX, self::CALLBACK_CONTEXT );
+		return is_array( $decoded ) ? (string) ( $decoded['token'] ?? '' ) : '';
+	}
+
+	private function save_callback_token( string $account_id, string $token ): bool {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — persist callback credential encrypted, never plaintext.
+		if ( $account_id === '' || $token === '' || ! class_exists( 'BizCity_Codec' ) ) {
+			return false;
+		}
+		$key = function_exists( 'wp_salt' ) ? (string) wp_salt( 'auth' ) : '';
+		$encoded = BizCity_Codec::encrypt_json_payload( array( 'token' => $token, 'account_id' => $account_id ), $key, self::CALLBACK_PREFIX, self::CALLBACK_CONTEXT );
+		if ( $encoded === '' ) {
+			return false;
+		}
+		$tokens = (array) get_option( self::CALLBACK_TOKENS_OPTION, array() );
+		$tokens[ $account_id ] = $encoded;
+		return false !== update_option( self::CALLBACK_TOKENS_OPTION, $tokens, false );
+	}
+
+	private function delete_callback_token( string $account_id ): void {
+		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — remove local callback capability after managed revoke.
+		$tokens = (array) get_option( self::CALLBACK_TOKENS_OPTION, array() );
+		if ( isset( $tokens[ $account_id ] ) ) {
+			unset( $tokens[ $account_id ] );
+			update_option( self::CALLBACK_TOKENS_OPTION, $tokens, false );
+		}
+	}
+
+	private function get( string $path ): array {
+		// [2026-08-22 Johnny Chu] R-GW-8 — all managed reads use BizCity_LLM_Client gateway_get.
+		if ( ! $this->is_ready_fast() ) {
+			return $this->degraded( 'api_key_missing' );
+		}
+		$result = BizCity_LLM_Client::instance()->gateway_get( $path, array(), 'GET', 10, false );
+		return is_array( $result ) ? $result : $this->degraded( 'managed_bridge_invalid_response' );
+	}
+
+	private function post( string $path, array $body ): array {
+		// [2026-08-22 Johnny Chu] R-GW-8 — all managed mutations use BizCity_LLM_Client gateway_post.
+		if ( ! $this->is_ready_fast() ) {
+			return $this->degraded( 'api_key_missing' );
+		}
+		$result = BizCity_LLM_Client::instance()->gateway_post( $path, $body, 10, false );
+		return is_array( $result ) ? $result : $this->degraded( 'managed_bridge_invalid_response' );
+	}
+
+	private function delete( string $path ): array {
+		// [2026-08-22 Johnny Chu] R-GW-8 — managed revocation uses the existing generic DELETE gateway helper.
+		if ( ! $this->is_ready_fast() ) {
+			return $this->degraded( 'api_key_missing' );
+		}
+		$result = BizCity_LLM_Client::instance()->gateway_get( $path, array(), 'DELETE', 10, false );
+		return is_array( $result ) ? $result : $this->degraded( 'managed_bridge_invalid_response' );
+	}
+
+	private function degraded( string $code ): array {
+		return array( 'success' => false, '_degraded' => true, 'code' => $code, 'message' => 'BizCity managed Zalo chưa sẵn sàng.', 'hint' => 'Kiểm tra API key và trạng thái managed bridge rồi thử lại.', 'help_code' => 'zalo_bridge_unreachable' );
+	}
+}

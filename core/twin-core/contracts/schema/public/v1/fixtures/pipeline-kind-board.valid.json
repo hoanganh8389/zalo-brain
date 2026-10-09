@@ -1,0 +1,48 @@
+{
+  "ok": true,
+  "contract": "pipeline-kind-board",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "as_of": "2026-09-25T10:00:00+07:00",
+  "kind": "purchase",
+  "label": "Mua hàng",
+  "def_version": 1,
+  "range": { "key": "30d", "days": 30 },
+  "view": "stage",
+  "columns": [
+    {
+      "key": "rfq",
+      "label": "Yêu cầu báo giá",
+      "color": "#4f46e5",
+      "role_label": "Mua hàng",
+      "terminal": false,
+      "outcome": null,
+      "count": 4,
+      "stuck": 1,
+      "at_risk": 1,
+      "breached": 0,
+      "avg_h": 21.5,
+      "sub_total": 3,
+      "cards": [
+        {
+          "run_id": 12,
+          "contact_id": 9,
+          "display_name": "Đơn vật tư mẫu",
+          "owner_name": "Người phụ trách mẫu",
+          "days_in_stage": 1.5,
+          "sub_done": 1,
+          "sub_total": 3,
+          "sla_level": "due_24h",
+          "exception_open": false,
+          "lock_version": 2,
+          "next_due": "2026-09-26T10:00:00+07:00"
+        }
+      ]
+    }
+  ],
+  "outdated": { "count": 0, "cards": [] },
+  "kpis": { "open": 4, "stuck": 1, "no_next": 0, "overdue": 0, "breached": 0, "closed_in_range": 2 },
+  "matrix": [
+    { "owner_id": 7, "owner_label": "Người phụ trách mẫu", "counts": { "rfq": 4 } }
+  ]
+}

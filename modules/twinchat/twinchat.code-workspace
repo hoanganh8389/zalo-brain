@@ -1,0 +1,43 @@
+{
+	"folders": [
+		{
+			"path": "../../../bizcity-llm-router"
+		},
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../../mu-plugins/bizcity-openrouter"
+		},
+		{
+			"path": "../../../bizgpt-dino-tichdiem"
+		},
+		{
+			"path": "../../../user-points"
+		},
+		{
+			"path": "../../../bizgpt-custom-flows"
+		},
+		{
+			"path": "../../../bizgpt-oauth-client-new"
+		},
+		{
+			"path": "../../../bizgpt-oauth-server-new"
+		},
+		{
+			"path": "../../../../mu-plugins/bizcity-wallet"
+		},
+		{
+			"path": "../../../../mu-plugins"
+		},
+		{
+			"path": "../../../login-with-google"
+		},
+		{
+			"path": "../../../thanh-toan-chuyen-khoan"
+		},
+		{
+			"path": "../../../mabel-wheel-of-fortune"
+		}
+	]
+}

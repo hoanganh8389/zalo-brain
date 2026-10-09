@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../../mu-plugins"
+		},
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../btcare"
+		}
+	],
+	"settings": {}
+}

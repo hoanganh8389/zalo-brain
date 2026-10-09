@@ -1,0 +1,39 @@
+# BizCity Zalo Personal & OA Gateway
+
+> **Axis (supreme):** [R-TWIN-AGENT-AXIS](../../docs/rules/PHASE-0-RULE-TWIN-AGENT-AXIS.md). For zalo-hub numbers this plugin is the client side of the Twin Agent Axis: it hosts the pack routes (`zalo-bridge/packs`, `projection-pack@1`), owner verification (R-SETUP-4 step ③), the `owner_agent` bundle block, and the CRM record. It never answers a turn. Lane: [PHASE-0.87 · 20-LANE-CL](../../core/channel-gateway/docs/PHASE-0.87-OWNER-AGENT-VERTICAL-TOOLS/20-LANE-CL-CLIENT.md).
+
+> **Primary implementation focus:** Zalo Personal is the first-class channel
+> for the current product cycle. QR/session ownership, cross-site reconciliation,
+> reliable inbound normalization, media/caption fidelity and CRM sending are
+> the acceptance baseline. Zalo OA and Facebook/Fanpage are business-owned
+> channels that follow; Zalo Bot, Telegram and TwinChat remain supporting/admin
+> integrations. Do not weaken the shared channel contracts or create a private
+> Personal-only brain while prioritizing this channel.
+
+Connects a personal Zalo account (QR login via the `zca-bridge` sidecar) and a
+Zalo Official Account (OAuth v4 + webhook MAC signature) into
+`core/channel-gateway` and the `bizcity-twin-crm` Inbox.
+
+- **Framework contract:** [manifest.json](manifest.json) declares this
+  plugin's capabilities. See
+  [PLUGIN-TWIN-STANDARD.md](../../docs/extending/PLUGIN-TWIN-STANDARD.md) for
+  the canonical extension shape and validation command
+  (`php bin/twin diagnostics plugin plugins/bizcity-zalo-personal --json`).
+- **Requires:** `bizcity-twin-ai` host plugin loaded first
+  (`BIZCITY_CHANNEL_GATEWAY_LOADED` guard).
+- **Docs:** see [docs/](docs/) — connection guide, zca-bridge connect test,
+  [development and integration rules](docs/DEVELOPMENT-RULES.md), architecture
+  notes and the [VPS deployment runbook](_library/zca-bridge-main/VPS-DEPLOYMENT-RUNBOOK.md).
+- **Deployment instruction:** the parent workspace instruction
+  `.github/instructions/zalo-personal-vps-deployment.instructions.md` applies
+  to this plugin. When this folder is opened alone, use the local shim at
+  `.github/instructions/vps-deployment.instructions.md`. The standalone
+  sidecar instruction is at
+  `_library/zca-bridge-main/.github/instructions/vps-deployment.instructions.md`.
+- **Registry status:** `bizcity.zalo-personal` in
+  [PLUGIN-CONTRACT-REGISTRY-v1.json](../../docs/contracts/PLUGIN-CONTRACT-REGISTRY-v1.json)
+  — required surfaces include `channel_normalized`, `identity_scoping`,
+  `archive_contract`, `file_log`, `error_envelope`.
+
+Zalo Personal is a Zone 1 customer channel per R-ZONE; do not route it into
+Zone 2 admin/command handling.

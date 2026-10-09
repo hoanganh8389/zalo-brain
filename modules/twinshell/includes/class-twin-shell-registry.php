@@ -1,0 +1,497 @@
+<?php
+/**
+ * Twin Shell — Plugin Registry.
+ *
+ * Single source of truth for plugins that can be hosted inside the Twin Shell
+ * iframe wrapper at /twin/. Plugins register via the
+ * `bizcity_twin_register_plugins` filter.
+ *
+ * Schema (per Phase 0.11 §3.2):
+ *   id             string   Unique plugin id (e.g. 'twinchat', 'doc')
+ *   label          string   Human-readable label (i18n-translated by caller)
+ *   icon           string   lucide-react icon id
+ *   emoji          string   optional, takes precedence over icon (used by legacy sidebars)
+ *   mode           string   'embed' (default) | 'home' | 'workspace' | 'route' | 'link'
+ *   public_slug    string   Front-end URL fragment for the plugin page (e.g. '/twinchat/')
+ *   target_url     string   Absolute URL for `mode = 'link'` entries (admin pages etc.)
+ *   capability     string   WP capability required (default 'read'); forced to 'bizcity_use_<id>' when `access` is set
+ *   access         array    module-access@1.0.0: { mode: grantable|delegated|admin_only, owner, manage{plugin,r},
+ *                           default_roles[] } — resolved by BizCity_Twin_Module_Access (PHASE-0.84)
+ *   section        string   'top' | 'bottom'
+ *   params         array    Whitelisted query keys forwarded into the iframe URL
+ *   desc           string   Optional one-line description
+ *   requires       array    Optional gating spec — keys: const|class|function|plugin.
+ *                           Missing/empty `requires` ⇒ entry is **core** (always shown).
+ *   is_core        bool     Computed (true when no `requires`).
+ *   available      bool     Computed (true when core OR requires met).
+ *   locked         bool     Computed (true when non-core AND requires unmet).
+	 *   pro_package    string   Optional package label shown with the PRO badge/notice.
+ *
+ * @package Bizcity_Twin_AI
+ * @subpackage Modules\TwinShell
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+class BizCity_Twin_Shell_Registry {
+
+	/** Filter applied to merge external plugin entries. */
+	const FILTER = 'bizcity_twin_register_plugins';
+
+	/** Reserved query keys never forwarded to the iframe URL. */
+	const RESERVED_KEYS = [ 'plugin', '_view', '_t', 'bizcity_iframe', 'r' ];
+
+	/**
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-1 — the one ActivityBar order (server picks the
+	 * default plugin from it, the shell JS renders `cfg.plugins` in the order sent). Ids not listed
+	 * keep their registration order after these.
+	 */
+	const ACTIVITY_ORDER = [
+		'gpt'            => 10,
+		'gateway'        => 20,
+		'crm'            => 30,
+		'twinchat'       => 40,
+		'workflow'       => 50,
+		'scheduler'      => 60,
+		'twinkg'         => 70,
+		'personal'       => 110,
+		'qr'             => 120,
+		'web'            => 130,
+		'creator'        => 140,
+		'profile-public' => 150,
+		'marketplace'    => 900,
+		'settings'       => 910,
+	];
+
+	private static $instance = null;
+	private $cache = null;
+
+	public static function instance() {
+		if ( null === self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	/**
+	 * Return all registered plugins, normalized.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function all() {
+		if ( null !== $this->cache ) {
+			return $this->cache;
+		}
+
+		$raw = apply_filters( self::FILTER, [] );
+		if ( ! is_array( $raw ) ) {
+			$raw = [];
+		}
+
+		$out  = [];
+		$seen = [];
+		foreach ( $raw as $entry ) {
+			if ( ! is_array( $entry ) || empty( $entry['id'] ) ) {
+				continue;
+			}
+			$id = sanitize_key( $entry['id'] );
+			if ( '' === $id || isset( $seen[ $id ] ) ) {
+				continue;
+			}
+			$seen[ $id ] = true;
+
+			$out[] = [
+				'id'          => $id,
+				'label'       => isset( $entry['label'] ) ? (string) $entry['label'] : $id,
+				'icon'        => isset( $entry['icon'] ) ? (string) $entry['icon'] : 'puzzle',
+				'emoji'       => isset( $entry['emoji'] ) ? (string) $entry['emoji'] : '',
+				'mode'        => isset( $entry['mode'] ) ? (string) $entry['mode'] : 'embed',
+				'public_slug' => isset( $entry['public_slug'] ) ? (string) $entry['public_slug'] : '',
+				'target_url'  => isset( $entry['target_url'] ) ? esc_url_raw( $entry['target_url'] ) : '',
+				// [2026-06-08 Johnny Chu] HOTFIX — nav_plugin/nav_iurl: when set, clicking
+				// the button navigates the shell to nav_plugin with nav_iurl deep-link
+				// instead of creating a new iframe for this plugin's id.
+				'nav_plugin'  => isset( $entry['nav_plugin'] ) ? sanitize_key( (string) $entry['nav_plugin'] ) : '',
+				'nav_iurl'    => isset( $entry['nav_iurl'] )   ? (string) $entry['nav_iurl']   : '',
+				'capability'  => isset( $entry['capability'] ) ? (string) $entry['capability'] : 'read',
+				'section'     => ( isset( $entry['section'] ) && 'bottom' === $entry['section'] ) ? 'bottom' : 'top',
+				'params'      => isset( $entry['params'] ) && is_array( $entry['params'] ) ? array_values( array_unique( array_map( 'sanitize_key', $entry['params'] ) ) ) : [],
+				'desc'        => isset( $entry['desc'] ) ? (string) $entry['desc'] : '',
+				'requires'    => ( isset( $entry['requires'] ) && is_array( $entry['requires'] ) ) ? $entry['requires'] : [],
+				// [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan gate: 'free'|'pro'|'plus'|'premium'.
+				// Entries with plan != '' are always visible in the ActivityBar (upgrade incentive).
+				'plan'        => isset( $entry['plan'] ) ? sanitize_key( strtolower( (string) $entry['plan'] ) ) : '',
+				// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — explicit metadata for
+				// FE badges/visibility mapping without recomputing plan gate state.
+				'plan_badge'  => '',
+				'has_plan_gate' => false,
+				'pro_package' => isset( $entry['pro_package'] ) ? sanitize_text_field( (string) $entry['pro_package'] ) : '',
+				// [2026-10-05 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — add-on licensing: `license` ('premium' = the site's
+				// 1API master account must be Premium+), `upsell` (keep the ActivityBar icon while locked), `badge` (chip text, e.g. PRO).
+				'license'     => isset( $entry['license'] ) ? sanitize_key( (string) $entry['license'] ) : '',
+				'upsell'      => ! empty( $entry['upsell'] ),
+				'badge'       => isset( $entry['badge'] ) ? strtoupper( sanitize_key( (string) $entry['badge'] ) ) : '',
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P1 — Twin Route
+				// Contract v1 (TRC). `route_mode` opts a plugin into the canonical `r`
+				// (plugin-relative route, e.g. '/inbox/13/conv/88') query param instead of the
+				// legacy physical `_iurl`. Unknown/unset ⇒ 'legacy', so every entry that hasn't
+				// opted in keeps its current, already-working behaviour with zero code change.
+				'route_mode'  => ( isset( $entry['route_mode'] ) && in_array( $entry['route_mode'], [ 'hash', 'path', 'query' ], true ) )
+					? $entry['route_mode']
+					: 'legacy',
+				// Absolute override for the iframe entry URL. Empty ⇒ derive from `public_slug`
+				// (embed) / `target_url` (link), same as the legacy iframe builder already does.
+				'route_entry' => isset( $entry['route_entry'] ) ? esc_url_raw( $entry['route_entry'] ) : '',
+				// `$_GET['page']` of an admin.php surface this plugin also serves, so the bridge
+				// injector can inject the route SDK there too, not only on `public_slug`.
+				'admin_page'  => isset( $entry['admin_page'] ) ? sanitize_key( (string) $entry['admin_page'] ) : '',
+				// [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — one-time
+				// translation from an OLD bookmarked/shared link's generic query keys (e.g.
+				// `thread`, `contact_id`) into the canonical `r` route, so a link saved before
+				// this plugin opted into `route_mode` keeps opening the right place. Map shape:
+				// `{ query_key: 'route template' }`, checked in declaration order, first key
+				// present in the URL wins. Placeholder `{key}` alone substitutes `params[key]`;
+				// `{a|b|literal}` (2+ segments) tries query key `a`, falls back to `b`, falls back
+				// to the LAST segment as a literal string only if neither `a` nor `b` is present.
+				// Only consulted when `r` and a legacy-`_iurl` route are BOTH absent — see
+				// `routeFromLegacyParams()` in `twin-shell.js`.
+				'legacy_params' => ( isset( $entry['legacy_params'] ) && is_array( $entry['legacy_params'] ) )
+					? array_map( 'sanitize_text_field', $entry['legacy_params'] )
+					: [],
+			];
+			// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-11 — module-access@1.0.0: an entry that declares
+			// `access` is gated by the meta capability `bizcity_use_<id>` (MA-1); the capability it declared
+			// is kept as `legacy_capability` for the one-time seed and for rollback.
+			$last   = count( $out ) - 1;
+			$access = self::normalize_access( isset( $entry['access'] ) ? $entry['access'] : null );
+			if ( null !== $access ) {
+				$access['legacy_capability']  = $out[ $last ]['capability'];
+				$out[ $last ]['capability'] = 'bizcity_use_' . $id;
+			}
+			$out[ $last ]['access'] = $access;
+		}
+
+		// Compute is_core / available / locked AFTER normalization so external
+		// filter additions get the same treatment.
+		foreach ( $out as $i => $p ) {
+			$is_core           = empty( $p['requires'] );
+			$avail             = $is_core ? true : self::requirement_met( $p['requires'] );
+			$plan_slug         = isset( $p['plan'] ) ? (string) $p['plan'] : '';
+			$has_plan_gate     = $plan_slug !== '' && $plan_slug !== 'free';
+			$out[ $i ]['is_core']   = $is_core;
+			$out[ $i ]['available'] = $avail;
+			$out[ $i ]['locked']    = ( ! $is_core ) && ( ! $avail );
+			$out[ $i ]['has_plan_gate'] = $has_plan_gate;
+			$out[ $i ]['plan_badge']    = $has_plan_gate ? strtoupper( $plan_slug ) : '';
+		}
+
+		$this->cache = $out;
+		return $out;
+	}
+
+	/**
+	 * Normalize an entry's `access` descriptor (module-access@1.0.0). Null when absent.
+	 *
+	 * @param mixed $raw
+	 * @return array|null
+	 */
+	private static function normalize_access( $raw ) {
+		if ( ! is_array( $raw ) ) {
+			return null;
+		}
+		$mode   = isset( $raw['mode'] ) ? sanitize_key( (string) $raw['mode'] ) : 'grantable';
+		$manage = null;
+		if ( isset( $raw['manage'] ) && is_array( $raw['manage'] ) && ! empty( $raw['manage']['plugin'] ) ) {
+			$manage = [
+				'plugin' => sanitize_key( (string) $raw['manage']['plugin'] ),
+				'r'      => isset( $raw['manage']['r'] ) ? sanitize_text_field( (string) $raw['manage']['r'] ) : '',
+			];
+		}
+		return [
+			'mode'          => in_array( $mode, [ 'grantable', 'delegated', 'admin_only' ], true ) ? $mode : 'grantable',
+			'owner'         => isset( $raw['owner'] ) ? sanitize_text_field( (string) $raw['owner'] ) : '',
+			'manage'        => $manage,
+			'default_roles' => isset( $raw['default_roles'] ) && is_array( $raw['default_roles'] )
+				? array_values( array_filter( array_map( 'sanitize_key', $raw['default_roles'] ) ) )
+				: [],
+		];
+	}
+
+	/**
+	 * Numeric access tier for a plan slug (higher = more access).
+	 *
+	 * free=0  pro=1  plus/premium=2
+	 *
+	 * [2026-06-08 Johnny Chu] PHASE-MEMBERSHIP — plan tier order for gate comparison.
+	 *
+	 * @param string $plan_slug
+	 * @return int
+	 */
+	public static function plan_order( $plan_slug ) {
+		$tiers = array(
+			'free'    => 0,
+			'pro'     => 1,
+			'plus'    => 2,
+			'premium' => 2,
+		);
+		$k = sanitize_key( strtolower( (string) $plan_slug ) );
+		return isset( $tiers[ $k ] ) ? $tiers[ $k ] : 0;
+	}
+
+	/**
+	 * Evaluate a `requires` spec. Returns true when the dependency is present.
+	 * Recognised keys (any matching one returns true):
+	 *   - const    → defined( CONST_NAME )
+	 *   - class    → class_exists( Class_Name )
+	 *   - function → function_exists( fn_name )
+	 *   - plugin   → is_plugin_active( 'slug/file.php' )
+	 *   - addon    → BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) is non-empty (sibling add-on on disk)
+	 *
+	 * @param array $req
+	 * @return bool
+	 */
+	public static function requirement_met( $req ) {
+		if ( ! is_array( $req ) || empty( $req ) ) {
+			return true;
+		}
+		if ( ! empty( $req['const'] ) && defined( (string) $req['const'] ) ) {
+			return true;
+		}
+		if ( ! empty( $req['class'] ) && class_exists( (string) $req['class'], false ) ) {
+			return true;
+		}
+		if ( ! empty( $req['function'] ) && function_exists( (string) $req['function'] ) ) {
+			return true;
+		}
+		// [2026-10-05 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — a sibling add-on file (e.g. 'automation/bootstrap.php' of
+		// bizcity-automation) counts as installed through BizCity_Addon_Locator, so /twin/ — where the add-on's classes are not
+		// loaded (request gate) — does not report an installed add-on as missing.
+		if ( ! empty( $req['addon'] ) && class_exists( 'BizCity_Addon_Locator', false ) && '' !== BizCity_Addon_Locator::file( (string) $req['addon'] ) ) {
+			return true;
+		}
+		if ( ! empty( $req['plugin'] ) ) {
+			if ( ! function_exists( 'is_plugin_active' ) ) {
+				$f = ABSPATH . 'wp-admin/includes/plugin.php';
+				if ( is_readable( $f ) ) {
+					require_once $f;
+				}
+			}
+			if ( function_exists( 'is_plugin_active' ) && is_plugin_active( (string) $req['plugin'] ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Get a single plugin entry by id.
+	 *
+	 * @param string $id
+	 * @return array|null
+	 */
+	public function get( $id ) {
+		$id = sanitize_key( $id );
+		foreach ( $this->all() as $p ) {
+			if ( $p['id'] === $id ) {
+				return $p;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Sort entries by ACTIVITY_ORDER; ties and unlisted ids keep their input order.
+	 *
+	 * @param array<int, array<string, mixed>> $plugins
+	 * @return array<int, array<string, mixed>>
+	 */
+	public static function sort_for_activity_bar( array $plugins ) {
+		$rows = [];
+		foreach ( array_values( $plugins ) as $i => $p ) {
+			$id     = isset( $p['id'] ) ? (string) $p['id'] : '';
+			$rows[] = [ isset( self::ACTIVITY_ORDER[ $id ] ) ? self::ACTIVITY_ORDER[ $id ] : 1000, $i, $p ];
+		}
+		usort( $rows, static function ( $a, $b ) {
+			return $a[0] === $b[0] ? $a[1] - $b[1] : $a[0] - $b[0];
+		} );
+		return array_map( static function ( $row ) {
+			return $row[2];
+		}, $rows );
+	}
+
+	/**
+	 * Default plugin for `/twin/` without `?plugin=`: the first top-section entry of the given
+	 * (already capability-filtered) list in ActivityBar order — Twin GPT for most users.
+	 *
+	 * [2026-09-30 Claude Opus 5.5] PHASE-0.84 D-84-2 — replaces the hardcoded 'crm' default.
+	 *
+	 * @param array<int, array<string, mixed>>|null $visible Entries the current user may open; null = all.
+	 * @return string
+	 */
+	public function default_id( $visible = null ) {
+		$plugins = self::sort_for_activity_bar( is_array( $visible ) ? $visible : $this->all() );
+		foreach ( $plugins as $p ) {
+			if ( 'bottom' !== ( isset( $p['section'] ) ? $p['section'] : 'top' ) ) {
+				return (string) $p['id'];
+			}
+		}
+		return empty( $plugins ) ? '' : (string) $plugins[0]['id'];
+	}
+
+	/**
+	 * Check whether the given REQUEST_URI path matches the public_slug of any
+	 * registered plugin. Used by the bridge auto-injector.
+	 *
+	 * @param string $request_uri
+	 * @return array|null Matched plugin entry, or null.
+	 */
+	public function match_request_uri( $request_uri ) {
+		$path = (string) wp_parse_url( $request_uri, PHP_URL_PATH );
+		if ( '' === $path ) {
+			return null;
+		}
+		$path = '/' . trim( $path, '/' ) . '/';
+
+		foreach ( $this->all() as $p ) {
+			$slug = trim( (string) $p['public_slug'], '/' );
+			if ( '' === $slug ) {
+				continue;
+			}
+			$slug = '/' . $slug . '/';
+			// Match either exact slug or slug-prefix (so /tool-image/foo/ counts).
+			if ( $path === $slug || 0 === strpos( $path, $slug ) ) {
+				return $p;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Check whether a `$_GET['page']` value matches a registered plugin's `admin_page`.
+	 *
+	 * [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0-RULE-URL-ROUTE P2 — companion to
+	 * `match_request_uri()` for plugins whose real app lives on an `admin.php?page=…` screen
+	 * with no dedicated `public_slug` (e.g. `mode=link` entries like Channel Gateway). Used by
+	 * `BizCity_Twin_Shell_Bridge::maybe_enqueue()` to inject `window.TwinRoute` there too.
+	 *
+	 * @param string $page Raw `$_GET['page']` value.
+	 * @return array|null Matched plugin entry, or null.
+	 */
+	public function match_admin_page( $page ) {
+		$page = sanitize_key( (string) $page );
+		if ( '' === $page ) {
+			return null;
+		}
+		foreach ( $this->all() as $p ) {
+			if ( '' !== $p['admin_page'] && $p['admin_page'] === $page ) {
+				return $p;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Build the iframe URL for a given plugin id, forwarding only whitelisted
+	 * params from the current /twin/ request.
+	 *
+	 * @param string $plugin_id
+	 * @param array  $query  Current query (typically $_GET).
+	 * @return string Absolute URL or '' if plugin not found / has no public_slug.
+	 */
+	public function build_iframe_url( $plugin_id, $query = [] ) {
+		$p = $this->get( $plugin_id );
+		if ( ! $p || empty( $p['public_slug'] ) ) {
+			return '';
+		}
+
+		$forward = [];
+		$allowed = $p['params'];
+		foreach ( $query as $k => $v ) {
+			if ( in_array( $k, self::RESERVED_KEYS, true ) ) {
+				continue;
+			}
+			if ( ! empty( $allowed ) && ! in_array( $k, $allowed, true ) ) {
+				continue;
+			}
+			if ( is_scalar( $v ) ) {
+				$forward[ sanitize_key( $k ) ] = (string) $v;
+			}
+		}
+
+		// Tell the embedded plugin it's running inside the shell.
+		// Uses the legacy `bizcity_iframe=1` flag so existing pages that already
+		// hide their header/footer/adminbar on this query var keep working.
+		$forward['bizcity_iframe'] = '1';
+
+		$url = home_url( '/' . trim( $p['public_slug'], '/' ) . '/' );
+		if ( ! empty( $forward ) ) {
+			$url = add_query_arg( $forward, $url );
+		}
+		return $url;
+	}
+
+	/**
+	 * Map registry entries to the legacy webchat sidebar shape.
+	 *
+		 * Output schema (consumed by modules/webchat React sidebar):
+	 *   [ 'slug' => id, 'label' => label, 'icon' => emoji, 'type' => 'link',
+	 *     'src' => url, 'section' => 'top'|'bottom', 'mode' => mode, 'pluginId' => id ]
+	 *
+	 * - For `mode = 'link'` entries → `src` = `target_url` as-is.
+	 * - For everything else (embed/home/workspace/route) → `src` routes through
+	 *   the Twin Shell at `/twin/?plugin=<id>` so the page opens inside the
+	 *   ActivityBar shell.
+	 * - Filtered through current_user_can() against each entry's capability.
+	 * - Final result passed through the legacy `bizcity_sidebar_nav` filter
+	 *   for back-compat (other plugins may still hook this; new plugins should
+	 *   prefer `bizcity_twin_register_plugins`).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function as_sidebar_nav() {
+		$shell_url = class_exists( 'BizCity_Twin_Shell_Page' )
+			? BizCity_Twin_Shell_Page::shell_url()
+			: home_url( '/twin/' );
+		$out       = [];
+
+		foreach ( $this->all() as $p ) {
+			if ( ! current_user_can( $p['capability'] ?: 'read' ) ) {
+				continue;
+			}
+			// Hide locked (non-core, requirement unmet) entries from the
+			// legacy sidebar too — same UX as the Twin Shell ActivityBar.
+			if ( ! empty( $p['locked'] ) ) {
+				continue;
+			}
+
+			if ( 'link' === $p['mode'] ) {
+				$src = $p['target_url'] !== ''
+					? $p['target_url']
+					: ( $p['public_slug'] !== '' ? home_url( '/' . trim( $p['public_slug'], '/' ) . '/' ) : '' );
+			} else {
+				$src = add_query_arg( [ 'plugin' => $p['id'] ], $shell_url );
+			}
+			if ( '' === $src ) {
+				continue;
+			}
+
+			$out[] = [
+				'slug'     => $p['id'],
+				'label'    => $p['label'],
+				'icon'     => $p['emoji'] !== '' ? $p['emoji'] : '',
+				'type'     => 'link',
+				'src'      => esc_url_raw( $src ),
+				'section'  => $p['section'],
+				'mode'     => $p['mode'],
+				'pluginId' => $p['id'],
+			];
+		}
+
+		return apply_filters( 'bizcity_sidebar_nav', $out );
+	}
+
+	/** Reset cache — only useful in tests. */
+	public function reset_cache() {
+		$this->cache = null;
+	}
+}

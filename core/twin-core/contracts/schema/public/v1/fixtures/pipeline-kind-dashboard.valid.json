@@ -1,0 +1,201 @@
+{
+  "ok": true,
+  "contract": "pipeline-kind-dashboard",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "as_of": "2026-09-25T17:00:00+07:00",
+  "kind": "service",
+  "label": "Dịch vụ có lịch",
+  "def_version": 2,
+  "range": {
+    "key": "30d",
+    "days": 30
+  },
+  "view": "stage",
+  "columns": [
+    {
+      "key": "booked",
+      "label": "Đã đặt lịch",
+      "color": null,
+      "role_label": null,
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 2,
+      "cards": []
+    },
+    {
+      "key": "assigned",
+      "label": "Đã giao người",
+      "color": null,
+      "role_label": "Điều phối viên",
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 1,
+      "cards": []
+    },
+    {
+      "key": "accepted",
+      "label": "Đã nhận ca",
+      "color": null,
+      "role_label": "Nhân viên phục vụ",
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 1,
+      "cards": []
+    },
+    {
+      "key": "departed",
+      "label": "Đã khởi hành",
+      "color": null,
+      "role_label": "Nhân viên phục vụ",
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 1,
+      "cards": []
+    },
+    {
+      "key": "checkin",
+      "label": "Check-in tại nơi",
+      "color": null,
+      "role_label": "Nhân viên phục vụ",
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 1,
+      "cards": []
+    },
+    {
+      "key": "serving",
+      "label": "Đang phục vụ",
+      "color": null,
+      "role_label": "Nhân viên phục vụ",
+      "terminal": false,
+      "outcome": null,
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 2,
+      "cards": []
+    },
+    {
+      "key": "completed",
+      "label": "Hoàn thành",
+      "color": null,
+      "role_label": "Nhân viên phục vụ",
+      "terminal": true,
+      "outcome": "won",
+      "count": 0,
+      "stuck": 0,
+      "at_risk": 0,
+      "breached": 0,
+      "avg_h": null,
+      "sub_total": 3,
+      "cards": []
+    }
+  ],
+  "outdated": {
+    "count": 10,
+    "cards": []
+  },
+  "kpis": {
+    "open": 10,
+    "stuck": 0,
+    "no_next": 10,
+    "overdue": 0,
+    "breached": 0,
+    "closed_in_range": 7
+  },
+  "matrix": [],
+  "outcomes": {
+    "won": {
+      "count": 4,
+      "amount": 12500000.5
+    },
+    "lost": {
+      "count": 3,
+      "amount": 900000
+    },
+    "closed": {
+      "count": 0,
+      "amount": 0
+    }
+  },
+  "lost_reasons": [
+    {
+      "reason": "Giá cao",
+      "count": 2
+    },
+    {
+      "reason": "Chưa ghi lý do",
+      "count": 1
+    }
+  ],
+  "lead_time": {
+    "median_h": 60,
+    "target_h": null,
+    "samples": 4
+  },
+  "exceptions_open": [
+    {
+      "key": "price_approval",
+      "label": "price_approval",
+      "count": 2
+    },
+    {
+      "key": "complaint",
+      "label": "complaint",
+      "count": 1
+    }
+  ],
+  "by_role": [
+    {
+      "role_label": null,
+      "open": 0
+    },
+    {
+      "role_label": "Điều phối viên",
+      "open": 0
+    },
+    {
+      "role_label": "Nhân viên phục vụ",
+      "open": 0
+    }
+  ],
+  "open_amount": 3400000,
+  "schedule": {
+    "date": "2026-09-25",
+    "step_key": "checkin",
+    "step_label": "Check-in tại nơi",
+    "total": 2,
+    "checked_in": 1,
+    "on_time": 1,
+    "late": 0,
+    "waiting": 1
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "contract": "pipeline-kind-board",
+  "version": "1.0.0",
+  "surface": "B2_ADMIN_CRM",
+  "as_of": "2026-09-25T10:00:00+07:00",
+  "kind": "Purchase With Spaces",
+  "label": "Mua hàng",
+  "def_version": 1,
+  "columns": [],
+  "outdated": { "count": 0, "cards": [] },
+  "kpis": { "open": 0, "stuck": 0, "no_next": 0, "overdue": 0, "breached": 0, "closed_in_range": 0 },
+  "matrix": []
+}

@@ -1,0 +1,19 @@
+{
+  "contract": "sla-rule-set",
+  "version": "1.0.0",
+  "clock": "24x7",
+  "pause_when": ["flag(waiting_customer)"],
+  "rules": [
+    {
+      "id": "first_reply",
+      "layer": "step",
+      "anchor": "last_inbound",
+      "offset": "+15m",
+      "target": "first_outbound",
+      "on_miss": [
+        { "at": "-20%", "do": "flag(at_risk)" },
+        { "at": "0", "do": "notify(role:lead)" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,375 @@
+<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
+ * BizCity_Twin_Event_Store — Thin persistence layer for `bizcity_twin_event_stream`.
+ *
+ * Phase 0.12 Wave A — separated from Event_Bus so projectors / CLI / replay can
+ * also read without depending on dispatch logic. ONLY this class is allowed to
+ * INSERT into the stream table (Event_Bus calls it).
+ *
+ * Per R-EVT-1, R-EVT-6.
+ *
+ * @since 2026-04-29
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+class BizCity_Twin_Event_Store {
+
+	/**
+	 * Bounded reason bucket for the most recent `persist()` failure.
+	 *
+	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — `dispatch_v2()`
+	 * throws a fixed sentence when persistence fails, so a deployed FAIL carried no
+	 * cause and every rerun reproduced it. The bucket is deliberately value-only
+	 * (never SQL, never a DSN) so it can travel inside an exception message.
+	 *
+	 * @var string
+	 */
+	private static $last_failure_reason = '';
+
+	/**
+	 * Read the bounded reason bucket of the last `persist()` failure.
+	 *
+	 * @return string Empty string when the last persistence attempt succeeded.
+	 */
+	public static function last_failure_reason(): string {
+		return self::$last_failure_reason;
+	}
+
+	/**
+	 * Persist an event row. Returns the inserted DB id (or 0 on failure).
+	 *
+	 * Resolves parent_event_id from parent_event_uuid if needed.
+	 *
+	 * @param array $event Fully-built envelope (see Event_Bus::build_envelope).
+	 * @return int Inserted id, 0 on failure.
+	 */
+	public static function persist( array $event ): int {
+		global $wpdb;
+		self::$last_failure_reason = '';
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+
+		// [2026-09-01 Johnny Chu] PHASE-CB4.1 — avoid an expected duplicate INSERT/error log on replay while retaining the existing race-safe fallback below.
+		$existing_id = self::id_for_uuid( (string) ( $event['event_uuid'] ?? '' ) );
+		if ( $existing_id > 0 ) {
+			return $existing_id;
+		}
+
+		// Resolve parent_event_id from parent_event_uuid if not yet set
+		if ( empty( $event['parent_event_id'] ) && ! empty( $event['parent_event_uuid'] ) ) {
+			$event['parent_event_id'] = self::id_for_uuid( $event['parent_event_uuid'] );
+		}
+
+		$row = [
+			'event_uuid'        => $event['event_uuid'],
+			'trace_id'          => $event['trace_id'],
+			'conversation_id'   => $event['conversation_id'] ?? null,
+			'session_id'        => $event['session_id'] ?? null,
+			'user_id'           => (int) ( $event['user_id'] ?? 0 ),
+			'blog_id'           => (int) ( $event['blog_id'] ?? get_current_blog_id() ),
+			'event_type'        => $event['event_type'],
+			'event_source'      => $event['event_source'],
+			'parent_event_id'   => $event['parent_event_id'] ?? null,
+			'parent_event_uuid' => $event['parent_event_uuid'] ?? null,
+			'payload_json'      => is_string( $event['payload_json'] ?? null )
+				? $event['payload_json']
+				: wp_json_encode( $event['payload'] ?? [] ),
+			'schema_version'    => (int) ( $event['schema_version'] ?? 1 ),
+			'created_at'        => $event['created_at'],
+			'created_epoch_ms'  => (int) $event['created_epoch_ms'],
+		];
+
+		$ok = $wpdb->insert( $table, $row );
+		if ( $ok === false ) {
+			// Duplicate UUID (idempotency for ingest_remote) — return existing id silently.
+			$existing = self::id_for_uuid( $event['event_uuid'] );
+			if ( $existing > 0 ) return $existing;
+			self::$last_failure_reason = (string) $wpdb->last_error !== ''
+				? 'event_insert_failed'
+				: 'event_insert_failed_silent';
+			return 0;
+		}
+
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — capture the
+		// auto-increment id IMMEDIATELY. The previous implementation read
+		// `(int) $wpdb->insert_id` on the FINAL line of this method, i.e. after the
+		// JSONL mirror and `BizCity_Log_Index::record()` had run a chain of their own
+		// statements. `wpdb::query()` re-assigns `$this->insert_id` for any statement
+		// matching `^\s*(insert|replace)\s` (class-wpdb.php:2319) and CLEARS it to 0
+		// when such a statement FAILS (class-wpdb.php:2304-2305). So a log-index
+		// INSERT IGNORE that failed on this tenant turned a successful event INSERT
+		// into `persist() === 0`, and `dispatch_v2()` threw "Failed to persist event"
+		// on EVERY dispatch — a canonical-spine outage caused by a log indexer.
+		$insert_id = (int) $wpdb->insert_id;
+		if ( $insert_id <= 0 ) {
+			// The INSERT reported success but the connection returned no id. The row
+			// exists (event_uuid is UNIQUE), so recover it by its canonical key rather
+			// than declaring a false failure.
+			$insert_id = self::id_for_uuid( (string) $event['event_uuid'] );
+			if ( $insert_id <= 0 ) {
+				self::$last_failure_reason = 'insert_id_not_returned';
+				return 0;
+			}
+			self::$last_failure_reason = 'insert_id_recovered_by_uuid';
+		}
+
+		// [2026-08-01 Johnny Chu] PHASE-1.25-TWIN-EVENT-JSONL — mirror only newly
+		// persisted canonical events to per-site JSONL so chat/channel traces can be
+		// inspected without querying the shard SQL table. BizCity_JSONL_File_Logger
+		// scrubs sensitive nested fields and remains best-effort/non-blocking.
+		if ( class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_contract' ) ) {
+			$payload = json_decode( (string) $row['payload_json'], true );
+			// [2026-08-27 Johnny Chu] R-LOG-HYBRID — persist Event Stream evidence through its registered contract.
+			BizCity_JSONL_File_Logger::write_contract(
+				'core.twin_core.event_stream_trace',
+				'info',
+				(string) $event['event_type'],
+				'Twin event persisted.',
+				array(
+					'event_uuid'        => (string) $event['event_uuid'],
+					'trace_id'          => (string) $event['trace_id'],
+					'conversation_id'   => (string) ( $event['conversation_id'] ?? '' ),
+					'session_id'        => (string) ( $event['session_id'] ?? '' ),
+					'user_id'           => (int) ( $event['user_id'] ?? 0 ),
+					'blog_id'           => (int) ( $event['blog_id'] ?? get_current_blog_id() ),
+					'event_source'      => (string) $event['event_source'],
+					'parent_event_uuid' => (string) ( $event['parent_event_uuid'] ?? '' ),
+					'payload'           => is_array( $payload ) ? $payload : array(),
+				)
+			);
+
+			if ( in_array( (string) $event['event_type'], array( 'twin_goal_opened', 'twin_goal_progressed', 'twin_goal_closed' ), true ) ) {
+				// [2026-08-02 Johnny Chu] HOTFIX — mirror canonical Goal events at the Event Store boundary so JSONL evidence is written whenever the event INSERT succeeds.
+				$goal_written = BizCity_JSONL_File_Logger::write_contract(
+					'core.twinbrain.goal_loop_trace',
+					'info',
+					(string) $event['event_type'],
+					'Canonical Goal Loop event persisted.',
+					array(
+						'event_uuid'   => (string) $event['event_uuid'],
+						// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — `$id` was never
+						// defined in this scope; use the captured insert id.
+						'event_id'     => (int) $insert_id,
+						'event_source' => (string) $event['event_source'],
+						'trace_id'     => (string) $event['trace_id'],
+						'goal_id'      => is_array( $payload ) ? (string) ( $payload['goal_id'] ?? '' ) : '',
+						'session_hash' => is_array( $payload ) && ! empty( $payload['session_id'] ) ? substr( sha1( (string) $payload['session_id'] ), 0, 12 ) : '',
+						'status'       => is_array( $payload ) ? (string) ( $payload['status'] ?? '' ) : '',
+					)
+				);
+				if ( ! $goal_written ) {
+					error_log( '[TwinBrain][goal-loop] canonical JSONL mirror failed for event ' . (string) $event['event_uuid'] );
+				}
+			}
+
+			// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — channel-originated
+			// events are also written to the physical channel folder with the exact
+			// Event Stream UUID. This creates a deterministic join without forcing
+			// inbound/outbound child events to reuse the same UUID.
+			$channel_hint = is_array( $payload )
+				? ( $payload['channel'] ?? $payload['platform'] ?? '' )
+				: '';
+			if ( (string) $channel_hint === '' ) {
+				$source_hint = strtolower( (string) ( $event['event_source'] ?? '' ) );
+				$generic_sources = array( 'system', 'server', 'twinbrain', 'twinchat', 'twinweb', 'automation' );
+				$channel_hint = in_array( $source_hint, $generic_sources, true ) ? '' : $source_hint;
+			}
+			if ( class_exists( 'BizCity_Channel_File_Logger' ) && class_exists( 'BizCity_Chat_Correlation' ) && (string) $channel_hint !== '' ) {
+				$channel = BizCity_Chat_Correlation::channel( $channel_hint );
+				BizCity_Channel_File_Logger::write(
+					$channel,
+					BizCity_Channel_File_Logger::LEVEL_INFO,
+					'twin_event_persisted',
+					'Twin event persisted for channel correlation.',
+					array(
+						'event_uuid'        => (string) $event['event_uuid'],
+						'trace_id'          => (string) $event['trace_id'],
+						'parent_event_uuid' => (string) ( $event['parent_event_uuid'] ?? '' ),
+						'event_type'        => (string) $event['event_type'],
+						'event_source'      => (string) $event['event_source'],
+						'conversation_id'   => (string) ( $event['conversation_id'] ?? '' ),
+						'session_id'        => (string) ( $event['session_id'] ?? '' ),
+						'platform'          => (string) $channel_hint,
+					)
+				);
+			}
+		}
+		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — return the id that
+		// was captured right after the INSERT, never a value re-read after the logger
+		// chain (which can have clobbered or cleared `$wpdb->insert_id`).
+		return $insert_id;
+	}
+
+	/**
+	 * Look up the DB id for an event_uuid. Returns 0 if not found.
+	 */
+	public static function id_for_uuid( string $event_uuid ): int {
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+		$id = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE event_uuid = %s LIMIT 1",
+			$event_uuid
+		) );
+		return (int) ( $id ?: 0 );
+	}
+
+	/**
+	 * True if an event with this UUID already exists (used for ingest dedupe).
+	 */
+	public static function exists( string $event_uuid ): bool {
+		return self::id_for_uuid( $event_uuid ) > 0;
+	}
+
+	/**
+	 * Fetch events for a trace_id, chronologically ordered.
+	 *
+	 * @param string $trace_id
+	 * @param array  $opts {
+	 *   @type int    $limit       Max rows (default 500).
+	 *   @type string $after_uuid  Only return events after this UUID (cursor).
+	 *   @type string $event_type  Filter by event_type.
+	 *   @type string $event_source Filter by event_source.
+	 * }
+	 * @return array<int, array> Rows with payload_json decoded into payload.
+	 */
+	public static function fetch_for_trace( string $trace_id, array $opts = [] ): array {
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+		$blog_id = (int) get_current_blog_id();
+
+		$limit  = max( 1, min( 5000, (int) ( $opts['limit'] ?? 500 ) ) );
+		// [2026-09-01 Johnny Chu] R-MSDB-CB — bind trace reads to the current physical tenant before applying optional filters.
+		$where  = [ 'trace_id = %s', 'blog_id = %d' ];
+		$params = [ $trace_id, $blog_id ];
+
+		if ( ! empty( $opts['after_uuid'] ) ) {
+			$cursor_id = self::id_for_uuid( $opts['after_uuid'] );
+			if ( $cursor_id > 0 ) {
+				$where[]  = 'id > %d';
+				$params[] = $cursor_id;
+			}
+		}
+		if ( ! empty( $opts['event_type'] ) ) {
+			$where[]  = 'event_type = %s';
+			$params[] = $opts['event_type'];
+		}
+		if ( ! empty( $opts['event_source'] ) ) {
+			$where[]  = 'event_source = %s';
+			$params[] = $opts['event_source'];
+		}
+
+		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
+			 . " ORDER BY id ASC LIMIT %d";
+		$params[] = $limit;
+
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		if ( ! is_array( $rows ) ) return [];
+
+		foreach ( $rows as &$r ) {
+			$r['payload'] = json_decode( (string) $r['payload_json'], true ) ?: [];
+		}
+		return $rows;
+	}
+
+	/**
+	 * [2026-07-09 Johnny Chu] PHASE-TWINSHELL-IMPL — user-scoped activity reader
+	 * used by /events/my_activity for consistent filtering and pagination.
+	 *
+	 * @param int   $user_id
+	 * @param int   $blog_id
+	 * @param array $opts {
+	 *   @type int    $limit
+	 *   @type int    $before_id
+	 *   @type string $event_type
+	 *   @type string $surface
+	 *   @type string $action
+	 *   @type string $outcome
+	 *   @type string $plugin_id
+	 * }
+	 * @return array<int,array>
+	 */
+	public static function fetch_for_user_activity( int $user_id, int $blog_id, array $opts = [] ): array {
+		global $wpdb;
+		$table = BizCity_Twin_Event_Stream_Schema::table();
+
+		$limit      = max( 1, min( 500, (int) ( $opts['limit'] ?? 100 ) ) );
+		$before_id  = max( 0, (int) ( $opts['before_id'] ?? 0 ) );
+		$event_type = sanitize_key( (string) ( $opts['event_type'] ?? '' ) );
+		$surface    = sanitize_key( (string) ( $opts['surface'] ?? '' ) );
+
+		$action_raw = strtolower( (string) ( $opts['action'] ?? '' ) );
+		$action     = preg_replace( '/[^a-z0-9._-]/', '', $action_raw );
+
+		$outcome_raw = strtolower( (string) ( $opts['outcome'] ?? '' ) );
+		$outcome     = preg_replace( '/[^a-z0-9._-]/', '', $outcome_raw );
+
+		$plugin_id = sanitize_key( (string) ( $opts['plugin_id'] ?? '' ) );
+
+		$where  = array( 'user_id = %d', 'blog_id = %d' );
+		$params = array( $user_id, $blog_id );
+
+		if ( '' !== $event_type ) {
+			$where[]  = 'event_type = %s';
+			$params[] = $event_type;
+		}
+
+		if ( $before_id > 0 ) {
+			$where[]  = 'id < %d';
+			$params[] = $before_id;
+		}
+
+		if ( '' !== $surface ) {
+			$needle   = '"surface":"' . $surface . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $action ) {
+			$needle   = '"action":"' . $action . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $outcome ) {
+			$needle   = '"outcome":"' . $outcome . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		if ( '' !== $plugin_id ) {
+			$needle   = '"plugin_id":"' . $plugin_id . '"';
+			$where[]  = 'payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( $needle ) . '%';
+		}
+
+		$sql = "SELECT * FROM {$table} WHERE " . implode( ' AND ', $where )
+			 . ' ORDER BY id DESC LIMIT %d';
+		$params[] = $limit;
+
+		$rows = $wpdb->get_results( $wpdb->prepare( $sql, $params ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+
+		foreach ( $rows as &$r ) {
+			$r['id']               = (int) $r['id'];
+			$r['user_id']          = (int) $r['user_id'];
+			$r['blog_id']          = (int) $r['blog_id'];
+			$r['schema_version']   = (int) $r['schema_version'];
+			$r['created_epoch_ms'] = (int) $r['created_epoch_ms'];
+			$r['payload']          = json_decode( (string) $r['payload_json'], true ) ?: array();
+			unset( $r['payload_json'] );
+		}
+
+		return $rows;
+	}
+}

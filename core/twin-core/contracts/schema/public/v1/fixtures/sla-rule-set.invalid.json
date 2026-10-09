@@ -1,0 +1,14 @@
+{
+  "contract": "sla-rule-set",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "id": "bad rule",
+      "anchor": "run_created",
+      "offset": "tomorrow",
+      "target": "not_a_target",
+      "on_miss": [{ "at": "soon", "do": "change_stage(won)" }]
+    }
+  ],
+  "phone": "0901234111"
+}

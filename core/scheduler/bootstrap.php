@@ -1,0 +1,407 @@
+<?php
+/**
+ * BizCity Scheduler Module — Calendar + Reminders + AI Planning
+ *
+ * Independent module: core/scheduler/
+ * DB-based event storage with Google Calendar sync, reminder cron, and React admin SPA.
+ *
+ * Extension points (hooks):
+ *   - bizcity_scheduler_event_created   → Intent/Automation can react to new events
+ *   - bizcity_scheduler_event_updated   → Sync / re-plan triggers
+ *   - bizcity_scheduler_event_deleted   → Cleanup cross-module references
+ *   - bizcity_scheduler_reminder_fire   → Channel Gateway / Webchat push notification
+ *   - bizcity_scheduler_plan_generated  → Twin Core snapshot / dashboard awareness
+ *   - bizcity_scheduler_google_synced   → Market / analytics tracking
+ *   - bizcity_scheduler_context         → Inject events into LLM context (Intent module)
+ *
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Scheduler
+ * @since      2026-04-01
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+/* ── Constants ────────────────────────────────────────────────────── */
+if ( ! defined( 'BIZCITY_SCHEDULER_DIR' ) ) {
+	define( 'BIZCITY_SCHEDULER_DIR', __DIR__ . '/' );
+}
+if ( ! defined( 'BIZCITY_SCHEDULER_VERSION' ) ) {
+	define( 'BIZCITY_SCHEDULER_VERSION', '1.0.0' );
+}
+
+/* ── Includes ─────────────────────────────────────────────────────── */
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-manager.php';
+// [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — multi-platform contact identity class.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-contact-identity.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-rest-api.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-google.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-cron.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-tools.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-automation.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W2 — Adapter Registry + 6 built-in adapters.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/interface-scheduler-event-adapter.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-adapter-registry.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-base.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-fb-post.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-web-post.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-zalo.php';
+// [2026-09-27 Claude Sonnet 5] CORE-REDUCTION WP-12 D-33 — Telegram customer channel retired (one axis).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-reminder-personal.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/adapters/class-scheduler-adapter-automation-workflow.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W4 — Completion Notifier (reply-back unified).
+// [2026-08-16 Johnny Chu] R-SCH-TARGET — load the shared target resolver before Scheduler and progress projections.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-notify-target-resolver.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-completion-notifier.php';
+
+// [2026-10-05 04:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-0 — Run Ledger: the one writer of automation_workflow / automation_run row lifecycles.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-run-ledger.php';
+// [2026-10-05 07:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-B1-3 — report a cell-requested run back to the cell (job_result via the Hub).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-report-back.php';
+// [2026-10-06 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-4 — hand reminder rows to the cell (job_upsert); the cell is their only clock.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-cell-dispatch.php';
+// [2026-10-06 05:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-RT — the trace of one run (⌁ Trace button on the Lịch, doc 61).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-run-trace.php';
+// [2026-10-05 09:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-8 — "Nhịp chạy" numbers (one function, GET bizcity-scheduler/v1/heartbeat).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-heartbeat.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W5 — Inbound Provenance helper (used by
+// channel-router, automation runner, twinbrain tools to build metadata.inbound).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-inbound-provenance.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W10 — Inbound Backfiller (case-based repair
+// service for legacy events missing metadata.inbound{}). Consumed by the
+// `core.scheduler.inbound_backfill` probe + per-case Site Provisioner installers.
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-inbound-backfiller.php';
+
+// [2026-06-15 Johnny Chu] R-UNIFY — Reminder Personal Handler (fires reminder
+// message at start_at via Gateway Sender; suppresses generic done notification).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-reminder-personal-handler.php';
+
+// [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 channel
+// messages → crm_conversations + crm_messages; Zone 2 bails early per R-ZONE).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-crm-inbox-bridge.php';
+
+// [2026-06-03 Johnny Chu] SCH-NC W6 — HIL Router + timeout cron (Human-In-The-Loop
+// confirm flow cho reminder_personal từ TwinBrain master tool).
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-router.php';
+require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-cron.php';
+
+if ( is_admin() ) {
+	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-admin-page.php';
+	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-automation-lab.php';
+}
+
+/* ── Initialize ───────────────────────────────────────────────────── */
+BizCity_Scheduler_Manager::instance();
+BizCity_Scheduler_REST_API::instance();
+BizCity_Scheduler_Google::instance();
+BizCity_Scheduler_Cron::instance();
+BizCity_Scheduler_Automation::instance();
+
+// [2026-06-03 Johnny Chu] SCH-NC W4 — bind completion-notifier listeners.
+BizCity_Scheduler_Completion_Notifier::init();
+// [2026-10-05 07:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-B1-3 — listens on event_completed / _failed for automation_run rows.
+BizCity_Scheduler_Report_Back::init();
+BizCity_Scheduler_Cell_Dispatch::init(); // [2026-10-06 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-4 — wp-cron retry of job_upsert
+BizCity_Scheduler_Heartbeat::init(); // [2026-10-05 09:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-8
+
+// [2026-06-03 Johnny Chu] SCH-NC W6 — HIL listener (priority 5 trên
+// bizcity_channel_message_received) + timeout cron (every minute).
+BizCity_Scheduler_HIL_Router::init();
+BizCity_Scheduler_HIL_Cron::init();
+
+// [2026-06-15 Johnny Chu] R-UNIFY — Reminder Personal Handler.
+BizCity_Reminder_Personal_Handler::init();
+
+// [2026-06-15 Johnny Chu] R-UNIFY GAP-B — CRM Inbox Bridge (Zone 1 only).
+BizCity_CRM_Inbox_Bridge::init();
+
+// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register the canonical
+// Scheduler schema with Site Provisioner so headless Diagnostics can create
+// bizcity_crm_events without relying on admin_init or activation hooks.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	$list = is_array( $list ) ? $list : array();
+	$list[] = array(
+		'id'           => 'scheduler',
+		'label'        => 'Core Scheduler',
+		// [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — ensure_schema() is an
+		// instance method; pass the singleton so Site Provisioner accepts it as callable.
+		'callback'     => array( BizCity_Scheduler_Manager::instance(), 'ensure_schema' ),
+		'version_opt'  => BizCity_Scheduler_Manager::SCHEMA_VERSION_KEY,
+		'expected_ver' => (string) BizCity_Scheduler_Manager::SCHEMA_VERSION,
+	);
+	return $list;
+}, 20, 1 );
+
+if ( is_admin() ) {
+	BizCity_Scheduler_Admin_Page::instance();
+}
+
+// [2026-06-03 Johnny Chu] SCH-NC W2 — register built-in adapters via hook.
+// Registry triggers `bizcity_scheduler_register_adapters` lần đầu được get(),
+// nên các module khác (channel-gateway, automation, twinbrain) có thể subscribe
+// để register adapter của riêng họ.
+add_action( 'bizcity_scheduler_register_adapters', static function () {
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_FB_Post() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Web_Post() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Zalo() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Reminder_Personal() );
+	BizCity_Scheduler_Adapter_Registry::register( new BizCity_Scheduler_Adapter_Automation_Workflow() );
+}, 5 );
+
+/**
+ * Run schema migration on every admin init — cheap (autoloaded option check),
+ * but guarantees v3 migrate (Calendar Unification, M-CRM.M12 v2 phase 2)
+ * lands the moment an admin loads any page after plugin update.
+ */
+add_action( 'admin_init', static function () {
+	BizCity_Scheduler_Manager::instance()->ensure_schema();
+}, 1 );
+
+/* ══════════════════════════════════════════════════════════════
+ *  PUBLIC PAGE — /scheduler/
+ * ══════════════════════════════════════════════════════════════ */
+add_action( 'init', function () {
+	add_rewrite_rule( '^scheduler/?$', 'index.php?bizcity_agent_page=scheduler', 'top' );
+} );
+add_filter( 'query_vars', function ( $vars ) {
+	if ( ! in_array( 'bizcity_agent_page', $vars, true ) ) {
+		$vars[] = 'bizcity_agent_page';
+	}
+	return $vars;
+} );
+add_action( 'template_redirect', function () {
+	if ( get_query_var( 'bizcity_agent_page' ) === 'scheduler' ) {
+		include BIZCITY_SCHEDULER_DIR . 'views/page-scheduler.php';
+		exit;
+	}
+} );
+
+/**
+ * Integration hook: provide scheduler context to LLM prompt.
+ *
+ * Other modules call:
+ *   $context = apply_filters( 'bizcity_scheduler_context', '', $user_id );
+ *
+ * Returns compact text: "Lịch hôm nay: 09:00 Họp team, 14:00 Call khách..."
+ */
+add_filter( 'bizcity_scheduler_context', function ( string $context, int $user_id ): string {
+	return BizCity_Scheduler_Manager::instance()->build_today_context( $user_id );
+}, 10, 2 );
+
+add_action( 'bizcity_intent_register_providers', function ( $registry ) {
+	bizcity_intent_register_plugin( $registry, [
+		'id'   => 'scheduler',
+		'name' => 'BizCity Scheduler - Atomic Calendar Tools',
+		'patterns' => [
+			'/lịch hôm nay|xem agenda hôm nay|agenda hôm nay|hôm nay có lịch gì|hom nay co lich gi/ui' => [
+				'goal'        => 'scheduler_get_today_agenda',
+				'label'       => 'Xem agenda hom nay',
+				'description' => 'Tom tat nhanh lich hom nay cua nguoi dung.',
+				'extract'     => [],
+			],
+			'/xem lịch|xem lich|đọc lịch|doc lich|lịch tuần|lich tuan|lịch ngày mai|calendar|sự kiện|su kien/ui' => [
+				'goal'        => 'scheduler_list_events',
+				'label'       => 'Liet ke su kien lich',
+				'description' => 'Liet ke su kien theo khoang thoi gian va trang thai.',
+				'extract'     => [ 'date_from', 'date_to', 'status', 'max_results' ],
+			],
+			'/tạo lịch|tao lich|tạo sự kiện|tao su kien|thêm lịch|them lich|hẹn lịch|hen lich|đặt lịch|dat lich|book meeting|create event|add event/ui' => [
+				'goal'        => 'scheduler_create_event',
+				'label'       => 'Tao su kien lich',
+				'description' => 'Tao su kien lich noi bo va dong bo Google neu da ket noi.',
+				'extract'     => [ 'title', 'start_at', 'end_at', 'description', 'all_day', 'reminder_min' ],
+			],
+			'/dời lịch|doi lich|đổi lịch|cập nhật lịch|cap nhat lich|reschedule|update event|chuyển lịch|chuyen lich/ui' => [
+				'goal'        => 'scheduler_update_event',
+				'label'       => 'Cap nhat su kien lich',
+				'description' => 'Sua thoi gian, noi dung, reminder hoac trang thai cua su kien.',
+				'extract'     => [ 'event_ref', 'title', 'start_at', 'end_at', 'description', 'all_day', 'reminder_min', 'status' ],
+			],
+			'/hủy lịch|huy lich|hủy sự kiện|huy su kien|cancel event|cancel meeting/ui' => [
+				'goal'        => 'scheduler_cancel_event',
+				'label'       => 'Huy su kien lich',
+				'description' => 'Danh dau mot su kien la cancelled de dung reminder va follow-up.',
+				'extract'     => [ 'event_ref' ],
+			],
+			'/hoàn thành lịch|hoan thanh lich|đánh dấu xong|danh dau xong|mark done|xong cuộc hẹn|xong cuoc hen/ui' => [
+				'goal'        => 'scheduler_mark_done',
+				'label'       => 'Danh dau su kien da xong',
+				'description' => 'Danh dau su kien da hoan thanh.',
+				'extract'     => [ 'event_ref' ],
+			],
+			'/xóa lịch|xoa lich|xóa sự kiện|xoa su kien|delete event|remove event/ui' => [
+				'goal'        => 'scheduler_delete_event',
+				'label'       => 'Xoa su kien lich',
+				'description' => 'Xoa han mot su kien khoi local scheduler va Google neu co.',
+				'extract'     => [ 'event_ref' ],
+			],
+			'/khoảng trống|khoang trong|free slot|slot trống|slot trong|rảnh lúc nào|ranh luc nao/ui' => [
+				'goal'        => 'scheduler_find_free_slots',
+				'label'       => 'Tim khung gio trong',
+				'description' => 'Tim cac khoang thoi gian con trong de chen lich moi.',
+				'extract'     => [ 'date', 'duration_min', 'day_start', 'day_end', 'max_results' ],
+			],
+			'/đồng bộ lịch google|dong bo lich google|sync google calendar|đồng bộ google calendar/ui' => [
+				'goal'        => 'scheduler_sync_google',
+				'label'       => 'Dong bo Google Calendar',
+				'description' => 'Keo su kien tu Google Calendar ve local scheduler.',
+				'extract'     => [],
+			],
+		],
+		'plans' => [
+			'scheduler_get_today_agenda' => [
+				'required_slots' => [],
+				'optional_slots' => [],
+				'tool'           => 'scheduler_get_today_agenda',
+				'ai_compose'     => false,
+				'slot_order'     => [],
+			],
+			'scheduler_list_events' => [
+				'required_slots' => [],
+				'optional_slots' => [
+					'date_from'   => [ 'type' => 'text', 'default' => '' ],
+					'date_to'     => [ 'type' => 'text', 'default' => '' ],
+					'status'      => [ 'type' => 'choice', 'default' => 'all' ],
+					'max_results' => [ 'type' => 'number', 'default' => 20 ],
+				],
+				'tool'       => 'scheduler_list_events',
+				'ai_compose' => false,
+				'slot_order' => [ 'date_from', 'date_to', 'status', 'max_results' ],
+			],
+			'scheduler_create_event' => [
+				'required_slots' => [
+					'title'    => [ 'type' => 'text', 'prompt' => 'Ten su kien la gi?' ],
+					'start_at' => [ 'type' => 'text', 'prompt' => 'Bat dau luc nao? Vi du 2026-04-04 09:00' ],
+				],
+				'optional_slots' => [
+					'end_at'       => [ 'type' => 'text', 'default' => '' ],
+					'description'  => [ 'type' => 'text', 'default' => '' ],
+					'all_day'      => [ 'type' => 'choice', 'default' => '0' ],
+					'reminder_min' => [ 'type' => 'number', 'default' => 15 ],
+				],
+				'tool'       => 'scheduler_create_event',
+				'ai_compose' => false,
+				'slot_order' => [ 'title', 'start_at', 'end_at', 'all_day', 'reminder_min', 'description' ],
+			],
+			'scheduler_update_event' => [
+				'required_slots' => [
+					'event_ref' => [ 'type' => 'text', 'prompt' => 'Ban muon sua su kien nao? Nhap ID hoac ten su kien.' ],
+				],
+				'optional_slots' => [
+					'title'        => [ 'type' => 'text', 'default' => '' ],
+					'start_at'     => [ 'type' => 'text', 'default' => '' ],
+					'end_at'       => [ 'type' => 'text', 'default' => '' ],
+					'description'  => [ 'type' => 'text', 'default' => '' ],
+					'all_day'      => [ 'type' => 'choice', 'default' => '' ],
+					'reminder_min' => [ 'type' => 'number', 'default' => '' ],
+					'status'       => [ 'type' => 'choice', 'default' => '' ],
+				],
+				'tool'       => 'scheduler_update_event',
+				'ai_compose' => false,
+				'slot_order' => [ 'event_ref', 'start_at', 'end_at', 'title', 'reminder_min', 'status', 'description' ],
+			],
+			'scheduler_cancel_event' => [
+				'required_slots' => [
+					'event_ref' => [ 'type' => 'text', 'prompt' => 'Su kien nao can huy?' ],
+				],
+				'optional_slots' => [],
+				'tool'       => 'scheduler_cancel_event',
+				'ai_compose' => false,
+				'slot_order' => [ 'event_ref' ],
+			],
+			'scheduler_mark_done' => [
+				'required_slots' => [
+					'event_ref' => [ 'type' => 'text', 'prompt' => 'Su kien nao da hoan thanh?' ],
+				],
+				'optional_slots' => [],
+				'tool'       => 'scheduler_mark_done',
+				'ai_compose' => false,
+				'slot_order' => [ 'event_ref' ],
+			],
+			'scheduler_delete_event' => [
+				'required_slots' => [
+					'event_ref' => [ 'type' => 'text', 'prompt' => 'Su kien nao can xoa han?' ],
+				],
+				'optional_slots' => [],
+				'tool'       => 'scheduler_delete_event',
+				'ai_compose' => false,
+				'slot_order' => [ 'event_ref' ],
+			],
+			'scheduler_find_free_slots' => [
+				'required_slots' => [],
+				'optional_slots' => [
+					'date'         => [ 'type' => 'text', 'default' => '' ],
+					'duration_min' => [ 'type' => 'number', 'default' => 60 ],
+					'day_start'    => [ 'type' => 'text', 'default' => '08:00' ],
+					'day_end'      => [ 'type' => 'text', 'default' => '18:00' ],
+					'max_results'  => [ 'type' => 'number', 'default' => 5 ],
+				],
+				'tool'       => 'scheduler_find_free_slots',
+				'ai_compose' => false,
+				'slot_order' => [ 'date', 'duration_min', 'day_start', 'day_end', 'max_results' ],
+			],
+			'scheduler_sync_google' => [
+				'required_slots' => [],
+				'optional_slots' => [],
+				'tool'       => 'scheduler_sync_google',
+				'ai_compose' => false,
+				'slot_order' => [],
+			],
+		],
+		'tools' => BizCity_Scheduler_Tools::get_provider_tools(),
+		'examples' => BizCity_Scheduler_Tools::get_examples(),
+		'context' => function ( $goal, $slots, $user_id, $conversation ) {
+			$agenda = '';
+			if ( $user_id > 0 ) {
+				$agenda = BizCity_Scheduler_Manager::instance()->build_today_context( (int) $user_id );
+			}
+
+			return "Provider: scheduler\n"
+				. "Role: high-priority atomic calendar tools for planner composition\n"
+				. "Policy: use the smallest scheduler_* tool that can satisfy the request; do not jump to macro workflows unless the case repeats often and remains transparent.\n"
+				. ( $agenda ? $agenda . "\n" : '' )
+				. 'Goal: ' . $goal . "\n";
+		},
+		'instructions' => function ( $goal ) {
+			return 'Voi cac yeu cau lich, uu tien tool atomic scheduler_* co I/O ro rang. Neu can workflow lon, phai giai thich duoc no gom nhung atomic tool nao va output trung gian la gi.';
+		},
+	] );
+} );
+// [2026-06-03 Johnny Chu] SCH-NC W10 — register one Site_Provisioner installer
+// per backfill case + an aggregate "all" id. Each callback maps the URL param
+// `bizcity_run_installer=scheduler_backfill_inbound__<case>` to
+// `BizCity_Scheduler_Inbound_Backfiller::apply($case)`. Idempotent.
+add_filter( 'bizcity_register_installers', static function ( $list ) {
+	if ( ! class_exists( 'BizCity_Scheduler_Inbound_Backfiller' ) ) {
+		return $list;
+	}
+	// [2026-06-04 Johnny Chu] SCH-BC W4 — register invalidation listeners once.
+	BizCity_Scheduler_Inbound_Backfiller::init();
+
+	$cases = BizCity_Scheduler_Inbound_Backfiller::cases();
+	foreach ( $cases as $cid => $meta ) {
+		$cid_local = $cid; // closure capture by value.
+		// [2026-06-04 Johnny Chu] SCH-BC W3 — version_opt gate per-case.
+		$opt_local = BizCity_Scheduler_Inbound_Backfiller::DONE_OPT_PREFIX . $cid_local;
+		$list[] = array(
+			'id'           => 'scheduler_backfill_inbound__' . $cid_local,
+			'label'        => 'Scheduler · Backfill inbound — ' . $meta['label'],
+			'version_opt'  => $opt_local,
+			'expected_ver' => '1',
+			'callback'     => static function () use ( $cid_local ) {
+				BizCity_Scheduler_Inbound_Backfiller::apply( $cid_local );
+			},
+		);
+	}
+	$list[] = array(
+		'id'       => 'scheduler_backfill_inbound__all',
+		'label'    => 'Scheduler · Backfill inbound — ALL cases',
+		'callback' => static function () {
+			BizCity_Scheduler_Inbound_Backfiller::apply_all();
+		},
+	);
+	return $list;
+}, 20, 1 );

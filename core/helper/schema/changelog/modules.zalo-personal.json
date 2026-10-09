@@ -1,0 +1,103 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "modules.zalo-personal",
+  "owner": "modules/zalo-personal",
+  "installer_id": "zalo_personal",
+  "description": "Zalo Personal + OA Channel Gateway — mapping & account tables (PHASE-0.39)",
+  "current_version": "1.1.4",
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-06-07",
+      "change": "Initial schema: bizcity_zalo_accounts, bizcity_zalo_message_map, bizcity_zalo_oa_window"
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-08-21",
+      "change": "Add owner_user_id and owner index to bind Personal account ownership to the current WordPress user"
+    },
+    {
+      "version": "1.1.1",
+      "date": "2026-08-21",
+      "change": "Repair schema drift by re-running idempotent owner-binding dbDelta before REST account writes"
+    },
+    {
+      "version": "1.1.2",
+      "date": "2026-08-21",
+      "change": "Mirror canonical owner_user_id into required legacy user_id during account upsert for existing tenant tables"
+    },
+    {
+      "version": "1.1.3",
+      "date": "2026-08-21",
+      "change": "Mirror CRM label into required legacy account_name during account upsert for existing tenant tables"
+    },
+    {
+      "version": "1.1.4",
+      "date": "2026-08-22",
+      "change": "Backfill owner_user_id from legacy user_id and account_name from label for existing tenant rows"
+    }
+  ],
+  "tables": {
+    "bizcity_zalo_accounts": {
+      "since": "1.0.0",
+      "description": "Zalo account registry (personal QR-login or OA OAuth) — links bridge sidecar account to CRM inbox",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "kind":               { "type": "VARCHAR(16) NOT NULL DEFAULT 'personal'",  "since": "1.0.0", "note": "personal|oa" },
+        "user_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.1.2", "note": "Legacy owner mirror required by existing tenant tables; equals owner_user_id when bound" },
+        "owner_user_id":      { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",       "since": "1.1.0", "note": "WordPress user who owns the Personal/OA bridge account" },
+        "account_name":       { "type": "VARCHAR(255) NOT NULL DEFAULT ''",      "since": "1.1.3", "note": "Legacy account display name mirror; equals label" },
+        "label":              { "type": "VARCHAR(190) NOT NULL DEFAULT ''",          "since": "1.0.0" },
+        "bridge_account_id":  { "type": "VARCHAR(64) NOT NULL DEFAULT ''",           "since": "1.0.0", "note": "account id on sidecar" },
+        "zalo_uid":           { "type": "VARCHAR(64) NULL DEFAULT NULL",             "since": "1.0.0", "note": "personal: zalo user id after login" },
+        "zalo_oa_id":         { "type": "VARCHAR(64) NULL DEFAULT NULL",             "since": "1.0.0", "note": "oa: zalo official account id" },
+        "crm_inbox_id":       { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",         "since": "1.0.0", "note": "FK bizcity_crm_inboxes.id (lazy-set on first inbound)" },
+        "status":             { "type": "VARCHAR(16) NOT NULL DEFAULT 'pending_qr'", "since": "1.0.0", "note": "pending_qr|connected|expired|logged_out" },
+        "created_at":         { "type": "DATETIME NOT NULL",                         "since": "1.0.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL",                         "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":             { "cols": ["id"],                      "since": "1.0.0" },
+        "uniq_kind_bridge_id": { "cols": ["kind", "bridge_account_id"], "unique": true, "since": "1.0.0" },
+        "idx_status":          { "cols": ["status"],                  "since": "1.0.0" },
+        "idx_owner":           { "cols": ["owner_user_id", "kind", "status"], "since": "1.1.0" }
+      }
+    },
+    "bizcity_zalo_message_map": {
+      "since": "1.0.0",
+      "description": "Idempotency mapping between Zalo message IDs and CRM message IDs, plus quote source for reply threading",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "account_id":     { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id" },
+        "zalo_msg_id":    { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo message ID" },
+        "zalo_thread_id": { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.0.0", "note": "Zalo user/group/oa-user thread ID" },
+        "thread_kind":    { "type": "VARCHAR(12) NOT NULL DEFAULT 'user'",     "since": "1.0.0", "note": "user|group|oa-user" },
+        "crm_message_id": { "type": "BIGINT UNSIGNED NULL DEFAULT NULL",       "since": "1.0.0", "note": "FK bizcity_crm_messages.id" },
+        "direction":      { "type": "VARCHAR(4) NOT NULL DEFAULT 'in'",        "since": "1.0.0", "note": "in|out" },
+        "quote_src_json": { "type": "LONGTEXT NULL DEFAULT NULL",              "since": "1.0.0", "note": "QuoteSource JSON for reply reconstruction" },
+        "created_at":     { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":            { "cols": ["id"],                        "since": "1.0.0" },
+        "uniq_account_msg":   { "cols": ["account_id", "zalo_msg_id"], "unique": true, "since": "1.0.0" },
+        "idx_crm_message":    { "cols": ["crm_message_id"],           "since": "1.0.0" }
+      }
+    },
+    "bizcity_zalo_oa_window": {
+      "since": "1.0.0",
+      "description": "OA CSKH 7-day reply window tracking — Zalo code -230 prevention",
+      "columns": {
+        "id":              { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.0.0", "pk": true },
+        "account_id":      { "type": "BIGINT UNSIGNED NOT NULL",                "since": "1.0.0", "note": "FK bizcity_zalo_accounts.id (oa kind)" },
+        "zalo_uid":        { "type": "VARCHAR(64) NOT NULL DEFAULT ''",         "since": "1.0.0", "note": "OA follower uid" },
+        "last_inbound_at": { "type": "DATETIME NULL DEFAULT NULL",              "since": "1.0.0", "note": "reset 7-day window on each inbound" },
+        "cs_sent_count":   { "type": "INT UNSIGNED NOT NULL DEFAULT 0",         "since": "1.0.0", "note": "replies sent within current window" },
+        "created_at":      { "type": "DATETIME NOT NULL",                       "since": "1.0.0" }
+      },
+      "indexes": {
+        "PRIMARY":           { "cols": ["id"],                       "since": "1.0.0" },
+        "uniq_account_uid":  { "cols": ["account_id", "zalo_uid"],  "unique": true, "since": "1.0.0" }
+      }
+    }
+  }
+}

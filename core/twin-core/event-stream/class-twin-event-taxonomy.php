@@ -1,0 +1,341 @@
+<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Twin_Core
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
+ * BizCity_Twin_Event_Taxonomy — 15 canonical event types for Twin Event Stream.
+ *
+ * Phase 0.12 — Single source of truth for what may be emitted into
+ * `bizcity_twin_event_stream`. Adding a new type requires:
+ *   1. Update PHASE-0.12-TWIN-EVENT-STREAM-UNIFICATION.md §3
+ *   2. Add JSON schema at core/twin-core/event-stream/schemas/events/{type}.json
+ *   3. Bump TAXONOMY_VERSION
+ *   4. RFC ≥ 1 day on team channel (per PHASE-0-RULE-EVENT-STREAM R-EVT-2)
+ *
+ * VISUALIZATION CONTRACT (Phase 0.12 Wave B+ — TwinChat Thinking Timeline):
+ * Every event emitted is rendered LIVE in the TwinChat ThinkingTimeline UI
+ * (ported from Nexus modules/twinchat/nexus-src). To support the timeline
+ * the following OPTIONAL payload fields are RECOGNIZED (not required):
+ *
+ *   • assistant_streaming_chunk.chunk_kind  ∈ 'reasoning' | 'content'
+ *       (default 'content'). Reasoning chunks render in the inline
+ *       "Thinking…" preview under the analyzing step; content chunks
+ *       flow into the assistant message bubble.
+ *
+ *   • retrieval.results[].short_code  4-char lowercase slug (e.g. "obrv",
+ *       "fl1n") for source chips on the sources_found timeline node.
+ *   • retrieval.counts.{sources,images}  for "Found N sources + M images".
+ *   • retrieval.phase  ∈ 'start' | 'complete'  (allows projector to map
+ *       to AgentStep "retrieving" → "sources_found" transition).
+ *
+ *   • turn_start.mode    ∈ 'twinchat' | 'webchat' | 'notebook' | …
+ *   • turn_complete.success  bool; turn_complete.duration_ms  int.
+ *
+ * Adding more visualization fields = NOT a taxonomy change (no version bump),
+ * but MUST be documented here so FE adapter stays in sync.
+ *
+ * @since 2026-04-29
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+class BizCity_Twin_Event_Taxonomy {
+
+	// Bumped 2026-04-30 (Sprint 5.0+ housekeeping) — added memory_mutation (memory_logs cleanup, R-EVT-1 enforcement).
+	// Bumped 2026-05-10 (Phase 0.36 TBR.1) — added brain_perspective_selected, brain_perspective_answer, brain_tool_intent, system_diagnostic.
+	// Bumped 2026-05-13 (Phase 0.36 TBR.5) — added brain_synthesize (Stage 4 telemetry).
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — added 5 brain_session_* event_types (created/renamed/archived/mood_sampled/carry_forward).
+	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 3 workflow_* event_types (started/step/completed) for BizCity_TwinBrain_Workflow_Pipeline.
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — added 5 product_* timeline event_types.
+	// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — added event-sourced Twin Goal Loop lifecycle.
+	// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — added event-sourced HIL Instance lifecycle (twin_hil_*).
+	// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — added canonical deterministic Notebook fallback notice event.
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — register memory_recall so Layer 0.5 audit emit stops throwing.
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — register the Context Bank phase boundary pair.
+	const TAXONOMY_VERSION = 14;
+
+	// ---- 15 canonical event types (Phase 0.12) --------------------------
+	const USER_MESSAGE              = 'user_message';
+	const ASSISTANT_MESSAGE         = 'assistant_message';
+	const ASSISTANT_STREAMING_CHUNK = 'assistant_streaming_chunk';
+	const TOOL_CALL                 = 'tool_call';
+	const TOOL_RESULT               = 'tool_result';
+	const LLM_REQUEST               = 'llm_request';
+	const LLM_RESPONSE              = 'llm_response';
+	const LLM_ERROR                 = 'llm_error';
+	const CLASSIFICATION            = 'classification';
+	const RETRIEVAL                 = 'retrieval';
+	const DECISION                  = 'decision';
+	const TURN_START                = 'turn_start';
+	const TURN_COMPLETE             = 'turn_complete';
+	const FOCUS_CHANGE              = 'focus_change';
+	const MILESTONE                 = 'milestone';
+
+	// ---- Sprint 5.0b — NotebookLM parity events --------------------------
+	// All optional payload fields documented at
+	// modules/twinchat/PHASE-0.5-SPRINT-5-NOTEBOOKLM-PARITY.md §2.0b.
+	const SUGGESTION_EMITTED  = 'suggestion_emitted';   // server proposes follow-up chips
+	const SUGGESTION_CLICKED  = 'suggestion_clicked';   // user click audit trail (FE → dispatch)
+	const WELCOME_JOB         = 'welcome_job';          // status field: started|completed|failed
+	const RESEARCH_JOB        = 'research_job';         // status field: started|tavily_returned|imported|failed
+	const NOTE_PINNED         = 'note_pinned';          // user pins assistant message as note
+
+	// ---- Sprint 5.0+ housekeeping — fragmented log unification ------------
+	// Replaces direct writes to bizcity_memory_logs (audit trail). The legacy
+	// table remains, but is now materialized by BizCity_Memory_Log_Projector
+	// from this single event type so the backbone stays the only write path.
+	const MEMORY_MUTATION     = 'memory_mutation';      // operation ∈ created|updated|section_patched|archived|restored|finalized|deleted
+
+	// ---- Phase 0.36 — TwinBrain (Não tổng) -------------------------------
+	// All payload contracts in core/twinbrain/includes/event-schemas/*.json.
+	const BRAIN_PERSPECTIVE_SELECTED = 'brain_perspective_selected';
+	const BRAIN_PERSPECTIVE_ANSWER   = 'brain_perspective_answer';
+	const BRAIN_TOOL_INTENT          = 'brain_tool_intent';
+	const BRAIN_SYNTHESIZE           = 'brain_synthesize';
+	const SYSTEM_DIAGNOSTIC          = 'system_diagnostic';
+
+	// ---- Phase BRAIN-SESSIONS BS-1 (2026-06-03) — Conversation threads ---
+	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — session lifecycle + empathic.
+	// Spec: core/twinbrain/docs/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §6.
+	// Schemas: core/twinbrain/includes/event-schemas/brain_session_*.json.
+	const BRAIN_SESSION_CREATED       = 'brain_session_created';
+	const BRAIN_SESSION_RENAMED       = 'brain_session_renamed';
+	const BRAIN_SESSION_ARCHIVED      = 'brain_session_archived';
+	const BRAIN_SESSION_MOOD_SAMPLED  = 'brain_session_mood_sampled';
+	const BRAIN_SESSION_CARRY_FORWARD = 'brain_session_carry_forward';
+
+	// ---- PHASE-TWB-WORKFLOW W1 (2026-06-19) — Workflow-Driven Brain Pipeline ---
+	// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — 3 SSE event types emitted by
+	// BizCity_TwinBrain_Workflow_Pipeline when user selects a /skill in twinchat or twinweb.
+	// Schemas: core/twin-core/event-stream/schemas/events/workflow_*.json.
+	const WORKFLOW_STARTED   = 'workflow_started';
+	const WORKFLOW_STEP      = 'workflow_step';
+	const WORKFLOW_COMPLETED = 'workflow_completed';
+
+	// ---- PHASE-TWB-PRODUCTS (2026-07-15) — Products vertical timeline ---
+	// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — optional product-specific
+	// timeline evidence while preserving legacy web_* SSE events.
+	// Schemas: core/twin-core/event-stream/schemas/events/product_*.json.
+	const PRODUCT_RESEARCH_STARTED = 'product_research_started';
+	const PRODUCT_INTENT_DETECTED  = 'product_intent_detected';
+	const PRODUCT_NEEDS_DECOMPOSED = 'product_needs_decomposed';
+	const PRODUCT_REACT_STEP       = 'product_react_step';
+	const PRODUCT_SYNTHESIZE_DONE  = 'product_synthesize_done';
+
+	// ---- PHASE-TWB-WOO-BIZOPS (2026-08-11) — admin commerce telemetry ---
+	const WOO_BIZOPS_DOMAIN_GATE      = 'woo_bizops_domain_gate';
+	const WOO_BIZOPS_INTENT_DETECTED  = 'woo_bizops_intent_detected';
+	const WOO_BIZOPS_QUERY_EXECUTED   = 'woo_bizops_query_executed';
+	const WOO_BIZOPS_COMPOSED         = 'woo_bizops_composed';
+
+	// ---- PHASE-TWIN-GOAL-LOOP G0 — goal responsibility lifecycle -------
+	const TWIN_GOAL_OPENED     = 'twin_goal_opened';
+	const TWIN_GOAL_PROGRESSED = 'twin_goal_progressed';
+	const TWIN_GOAL_CLOSED     = 'twin_goal_closed';
+	const CONVERSATION_ROUTE_DECIDED = 'conversation_route_decided';
+	const CONVERSATION_CONFIRM_PROMPT = 'conversation_confirm_prompt';
+	const EVIDENCE_FALLBACK_NOTICE = 'evidence_fallback_notice';
+
+	// ---- Wave 2.8 TBR.MEM (Layer 0.5) — memory recall audit -----------
+	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — this constant was
+	// previously declared only in the retired orphan file
+	// `core/twin-core/includes/class-twin-event-taxonomy_deleted.php`, which no
+	// bootstrap loads. `BizCity_TwinBrain_Runtime` therefore threw
+	// `Undefined class constant 'MEMORY_RECALL'` on every turn, the audit event
+	// never reached the Event Stream, and the timeline could not attribute the
+	// Layer 0.5 step. Schema: event-stream/schemas/events/memory_recall.json.
+	// CANONICAL OWNER: this file. Never revive the `_deleted` copy.
+	const MEMORY_RECALL = 'memory_recall';
+
+	// ---- PHASE-1.33D (2026-09-16) — Context Bank phase boundary -----------
+	// Contract: CONTEXT-BANK-ASYNC-TIMELINE-CONTRACT-v1 §3. The pair travels on
+	// the existing twin_event channel only; no Context Bank SSE channel exists.
+	// Schemas: event-stream/schemas/events/context_bank_{started,done}.json.
+	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — the taxonomy is
+	// the gate: a type must be declared here BEFORE any dispatch, otherwise the
+	// emit throws and the event is lost silently (the exact memory_recall defect).
+	const CONTEXT_BANK_STARTED = 'context_bank_started';
+	const CONTEXT_BANK_DONE    = 'context_bank_done';
+
+	// ---- MPR-V5-HIL-RUNTIME (2026-08-16) — bounded slot-collection instance lifecycle -------
+	// Schemas: core/twin-core/event-stream/schemas/events/twin_hil_*.json.
+	const TWIN_HIL_OPENED     = 'twin_hil_opened';
+	const TWIN_HIL_PROGRESSED = 'twin_hil_progressed';
+	const TWIN_HIL_CLOSED     = 'twin_hil_closed';
+
+	/**
+	 * Required payload fields per event type.
+	 * (Keep tight — extra fields go in payload freely.)
+	 *
+	 * @return array<string, string[]>
+	 */
+	public static function required_fields(): array {
+		return [
+			self::USER_MESSAGE              => [ 'content' ],
+			self::ASSISTANT_MESSAGE         => [ 'content' ],
+			self::ASSISTANT_STREAMING_CHUNK => [ 'delta' ],
+			self::TOOL_CALL                 => [ 'tool_name', 'call_id' ],
+			self::TOOL_RESULT               => [ 'call_id', 'status' ],
+			self::LLM_REQUEST               => [ 'model' ],
+			self::LLM_RESPONSE              => [ 'model_used' ],
+			self::LLM_ERROR                 => [ 'error_msg' ],
+			self::CLASSIFICATION            => [ 'intent' ],
+			self::RETRIEVAL                 => [ 'scope', 'query' ],
+			self::DECISION                  => [ 'stage' ],
+			self::TURN_START                => [ 'mode' ],
+			self::TURN_COMPLETE             => [ 'success' ],
+			self::FOCUS_CHANGE              => [ 'new_focus' ],
+			self::MILESTONE                 => [ 'milestone_type' ],
+
+			// Sprint 5.0b — NotebookLM parity
+			self::SUGGESTION_EMITTED        => [ 'message_id', 'items' ],
+			self::SUGGESTION_CLICKED        => [ 'message_id', 'text' ],
+			self::WELCOME_JOB               => [ 'job_id', 'status' ],
+			self::RESEARCH_JOB              => [ 'job_id', 'status' ],
+			self::NOTE_PINNED               => [ 'note_id', 'message_id' ],
+
+			// Sprint 5.0+ housekeeping
+			self::MEMORY_MUTATION           => [ 'memory_id', 'operation' ],
+
+			// Phase 0.36 — TwinBrain (Não tổng)
+			self::BRAIN_PERSPECTIVE_SELECTED => [ 'k', 'candidates' ],
+			self::BRAIN_PERSPECTIVE_ANSWER   => [ 'notebook_id', 'stance', 'confidence', 'answer_md' ],
+			self::BRAIN_TOOL_INTENT          => [ 'k', 'candidates', 'threshold' ],
+			self::BRAIN_SYNTHESIZE           => [ 'trace_id', 'ms' ],
+			self::SYSTEM_DIAGNOSTIC          => [ 'level', 'tag' ],
+
+			// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — session lifecycle.
+			// session_id field of envelope (opts/build_envelope) carries the
+			// brain_sess_* identifier; payload below is human-readable detail.
+			self::BRAIN_SESSION_CREATED       => [ 'session_id' ],
+			self::BRAIN_SESSION_RENAMED       => [ 'session_id', 'new_title' ],
+			self::BRAIN_SESSION_ARCHIVED      => [ 'session_id' ],
+			self::BRAIN_SESSION_MOOD_SAMPLED  => [ 'session_id', 'turn_index', 'valence' ],
+			self::BRAIN_SESSION_CARRY_FORWARD => [ 'session_id' ],
+
+			// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — workflow pipeline events.
+			// workflow_started: pipeline begins; node_count enables skeleton timeline on FE.
+			// workflow_step:    1 row update per node; status ∈ running|done|error|skipped|timeout.
+			// workflow_completed: final summary including artifacts_count, total_ms, tokens.
+			self::WORKFLOW_STARTED   => [ 'trace_id', 'skill_slug', 'node_count', 'label' ],
+			self::WORKFLOW_STEP      => [ 'trace_id', 'skill_slug', 'node_id', 'node_kind', 'label', 'status', 'idx', 'total' ],
+			self::WORKFLOW_COMPLETED => [ 'trace_id', 'skill_slug', 'artifacts_count', 'total_ms' ],
+
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS — products vertical timeline.
+			self::PRODUCT_RESEARCH_STARTED => [ 'trace_id', 'query', 'intent' ],
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS V2-1 — intent step must expose explicit detected_products list.
+			// [2026-07-15 Johnny Chu] PHASE-TWB-PRODUCTS V2-1 - taxonomy gate enforces detected_products presence.
+			self::PRODUCT_INTENT_DETECTED  => [ 'trace_id', 'intent', 'keywords', 'detected_products' ],
+			self::PRODUCT_NEEDS_DECOMPOSED => [ 'trace_id', 'count', 'items' ],
+			self::PRODUCT_REACT_STEP       => [ 'trace_id', 'iter', 'action', 'action_input', 'observation_summary' ],
+			self::PRODUCT_SYNTHESIZE_DONE  => [ 'trace_id', 'matched_count', 'gap_count', 'ms' ],
+
+			// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — keep admin commerce timeline payloads compact and PII-free.
+			self::WOO_BIZOPS_DOMAIN_GATE     => [ 'trace_id', 'allowed' ],
+			self::WOO_BIZOPS_INTENT_DETECTED => [ 'trace_id', 'intent_group' ],
+			self::WOO_BIZOPS_QUERY_EXECUTED  => [ 'trace_id', 'intent_group', 'date_from', 'date_to' ],
+			self::WOO_BIZOPS_COMPOSED        => [ 'trace_id', 'intent_group', 'citation_count' ],
+
+			// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G0 — each event carries a normalized state snapshot.
+			self::TWIN_GOAL_OPENED     => [ 'goal_id', 'session_id', 'primary_goal', 'status', 'completion_score', 'state' ],
+			self::TWIN_GOAL_PROGRESSED => [ 'goal_id', 'session_id', 'status', 'completion_score', 'state' ],
+			self::TWIN_GOAL_CLOSED     => [ 'goal_id', 'session_id', 'status', 'completion_score', 'closure_signal', 'state' ],
+			self::CONVERSATION_ROUTE_DECIDED => [ 'trace_id', 'route', 'confidence', 'needs_confirm' ],
+			self::CONVERSATION_CONFIRM_PROMPT => [ 'trace_id', 'route', 'expires_in' ],
+			self::EVIDENCE_FALLBACK_NOTICE => [ 'trace_id', 'trigger', 'reason', 'notice' ],
+
+			// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — Layer 0.5 recall audit payload contract.
+			self::MEMORY_RECALL => [ 'trace_id', 'surface', 'counts', 'citations', 'block_len', 'latency_ms' ],
+
+			// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — Context Bank phase boundary.
+			// Never carry query text, prompt, ledger row, owner body, file path,
+			// byte offset, row/content hash, account key, bearer token or provider ID.
+			self::CONTEXT_BANK_STARTED => [ 'trace_id', 'event_uuid', 'phase', 'started_epoch_ms', 'mode' ],
+			self::CONTEXT_BANK_DONE    => [ 'trace_id', 'event_uuid', 'phase', 'started_epoch_ms', 'completed_epoch_ms', 'duration_ms', 'status', 'reason_bucket', 'mode', 'contract_count', 'source_ref_count', 'pointer_follows' ],
+
+			// [2026-08-16 Johnny Chu] MPR-V5-HIL-RUNTIME — each event carries a normalized HIL Instance snapshot.
+			self::TWIN_HIL_OPENED     => [ 'hil_id', 'spec_id', 'trigger_id', 'session_id', 'status', 'state' ],
+			self::TWIN_HIL_PROGRESSED => [ 'hil_id', 'session_id', 'status', 'state' ],
+			self::TWIN_HIL_CLOSED     => [ 'hil_id', 'session_id', 'status', 'closure_reason', 'state' ],
+		];
+	}
+
+	/**
+	 * Allowed event_source values.
+	 *
+	 * @return string[]
+	 */
+	public static function allowed_sources(): array {
+		// [2026-06-19 Johnny Chu] PHASE-TWB-WORKFLOW W1 — added 'twinbrain' source for workflow pipeline events.
+		return [ 'twinchat', 'webchat', 'server', 'kg', 'tool', 'memory', 'notebook', 'system', 'twinbrain' ];
+	}
+
+	/**
+	 * @return string[] All canonical event_type values.
+	 */
+	public static function all(): array {
+		return array_keys( self::required_fields() );
+	}
+
+	/**
+	 * Throws BizCity_Event_Validation_Exception if event_type ∉ taxonomy.
+	 */
+	public static function assert_valid_type( string $event_type ): void {
+		if ( ! in_array( $event_type, self::all(), true ) ) {
+			throw new BizCity_Event_Validation_Exception(
+				"Unknown event_type '{$event_type}'. Allowed: " . implode( ', ', self::all() )
+			);
+		}
+	}
+
+	/**
+	 * Throws BizCity_Event_Validation_Exception if event_source not allowed.
+	 */
+	public static function assert_valid_source( string $event_source ): void {
+		if ( ! in_array( $event_source, self::allowed_sources(), true ) ) {
+			throw new BizCity_Event_Validation_Exception(
+				"Unknown event_source '{$event_source}'. Allowed: " . implode( ', ', self::allowed_sources() )
+			);
+		}
+	}
+
+	/**
+	 * Validate payload has required fields for the given event_type.
+	 *
+	 * @return string[] Missing field names. Empty = valid.
+	 */
+	public static function validate_payload( string $event_type, array $payload ): array {
+		$req = self::required_fields()[ $event_type ] ?? [];
+		$missing = [];
+		foreach ( $req as $field ) {
+			if ( ! array_key_exists( $field, $payload ) ) {
+				$missing[] = $field;
+			}
+		}
+		return $missing;
+	}
+
+	/**
+	 * Throws if payload missing any required field.
+	 */
+	public static function assert_payload_valid( string $event_type, array $payload ): void {
+		$missing = self::validate_payload( $event_type, $payload );
+		if ( ! empty( $missing ) ) {
+			throw new BizCity_Event_Validation_Exception(
+				"Event '{$event_type}' missing required payload fields: " . implode( ', ', $missing )
+			);
+		}
+	}
+}
+
+/**
+ * Exception thrown when an event fails validation at boundary.
+ * Per R-EVT-7 — fail loud, no silent drop.
+ */
+class BizCity_Event_Validation_Exception extends \RuntimeException {}

@@ -1,0 +1,430 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.channel-gateway",
+  "owner": "core/channel-gateway",
+  "installer_id": "blog_resolver_inbox",
+  "current_version": "1.9.0",
+  "version_option": "bizcity_blog_resolver_inbox_db_version",
+  "tables": {
+    "global_inbox_admin": {
+      "since": "1.0.0",
+      "purpose": "Outbound + inbound message log from all channels (Zalo, Facebook, WebChat, Telegram). One row per message dispatched or received via Gateway Sender.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT AUTO_INCREMENT",    "since": "1.0.0", "pk": true },
+        "client_id":      { "type": "VARCHAR(32)",              "since": "1.0.0" },
+        "client_name":    { "type": "VARCHAR(255)",             "since": "1.0.0" },
+        "platform_type":  { "type": "VARCHAR(20)",              "since": "1.0.0" },
+        "page_id":        { "type": "VARCHAR(40)",              "since": "1.0.0" },
+        "message_id":     { "type": "VARCHAR(64)",              "since": "1.0.0" },
+        "message_text":   { "type": "TEXT",                     "since": "1.0.0" },
+        "message_type":   { "type": "VARCHAR(10)",              "since": "1.0.0" },
+        "created_at":     { "type": "DATETIME",                 "since": "1.0.0" },
+        "blog_id":        { "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "flow_id":        { "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "reminded_at":    { "type": "DATETIME NULL DEFAULT NULL", "since": "1.0.0" },
+        "reminder_msg_id":{ "type": "INT DEFAULT 0",            "since": "1.0.0" },
+        "meta":           { "type": "LONGTEXT",                 "since": "1.0.0" }
+      },
+      "indexes": {}
+    },
+    "bizcity_channel_messages": {
+      "since": "1.3.0",
+      "purpose": "Unified inbound + outbound message ledger across all channel adapters (Zalo OA, Facebook, WebChat, Telegram, Email). One row per message. Managed by BizCity_Channel_Messages::maybe_install() with OPTION bizcity_channel_messages_schema. R-DCL debt paid 2026-06-13 (Sprint ZA-5 probe). Schema version 1.2.0 in class.",
+      "owner_class": "BizCity_Channel_Messages",
+      "installer_option": "bizcity_channel_messages_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.3.0", "pk": true },
+        "blog_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.3.0" },
+        "platform":          { "type": "VARCHAR(40) NOT NULL DEFAULT ''",          "since": "1.3.0" },
+        "direction":         { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0",     "since": "1.3.0", "note": "1=inbound, 2=outbound" },
+        "chat_id":           { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "user_psid":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "message_id":        { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "thread_id":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "event_type":        { "type": "VARCHAR(40) NOT NULL DEFAULT 'message'",  "since": "1.3.0" },
+        "body":              { "type": "LONGTEXT NULL",                           "since": "1.3.0" },
+        "payload_json":      { "type": "LONGTEXT NULL",                           "since": "1.3.0" },
+        "webhook_log_id":    { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.1" },
+        "webhook_log_date":  { "type": "DATE NULL",                               "since": "1.3.1", "note": "partition pointer for wp_{Y_M_D}_webhook_log" },
+        "character_id":      { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.1", "note": "Guru routed for this message" },
+        "responder_kind":    { "type": "VARCHAR(10) NULL",                        "since": "1.3.2", "enum": ["auto","manual","hybrid","system"] },
+        "responder_user_id": { "type": "BIGINT UNSIGNED NULL",                    "since": "1.3.2", "note": "WP user who sent; NULL for auto" },
+        "status":            { "type": "VARCHAR(20) NOT NULL DEFAULT ''",         "since": "1.3.0", "enum": ["queued","sent","failed","received"] },
+        "error":             { "type": "VARCHAR(500) NOT NULL DEFAULT ''",        "since": "1.3.0" },
+        "created_at":        { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.3.0" },
+        "processed_at":      { "type": "DATETIME NULL",                           "since": "1.3.0" }
+      },
+      "indexes": {
+        "idx_blog_platform":    { "type": "KEY", "cols": ["blog_id", "platform"],          "since": "1.3.0" },
+        "idx_chat":             { "type": "KEY", "cols": ["chat_id"],                      "since": "1.3.0" },
+        "idx_user":             { "type": "KEY", "cols": ["user_psid"],                    "since": "1.3.0" },
+        "idx_msg":              { "type": "KEY", "cols": ["platform", "message_id"],       "since": "1.3.0" },
+        "idx_created":          { "type": "KEY", "cols": ["created_at"],                   "since": "1.3.0" },
+        "idx_character":        { "type": "KEY", "cols": ["character_id"],                 "since": "1.3.1" },
+        "idx_log":              { "type": "KEY", "cols": ["webhook_log_date", "webhook_log_id"], "since": "1.3.1" },
+        "idx_responder_user":   { "type": "KEY", "cols": ["responder_user_id"],            "since": "1.3.2" },
+        "idx_responder_kind":   { "type": "KEY", "cols": ["responder_kind"],               "since": "1.3.2" }
+      }
+    },
+    "bizcity_channel_bindings": {
+      "since": "1.1.0",
+      "purpose": "R-GCB SoT — Guru × Channel mapping. (platform, account_id) → character_id. Shipped Phase 0.33 M1 (2026-05-26), formalized in DCL 2026-06-03 alongside Wave 0 GURU-UI ship.",
+      "owner_class": "BizCity_Channel_Binding",
+      "installer_option": "bizcity_channel_bindings_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "1.1.0", "pk": true },
+        "blog_id":             { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "platform":            { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.1.0" },
+        "account_id":          { "type": "VARCHAR(190) NOT NULL DEFAULT ''", "since": "1.1.0" },
+        "character_id":        { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "status":              { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 1", "since": "1.1.0" },
+        "auto_reply":          { "type": "TINYINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.1.0" },
+        "mode":                { "type": "VARCHAR(20) NOT NULL DEFAULT 'auto'", "since": "1.2.0", "enum": ["auto","manual","hybrid","roundrobin"] },
+        "responder_pool_json": { "type": "LONGTEXT NULL", "since": "1.2.0" },
+        "current_pool_index":  { "type": "INT NOT NULL DEFAULT 0", "since": "1.2.0" },
+        "fallback_assignee":   { "type": "BIGINT UNSIGNED NULL", "since": "1.1.0" },
+        "meta_json":           { "type": "LONGTEXT NULL", "since": "1.1.0" },
+        "office_hours_json":   { "type": "LONGTEXT NULL", "since": "1.6.1", "note": "PHASE-0.60A Bot Studio — per-binding office hours + pause/mention flags. Written only when caller passes it (isset-gated), unlike meta_json which is unconditionally overwritten." },
+        "policy_json":         { "type": "LONGTEXT NULL", "since": "1.7.0", "note": "PHASE-0.60E EA-1 Bot Studio — per-binding behavior policy (allowlist mode/uids). Written only via BizCity_Channel_Binding::save_policy()'s narrow single-column UPDATE, never through upsert()." },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.1.0" }
+      },
+      "indexes": {
+        "uniq_binding":   { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "account_id"], "since": "1.1.0" },
+        "idx_character":  { "type": "KEY",        "cols": ["character_id"], "since": "1.1.0" },
+        "idx_status":     { "type": "KEY",        "cols": ["status"], "since": "1.1.0" },
+        "idx_mode":       { "type": "KEY",        "cols": ["mode"], "since": "1.2.0" }
+      }
+    },
+    "bizcity_channel_user_links": {
+      "since": "1.4.0",
+      "purpose": "Tenant-shard external channel identity to WordPress user mapping for Zone 1 identity linking (Facebook Messenger and Zalo OA). Rows are scoped by blog_id; raw link tokens are never persisted.",
+      "owner_class": "BizCity_Channel_User_Linker",
+      "installer_option": "bizcity_channel_user_links_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                 { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.4.0", "pk": true },
+        "blog_id":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.4.0" },
+        "platform":           { "type": "VARCHAR(40) NOT NULL DEFAULT ''",          "since": "1.4.0", "enum": ["FB_MESS", "ZALO_OA"] },
+        "external_user_id":   { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.4.0" },
+        "account_id":         { "type": "VARCHAR(190) NOT NULL DEFAULT ''",        "since": "1.4.0" },
+        "wp_user_id":         { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",      "since": "1.4.0" },
+        "status":             { "type": "VARCHAR(20) NOT NULL DEFAULT 'pending'",  "since": "1.4.0", "enum": ["pending", "linked", "unlinked"] },
+        "link_token_hash":    { "type": "CHAR(64) NOT NULL DEFAULT ''",             "since": "1.4.0" },
+        "token_expires":      { "type": "DATETIME NULL",                            "since": "1.4.0" },
+        "linked_at":          { "type": "DATETIME NULL",                            "since": "1.4.0" },
+        "created_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.4.0" },
+        "updated_at":         { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.4.0" }
+      },
+      "indexes": {
+        "uniq_identity": { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "external_user_id", "account_id"], "since": "1.4.0" },
+        "idx_wp_user":    { "type": "KEY",        "cols": ["blog_id", "wp_user_id"],                            "since": "1.4.0" },
+        "idx_token":      { "type": "KEY",        "cols": ["link_token_hash"],                                  "since": "1.4.0" },
+        "idx_status":     { "type": "KEY",        "cols": ["status"],                                          "since": "1.4.0" }
+      }
+    },
+    "bizcity_identity_contacts": {
+      "since": "1.6.0",
+      "purpose": "Durable canonical customer identity root. Core-owned and CRM-optional; WordPress user is an optional projection.",
+      "owner_class": "BizCity_Identity_Hub",
+      "installer_option": "bizcity_identity_hub_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":                  { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.5.0", "pk": true },
+        "identity_uuid":       { "type": "CHAR(36) NOT NULL",                         "since": "1.5.0" },
+        "blog_id":             { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.5.0" },
+        "primary_wp_user_id":  { "type": "BIGINT UNSIGNED NULL",                       "since": "1.5.0" },
+        "display_label":       { "type": "VARCHAR(190) NULL",                         "since": "1.5.0" },
+        "merged_into_uuid":    { "type": "CHAR(36) NULL",                              "since": "1.5.0" },
+        "status":              { "type": "VARCHAR(20) NOT NULL DEFAULT 'active'",     "since": "1.5.0" },
+        "created_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "updated_at":          { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_uuid":        { "type": "UNIQUE KEY", "cols": ["identity_uuid"],                    "since": "1.5.0" },
+        "idx_blog_wp_user": { "type": "KEY",        "cols": ["blog_id", "primary_wp_user_id"], "since": "1.5.0" },
+        "idx_merged":       { "type": "KEY",        "cols": ["merged_into_uuid"],                "since": "1.5.0" },
+        "idx_status":       { "type": "KEY",        "cols": ["status"],                          "since": "1.5.0" }
+      }
+    },
+    "bizcity_identity_bindings": {
+      "since": "1.6.0",
+      "purpose": "Scoped channel aliases bound to a durable canonical customer identity.",
+      "owner_class": "BizCity_Identity_Hub",
+      "installer_option": "bizcity_identity_hub_schema",
+      "storage": "prefix",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":             { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",  "since": "1.5.0", "pk": true },
+        "identity_uuid":  { "type": "CHAR(36) NOT NULL",                          "since": "1.5.0" },
+        "blog_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",        "since": "1.5.0" },
+        "platform":      { "type": "VARCHAR(32) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "account_id":    { "type": "VARCHAR(190) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "external_ref":  { "type": "VARCHAR(190) NOT NULL DEFAULT ''",           "since": "1.5.0" },
+        "is_stable":     { "type": "TINYINT(1) NOT NULL DEFAULT 1",              "since": "1.5.0" },
+        "first_seen_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
+        "last_seen_at":  { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" }
+      },
+      "indexes": {
+        "uniq_binding": { "type": "UNIQUE KEY", "cols": ["blog_id", "platform", "account_id", "external_ref"], "since": "1.5.0" },
+        "idx_identity":  { "type": "KEY",        "cols": ["identity_uuid"],                                      "since": "1.5.0" },
+        "idx_stable":    { "type": "KEY",        "cols": ["blog_id", "is_stable"],                              "since": "1.5.0" }
+      }
+    },
+    "bizcity_bot_secrets": {
+      "since": "1.8.0",
+      "purpose": "PHASE-0.60E D-E1 phương án A — one narrow encrypted table for per-character Bot Studio media keys (TTS/STT/tạo nhạc/Apify/Tavily) that 1API doesn't cover. Deliberately NOT characters.settings (copied whole by export/duplicate — 0.60A §0.3). BizCity_Codec::encrypt_json_payload() (AES-256-CBC + HMAC-SHA256), key = wp_salt('auth') via bizcity_bot_secrets_key filter, same shape as BizCity_Channel_Conversation_Archive::archive_key().",
+      "owner_class": "BizCity_Bot_Secrets_Repo",
+      "installer_option": "bizcity_bot_secrets_schema",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id":            { "type": "BIGINT UNSIGNED AUTO_INCREMENT", "since": "1.8.0", "pk": true },
+        "blog_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" },
+        "character_id":  { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" },
+        "field":         { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.8.0", "enum": ["tts_api_keys", "stt_api_key", "music_api_key", "apify_token", "tavily_api_key"], "note": "tts_api_keys is the only multi-value field (EB-6 rotation); the rest are single-value \"để trống để giữ nguyên\"." },
+        "ciphertext":    { "type": "LONGTEXT NULL", "since": "1.8.0", "note": "Encrypted {\"keys\":[...]} — plaintext never stored, never returned by any REST route (only *_masked + has_*)." },
+        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.8.0" },
+        "updated_by":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.8.0" }
+      },
+      "indexes": {
+        "uniq_field":    { "type": "UNIQUE KEY", "cols": ["blog_id", "character_id", "field"], "since": "1.8.0" },
+        "idx_character": { "type": "KEY",        "cols": ["blog_id", "character_id"],          "since": "1.8.0" }
+      }
+    },
+    "bizcity_cg_broadcasts": {
+      "since": "1.9.0",
+      "purpose": "Broadcast (mass-send) jobs. Created by BizCity_Broadcast_Installer (SCHEMA_VERSION 1.0.0) since PHASE-CG-BROADCAST 2026-06-27; declared here by WP-14 B3 (R-DCL debt). The engine stays in Channel Gateway because CRM Broadcast runs on it (bizcity-channel/v1/broadcasts*, BizCity_Broadcast_Manager). Cron bizcity_cg_broadcast_tick.",
+      "owner_class": "BizCity_Broadcast_Installer",
+      "installer_option": "bizcity_cg_broadcast_schema_version",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.9.0",
+          "pk": true
+        },
+        "name": {
+          "type": "VARCHAR(255) NOT NULL DEFAULT ''",
+          "since": "1.9.0"
+        },
+        "type": {
+          "type": "VARCHAR(20) NOT NULL DEFAULT 'zns'",
+          "since": "1.9.0"
+        },
+        "status": {
+          "type": "VARCHAR(20) NOT NULL DEFAULT 'draft'",
+          "since": "1.9.0"
+        },
+        "meta_json": {
+          "type": "LONGTEXT NULL",
+          "since": "1.9.0"
+        },
+        "total_count": {
+          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.9.0"
+        },
+        "sent_count": {
+          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.9.0"
+        },
+        "failed_count": {
+          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.9.0"
+        },
+        "batch_size": {
+          "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 10",
+          "since": "1.9.0"
+        },
+        "delay_sec": {
+          "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 5",
+          "since": "1.9.0"
+        },
+        "created_by": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.9.0"
+        },
+        "created_at": {
+          "type": "DATETIME NOT NULL",
+          "since": "1.9.0"
+        },
+        "started_at": {
+          "type": "DATETIME NULL",
+          "since": "1.9.0"
+        },
+        "done_at": {
+          "type": "DATETIME NULL",
+          "since": "1.9.0"
+        }
+      },
+      "indexes": {
+        "idx_status": {
+          "type": "KEY",
+          "cols": [
+            "status"
+          ],
+          "since": "1.9.0"
+        },
+        "idx_created": {
+          "type": "KEY",
+          "cols": [
+            "created_at"
+          ],
+          "since": "1.9.0"
+        }
+      }
+    },
+    "bizcity_cg_broadcast_recipients": {
+      "since": "1.9.0",
+      "purpose": "One row per recipient of a broadcast job (queued → sent/failed). Same owner and installer as bizcity_cg_broadcasts; declared by WP-14 B3.",
+      "owner_class": "BizCity_Broadcast_Installer",
+      "installer_option": "bizcity_cg_broadcast_schema_version",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.9.0",
+          "pk": true
+        },
+        "broadcast_id": {
+          "type": "BIGINT UNSIGNED NOT NULL",
+          "since": "1.9.0"
+        },
+        "name": {
+          "type": "VARCHAR(255) NOT NULL DEFAULT ''",
+          "since": "1.9.0"
+        },
+        "phone": {
+          "type": "VARCHAR(50) NULL",
+          "since": "1.9.0"
+        },
+        "email": {
+          "type": "VARCHAR(190) NULL",
+          "since": "1.9.0"
+        },
+        "custom_data": {
+          "type": "LONGTEXT NULL",
+          "since": "1.9.0"
+        },
+        "status": {
+          "type": "VARCHAR(20) NOT NULL DEFAULT 'queued'",
+          "since": "1.9.0"
+        },
+        "error": {
+          "type": "TEXT NULL",
+          "since": "1.9.0"
+        },
+        "sent_at": {
+          "type": "DATETIME NULL",
+          "since": "1.9.0"
+        }
+      },
+      "indexes": {
+        "idx_bc_status": {
+          "type": "KEY",
+          "cols": [
+            "broadcast_id",
+            "status"
+          ],
+          "since": "1.9.0"
+        },
+        "idx_bc_id": {
+          "type": "KEY",
+          "cols": [
+            "broadcast_id"
+          ],
+          "since": "1.9.0"
+        }
+      }
+    }
+  },
+  "history": [
+    {
+      "version": "1.0.0",
+      "date": "2026-05-30",
+      "change": "Initial changelog registration. Table predates R-DCL; adding version gate to prevent repeated dbDelta on every provisioner cycle."
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-06-03",
+      "change": "GURU-UI W0.1 — formalize bizcity_channel_bindings (R-GCB SoT) in DCL. Table itself shipped Phase 0.33 M1 (2026-05-26) via BizCity_Channel_Binding::maybe_install() with its own option-version gate; this entry pays back R-DCL debt as Wave 0 builds UI/REST gates around it. Columns matched to runtime schema."
+    },
+    {
+      "version": "1.2.0",
+      "date": "2026-06-03",
+      "change": "GURU-UI W0.1 — document Phase 0.33 M4.2 columns (mode, responder_pool_json, current_pool_index, idx_mode) that shipped 2026-05-31 in class-channel-binding.php v1.1.0 schema bump. Enum mode: auto|manual|hybrid|roundrobin."
+    },
+    {
+      "version": "1.3.0",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — formalize bizcity_channel_messages (SCHEMA_VERSION 1.2.0 in class) in changelog. Table shipped PHASE 0.31 T-S6.1 (class-channel-messages.php) managed by BizCity_Channel_Messages::maybe_install() with own option gate bizcity_channel_messages_schema. Paying R-DCL debt as Sprint ZA-5 DDV probe (class-probe-zalo-oa-crm.php) starts checking this table. Core columns: id, blog_id, platform, direction, chat_id, user_psid, message_id, thread_id, event_type, body, payload_json, status, error, created_at, processed_at."
+    },
+    {
+      "version": "1.3.1",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — document PHASE 0.33 M1 schema bump columns: webhook_log_id, webhook_log_date, character_id + indexes idx_character, idx_log. These shipped in class-channel-messages.php SCHEMA_VERSION 1.1.0 bump (2026-05-26)."
+    },
+    {
+      "version": "1.3.2",
+      "date": "2026-06-13",
+      "change": "Sprint ZA-5 R-DCL — document PHASE 0.34 traceability manifesto columns: responder_kind (VARCHAR 10, enum auto|manual|hybrid|system), responder_user_id (BIGINT UNSIGNED) + indexes idx_responder_user, idx_responder_kind. Shipped class-channel-messages.php SCHEMA_VERSION 1.2.0. R-DCL: no new DDL; validator exit 0 expected."
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-07-27",
+      "change": "PHASE-0.52 W1 — add network-wide, blog-scoped external identity mapping for Zone 1 Facebook Messenger and Zalo OA one-time account linking. Store only SHA-256 token hashes; provider credentials remain in channel account storage."
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-07-28",
+      "change": "PHASE-0.52 W8.1 — add core-owned durable customer identity UUID and scoped multi-channel bindings. CRM and WP user remain optional projections; no runtime consumer is switched until the hub contract is validated."
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-07-28",
+      "change": "R-MSDB — move identity contacts, identity bindings, and Zone 1 channel links from base_prefix/network options to current tenant shard prefix/options. Existing sites require tenant-shard provisioning and any approved data migration before old Global DB copies are retired."
+    },
+    {
+      "version": "1.6.1",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60A W1 — add bizcity_channel_bindings.office_hours_json (class-channel-binding.php SCHEMA_VERSION 1.1.0 → 1.2.0) for Bot Studio per-binding office hours + pause/mention flags. Isset-gated write in upsert(), never unconditionally overwritten like meta_json."
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60E EA-1 — add bizcity_channel_bindings.policy_json (class-channel-binding.php SCHEMA_VERSION 1.2.0 → 1.3.0) for Bot Studio allowlist policy (allowlist_mode/allowlist_uids). Written only through the new BizCity_Channel_Binding::save_policy() narrow single-column UPDATE, deliberately not through upsert() — same N-1 avoidance precedent as office_hours_json."
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-09-23",
+      "change": "PHASE-0.60E D-E1 (user-approved) — new table bizcity_bot_secrets, owner BizCity_Bot_Secrets_Repo (SCHEMA_VERSION 1.0.0, option bizcity_bot_secrets_schema). Per-character encrypted keys for TTS/STT/tạo nhạc/Apify/Tavily — the four+one services BizCity 1API doesn't cover. One row per (character_id, field); tts_api_keys is multi-value (EB-6 rotation), the rest single-value."
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-09-28",
+      "change": "CORE-REDUCTION WP-14 B3 — declare bizcity_cg_broadcasts and bizcity_cg_broadcast_recipients (created since 2026-06-27 by BizCity_Broadcast_Installer, SCHEMA_VERSION 1.0.0, option bizcity_cg_broadcast_schema_version, but never declared — R-DCL debt). No DDL change. The CG Broadcast screen was removed in WP-14; the engine and both tables stay because CRM Broadcast runs on them."
+    }
+  ]
+}

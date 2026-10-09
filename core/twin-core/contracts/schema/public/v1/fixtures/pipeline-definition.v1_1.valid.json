@@ -1,0 +1,43 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.1.0",
+  "kind": "sales_deal",
+  "label": "Bán hàng",
+  "subject": "contact",
+  "clock": "calendar:office",
+  "lock_version": true,
+  "ui": {
+    "color": "#4f46e5",
+    "icon": "cil-cart",
+    "category": "sales",
+    "lost_reasons": ["Giá cao", "Đã mua nơi khác", "Chưa có nhu cầu"]
+  },
+  "roles": {
+    "sale": { "label": "Nhân viên kinh doanh", "resolve": { "relation": "assignee_of_stage" } },
+    "lead": { "label": "Trưởng nhóm", "resolve": { "relation": "team_lead_of_assignee" } }
+  },
+  "calendars": {
+    "office": [{ "dow": [1, 2, 3, 4, 5], "from": "08:00", "to": "17:30" }]
+  },
+  "stages": [
+    {
+      "key": "quote",
+      "label": "Đã báo giá",
+      "role": "sale",
+      "ui": {
+        "color": "#f59e0b",
+        "hint": "Khách đã nhận báo giá, chờ phản hồi",
+        "stuck_after": "+3d",
+        "reminder": { "title_from": "first_sub_step", "default_offset": "+1d" },
+        "next_suggestions": ["Gửi báo giá", "Gọi lại chốt trong 48h"],
+        "note_placeholder": "Khách đồng ý combo 3 tháng, hẹn chuyển khoản tối nay…"
+      },
+      "sub_steps": [
+        { "key": "q_send", "label": "Lập và gửi báo giá", "mode": "task", "role": "sale", "ui": { "hint": "Đính kèm file báo giá" } },
+        { "key": "q_follow", "label": "Gọi lại chốt trong 48h", "mode": "status_only", "role": "sale", "return_to": "q_send" }
+      ]
+    },
+    { "key": "repeat", "label": "Mua lại", "role": "sale", "terminal": true, "outcome": "won" },
+    { "key": "lost", "label": "Không mua", "role": "sale", "terminal": true, "outcome": "lost", "ui": { "color": "#64748b" } }
+  ]
+}

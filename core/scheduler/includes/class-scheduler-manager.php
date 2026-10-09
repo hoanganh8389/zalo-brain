@@ -1,0 +1,1172 @@
+<?php
+/**
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\Scheduler
+ * @author     Johnny Chu (Chu Hoàng Anh) <Hoanganh.itm@gmail.com>
+ * @copyright  2024-2026 BizCity — Made in Vietnam 🇻🇳
+ * @license    GPL-2.0-or-later
+ * @link       https://bizcity.vn
+ */
+
+/**
+ * BizCity Scheduler — Manager (DB CRUD + Context Builder)
+ *
+ * Manages the `bizcity_crm_events` table lifecycle (renamed from
+ * `bizcity_scheduler_events` in schema v3 — see PHASE-0.35-WAVES.md
+ * §A M-CRM.M12 v2 Calendar Unification).
+ *
+ * Fires action hooks for cross-module integration.
+ *
+ * Schema version tracked via wp_options (autoloaded) — zero SHOW TABLES on hot path.
+ *
+ * @package  BizCity_Scheduler
+ * @since    2026-04-01
+ */
+
+defined( 'ABSPATH' ) or die( 'OOPS...' );
+
+class BizCity_Scheduler_Manager {
+
+	private static $instance = null;
+
+	/** @var string */
+	private $table;
+
+	// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-1 — v5: dispatcher + owner agent + cell job columns.
+	const SCHEMA_VERSION     = 5;
+
+	/** Rows the PHP cron fires (everything before PHASE-0.92 W7, plus site actions such as fb_post / automation_*). */
+	const DISPATCHER_SITE = 'site';
+	/** Rows whose only clock is the cell (D92-11): never claimed by the PHP cron, even when the cell is down. */
+	const DISPATCHER_CELL = 'cell';
+
+	const CELL_STATES = [ 'pending', 'synced', 'retrying', 'rejected', 'pending_owner' ];
+	const SCHEMA_VERSION_KEY = 'bizcity_scheduler_schema_ver';
+
+	/** Final unified table name (M-CRM.M12 v2 — phase 2). */
+	const TABLE_NAME = 'bizcity_crm_events';
+
+	/** Legacy scheduler table — renamed in migrate_to_3(). */
+	const LEGACY_SCHEDULER_TABLE = 'bizcity_scheduler_events';
+
+	public static function instance(): self {
+		if ( ! self::$instance ) {
+			self::$instance = new self();
+		}
+		return self::$instance;
+	}
+
+	public function __construct() {
+		global $wpdb;
+		$this->table = $wpdb->prefix . self::TABLE_NAME;
+	}
+
+	/* ================================================================
+	 *  Schema
+	 * ================================================================ */
+
+	/** Per-blog physical-existence cache to avoid SHOW TABLES on hot paths. */
+	private static $ready_blogs = [];
+
+	/** Re-entrancy guard for self-heal. */
+	private $is_installing = false;
+
+	/** Transient key prefix for cross-request SHOW TABLES cache (1 day TTL). */
+	private const TBL_OK_TRANSIENT = 'bizcity_sched_tbl_ok_';
+
+	/**
+	 * Check schema is up-to-date AND physical table exists on the current shard.
+	 *
+	 * Multisite + WPDB_Router (slave3/slave10) can desync the autoloaded
+	 * version option from actual table state — the option lives in main DB
+	 * while the table lives on a sharded slave. We verify with SHOW TABLES
+	 * ONCE (cross-request transient), then cache in static for the remainder
+	 * of the same request. Transient is cleared on every schema migration so
+	 * shard-provisioning self-heal still works.
+	 */
+	private function table_ready(): bool {
+		if ( ( (int) get_option( self::SCHEMA_VERSION_KEY, 0 ) ) < self::SCHEMA_VERSION ) {
+			return false;
+		}
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		// L1: in-request static.
+		if ( isset( self::$ready_blogs[ $blog_id ] ) ) {
+			return self::$ready_blogs[ $blog_id ];
+		}
+		// L2: cross-request transient — avoids SHOW TABLES on every page load.
+		$transient_key = self::TBL_OK_TRANSIENT . $blog_id;
+		if ( get_transient( $transient_key ) === 'yes' ) {
+			return self::$ready_blogs[ $blog_id ] = true;
+		}
+		// L3: actual SHOW TABLES (fires once per install / after migration / after TTL).
+		$exists = $this->table_exists( $this->table );
+		if ( $exists ) {
+			set_transient( $transient_key, 'yes', DAY_IN_SECONDS );
+		}
+		return self::$ready_blogs[ $blog_id ] = $exists;
+	}
+
+	/**
+	 * Public readiness probe for external callers (cron, diagnostics).
+	 */
+	public function is_ready(): bool {
+		return $this->table_ready();
+	}
+
+	/**
+	 * Install or migrate the schema. Called from activation hook or first use.
+	 *
+	 * Self-heals when the option is set but the physical table is missing
+	 * (e.g. shard provisioned after the option was first saved).
+	 */
+	public function ensure_schema(): void {
+		global $wpdb;
+		if ( $this->is_installing ) {
+			return;
+		}
+		$this->is_installing = true;
+		try {
+			$stored = (int) get_option( self::SCHEMA_VERSION_KEY, 0 );
+
+			// Fast path: option current AND physical table confirmed (L1 static + L2 transient;
+			// avoids SHOW TABLES on every ensure_schema() call after first check).
+			if ( $this->table_ready() ) {
+				return;
+			}
+
+			// About to migrate — flush cross-request cache so table_ready() re-verifies below.
+			$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+			delete_transient( self::TBL_OK_TRANSIENT . $blog_id );
+			unset( self::$ready_blogs[ $blog_id ] );
+			// [2026-08-21 Johnny Chu] R-METADATA-CACHE — clear the shared table memo before migration changes physical names.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $this->table );
+				bizcity_tbl_invalidate( $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE );
+			}
+
+			$this->migrate( $stored );
+
+			// Only commit the version option when the physical table actually exists.
+			if ( $this->table_exists( $this->table ) ) {
+				update_option( self::SCHEMA_VERSION_KEY, self::SCHEMA_VERSION, true );
+				set_transient( self::TBL_OK_TRANSIENT . $blog_id, 'yes', DAY_IN_SECONDS );
+				self::$ready_blogs[ $blog_id ] = true;
+			}
+		} finally {
+			$this->is_installing = false;
+		}
+	}
+
+	private function migrate( int $from ): void {
+		// [2026-08-25 Johnny Chu] PHASE-1.24 — Site Provisioner may create the canonical table before the historical migration option exists; do not replay legacy CREATE/RENAME steps against an already-canonical table.
+		if ( $this->table_exists( $this->table ) && $this->column_exists( $this->table, 'event_type' ) ) {
+			$this->migrate_to_4();
+			$this->migrate_to_5();
+			return;
+		}
+
+		if ( $from < 1 ) {
+			$this->migrate_to_1();
+		}
+
+		if ( $from < 2 ) {
+			$this->migrate_to_2();
+		}
+
+		if ( $from < 3 ) {
+			$this->migrate_to_3();
+		}
+
+		if ( $from < 4 ) {
+			$this->migrate_to_4();
+		}
+
+		if ( $from < 5 ) {
+			$this->migrate_to_5();
+		}
+	}
+
+	private function migrate_to_1(): void {
+		global $wpdb;
+		$charset = $wpdb->get_charset_collate();
+
+		// v1 historically created the legacy scheduler table; v3 renames it.
+		// New installs jump straight to v3 schema below — but we still emit
+		// the v1 CREATE so dbDelta works even if v3 step finds nothing to rename.
+		$legacy = $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE;
+
+		$sql = "CREATE TABLE {$legacy} (
+			id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			user_id         BIGINT UNSIGNED NOT NULL,
+			title           VARCHAR(255) NOT NULL DEFAULT '',
+			description     TEXT,
+			start_at        DATETIME NOT NULL,
+			end_at          DATETIME DEFAULT NULL,
+			all_day         TINYINT(1) NOT NULL DEFAULT 0,
+			reminder_min    INT NOT NULL DEFAULT 15,
+			reminder_sent   TINYINT(1) NOT NULL DEFAULT 0,
+			google_event_id     VARCHAR(255) DEFAULT NULL,
+			google_calendar_id  VARCHAR(255) DEFAULT 'primary',
+			google_synced_at    DATETIME DEFAULT NULL,
+			source          VARCHAR(32) NOT NULL DEFAULT 'user',
+			ai_context      TEXT,
+			status          VARCHAR(16) NOT NULL DEFAULT 'active',
+			created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY idx_user_start (user_id, start_at),
+			KEY idx_reminder (reminder_sent, start_at, status),
+			KEY idx_google (google_event_id)
+		) {$charset};";
+
+		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		dbDelta( $sql );
+	}
+
+	private function migrate_to_2(): void {
+		global $wpdb;
+
+		$legacy = $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE;
+		// [2026-08-21 Johnny Chu] SCHEDULER-MIGRATION-IDEMPOTENCY — do not repeat ADD COLUMN when an interrupted run left the column in place.
+		if ( ! $this->table_exists( $legacy ) || $this->column_exists( $legacy, 'reminder_claimed_at' ) ) {
+			return;
+		}
+		$wpdb->query( "ALTER TABLE {$legacy} ADD COLUMN reminder_claimed_at DATETIME DEFAULT NULL AFTER reminder_sent" );
+		if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+			bizcity_tbl_invalidate( $legacy );
+		}
+	}
+
+	/**
+	 * Schema v3 — Calendar Unification (M-CRM.M12 v2, 2026-05-13).
+	 *
+	 * Steps:
+	 *   1. If CRM legacy table {prefix}bizcity_crm_events exists with the OLD small
+	 *      schema (BIGINT start_at), rename it → *_legacy_<date> to free the name.
+	 *   2. Rename {prefix}bizcity_scheduler_events → {prefix}bizcity_crm_events.
+	 *      If the scheduler table doesn't exist (fresh install on subsite),
+	 *      create the unified table from scratch.
+	 *   3. ALTER ADD: event_type, metadata, google_account_id (+ idx_event_type).
+	 *   4. Backfill rows from CRM legacy into unified table
+	 *      (FROM_UNIXTIME for start_at/end_at, JSON_OBJECT for metadata,
+	 *       source='crm_calendar', event_type from legacy `type`).
+	 */
+	private function migrate_to_3(): void {
+		global $wpdb;
+
+		$legacy_scheduler = $wpdb->prefix . self::LEGACY_SCHEDULER_TABLE;
+		$unified          = $wpdb->prefix . self::TABLE_NAME;
+		$crm_legacy       = $unified . '_legacy_' . gmdate( 'Ymd' );
+
+		// [2026-08-19 Johnny Chu] HOTFIX-SCHEDULER-IDEMPOTENCY - a canonical unified table must never be renamed away when a stale legacy table also exists.
+		$unified_exists = $this->table_exists( $unified );
+		$legacy_exists  = $this->table_exists( $legacy_scheduler );
+		$has_event_type = false;
+		if ( $unified_exists ) {
+			$has_event_type = (bool) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'event_type'",
+				$unified
+			) );
+			if ( $has_event_type ) {
+				return; // Already canonical v3; migrate_to_4() handles later columns.
+			}
+		}
+
+		if ( $unified_exists ) {
+			// Old CRM table is in the way — rename it aside before promoting legacy scheduler data.
+			$wpdb->query( "RENAME TABLE `{$unified}` TO `{$crm_legacy}`" );
+		}
+
+		// 2) Rename scheduler → unified (if scheduler exists).
+		if ( $legacy_exists ) {
+			$wpdb->query( "RENAME TABLE `{$legacy_scheduler}` TO `{$unified}`" );
+		} else {
+			// Fresh subsite — create unified table directly with full v3 schema.
+			$charset = $wpdb->get_charset_collate();
+			$sql = "CREATE TABLE {$unified} (
+				id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+				user_id         BIGINT UNSIGNED NOT NULL,
+				title           VARCHAR(255) NOT NULL DEFAULT '',
+				description     TEXT,
+				start_at        DATETIME NOT NULL,
+				end_at          DATETIME DEFAULT NULL,
+				all_day         TINYINT(1) NOT NULL DEFAULT 0,
+				reminder_min    INT NOT NULL DEFAULT 15,
+				reminder_sent   TINYINT(1) NOT NULL DEFAULT 0,
+				reminder_claimed_at DATETIME DEFAULT NULL,
+				google_event_id     VARCHAR(255) DEFAULT NULL,
+				google_calendar_id  VARCHAR(255) DEFAULT 'primary',
+				google_account_id   BIGINT UNSIGNED DEFAULT NULL,
+				google_synced_at    DATETIME DEFAULT NULL,
+				source          VARCHAR(32) NOT NULL DEFAULT 'user',
+				ai_context      TEXT,
+				status          VARCHAR(16) NOT NULL DEFAULT 'active',
+				event_type      VARCHAR(32) NOT NULL DEFAULT 'meeting',
+				metadata        LONGTEXT NULL,
+				created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+				PRIMARY KEY (id),
+				KEY idx_user_start (user_id, start_at),
+				KEY idx_reminder (reminder_sent, start_at, status),
+				KEY idx_google (google_event_id),
+				KEY idx_event_type (event_type)
+			) {$charset};";
+			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+			dbDelta( $sql );
+			// [2026-08-26 Johnny Chu] R-METADATA-CACHE — clear the negative existence memo after fresh canonical scheduler DDL.
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $unified );
+			}
+			return; // No legacy data to backfill on fresh subsite.
+		}
+
+		// 3) ALTER ADD new columns + index.
+		$alter_clauses = array();
+		if ( ! $this->column_exists( $unified, 'event_type' ) ) {
+			$alter_clauses[] = "ADD COLUMN event_type VARCHAR(32) NOT NULL DEFAULT 'meeting' AFTER status";
+		}
+		if ( ! $this->column_exists( $unified, 'metadata' ) ) {
+			$alter_clauses[] = "ADD COLUMN metadata LONGTEXT NULL AFTER event_type";
+		}
+		if ( ! $this->column_exists( $unified, 'google_account_id' ) ) {
+			$alter_clauses[] = "ADD COLUMN google_account_id BIGINT UNSIGNED DEFAULT NULL AFTER google_calendar_id";
+		}
+		if ( ! $this->index_exists( $unified, 'idx_event_type' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_event_type (event_type)';
+		}
+		if ( ! empty( $alter_clauses ) ) {
+			$wpdb->query( "ALTER TABLE `{$unified}` " . implode( ', ', $alter_clauses ) );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $unified );
+			}
+		}
+
+		// 4) Backfill from CRM legacy table if it exists.
+		if ( $this->table_exists( $crm_legacy ) ) {
+			// [2026-07-22 Johnny Chu] SCHEDULER-MIGRATE-BACKFILL-FIX — legacy CRM small-schema
+			// table's exact column set varies across older subsites (some never had
+			// created_by/attendees_json/related_entity_* columns), causing
+			// "Unknown column 'created_by' in 'SELECT'" fatal on backfill. Build the SELECT
+			// expression list dynamically, falling back to safe literals for any column
+			// that doesn't exist on this particular legacy table.
+			$legacy_cols = $wpdb->get_col( $wpdb->prepare(
+				"SELECT COLUMN_NAME FROM information_schema.COLUMNS
+				 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s",
+				$crm_legacy
+			) );
+
+			$has = static function ( string $col ) use ( $legacy_cols ): bool {
+				return in_array( $col, $legacy_cols, true );
+			};
+
+			$user_id_expr    = $has( 'created_by' ) ? 'COALESCE(created_by, 0)' : '0';
+			$type_expr       = $has( 'type' ) ? "COALESCE(NULLIF(type, ''), 'meeting')" : "'meeting'";
+			$attendees_expr  = $has( 'attendees_json' ) ? "COALESCE(JSON_EXTRACT(attendees_json, '$'), JSON_ARRAY())" : 'JSON_ARRAY()';
+			$rel_type_expr   = $has( 'related_entity_type' ) ? 'related_entity_type' : 'NULL';
+			$rel_id_expr     = $has( 'related_entity_id' ) ? 'related_entity_id' : 'NULL';
+
+			$wpdb->query(
+				"INSERT INTO `{$unified}`
+					(user_id, title, start_at, end_at, event_type, metadata, source, status, created_at, updated_at)
+				 SELECT
+					{$user_id_expr}                                      AS user_id,
+					title                                                AS title,
+					FROM_UNIXTIME(start_at)                              AS start_at,
+					FROM_UNIXTIME(end_at)                                AS end_at,
+					{$type_expr}                                         AS event_type,
+					JSON_OBJECT(
+						'attendees',           {$attendees_expr},
+						'related_entity_type', {$rel_type_expr},
+						'related_entity_id',   {$rel_id_expr},
+						'migrated_from',       'crm_events_legacy'
+					)                                                    AS metadata,
+					'crm_calendar'                                       AS source,
+					'active'                                             AS status,
+					created_at,
+					updated_at
+				 FROM `{$crm_legacy}`"
+			);
+		}
+	}
+
+	/**
+	 * Schema v4 — R-UNIFY Wave 2 (2026-06-15).
+	 *
+	 * ADD FK columns: contact_id, conversation_id, campaign_id
+	 * for Omni-Channel Unification.
+	 *
+	 * [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — ADD-only, no data loss.
+	 */
+	private function migrate_to_4(): void {
+		global $wpdb;
+		$t = $this->table;
+
+		$alter_clauses = array();
+		if ( ! $this->column_exists( $t, 'contact_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN contact_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER updated_at';
+		}
+		if ( ! $this->column_exists( $t, 'conversation_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN conversation_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER contact_id';
+		}
+		if ( ! $this->column_exists( $t, 'campaign_id' ) ) {
+			$alter_clauses[] = 'ADD COLUMN campaign_id BIGINT UNSIGNED NULL DEFAULT NULL AFTER conversation_id';
+		}
+		if ( ! $this->index_exists( $t, 'idx_contact_id' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_contact_id (contact_id)';
+		}
+		if ( ! $this->index_exists( $t, 'idx_campaign_id' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_campaign_id (campaign_id)';
+		}
+		if ( ! empty( $alter_clauses ) ) {
+			$wpdb->query( "ALTER TABLE `{$t}` " . implode( ', ', $alter_clauses ) );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $t );
+			}
+		}
+	}
+
+	/**
+	 * Schema v5 — PHASE-0.92 W7 (doc 71 §4.1): who fires the row and for which owner agent.
+	 * Existing rows stay `dispatcher = site` (Q92-SC-2: no backfill of old reminders); only mirrored cell jobs become `cell`.
+	 */
+	private function migrate_to_5(): void {
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-1 — ADD-only; idempotent per column/index.
+		global $wpdb;
+		$t = $this->table;
+		if ( ! $this->table_exists( $t ) ) {
+			return;
+		}
+
+		$alter_clauses = array();
+		$columns       = array(
+			'dispatcher'       => "ADD COLUMN dispatcher VARCHAR(8) NOT NULL DEFAULT 'site'",
+			'owner_agent_hash' => 'ADD COLUMN owner_agent_hash CHAR(64) NULL DEFAULT NULL',
+			'owner_number_ref' => 'ADD COLUMN owner_number_ref VARCHAR(64) NULL DEFAULT NULL',
+			'owner_person_id'  => 'ADD COLUMN owner_person_id VARCHAR(36) NULL DEFAULT NULL',
+			'cell_job_id'      => 'ADD COLUMN cell_job_id VARCHAR(64) NULL DEFAULT NULL',
+			'cell_state'       => 'ADD COLUMN cell_state VARCHAR(16) NULL DEFAULT NULL',
+		);
+		foreach ( $columns as $column => $clause ) {
+			if ( ! $this->column_exists( $t, $column ) ) {
+				$alter_clauses[] = $clause;
+			}
+		}
+		if ( ! $this->index_exists( $t, 'idx_cell_job' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_cell_job (cell_job_id)';
+		}
+		if ( ! $this->index_exists( $t, 'idx_dispatch' ) ) {
+			$alter_clauses[] = 'ADD KEY idx_dispatch (dispatcher, reminder_sent, start_at)';
+		}
+		if ( ! empty( $alter_clauses ) ) {
+			$wpdb->query( "ALTER TABLE `{$t}` " . implode( ', ', $alter_clauses ) );
+			if ( function_exists( 'bizcity_tbl_invalidate' ) ) {
+				bizcity_tbl_invalidate( $t );
+			}
+		}
+
+		// Mirrored cell jobs (0.91) were always fired by the cell: mark them, and lift their job id out of metadata into the column.
+		$wpdb->query(
+			"UPDATE `{$t}`
+			 SET dispatcher = 'cell',
+			     cell_job_id = IF( metadata IS NOT NULL AND JSON_VALID(metadata), JSON_UNQUOTE( JSON_EXTRACT( metadata, '$.cell_job.id' ) ), NULL ),
+			     cell_state  = 'synced'
+			 WHERE event_type = 'cell_job' AND cell_job_id IS NULL"
+		);
+	}
+
+	private function column_exists( string $table, string $column ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			' SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s LIMIT 1',
+			$table,
+			$column
+		) );
+	}
+
+	private function index_exists( string $table, string $index ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			' SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s LIMIT 1',
+			$table,
+			$index
+		) );
+	}
+
+	/** Table-existence helper (used only in migrate paths). */
+	private function table_exists( string $table ): bool {
+		return bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
+	}
+
+	/* ================================================================
+	 *  CRUD
+	 * ================================================================ */
+
+	/**
+	 * Create event.
+	 *
+	 * @param array $data {title, start_at, end_at?, description?, all_day?, reminder_min?, source?, ai_context?, user_id?}
+	 * @return int|WP_Error  Event ID on success.
+	 */
+	public function create_event( array $data ) {
+		if ( ! $this->table_ready() ) {
+			$this->ensure_schema();
+		}
+
+		global $wpdb;
+
+		$row = $this->sanitize_row( $data );
+		if ( is_wp_error( $row ) ) {
+			return $row;
+		}
+
+		// [2026-06-03 Johnny Chu] SCH-NC W3 — validate metadata qua adapter
+		// (fail-OPEN nếu adapter chưa register cho event_type này).
+		if ( class_exists( 'BizCity_Scheduler_Adapter_Registry' ) ) {
+			$validate_payload = array_merge( $data, [
+				'event_type' => $row['event_type'],
+				'metadata'   => isset( $row['metadata'] ) ? $row['metadata'] : ( $data['metadata'] ?? [] ),
+			] );
+			$ok = BizCity_Scheduler_Adapter_Registry::validate( $row['event_type'], $validate_payload );
+			if ( is_wp_error( $ok ) ) {
+				return $ok;
+			}
+		}
+
+		$inserted = $wpdb->insert( $this->table, $row );
+		if ( ! $inserted ) {
+			return new \WP_Error( 'db_insert', 'Failed to insert event.' );
+		}
+
+		$event_id = (int) $wpdb->insert_id;
+		$event    = $this->get_event( $event_id );
+
+		/**
+		 * Fires after an event is created.
+		 *
+		 * Consumers:
+		 *   - Scheduler_Google → sync to Google Calendar
+		 *   - Intent module    → refresh LLM context
+		 *   - Automation       → trigger workflows
+		 *   - Channel Gateway  → push notification to user
+		 *
+		 * @param object $event  Full DB row.
+		 * @param array  $data   Original input data.
+		 */
+		do_action( 'bizcity_scheduler_event_created', $event, $data );
+
+		return $event_id;
+	}
+
+	/**
+	 * Update event.
+	 *
+	 * @param int      $id       Event ID.
+	 * @param array    $data     Fields to update.
+	 * @param int|null $user_id  If provided, enforce ownership (0 = skip check, admin bypass).
+	 * @return true|WP_Error
+	 */
+	public function update_event( int $id, array $data, ?int $user_id = null ) {
+		if ( ! $this->table_ready() ) {
+			return new \WP_Error( 'no_table', 'Scheduler table not ready.' );
+		}
+
+		global $wpdb;
+
+		$old = $this->get_event( $id );
+		if ( ! $old ) {
+			return new \WP_Error( 'not_found', 'Event not found.' );
+		}
+
+		// Ownership guard — skip only if $user_id === null (legacy callers) or admin
+		if ( $user_id !== null && $user_id > 0 && (int) $old->user_id !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Ban khong co quyen chinh su kien nay.' );
+		}
+
+		$allowed = [ 'title', 'description', 'start_at', 'end_at', 'all_day', 'reminder_min', 'status', 'source', 'ai_context', 'google_event_id', 'google_calendar_id', 'google_synced_at', 'google_account_id', 'event_type', 'metadata' ];
+		$update  = [];
+		foreach ( $allowed as $key ) {
+			if ( array_key_exists( $key, $data ) ) {
+				$update[ $key ] = $data[ $key ];
+			}
+		}
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-1 — W7 columns go through the same cleaning as on insert.
+		$update = array_merge( $update, self::clean_dispatch_fields( $data ) );
+		if ( array_key_exists( 'reminder_sent', $data ) ) {
+			$update['reminder_sent'] = ! empty( $data['reminder_sent'] ) ? 1 : 0;
+		}
+
+		// [2026-06-04 Johnny Chu] R-SCH-REPLY — auto-encode metadata array để
+		// caller (FB_Publisher::write_metadata, Completion_Notifier::patch_delivery,
+		// Web_Post mirror, …) có thể truyền array thẳng mà không lo wpdb stringify
+		// thành 'Array' → mất block inbound{}/delivery{}.
+		if ( isset( $update['metadata'] ) ) {
+			if ( is_array( $update['metadata'] ) ) {
+				$update['metadata'] = wp_json_encode( $update['metadata'] );
+			} elseif ( is_string( $update['metadata'] ) && $update['metadata'] !== '' ) {
+				json_decode( $update['metadata'] );
+				if ( JSON_ERROR_NONE !== json_last_error() ) {
+					unset( $update['metadata'] ); // drop invalid JSON to preserve existing.
+				}
+			} elseif ( $update['metadata'] === null || $update['metadata'] === '' ) {
+				unset( $update['metadata'] );
+			}
+		}
+
+		if ( empty( $update ) ) {
+			return true;
+		}
+
+		// SQL-level defense: include user_id in WHERE when provided (defense-in-depth)
+		$where = $user_id !== null && $user_id > 0
+			? [ 'id' => $id, 'user_id' => $user_id ]
+			: [ 'id' => $id ];
+		$wpdb->update( $this->table, $update, $where );
+
+		$event = $this->get_event( $id );
+
+		/**
+		 * @param object $event     Updated row.
+		 * @param object $old       Previous row.
+		 * @param array  $changed   Changed field keys.
+		 */
+		do_action( 'bizcity_scheduler_event_updated', $event, $old, array_keys( $update ) );
+
+		// [2026-06-03 Johnny Chu] SCH-NC W3 — fire completion hook khi status
+		// chuyển active|draft → done. Completion Notifier (W4) listen hook này
+		// để reply-back về channel inbound.
+		$old_status = isset( $old->status ) ? (string) $old->status : '';
+		$new_status = isset( $event->status ) ? (string) $event->status : '';
+		if ( $new_status === 'done' && $old_status !== 'done' ) {
+			do_action( 'bizcity_scheduler_event_completed', (int) $id, $event );
+		}
+		// [2026-07-21 Johnny Chu] PHASE-IMG-FIRST-FB-FIX — fire failed hook so Completion Notifier can report async publisher failures.
+		if ( $new_status === 'failed' && $old_status !== 'failed' ) {
+			$meta = isset( $event->metadata ) && is_string( $event->metadata ) ? json_decode( $event->metadata, true ) : array();
+			$reason = is_array( $meta ) ? (string) ( $meta['fb_error'] ?? $meta['web_error'] ?? $meta['error'] ?? 'failed' ) : 'failed';
+			do_action( 'bizcity_scheduler_event_failed', (int) $id, $event, $reason );
+		}
+		if ( $new_status === 'cancelled' && $old_status !== 'cancelled' ) {
+			do_action( 'bizcity_scheduler_event_cancelled', (int) $id, $event );
+		}
+
+		return true;
+	}
+
+	/**
+	 * Delete event.
+	 *
+	 * @param int      $id      Event ID.
+	 * @param int|null $user_id If provided, enforce ownership.
+	 */
+	public function delete_event( int $id, ?int $user_id = null ) {
+		if ( ! $this->table_ready() ) {
+			return new \WP_Error( 'no_table', 'Scheduler table not ready.' );
+		}
+
+		global $wpdb;
+
+		$event = $this->get_event( $id );
+		if ( ! $event ) {
+			return new \WP_Error( 'not_found', 'Event not found.' );
+		}
+
+		// Ownership guard
+		if ( $user_id !== null && $user_id > 0 && (int) $event->user_id !== $user_id ) {
+			return new \WP_Error( 'forbidden', 'Ban khong co quyen xoa su kien nay.' );
+		}
+
+		// SQL-level defense: include user_id in WHERE when provided
+		$where  = $user_id !== null && $user_id > 0
+			? [ 'id' => $id, 'user_id' => $user_id ]
+			: [ 'id' => $id ];
+		$format = $user_id !== null && $user_id > 0 ? [ '%d', '%d' ] : [ '%d' ];
+		$wpdb->delete( $this->table, $where, $format );
+
+		/**
+		 * @param object $event  Deleted row (snapshot before deletion).
+		 */
+		do_action( 'bizcity_scheduler_event_deleted', $event );
+
+		return true;
+	}
+
+	/* ================================================================
+	 *  Queries
+	 * ================================================================ */
+
+	/**
+	 * Get single event by ID.
+	 *
+	 * @param int      $id       Event ID.
+	 * @param int|null $user_id  If provided, only return event owned by this user.
+	 */
+	public function get_event( int $id, ?int $user_id = null ) {
+		if ( ! $this->table_ready() ) {
+			return null;
+		}
+		global $wpdb;
+
+		if ( $user_id !== null && $user_id > 0 ) {
+			return $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$this->table} WHERE id = %d AND user_id = %d",
+				$id, $user_id
+			) );
+		}
+
+		return $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE id = %d",
+			$id
+		) );
+	}
+
+	/**
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — the events of ONE conversation and type (Bot Studio scheduled tasks). Scoped by
+	 * conversation_id in SQL, so a caller can never read another conversation's rows by guessing an id.
+	 *
+	 * @return array<int,array<string,mixed>> rows (ARRAY_A), soonest first, at most 100.
+	 */
+	public function get_events_by_conversation( int $conversation_id, string $event_type, string $status = 'active' ): array {
+		if ( $conversation_id <= 0 || ! $this->table_ready() ) {
+			return [];
+		}
+		global $wpdb;
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE conversation_id = %d AND event_type = %s AND status = %s ORDER BY start_at ASC LIMIT 100",
+			$conversation_id, $event_type, $status
+		), ARRAY_A ) ?: [];
+	}
+
+	/**
+	 * List events for a user within a date range.
+	 *
+	 * @param int    $user_id
+	 * @param string $from     Y-m-d or Y-m-d H:i:s
+	 * @param string $to
+	 * @param string $status   'active' | 'done' | 'cancelled' | 'all'
+	 * @return array
+	 */
+	public function get_events( int $user_id, string $from, string $to, string $status = 'active', $event_type = '' ): array {
+		if ( ! $this->table_ready() ) {
+			return [];
+		}
+		global $wpdb;
+
+		$where = "user_id = %d AND start_at <= %s AND (end_at >= %s OR (end_at IS NULL AND start_at >= %s))";
+		$args  = [ $user_id, $to, $from, $from ];
+
+		if ( $status && $status !== 'all' ) {
+			// [2026-10-05 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-0 — Run Ledger states are filterable too (they fire no status hook).
+			$allowed_statuses = [ 'active', 'done', 'failed', 'cancelled', 'running', 'missed' ];
+			if ( in_array( $status, $allowed_statuses, true ) ) {
+				$where .= " AND status = %s";
+				$args[] = $status;
+			}
+		}
+
+		// Optional event_type filter — accepts string ("fb_post") or CSV
+		// ("fb_post,web_post,reminder_zalo") or array. Caller is responsible
+		// for using canonical types; unknown values just return zero rows.
+		if ( ! empty( $event_type ) ) {
+			$types = is_array( $event_type )
+				? $event_type
+				: array_filter( array_map( 'trim', explode( ',', (string) $event_type ) ) );
+			if ( $types ) {
+				$placeholders = implode( ',', array_fill( 0, count( $types ), '%s' ) );
+				$where .= " AND event_type IN ($placeholders)";
+				$args   = array_merge( $args, $types );
+			}
+		}
+
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE {$where} ORDER BY start_at ASC",
+			...$args
+		), ARRAY_A ) ?: [];
+	}
+
+	/**
+	 * Get today's events for a user.
+	 */
+	public function get_today_events( int $user_id ): array {
+		$today_start = current_time( 'Y-m-d' ) . ' 00:00:00';
+		$today_end   = current_time( 'Y-m-d' ) . ' 23:59:59';
+		return $this->get_events( $user_id, $today_start, $today_end );
+	}
+
+	/**
+	 * Get events needing reminder notification.
+	 *
+	 * Two semantics share this queue:
+	 *   - **Reminder (reminder_min > 0)**: fire BEFORE start_at, between
+	 *     (start_at - reminder_min) and start_at. Used by CRM calendar.
+	 *   - **Publisher (reminder_min = 0)**: fire AT/AFTER start_at, with 7-day
+	 *     catch-up so cron lag doesn't lose events. Used by FB publisher,
+	 *     scheduled posts, future webhook dispatchers…
+	 *
+	 * @return array
+	 */
+	public function get_pending_reminders(): array {
+		if ( ! $this->table_ready() ) {
+			return [];
+		}
+		global $wpdb;
+
+		$now    = current_time( 'mysql' );
+		$cutoff = wp_date( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( 7 * DAY_IN_SECONDS ) );
+
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-6 — the PHP cron never fires a row whose clock is the cell (D92-11).
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->table}
+			 WHERE reminder_sent = 0
+			   AND status = 'active'
+			   AND dispatcher = 'site'
+			   AND (
+			        ( reminder_min > 0
+			          AND DATE_SUB(start_at, INTERVAL reminder_min MINUTE) <= %s
+			          AND start_at >= %s )
+			     OR ( reminder_min = 0
+			          AND start_at <= %s
+			          AND start_at >= %s )
+			   )
+			 ORDER BY start_at ASC
+			 LIMIT 50",
+			$now, $now, $now, $cutoff
+		), ARRAY_A ) ?: [];
+	}
+
+	/**
+	 * Atomically claim due reminders to prevent duplicate fire across concurrent cron runs.
+	 */
+	public function claim_due_reminders( int $limit = 50 ): array {
+		if ( ! $this->table_ready() ) {
+			return [];
+		}
+
+		global $wpdb;
+
+		$now        = current_time( 'mysql' );
+		// [2026-10-05 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-B2-3 — current_time('timestamp') is already site-local: format it with
+		// gmdate(). wp_date() shifted it a second time, which put the 10-minute stale-lock threshold hours in the future (no lock at all
+		// on UTC+7 sites: two concurrent scans could claim the same row).
+		$stale_lock = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( 10 * MINUTE_IN_SECONDS ) );
+		$catchup    = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( 7 * DAY_IN_SECONDS ) );
+		// Dual-semantic claim:
+		//   (A) reminder_min > 0 → fire BEFORE start_at (CRM reminder).
+		//   (B) reminder_min = 0 → fire AT/AFTER start_at, up to 7 days back
+		//        (publisher events: FB post, future webhooks, etc.).
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-6 — select AND claim only `site` rows (D92-11).
+		$ids        = $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$this->table}
+			 WHERE reminder_sent = 0
+			   AND status = 'active'
+			   AND dispatcher = 'site'
+			   AND (
+			        ( reminder_min > 0
+			          AND DATE_SUB(start_at, INTERVAL reminder_min MINUTE) <= %s
+			          AND start_at >= %s )
+			     OR ( reminder_min = 0
+			          AND start_at <= %s
+			          AND start_at >= %s )
+			   )
+			   AND (reminder_claimed_at IS NULL OR reminder_claimed_at < %s)
+			 ORDER BY start_at ASC
+			 LIMIT %d",
+			$now,
+			$now,
+			$now,
+			$catchup,
+			$stale_lock,
+			$limit
+		) );
+
+		if ( empty( $ids ) ) {
+			return [];
+		}
+
+		$claimed = [];
+		foreach ( $ids as $id ) {
+			$updated = $wpdb->query( $wpdb->prepare(
+				"UPDATE {$this->table}
+				 SET reminder_claimed_at = %s
+				 WHERE id = %d
+				   AND reminder_sent = 0
+				   AND dispatcher = 'site'
+				   AND (reminder_claimed_at IS NULL OR reminder_claimed_at < %s)",
+				$now,
+				(int) $id,
+				$stale_lock
+			) );
+
+			if ( 1 !== (int) $updated ) {
+				continue;
+			}
+
+			$event = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$this->table} WHERE id = %d",
+				(int) $id
+			), ARRAY_A );
+
+			if ( ! empty( $event ) ) {
+				$claimed[] = $event;
+			}
+		}
+
+		return $claimed;
+	}
+
+	/**
+	 * Claim ONE row that is due now (reminder_min = 0 rows: start_at ≤ now) with the same atomic UPDATE as
+	 * claim_due_reminders(). Row array or null (not due, not active, already sent, or claimed by someone else).
+	 */
+	public function claim_one( int $id ): ?array {
+		// [2026-10-05 07:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-B2-3 — run-now and the 5-minute scan share one claim.
+		if ( $id <= 0 || ! $this->table_ready() ) {
+			return null;
+		}
+		global $wpdb;
+		$now        = current_time( 'mysql' );
+		$stale_lock = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( 10 * MINUTE_IN_SECONDS ) ); // site-local, no second shift
+		$updated    = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$this->table}
+			 SET reminder_claimed_at = %s
+			 WHERE id = %d
+			   AND reminder_sent = 0
+			   AND status = 'active'
+			   AND dispatcher = 'site'
+			   AND start_at <= %s
+			   AND (reminder_claimed_at IS NULL OR reminder_claimed_at < %s)",
+			$now,
+			$id,
+			$now,
+			$stale_lock
+		) );
+		if ( 1 !== (int) $updated ) {
+			return null;
+		}
+		$event = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE id = %d", $id ), ARRAY_A );
+		return $event ? (array) $event : null;
+	}
+
+	/**
+	 * Mark reminder as sent.
+	 */
+	public function mark_reminder_sent( int $id ): void {
+		if ( ! $this->table_ready() ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->update( $this->table, [ 'reminder_sent' => 1, 'reminder_claimed_at' => null ], [ 'id' => $id ], [ '%d', '%s' ], [ '%d' ] );
+	}
+
+	/**
+	 * Release claimed reminder if processing failed.
+	 */
+	public function release_reminder_claim( int $id ): void {
+		if ( ! $this->table_ready() ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->update( $this->table, [ 'reminder_claimed_at' => null ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
+	}
+
+	/* ================================================================
+	 *  LLM Context Builder
+	 * ================================================================ */
+
+	/**
+	 * Build compact text of today's events for LLM context injection.
+	 *
+	 * Used by:
+	 *   - Intent module: inject into system prompt
+	 *   - Twin Core: awareness layer
+	 *
+	 * @param int $user_id
+	 * @return string  "Lịch hôm nay:\n- 09:00 Họp team\n- 14:00 Call khách"
+	 */
+	public function build_today_context( int $user_id ): string {
+		$events = $this->get_today_events( $user_id );
+		if ( empty( $events ) ) {
+			return '';
+		}
+
+		$lines = [ 'Lịch hôm nay (' . current_time( 'd/m' ) . '):' ];
+		foreach ( $events as $e ) {
+			$time = $e['all_day'] ? 'Cả ngày' : date( 'H:i', strtotime( $e['start_at'] ) );
+			$badge = '';
+			if ( in_array( $e['source'], [ 'ai_plan', 'ai_task', 'ai_memory', 'workflow', 'composite' ], true ) ) {
+				$badge = ' [AI]';
+			} elseif ( in_array( $e['source'], [ 'google_sync', 'external_sync' ], true ) ) {
+				$badge = ' [SYNC]';
+			}
+			$status_badge = '';
+			if ( $e['status'] === 'done' ) {
+				$status_badge = ' ✅';
+			}
+			$lines[] = "- {$time} {$e['title']}{$badge}{$status_badge}";
+		}
+		return implode( "\n", $lines );
+	}
+
+	/* ================================================================
+	 *  Helpers
+	 * ================================================================ */
+
+	/**
+	 * Sanitize and validate event data for insert.
+	 *
+	 * @return array|\WP_Error
+	 */
+	private function sanitize_row( array $data ) {
+		if ( empty( $data['title'] ) ) {
+			return new \WP_Error( 'missing_title', 'Title is required.' );
+		}
+		if ( empty( $data['start_at'] ) ) {
+			return new \WP_Error( 'missing_start', 'Start time is required.' );
+		}
+
+		$source = $data['source'] ?? 'user';
+		$allowed_sources = [
+			'user', 'user_prompt', 'ai_plan', 'ai_task', 'ai_reminder', 'ai_memory',
+			'workflow', 'composite', 'google_sync', 'external_sync',
+			// Phase 2 (M-CRM.M12 v2) — CRM-originated rows.
+			'crm_calendar', 'crm_inbox',
+			// PHASE-CG-SCHEDULER v0.2 — Channel Gateway scheduled posts.
+			'channel_gateway',
+			// [2026-10-03 Claude Opus 5.5] D-SCH-CELL-1 — mirror of a zalo-hub cell job (core/mcp booking.sync_job).
+			'cell',
+		];
+
+		$event_type = $data['event_type'] ?? 'meeting';
+		$allowed_event_types = [
+			'meeting', 'workshop', 'training', 'internal', 'personal', 'task', 'reminder',
+			// PHASE-CG-SCHEDULER v0.2 — Facebook scheduled post (handled by BizCity_FB_Publisher).
+			'fb_post',
+			// TASK-UNIFY Phase 1/2 — Web post + Zalo reminder (core/channel-gateway handlers).
+			'web_post',
+			'reminder_zalo',
+			// TASK-UNIFY Phase 3 — Legacy migration: Woo + Lead Report (core/channel-gateway handlers).
+			'woo_product_create',
+			'woo_product_edit',
+			'woo_order_create',
+			'lead_report',
+			// AUTOMATION BE-4 — workflow trigger fire (handler in core/automation).
+			'automation_workflow',
+			// [2026-06-03 Johnny Chu] SCH-NC W2 — TwinBrain master + outbound channel.
+			'reminder_personal',
+			'telegram_send',
+			// [2026-06-13 Johnny Chu] ZA-1.2 — Zalo OA inbound message CRM tracking event.
+			'zalo_inbound',
+			// [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — Omni-channel unification event types.
+			'broadcast_scheduled',    // Wave 6: broadcast campaign fire-time placeholder.
+			'crm_conversation_task',  // Inline task created from CRM inbox thread.
+			'qr_scan_followup',       // QR code scan entry point (campaign attribution).
+			// [2026-09-23 04:20 PM Claude Fable 5.1] PHASE-0.60B C4.1 — customer birthday reminder (adapter in plugins/bizcity-twin-crm).
+			'contact_birthday',
+			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — a Bot Studio scheduled task (handler: core/channel-gateway/includes/bot/class-bot-schedule.php).
+			'bot_task',
+			// [2026-10-03 Claude Opus 5.5] D-SCH-CELL-1 — a zalo-hub cell job mirrored for Lịch/CRM; the cell fires it, never PHP.
+			'cell_job',
+			// [2026-10-05 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-0 — a scenario run requested by the cell (row written by BizCity_Scheduler_Run_Ledger::open()).
+			'automation_run',
+		];
+
+		// [2026-10-05 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-0 — running/missed are Run Ledger states; no status hook fires for them.
+		$allowed_statuses = [ 'active', 'draft', 'done', 'failed', 'cancelled', 'running', 'missed' ];
+		$status_input     = (string) ( $data['status'] ?? 'active' );
+
+		$row = [
+			'user_id'       => (int) ( $data['user_id'] ?? get_current_user_id() ),
+			'title'         => sanitize_text_field( $data['title'] ),
+			'description'   => isset( $data['description'] ) ? wp_kses_post( $data['description'] ) : null,
+			'start_at'      => sanitize_text_field( $data['start_at'] ),
+			'end_at'        => ! empty( $data['end_at'] ) ? sanitize_text_field( $data['end_at'] ) : null,
+			'all_day'       => ! empty( $data['all_day'] ) ? 1 : 0,
+			'reminder_min'  => isset( $data['reminder_min'] ) ? absint( $data['reminder_min'] ) : 15,
+			'source'        => in_array( $source, $allowed_sources, true ) ? $source : 'user',
+			'ai_context'    => isset( $data['ai_context'] ) ? sanitize_text_field( $data['ai_context'] ) : null,
+			'status'        => in_array( $status_input, $allowed_statuses, true ) ? $status_input : 'active',
+			'event_type'    => in_array( $event_type, $allowed_event_types, true ) ? $event_type : 'meeting',
+		];
+
+		// [2026-10-05 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AS-0 — persist reminder_sent only when the caller passes it: Run Ledger rows are born
+		// "already fired" so claim_due_reminders can never pick them up. Absent ⇒ column default, unchanged for every other caller.
+		if ( array_key_exists( 'reminder_sent', $data ) ) {
+			$row['reminder_sent'] = ! empty( $data['reminder_sent'] ) ? 1 : 0;
+		}
+
+		// metadata: accept array (encode) or pre-encoded JSON string. Anything else dropped.
+		if ( isset( $data['metadata'] ) ) {
+			if ( is_array( $data['metadata'] ) ) {
+				$row['metadata'] = wp_json_encode( $data['metadata'] );
+			} elseif ( is_string( $data['metadata'] ) && '' !== $data['metadata'] ) {
+				// Validate JSON string before storing.
+				json_decode( $data['metadata'] );
+				if ( JSON_ERROR_NONE === json_last_error() ) {
+					$row['metadata'] = $data['metadata'];
+				}
+			}
+		}
+
+		// [2026-06-15 Johnny Chu] R-UNIFY Wave 2 — FK columns for Omni-Channel Unification.
+		if ( ! empty( $data['contact_id'] ) ) {
+			$row['contact_id'] = absint( $data['contact_id'] ) ?: null;
+		}
+		if ( ! empty( $data['conversation_id'] ) ) {
+			$row['conversation_id'] = absint( $data['conversation_id'] ) ?: null;
+		}
+		if ( ! empty( $data['campaign_id'] ) ) {
+			$row['campaign_id'] = absint( $data['campaign_id'] ) ?: null;
+		}
+
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-1 — dispatcher / owner agent / cell job (absent ⇒ column defaults).
+		$row = array_merge( $row, self::clean_dispatch_fields( $data ) );
+
+		// Google account binding (Phase 4 will populate; Phase 2 only stores).
+		if ( isset( $data['google_account_id'] ) ) {
+			$row['google_account_id'] = absint( $data['google_account_id'] ) ?: null;
+		}
+
+		// Google Calendar fields — set during sync_from_google()
+		if ( ! empty( $data['google_event_id'] ) ) {
+			$row['google_event_id']    = sanitize_text_field( $data['google_event_id'] );
+			$row['google_calendar_id'] = sanitize_text_field( $data['google_calendar_id'] ?? 'primary' );
+			$row['google_synced_at']   = current_time( 'mysql' );
+		}
+
+		return $row;
+	}
+
+	/**
+	 * The W7 columns present in $data, cleaned; invalid values are dropped (never written as garbage).
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function clean_dispatch_fields( array $data ): array {
+		// [2026-10-06 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-1
+		$out = [];
+		if ( isset( $data['dispatcher'] ) && in_array( $data['dispatcher'], [ self::DISPATCHER_SITE, self::DISPATCHER_CELL ], true ) ) {
+			$out['dispatcher'] = $data['dispatcher'];
+		}
+		if ( array_key_exists( 'owner_agent_hash', $data ) ) {
+			$hash = strtolower( (string) $data['owner_agent_hash'] );
+			$out['owner_agent_hash'] = preg_match( '/^[a-f0-9]{64}$/', $hash ) ? $hash : null;
+		}
+		foreach ( [ 'owner_number_ref' => 64, 'owner_person_id' => 36, 'cell_job_id' => 64 ] as $key => $max ) {
+			if ( array_key_exists( $key, $data ) ) {
+				$val         = preg_replace( '/[^A-Za-z0-9_.:-]/', '', (string) $data[ $key ] );
+				$out[ $key ] = '' !== $val ? substr( $val, 0, $max ) : null;
+			}
+		}
+		if ( array_key_exists( 'cell_state', $data ) ) {
+			$out['cell_state'] = in_array( $data['cell_state'], self::CELL_STATES, true ) ? $data['cell_state'] : null;
+		}
+		return $out;
+	}
+
+	/**
+	 * Public accessor for table name (used by Google sync / Cron).
+	 */
+	public function get_table(): string {
+		return $this->table;
+	}
+}

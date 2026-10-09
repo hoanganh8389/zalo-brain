@@ -1,0 +1,80 @@
+{
+    "name": "bizcity/twin-ai",
+    "description": "BizCity Twin Brain — WordPress AI Companion Framework. Personalized AI with Identity, Memory, and Intent.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "homepage": "https://bizcity.vn",
+    "keywords": ["wordpress", "plugin", "ai", "framework", "llm", "agent", "rag", "twin", "bizcity"],
+    "authors": [
+        {
+            "name": "Johnny Chu (Chu Hoàng Anh)",
+            "email": "Hoanganh.itm@gmail.com",
+            "homepage": "https://bizcity.vn",
+            "role": "Founder & Lead Developer"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/bizcity/bizcity-twin-ai/issues",
+        "source": "https://github.com/bizcity/bizcity-twin-ai"
+    },
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-curl": "*",
+        "setasign/fpdf": "^1.8",
+        "setasign/fpdi": "^2.6"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5",
+        "squizlabs/php_codesniffer": "^3.7",
+        "wp-coding-standards/wpcs": "^3.0",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "BizCity\\Twin\\": "src/"
+        },
+        "classmap": [
+            "core/twin-core/contracts/"
+        ],
+        "files": [
+            "core/bizcity-llm/includes/helpers-deprecation.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "BizCity\\Twin\\Tests\\": "tests/unit/"
+        }
+    },
+    "bin": [
+        "bin/twin"
+    ],
+    "scripts": {
+        "doctor": "php bin/twin doctor",
+        "validate": "php bin/twin validate",
+        "lint": "phpcs --standard=phpcs.xml.dist",
+        "lint:fix": "phpcbf --standard=phpcs.xml.dist",
+        "test": "php -d auto_prepend_file=tests/phpunit-prepend.php vendor/bin/phpunit --configuration phpunit.xml.dist",
+        "diagnostics": "php bin/diagnostics-run.php",
+        "diagnostics:junit": "php bin/diagnostics-run.php --junit=build/junit.xml",
+        "compat:php74": "@php bin/validate-php74.php"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "platform": {
+            "php": "7.4.33"
+        },
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    },
+    "extra": {
+        "framework-version": "1.0.0-rc1",
+        "phase": "0.99 — Framework v1.0 Readiness"
+    }
+}

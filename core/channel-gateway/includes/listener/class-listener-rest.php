@@ -1,0 +1,300 @@
+<?php
+/**
+ * Listener REST — live tail feed + SSE stream
+ *
+ * SHIPPED 2026-05-29 (Phase CG-Listener S1).
+ *
+ * Namespace: `bizcity-channel/v1/listener/*` (R-CH-NS compliant).
+ *
+ * Routes:
+ *   GET  /listener/feed?since=&platform=&account_id=&user_id=&kind=&workflow_id=&run_id=&chat_id=&q=&limit=
+ *        → { ok:true, events:[…], head_id:int }
+ *   GET  /listener/stream?…same filters…
+ *        → text/event-stream, ticks every 1s for up to 30s; sends `data: {events,head_id}` per tick.
+ *   POST /listener/test-emit  { kind, platform?, account_id?, user_id?, message? }
+ *        → { ok:true, id:int }  (smoke test for UI wiring + Diagnostic probe).
+ *   POST /listener/clear
+ *        → { ok:true }  (purge ring buffer; admin tooling only).
+ *
+ * Feed/stream require admin, or a customer-owned workflow access guard.
+ * Mutating/debug routes require `manage_options`.
+ *
+ * @package BizCity_Twin_AI
+ * @subpackage Channel_Gateway
+ * @since 1.6.0 (Phase CG-Listener S1)
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+class BizCity_Listener_REST {
+
+	const NS = 'bizcity-channel/v1';
+
+	public static function init(): void {
+		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
+	}
+
+	public static function register_routes(): void {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — feed/stream can be read by customer canvas when access_workflow_id proves ownership and trigger scope.
+		register_rest_route( self::NS, '/listener/feed', array(
+			'methods'             => 'GET',
+			'permission_callback' => array( __CLASS__, 'can_read_feed' ),
+			'callback'            => array( __CLASS__, 'route_feed' ),
+		) );
+
+		register_rest_route( self::NS, '/listener/stream', array(
+			'methods'             => 'GET',
+			'permission_callback' => array( __CLASS__, 'can_read_feed' ),
+			'callback'            => array( __CLASS__, 'route_stream' ),
+		) );
+
+		register_rest_route( self::NS, '/listener/test-emit', array(
+			'methods'             => 'POST',
+			'permission_callback' => array( __CLASS__, 'can_admin' ),
+			'callback'            => array( __CLASS__, 'route_test_emit' ),
+		) );
+
+		register_rest_route( self::NS, '/listener/clear', array(
+			'methods'             => 'POST',
+			'permission_callback' => array( __CLASS__, 'can_admin' ),
+			'callback'            => array( __CLASS__, 'route_clear' ),
+		) );
+	}
+
+	public static function can_admin( $request ): bool {
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+	}
+
+	public static function can_read_feed( $request ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — admin sees full listener; customers need workflow-scoped proof.
+		// [2026-09-23 Claude Sonnet 5] Core-wide super-admin capability audit — bare manage_options wrongly rejected Network Super Admins with no local blog role.
+		$can_manage = class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+		if ( $can_manage ) { return true; }
+		if ( ! current_user_can( 'read' ) || ! ( $request instanceof WP_REST_Request ) ) { return false; }
+		return self::customer_workflow_listener_allowed( $request );
+	}
+
+	private static function customer_workflow_listener_allowed( WP_REST_Request $req ): bool {
+		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — access_workflow_id authorizes but is intentionally not a Bus filter.
+		$workflow_id = (int) $req->get_param( 'access_workflow_id' );
+		if ( $workflow_id <= 0 || ! class_exists( 'BizCity_Automation_Repo_Workflows' ) ) { return false; }
+
+		$wf = BizCity_Automation_Repo_Workflows::find( $workflow_id );
+		if ( ! is_array( $wf ) ) { return false; }
+		$current_user_id = (int) get_current_user_id();
+		if ( $current_user_id <= 0 || (int) ( $wf['created_by'] ?? 0 ) !== $current_user_id ) { return false; }
+
+		$platform = strtoupper( sanitize_key( (string) $req->get_param( 'platform' ) ) );
+		if ( $platform === '' ) { return false; }
+
+		$kind_raw = (string) $req->get_param( 'kind' );
+		$kinds = array_filter( array_map( 'trim', explode( ',', $kind_raw ) ) );
+		$allowed_kinds = array( 'inbound', 'twin', 'automation' );
+		foreach ( $kinds as $kind ) {
+			if ( ! in_array( $kind, $allowed_kinds, true ) ) { return false; }
+		}
+
+		$requested_account_id = trim( (string) $req->get_param( 'account_id' ) );
+		$graph = isset( $wf['graph'] ) && is_array( $wf['graph'] ) ? $wf['graph'] : array();
+		$nodes = isset( $graph['nodes'] ) && is_array( $graph['nodes'] ) ? $graph['nodes'] : array();
+		$platform_by_block = array(
+			'trigger.zalo_inbound'      => 'ZALO_BOT',
+			'trigger.fb_message'        => 'FB_MESS',
+			'trigger.fb_comment'        => 'FB_FEED',
+			'trigger.telegram_inbound'  => 'TELEGRAM',
+		);
+
+		foreach ( $nodes as $node ) {
+			if ( ! is_array( $node ) ) { continue; }
+			$data = isset( $node['data'] ) && is_array( $node['data'] ) ? $node['data'] : array();
+			$block_id = (string) ( $data['blockId'] ?? '' );
+			$expected_platform = (string) ( $platform_by_block[ $block_id ] ?? '' );
+			if ( $expected_platform === '' || $expected_platform !== $platform ) { continue; }
+
+			$node_account_id = trim( (string) ( $data['instance_id'] ?? '' ) );
+			if ( $node_account_id !== '' && $requested_account_id !== '' && $node_account_id !== $requested_account_id ) {
+				continue;
+			}
+			if ( $node_account_id !== '' && $requested_account_id === '' ) {
+				continue;
+			}
+			return true;
+		}
+
+		return false;
+	}
+
+	/* ─────────────────────────── Handlers ─────────────────────────── */
+
+	public static function route_feed( WP_REST_Request $req ) {
+		$since   = (int) $req->get_param( 'since' );
+		$limit   = (int) ( $req->get_param( 'limit' ) ?: 100 );
+		$filters = self::build_filters( $req );
+		$out     = BizCity_Listener_Bus::tail( $since, $filters, $limit );
+		return rest_ensure_response( array(
+			'ok'      => true,
+			'events'  => $out['events'],
+			'head_id' => $out['head_id'],
+		) );
+	}
+
+	public static function route_stream( WP_REST_Request $req ) {
+		$since   = (int) $req->get_param( 'since' );
+		$filters = self::build_filters( $req );
+
+		// SSE response — bypass normal REST encoding.
+		if ( ! headers_sent() ) {
+			header( 'Content-Type: text/event-stream; charset=utf-8' );
+			header( 'Cache-Control: no-cache, no-store, must-revalidate' );
+			header( 'X-Accel-Buffering: no' );
+		}
+		// Disable WP/REST output buffering so flushes hit the wire.
+		while ( ob_get_level() > 0 ) { @ob_end_flush(); }
+		@ignore_user_abort( false );
+
+		$started = microtime( true );
+		$tick_ms = 1000;        // 1s polling on the ring
+		$max_s   = 30;          // max 30s per request (FE will reconnect)
+		$last_id = $since;
+
+		// Initial hello so client knows the stream is live.
+		echo "event: hello\n";
+		echo 'data: ' . wp_json_encode( array(
+			'ok'      => true,
+			'since'   => $last_id,
+			'head_id' => BizCity_Listener_Bus::head_id(),
+			'ts'      => microtime( true ),
+		) ) . "\n\n";
+		@flush();
+
+		while ( ( microtime( true ) - $started ) < $max_s ) {
+			if ( connection_aborted() ) { break; }
+			$tail = BizCity_Listener_Bus::tail( $last_id, $filters, 50 );
+			if ( ! empty( $tail['events'] ) ) {
+				foreach ( $tail['events'] as $ev ) {
+					echo "event: message\n";
+					echo 'data: ' . wp_json_encode( $ev ) . "\n\n";
+					if ( ! empty( $ev['id'] ) ) { $last_id = (int) $ev['id']; }
+				}
+				@flush();
+			} else {
+				// Heartbeat so proxies don't kill idle connection.
+				echo ": ping " . (int) ( microtime( true ) * 1000 ) . "\n\n";
+				@flush();
+			}
+			usleep( $tick_ms * 1000 );
+		}
+
+		// Bye marker so client knows to reconnect with new `since`.
+		echo "event: bye\n";
+		echo 'data: ' . wp_json_encode( array( 'head_id' => $last_id ) ) . "\n\n";
+		@flush();
+		exit;
+	}
+
+	public static function route_test_emit( WP_REST_Request $req ) {
+		$body = (array) $req->get_json_params();
+		$ev   = array(
+			'kind'       => isset( $body['kind'] )       ? (string) $body['kind']       : 'system',
+			'platform'   => isset( $body['platform'] )   ? (string) $body['platform']   : 'AUTOMATION',
+			'account_id' => isset( $body['account_id'] ) ? (string) $body['account_id'] : 'test',
+			'user_id'    => isset( $body['user_id'] )    ? (string) $body['user_id']    : 'admin',
+			'chat_id'    => isset( $body['chat_id'] )    ? (string) $body['chat_id']    : 'test_admin',
+			'event_type' => isset( $body['event_type'] ) ? (string) $body['event_type'] : 'test',
+			'direction'  => isset( $body['direction'] )  ? (string) $body['direction']  : '',
+			'message'    => isset( $body['message'] )    ? (string) $body['message']    : 'Listener test emit @ ' . wp_date( 'H:i:s' ),
+			'meta'       => array( 'source' => 'rest.test-emit', 'by' => get_current_user_id() ),
+		);
+		$id = BizCity_Listener_Bus::emit( $ev );
+		return rest_ensure_response( array( 'ok' => $id > 0, 'id' => $id ) );
+	}
+
+	public static function route_clear( WP_REST_Request $req ) {
+		BizCity_Listener_Bus::clear();
+		return rest_ensure_response( array( 'ok' => true ) );
+	}
+
+	/* ─────────────────────────── Internals ─────────────────────────── */
+
+	private static function build_filters( WP_REST_Request $req ): array {
+		$filters = array();
+		foreach ( array( 'platform', 'account_id', 'user_id', 'kind', 'run_id', 'chat_id', 'q' ) as $k ) {
+			$v = $req->get_param( $k );
+			if ( $v !== null && $v !== '' ) { $filters[ $k ] = $v; }
+		}
+		$wid = (int) $req->get_param( 'workflow_id' );
+		if ( $wid > 0 ) { $filters['workflow_id'] = $wid; }
+
+		// [2026-06-02 Johnny Chu] R-CH-NS / multisite-listener — blog scoping.
+		//
+		// Channel webhooks (Zalo bot /zalohook, FB webhook…) land on whichever
+		// subsite happens to own the rewrite route (often bot home blog, e.g.
+		// 1258). `emit()` tags every event với `blog_id = get_current_blog_id()`.
+		// Admin SPA lại poll `/listener/feed` từ blog admin đang mở (vd main
+		// blog 1) → nếu auto-scope theo current blog thì 100% events Zalo bị
+		// loại ra dù ring storage đã network-wide.
+		//
+		// Quy tắc mới (multisite-aware):
+		//   • Caller explicit ?blog_id=<N>   → respect (nhưng vẫn check
+		//     super-admin nếu N≠current để tránh peek site khác).
+		//   • Caller pass channel scope (platform / account_id / chat_id)
+		//     → KHÔNG auto blog scope. Channel scope đã đủ chặt vì account_id
+		//     unique cross-network và permission_callback đã yêu cầu
+		//     manage_options.
+		//   • Caller request workflow_id / run_id → cũng KHÔNG auto blog scope
+		//     (automation events synthetic, kind=automation/twin bypass scope
+		//     trong tail() rồi).
+		//   • Nếu không có scope nào → giữ behaviour cũ (chỉ events blog hiện
+		//     tại) để admin general listener không lộ cross-site noise.
+		$req_blog = $req->get_param( 'blog_id' );
+		if ( $req_blog !== null && $req_blog !== '' ) {
+			$want = (int) $req_blog;
+			if ( $want === 0 ) {
+				// Explicit cross-site: only super-admins.
+				if ( ! is_super_admin() ) {
+					$filters['blog_id'] = (int) get_current_blog_id();
+				}
+				// else: no blog_id filter → show all blogs.
+			} else {
+				if ( $want !== (int) get_current_blog_id() && ! is_super_admin() ) {
+					$filters['blog_id'] = (int) get_current_blog_id();
+				} else {
+					$filters['blog_id'] = $want;
+				}
+			}
+		} else {
+			$has_channel_scope = ! empty( $filters['platform'] )
+				|| ! empty( $filters['account_id'] )
+				|| ! empty( $filters['chat_id'] )
+				|| ! empty( $filters['workflow_id'] )
+				|| ! empty( $filters['run_id'] );
+
+			// [2026-06-02 Johnny Chu] PG-MULTISITE-LEAK — twin/automation kind
+			// PHẢI scope blog. Trước đây has_channel_scope=true → bỏ blog filter,
+			// nhưng twin tap emit `platform=TWIN` không khớp channel webhook blog
+			// → events từ blog X lọt vào playground blog Y. Khi caller yêu cầu
+			// twin hoặc automation kind, default scope theo current blog.
+			$kinds_req = array();
+			if ( isset( $filters['kind'] ) ) {
+				$kinds_req = is_array( $filters['kind'] )
+					? $filters['kind']
+					: array_filter( array_map( 'trim', explode( ',', (string) $filters['kind'] ) ) );
+			}
+			$wants_synthetic = (bool) array_intersect( $kinds_req, array( 'twin', 'automation' ) );
+
+			if ( ! $has_channel_scope || $wants_synthetic ) {
+				// Bare query HOẶC twin/automation pane → scope current blog để
+				// tránh leak system/twin noise từ subsite khác.
+				$filters['blog_id'] = (int) get_current_blog_id();
+			}
+			// else: pure channel scope (inbound/outbound only) → cross-blog by
+			// design (admin blog 1 tail bot blog 1258 Zalo events).
+		}
+		return $filters;
+	}
+}

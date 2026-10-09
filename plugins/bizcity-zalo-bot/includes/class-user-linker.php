@@ -1,0 +1,858 @@
+<?php
+/**
+ * BizCity Zalo Bot — User Linker
+ *
+ * Manages binding Zalo user_ids to WordPress user_ids.
+ *
+ * Flow:
+ *   1. Zalo user messages bot → resolve_wp_user() → 0 (not linked)
+ *   2. maybe_send_login_link() sends a WP login URL via bot API (cooldown 5 min)
+ *   3. User opens URL → if not logged in → redirects to wp-login → redirects back
+ *   4. handle_login_callback() validates token → stores link in DB
+ *   5. Subsequent messages → resolve_wp_user() → wp_user_id → full user context
+ *
+ * Table: {base_prefix}bizcity_zalobot_user_links (network-wide, multisite-safe)
+ *
+ * @package BizCity_Zalo_Bot
+ * @since   1.1.0
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+class BizCity_Zalobot_User_Linker {
+
+	const DB_VERSION_OPTION = 'bizcity_zalobot_links_db_ver';
+	const DB_VERSION        = '1.1';
+	const LINK_PARAM        = 'bzzalolink';
+	const TOKEN_TTL         = 1800; // 30 minutes in seconds
+	const LINK_MSG_COOLDOWN = 300;  // 5 minute cooldown between link resends
+	const TW_LINK_NONCE_TTL = 600;  // 10 minutes for Twin GPT deep-link bind command
+	const TW_LINK_NONCE_KEY = 'bztgpt_zlink_';
+
+	/* ── Table ── */
+
+	public static function table(): string {
+		global $wpdb;
+		return $wpdb->base_prefix . 'bizcity_zalobot_user_links';
+	}
+
+	/* ── Install / Upgrade ── */
+
+	public static function install(): void {
+		global $wpdb;
+
+		if ( get_site_option( self::DB_VERSION_OPTION ) === self::DB_VERSION ) {
+			return;
+		}
+
+		if ( ! function_exists( 'dbDelta' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+		}
+
+		$charset = $wpdb->get_charset_collate();
+		$table   = self::table();
+
+		$sql = "CREATE TABLE IF NOT EXISTS {$table} (
+			id bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+			zalo_user_id varchar(100) NOT NULL,
+			bot_id bigint(20) UNSIGNED NOT NULL,
+			blog_id bigint(20) UNSIGNED NOT NULL DEFAULT 1,
+			wp_user_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+			notebook_id bigint(20) UNSIGNED NOT NULL DEFAULT 0,
+			link_token varchar(64) NOT NULL DEFAULT '',
+			token_expires datetime DEFAULT NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			display_name varchar(255) NOT NULL DEFAULT '',
+			linked_at datetime DEFAULT NULL,
+			created_at datetime DEFAULT CURRENT_TIMESTAMP,
+			updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			UNIQUE KEY uniq_zalo_bot (zalo_user_id, bot_id),
+			KEY wp_user_id (wp_user_id),
+			KEY notebook_id (notebook_id),
+			KEY status (status),
+			KEY link_token (link_token(32))
+		) {$charset};";
+
+		dbDelta( $sql );
+
+		// Safety: dbDelta sometimes skips column-only ALTERs on legacy tables.
+		// Explicitly ensure notebook_id column exists.
+		$has_col = $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+			  WHERE table_schema = DATABASE() AND table_name = %s AND column_name = 'notebook_id'",
+			$table
+		) );
+		if ( ! (int) $has_col ) {
+			$wpdb->query( "ALTER TABLE {$table} ADD COLUMN notebook_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0 AFTER wp_user_id, ADD KEY notebook_id (notebook_id)" );
+		}
+
+		update_site_option( self::DB_VERSION_OPTION, self::DB_VERSION );
+		error_log( '[Zalo User Linker] Table installed/upgraded: ' . $table . ' v' . self::DB_VERSION );
+	}
+
+	/* ════════════════════════════════════════════════
+	 * CORE: Resolve WP user_id from Zalo user_id
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * Resolve WordPress user_id for a Zalo user on a given bot.
+	 *
+	 * @param  string $zalo_user_id  Zalo platform user ID (message.from.id)
+	 * @param  int    $bot_id        Bot instance ID
+	 * @return int    WP user_id, or 0 if not linked
+	 */
+	public static function resolve_wp_user( string $zalo_user_id, int $bot_id ): int {
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — Channel Gateway owns the canonical admin-channel identity lookup.
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$canonical = BizCity_Channel_User_Linker::resolve_wp_user(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id
+			);
+			if ( $canonical > 0 ) {
+				return $canonical;
+			}
+		}
+		global $wpdb;
+
+		// Request-level cache
+		static $cache = [];
+		$key = $bot_id . '_' . $zalo_user_id;
+		if ( isset( $cache[ $key ] ) ) {
+			return (int) $cache[ $key ];
+		}
+
+		$result = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT wp_user_id FROM " . self::table() . "
+			 WHERE zalo_user_id = %s AND bot_id = %d AND status = 'linked'
+			 LIMIT 1",
+			$zalo_user_id,
+			$bot_id
+		) );
+
+		$cache[ $key ] = $result;
+		return $result;
+	}
+
+	/* ════════════════════════════════════════════════
+	 * SEND LOGIN LINK (with cooldown)
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * If user is not linked, send a login link via bot API.
+	 *
+	 * Includes 5-minute cooldown to prevent spamming the same user.
+	 *
+	 * @param  string $zalo_user_id  Zalo user ID
+	 * @param  int    $bot_id        Bot instance ID
+	 * @param  object $bot           Bot DB row (has id, bot_token, etc.)
+	 * @param  string $display_name  User's Zalo display name
+	 * @return bool   true if link was sent, false if already linked or on cooldown
+	 */
+	public static function maybe_send_login_link(
+		string $zalo_user_id,
+		int $bot_id,
+		object $bot,
+		string $display_name = '',
+		bool $force = false
+	): bool {
+		$zalo_user_hash = substr( md5( $zalo_user_id ), 0, 10 );
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — preserve the linked-user short circuit before canonical link issuance.
+		if ( self::resolve_wp_user( $zalo_user_id, $bot_id ) > 0 ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=already_linked bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
+			return false;
+		}
+
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-DUPLINK - collapse near-simultaneous callers (auto-linker, command router, memory hook) into a single dispatched link.
+		// Return true (not false) here — a link was just dispatched by another caller, so this is not an error.
+		$dispatch_lock_key = 'bzzalolink_lock_' . md5( $zalo_user_id . '_' . $bot_id );
+		if ( get_transient( $dispatch_lock_key ) ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_deduped reason=dispatch_lock bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
+			return true;
+		}
+
+		// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — issue the login URL through the Channel Gateway admin BE first.
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$canonical = BizCity_Channel_User_Linker::issue_link(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id,
+				(int) get_current_blog_id(),
+				array( 'display_name' => $display_name, 'force' => $force )
+			);
+			if ( is_array( $canonical ) ) {
+				if ( ! empty( $canonical['linked'] ) || ! empty( $canonical['cooldown'] ) ) {
+					error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=%s bot_id=%d zalo_user_hash=%s', ! empty( $canonical['linked'] ) ? 'canonical_already_linked' : 'canonical_cooldown', $bot_id, $zalo_user_hash ) );
+					return false;
+				}
+				if ( ! empty( $canonical['url'] ) ) {
+					$message = ( $display_name ? "Xin chào {$display_name}! " : 'Xin chào! ' )
+						. "Để AI biết bạn là ai và hỗ trợ cá nhân hóa tốt hơn, vui lòng đăng nhập:\n"
+						. "🔗 {$canonical['url']}\n\nLink có hiệu lực trong 30 phút.";
+					self::send_via_bot( $bot, $zalo_user_id, $message );
+					// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - lock only after a link was actually dispatched; a cooldown refusal must not suppress an explicit login command.
+					set_transient( $dispatch_lock_key, 1, 8 );
+					set_transient( 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id ), 1, self::LINK_MSG_COOLDOWN );
+					return true;
+				}
+			}
+			if ( is_wp_error( $canonical ) ) {
+				error_log( sprintf( '[Zalo Link Trace] canonical_issue_failed code=%s bot_id=%d zalo_user_hash=%s', (string) $canonical->get_error_code(), $bot_id, $zalo_user_hash ) );
+			}
+		}
+
+		// Cooldown: don't spam login links
+		$cooldown_key = 'bzzalolink_cd_' . md5( $zalo_user_id . '_' . $bot_id );
+		if ( ! $force && get_transient( $cooldown_key ) ) {
+			error_log( sprintf( '[Zalo Link Trace] login_link_skipped reason=legacy_cooldown bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
+			return false;
+		}
+
+		// Generate token and upsert pending record
+		$token   = wp_generate_password( 48, false );
+		$expires = gmdate( 'Y-m-d H:i:s', time() + self::TOKEN_TTL );
+
+		global $wpdb;
+		$table = self::table();
+
+		$existing = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE zalo_user_id = %s AND bot_id = %d LIMIT 1",
+			$zalo_user_id,
+			$bot_id
+		) );
+
+		$now = current_time( 'mysql', true );
+
+		if ( $existing ) {
+			$wpdb->update(
+				$table,
+				[
+					'link_token'    => $token,
+					'token_expires' => $expires,
+					'display_name'  => $display_name,
+					'status'        => 'pending',
+					'updated_at'    => $now,
+				],
+				[ 'id' => $existing->id ],
+				[ '%s', '%s', '%s', '%s', '%s' ],
+				[ '%d' ]
+			);
+		} else {
+			$wpdb->insert( $table, [
+				'zalo_user_id'  => $zalo_user_id,
+				'bot_id'        => $bot_id,
+				'blog_id'       => get_current_blog_id(),
+				'link_token'    => $token,
+				'token_expires' => $expires,
+				'display_name'  => $display_name,
+				'status'        => 'pending',
+				'created_at'    => $now,
+				'updated_at'    => $now,
+			] );
+		}
+
+		// PHASE 3.5 Wave A bridge: prefer CRM magic-link issuer so the new
+		// handler (which also creates Wave B grant on consume) owns the URL.
+		// Falls back to legacy token if CRM plugin not loaded.
+		$link_url = add_query_arg( self::LINK_PARAM, $token, home_url( '/' ) );
+		if ( class_exists( 'BizCity_CRM_Magic_Link' ) ) {
+			$issued = BizCity_CRM_Magic_Link::issue( [
+				'platform' => 'ZALO',
+				'chat_id'  => $zalo_user_id,
+				'bot_id'   => (string) $bot_id,
+				'intent'   => 'login',
+				'meta'     => [ 'display_name' => $display_name ],
+			] );
+			if ( ! is_wp_error( $issued ) && ! empty( $issued['url'] ) ) {
+				$link_url = $issued['url'];
+			}
+		}
+
+		$greeting      = $display_name ? "Xin chào {$display_name}! " : 'Xin chào! ';
+		$message       = $greeting
+			. "Để AI biết bạn là ai và hỗ trợ cá nhân hóa tốt hơn, vui lòng đăng nhập:\n"
+			. "🔗 " . $link_url . "\n\n"
+			. "Link có hiệu lực trong 30 phút.";
+
+		self::send_via_bot( $bot, $zalo_user_id, $message );
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-LINK - mark dedupe state only after legacy link dispatch completes.
+		set_transient( $dispatch_lock_key, 1, 8 );
+		error_log( sprintf( '[Zalo Link Trace] legacy_login_link_dispatched bot_id=%d zalo_user_hash=%s', $bot_id, $zalo_user_hash ) );
+
+		// Set cooldown
+		set_transient( $cooldown_key, 1, self::LINK_MSG_COOLDOWN );
+
+		error_log( sprintf(
+			'[Zalo User Linker] 📲 Login link sent → Zalo user=%s bot_id=%d',
+			$zalo_user_id,
+			$bot_id
+		) );
+
+		return true;
+	}
+
+	/* ════════════════════════════════════════════════
+	 * TWIN GPT: signed /link nonce flow (member-initiated)
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — issue one-time nonce for
+	 * member-initiated Zalo bind command `/link <nonce>`.
+	 *
+	 * [2026-09-19 Johnny Chu] PHASE-0.56 C-5 (D56-2) — `$issued_by`/`$ttl` are additive and default to
+	 * the original member-initiated behavior (0 = "requester issued their own nonce", `$ttl<=0` keeps
+	 * `TW_LINK_NONCE_TTL`). The manager-sends-a-code-to-a-named-employee flow
+	 * (`class-staff-rest.php`, `POST /crm-staff/{id}/zalo-bot-link`) passes its own actor id as
+	 * `$issued_by` and a 24-hour `$ttl` — everything else about consuming the nonce is unchanged.
+	 *
+	 * @param int $wp_user_id WordPress user id the nonce will bind TO.
+	 * @param int $bot_id     Target Zalo bot id.
+	 * @param int $issued_by  0 = self-issued; otherwise the WP user id who generated this code for someone else.
+	 * @param int $ttl        Seconds; <=0 keeps the default member-initiated TTL.
+	 * @return array|WP_Error
+	 */
+	public static function issue_twin_gpt_link_nonce( int $wp_user_id, int $bot_id, int $issued_by = 0, int $ttl = 0 ) {
+		if ( $wp_user_id <= 0 || $bot_id <= 0 ) {
+			return new WP_Error( 'invalid_param', 'Thiếu user_id hoặc bot_id để tạo link nonce.' );
+		}
+		if ( ! get_userdata( $wp_user_id ) ) {
+			return new WP_Error( 'not_found', 'Không tìm thấy tài khoản WordPress để tạo link nonce.' );
+		}
+
+		$nonce = strtolower( wp_generate_password( 24, false, false ) );
+		$now   = time();
+		$ttl   = $ttl > 0 ? $ttl : self::TW_LINK_NONCE_TTL;
+		$data  = array(
+			'wp_user_id'  => $wp_user_id,
+			'bot_id'      => $bot_id,
+			'blog_id'     => (int) get_current_blog_id(),
+			'issued_at'   => $now,
+			'expires_at'  => $now + $ttl,
+			'issued_by'   => max( 0, $issued_by ),
+		);
+
+		set_transient( self::TW_LINK_NONCE_KEY . md5( $nonce ), $data, $ttl );
+
+		return array(
+			'nonce'      => $nonce,
+			'expires_at' => (int) $data['expires_at'],
+		);
+	}
+
+	/**
+	 * [2026-07-16 Johnny Chu] PHASE-TWINWEB W3 — consume one-time nonce from
+	 * Zalo command router and bind `(bot_id, zalo_user_id) -> wp_user_id`.
+	 *
+	 * @param string $nonce        Nonce parsed from `/link <nonce>`.
+	 * @param int    $bot_id       Current bot id from webhook payload.
+	 * @param string $zalo_user_id Current Zalo user id from webhook payload.
+	 * @param string $display_name Optional display name from webhook payload.
+	 * @return array|WP_Error
+	 */
+	public static function consume_twin_gpt_link_nonce(
+		string $nonce,
+		int $bot_id,
+		string $zalo_user_id,
+		string $display_name = ''
+	) {
+		$nonce = sanitize_text_field( $nonce );
+		if ( $nonce === '' || $bot_id <= 0 || $zalo_user_id === '' ) {
+			return new WP_Error( 'invalid_param', 'Dữ liệu liên kết không hợp lệ.' );
+		}
+
+		$key   = self::TW_LINK_NONCE_KEY . md5( $nonce );
+		$data  = get_transient( $key );
+		if ( ! is_array( $data ) ) {
+			return new WP_Error( 'nonce_invalid', 'Link nonce không hợp lệ hoặc đã hết hạn.' );
+		}
+
+		$expected_bot = (int) ( $data['bot_id'] ?? 0 );
+		if ( $expected_bot <= 0 || $expected_bot !== $bot_id ) {
+			return new WP_Error( 'nonce_bot_mismatch', 'Link nonce không thuộc bot hiện tại.' );
+		}
+
+		$expected_blog = (int) ( $data['blog_id'] ?? 0 );
+		$current_blog  = (int) get_current_blog_id();
+		if ( $expected_blog > 0 && $expected_blog !== $current_blog ) {
+			return new WP_Error( 'nonce_blog_mismatch', 'Link nonce không thuộc site hiện tại.' );
+		}
+
+		$wp_user_id = (int) ( $data['wp_user_id'] ?? 0 );
+		if ( $wp_user_id <= 0 || ! get_userdata( $wp_user_id ) ) {
+			return new WP_Error( 'not_found', 'Không tìm thấy tài khoản WordPress cho link nonce.' );
+		}
+
+		// [2026-09-19 Johnny Chu] PHASE-0.56 C-6 — refuse silently overwriting a DIFFERENT WordPress
+		// user's existing binding for this exact Zalo identity + bot. `link()`/`bind_identity()` below
+		// unconditionally upsert by design (legitimate same-user re-link never has to ask), so "don't
+		// steal an existing link" has to be checked here, before either runs. Unlike the bot/blog
+		// mismatch checks above — retry-safe payload details, the nonce survives them — a taken
+		// identity is a real conflict; the nonce is burned so the same code can't be replayed against it.
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			$existing_wp_user_id = BizCity_Channel_User_Linker::resolve_wp_user( 'ZALO_BOT', $zalo_user_id, (string) $bot_id, $current_blog );
+			if ( $existing_wp_user_id > 0 && $existing_wp_user_id !== $wp_user_id ) {
+				delete_transient( $key );
+				return new WP_Error( 'zalo_bot_identity_taken', 'Tài khoản Zalo này đã liên kết với một nhân viên khác.' );
+			}
+		}
+
+		if ( (int) ( $data['issued_by'] ?? 0 ) > 0 && (int) $data['issued_by'] !== $wp_user_id && class_exists( 'BizCity_CRM_Audit_Log' ) ) {
+			// [2026-09-19 Johnny Chu] PHASE-0.56 C-5 — one audit line only when a manager's code (not a
+			// self-issued one) is actually consumed; no PII beyond the two WP user ids involved.
+			BizCity_CRM_Audit_Log::log( 'crm_staff', $wp_user_id, 'zalo_bot_linked_by_manager', array(), array( 'bot_id' => $bot_id, 'issued_by' => (int) $data['issued_by'] ), array( 'user_id' => (int) $data['issued_by'] ) );
+		}
+
+		$ok = self::link( $zalo_user_id, $bot_id, $wp_user_id );
+		if ( ! $ok ) {
+			return new WP_Error( 'link_failed', 'Không thể lưu liên kết tài khoản Zalo.' );
+		}
+
+		if ( $display_name !== '' ) {
+			global $wpdb;
+			$wpdb->update(
+				self::table(),
+				array( 'display_name' => sanitize_text_field( $display_name ) ),
+				array(
+					'zalo_user_id' => $zalo_user_id,
+					'bot_id'       => $bot_id,
+				),
+				array( '%s' ),
+				array( '%s', '%d' )
+			);
+		}
+
+		delete_transient( $key );
+
+		return array(
+			'wp_user_id' => $wp_user_id,
+			'bot_id'     => $bot_id,
+		);
+	}
+
+	/* ════════════════════════════════════════════════
+	 * LOGIN CALLBACK HANDLER
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * Boot on `init` — handles ?bzzalolink=TOKEN flow.
+	 * Call once from bootstrap.
+	 */
+	public static function boot_callback(): void {
+		// PHASE 3.5: Wave A handler (BizCity_CRM_Magic_Link_Handler) takes over
+		// the ?bzzalolink= flow at init:1. Skip legacy callback if it's loaded
+		// to avoid double-handling and the spurious "Link không hợp lệ" page.
+		if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
+			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — ensure the canonical handler is registered even when Zalo Bot loads first.
+			BizCity_CRM_Magic_Link_Handler::register();
+			return;
+		}
+		add_action( 'init', [ __CLASS__, 'handle_login_callback' ], 5 );
+	}
+
+	/**
+	 * [2026-06-18 Johnny Chu] ADMIN-GUIDE — Boot auto-login-link + welcome hooks.
+	 *
+	 * Priority 3 on bizcity_zalo_message_received — runs BEFORE Guru Bridge (5)
+	 * and Gateway Bridge (10). If user is not linked:
+	 *   1. Looks up the bot row from DB (need bot_token to send via API).
+	 *   2. Calls maybe_send_login_link() → sends link with 5-min cooldown.
+	 *   3. Sets a per-request global so Guru Bridge knows to skip processing
+	 *      (no point asking AI to answer when we don't know who the user is).
+	 *
+	 * Also registers a hook on bizcity_zalobot_user_linked to send a one-time
+	 * welcome/confirmation message back to the Zalo user.
+	 */
+	public static function boot_auto_login_link(): void {
+		// [2026-08-01 Johnny Chu] TWINBRAIN-EXT-VERTICAL-GUEST-CARE — keep Zalo Bot linker active.
+		// Zalo Bot still needs account linking for member identity, admin commands, grants and
+		// personalized automation. Guest-care must add an explicit channel mode/route later;
+		// it must not disable this linker globally.
+		// [2026-08-09 Johnny Chu] R-CH-UNI — consume the canonical Zone 2 envelope before command/Guru consumers.
+		add_action( 'bizcity_channel_normalized', [ __CLASS__, 'handle_normalized' ], 3, 2 );
+		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — only Zalo Bot memory no-owner events may use this linker.
+		add_action( 'bizcity_twinbrain_memory_no_owner', [ __CLASS__, 'maybe_send_login_link_from_memory' ], 7, 2 );
+		add_action( 'bizcity_zalobot_user_linked', [ __CLASS__, 'send_welcome_after_link' ], 10, 3 );
+	}
+
+	/**
+	 * Adapt the canonical Zone 2 envelope to the legacy link-prompt payload shape.
+	 */
+	public static function handle_normalized( $envelope, $trigger_key = '' ): void {
+		if ( ! is_array( $envelope ) || (string) ( $envelope['platform'] ?? '' ) !== 'ZALO_BOT' ) {
+			return;
+		}
+
+		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		self::maybe_auto_send_link( array(
+			'code'           => 'zalo_bot',
+			'bot_id'         => (int) ( $envelope['account_id'] ?? 0 ),
+			'from_user_id'   => (string) ( $envelope['user_id'] ?? '' ),
+			'from_user_name' => (string) ( $envelope['display_name'] ?? $raw['from_user_name'] ?? '' ),
+			'message_id'     => (string) ( $envelope['message_id'] ?? '' ),
+			'chat_kind'      => (string) ( $envelope['chat_kind'] ?? 'private' ),
+			'provider_chat_id' => (string) ( $envelope['provider_chat_id'] ?? '' ),
+			'conversation_chat_id' => (string) ( $envelope['conversation_chat_id'] ?? $envelope['chat_id'] ?? '' ),
+		) );
+	}
+
+	/**
+	 * Recover the Zalo Bot link prompt when memory handling bypasses the normal
+	 * inbound auto-link hook. The existing linker method owns the cooldown.
+	 */
+	public static function maybe_send_login_link_from_memory( $trace_id, $context = array() ): void {
+		// [2026-07-28 Johnny Chu] PHASE-0.52 W2 — keep Messenger and Zalo OA outside the Zalo Bot linker path.
+		if ( ! is_array( $context ) ) {
+			return;
+		}
+		$platform = strtoupper( (string) ( $context['platform'] ?? $context['channel'] ?? '' ) );
+		if ( $platform !== 'ZALO_BOT' ) {
+			return;
+		}
+		if ( sanitize_key( (string) ( $context['chat_kind'] ?? 'private' ) ) === 'group' ) {
+			// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — memory no-owner fallback must never DM a private auth URL into a group.
+			return;
+		}
+		$bot_id   = (int) ( $context['account_id'] ?? 0 );
+		$zalo_uid = trim( (string) ( $context['external_user_id'] ?? $context['user_id'] ?? '' ) );
+		if ( $bot_id <= 0 || $zalo_uid === '' || self::resolve_wp_user( $zalo_uid, $bot_id ) > 0 ) {
+			return;
+		}
+
+		global $wpdb;
+		$bot_table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$bot       = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$bot_table} WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) {
+			return;
+		}
+		self::maybe_send_login_link( $zalo_uid, $bot_id, $bot );
+	}
+
+	/**
+	 * Compatibility hook retained for older callers; normal unlinked messages
+	 * are now owned by the canonical automation login-required workflow.
+	 *
+	 * @param array $msg  bizcity_zalo_message_received payload.
+	 */
+	public static function maybe_auto_send_link( $msg ): void {
+		if ( ! is_array( $msg ) ) { return; }
+		// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — normal unlinked messages are owned by the automation login-required workflow; do not send a second link from this compatibility hook.
+		return;
+	}
+
+	/**
+	 * After a Zalo user successfully links (status becomes 'linked'),
+	 * send a one-time welcome message via the bot so they know they're set up.
+	 *
+	 * @param int    $bot_id        Bot instance ID.
+	 * @param string $zalo_user_id  Zalo platform user ID.
+	 * @param int    $wp_user_id    WordPress user ID.
+	 */
+	public static function send_welcome_after_link( $bot_id, $zalo_user_id, $wp_user_id ): void {
+		$bot_id       = (int) $bot_id;
+		$wp_user_id   = (int) $wp_user_id;
+		$zalo_user_id = (string) $zalo_user_id;
+
+		if ( $bot_id <= 0 || $wp_user_id <= 0 || $zalo_user_id === '' ) { return; }
+
+		$user = get_user_by( 'id', $wp_user_id );
+		$name = $user ? $user->display_name : '';
+
+		global $wpdb;
+		$tbl = $wpdb->prefix . 'bizcity_zalo_bots';
+		$bot = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$tbl} WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) { return; }
+
+		$greeting = $name ? "Xin chào {$name}! " : 'Xin chào! ';
+		$text     = $greeting
+			. "Tài khoản Zalo của bạn đã được kết nối thành công với hệ thống. ✅\n"
+			. "Từ giờ bạn có thể ra lệnh cho AI qua đây: nhắc lịch, đăng Facebook, hỏi đáp, tìm kiếm, chiêm tinh… 🚀";
+
+		self::send_via_bot( $bot, $zalo_user_id, $text );
+	}
+
+	/**
+	 * PHASE 3.5 Wave A bridge — upsert the (zalo_user_id, bot_id) ↔ wp_user_id
+	 * mapping. Called by `BizCity_CRM_Magic_Link_Handler::on_consumed()` after
+	 * the new magic-link is successfully consumed.
+	 *
+	 * Pure mapping only — NOT a privilege grant. Privilege flows through
+	 * `BizCity_CRM_Admin_Chat_Grants` (3-axis grants table).
+	 *
+	 * @param string     $zalo_user_id  Zalo platform user id (chat_id).
+	 * @param string|int $bot_id        Bot instance id (string-cast to int for legacy table).
+	 * @param int        $wp_user_id    Resolved WordPress user id.
+	 * @return bool                     true on insert/update success.
+	 */
+	public static function link( string $zalo_user_id, $bot_id, int $wp_user_id ): bool {
+		if ( $zalo_user_id === '' || $wp_user_id <= 0 ) { return false; }
+		$bot_id_int = (int) $bot_id;
+		$core_bound = false;
+		if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
+			// [2026-08-06 Johnny Chu] HOTFIX-ZALOBOT-LINK — `/link` must bind through Channel Gateway before legacy compatibility storage.
+			$core_bound = BizCity_Channel_User_Linker::bind_identity(
+				BizCity_Channel_User_Linker::PLATFORM_ZALO_BOT,
+				$zalo_user_id,
+				(string) $bot_id_int,
+				$wp_user_id,
+				(int) get_current_blog_id()
+			);
+			if ( ! $core_bound ) {
+				return false;
+			}
+		}
+
+		global $wpdb;
+		$table = self::table();
+		$now   = current_time( 'mysql', true );
+
+		$existing = $wpdb->get_row( $wpdb->prepare(
+			"SELECT id FROM {$table} WHERE zalo_user_id = %s AND bot_id = %d LIMIT 1",
+			$zalo_user_id,
+			$bot_id_int
+		) );
+
+		if ( $existing ) {
+			$ok = $wpdb->update(
+				$table,
+				[
+					'wp_user_id'    => $wp_user_id,
+					'status'        => 'linked',
+					'linked_at'     => $now,
+					'link_token'    => '',
+					'token_expires' => null,
+					'updated_at'    => $now,
+				],
+				[ 'id' => $existing->id ]
+			);
+		} else {
+			$ok = $wpdb->insert( $table, [
+				'zalo_user_id' => $zalo_user_id,
+				'bot_id'       => $bot_id_int,
+				'blog_id'      => get_current_blog_id(),
+				'wp_user_id'   => $wp_user_id,
+				'status'       => 'linked',
+				'linked_at'    => $now,
+				'created_at'   => $now,
+				'updated_at'   => $now,
+			] );
+		}
+
+		if ( $ok !== false && ! $core_bound ) {
+			do_action( 'bizcity_zalobot_user_linked', $bot_id_int, $zalo_user_id, $wp_user_id );
+		}
+		return $ok !== false && ( ! class_exists( 'BizCity_Channel_User_Linker' ) || $core_bound );
+	}
+
+	/**
+	 * Handle the ?bzzalolink=TOKEN URL.
+	 *   • Not logged in  → bounce to wp-login, redirect back here after.
+	 *   • Logged in      → validate token → store link → show success page.
+	 */
+	public static function handle_login_callback(): void {
+		$token = sanitize_text_field( $_GET[ self::LINK_PARAM ] ?? '' );
+		if ( $token === '' ) {
+			return;
+		}
+		// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — legacy linker must never consume encrypted CRM tokens.
+		if ( strpos( $token, 'bzm2_' ) === 0 ) {
+			if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
+				BizCity_CRM_Magic_Link_Handler::register();
+			}
+			return;
+		}
+
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM " . self::table() . " WHERE link_token = %s AND status = 'pending' LIMIT 1",
+			$token
+		) );
+
+		if ( ! $row ) {
+			self::render_result_page( 'error', 'Link không hợp lệ hoặc đã được sử dụng rồi.' );
+			exit;
+		}
+
+		if ( $row->token_expires && strtotime( $row->token_expires ) < time() ) {
+			self::render_result_page( 'expired', 'Link đã hết hạn. Nhắn tin lại cho bot để nhận link mới.' );
+			exit;
+		}
+
+		// Not logged in → redirect to WP login, come back after
+		if ( ! is_user_logged_in() ) {
+			$return_url = add_query_arg( self::LINK_PARAM, $token, home_url( '/' ) );
+			wp_redirect( wp_login_url( $return_url ) );
+			exit;
+		}
+
+		// Logged in → establish the link
+		$wp_user_id = get_current_user_id();
+		$wpdb->update(
+			self::table(),
+			[
+				'wp_user_id'    => $wp_user_id,
+				'status'        => 'linked',
+				'linked_at'     => current_time( 'mysql', true ),
+				'link_token'    => '',       // consume token (one-time use)
+				'token_expires' => null,
+				'updated_at'    => current_time( 'mysql', true ),
+			],
+			[ 'id' => $row->id ]
+		);
+
+		$user = wp_get_current_user();
+
+		do_action( 'bizcity_zalobot_user_linked', (int) $row->bot_id, $row->zalo_user_id, $wp_user_id );
+
+		error_log( sprintf(
+			'[Zalo User Linker] ✅ Linked: zalo=%s bot_id=%d → WP user #%d (%s)',
+			$row->zalo_user_id,
+			$row->bot_id,
+			$wp_user_id,
+			$user->user_login
+		) );
+
+		self::render_result_page( 'success', '', $row, $user );
+		exit;
+	}
+
+	/* ════════════════════════════════════════════════
+	 * QUERY HELPERS
+	 * ════════════════════════════════════════════════ */
+
+	/**
+	 * Get all links for a WP user.
+	 */
+	public static function get_links_for_wp_user( int $wp_user_id ): array {
+		global $wpdb;
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM " . self::table() . " WHERE wp_user_id = %d ORDER BY linked_at DESC",
+			$wp_user_id
+		), ARRAY_A ) ?: [];
+	}
+
+	/**
+	 * Get all links (admin overview).
+	 *
+	 * @param array $args  { status: string, limit: int, offset: int }
+	 */
+	public static function get_all_links( array $args = [] ): array {
+		global $wpdb;
+		$args   = wp_parse_args( $args, [ 'status' => '', 'limit' => 50, 'offset' => 0 ] );
+		$where  = 'WHERE 1=1';
+		$params = [];
+
+		if ( $args['status'] !== '' ) {
+			$where   .= ' AND status = %s';
+			$params[] = $args['status'];
+		}
+
+		$sql      = "SELECT * FROM " . self::table() . " {$where} ORDER BY id DESC LIMIT %d OFFSET %d";
+		$params[] = (int) $args['limit'];
+		$params[] = (int) $args['offset'];
+
+		return $wpdb->get_results( $wpdb->prepare( $sql, ...$params ), ARRAY_A ) ?: [];
+	}
+
+	/**
+	 * Count all links by status.
+	 */
+	public static function count_by_status(): array {
+		global $wpdb;
+		$rows = $wpdb->get_results(
+			"SELECT status, COUNT(*) AS cnt FROM " . self::table() . " GROUP BY status",
+			ARRAY_A
+		) ?: [];
+		$out = [ 'linked' => 0, 'pending' => 0, 'unlinked' => 0 ];
+		foreach ( $rows as $r ) {
+			$out[ $r['status'] ] = (int) $r['cnt'];
+		}
+		return $out;
+	}
+
+	/**
+	 * Unlink a binding (sets status=unlinked, clears wp_user_id).
+	 */
+	public static function unlink( int $link_id ): bool {
+		global $wpdb;
+		return (bool) $wpdb->update(
+			self::table(),
+			[ 'status' => 'unlinked', 'wp_user_id' => 0, 'updated_at' => current_time( 'mysql', true ) ],
+			[ 'id' => $link_id ],
+			[ '%s', '%d', '%s' ],
+			[ '%d' ]
+		);
+	}
+
+	/* ════════════════════════════════════════════════
+	 * PRIVATE HELPERS
+	 * ════════════════════════════════════════════════ */
+
+	private static function send_via_bot( object $bot, string $zalo_user_id, string $text ): void {
+		if ( ! function_exists( 'bizcity_get_zalo_bot_api' ) ) {
+			return;
+		}
+		$api = bizcity_get_zalo_bot_api( (int) $bot->id );
+		if ( $api ) {
+			$api->send_message( $zalo_user_id, $text );
+		}
+	}
+
+	private static function render_result_page(
+		string $type,
+		string $message = '',
+		?object $row = null,
+		?object $user = null
+	): void {
+		if ( ! headers_sent() ) {
+			status_header( $type === 'success' ? 200 : 400 );
+			nocache_headers();
+			header( 'Content-Type: text/html; charset=utf-8' );
+		}
+
+		$icon  = $type === 'success' ? '✅' : ( $type === 'expired' ? '⏰' : '❌' );
+		$color = $type === 'success' ? '#10b981' : ( $type === 'expired' ? '#f59e0b' : '#ef4444' );
+		if ( $type === 'success' ) {
+			$title = 'Kết nối thành công!';
+		} elseif ( $type === 'expired' ) {
+			$title = 'Link đã hết hạn';
+		} else {
+			$title = 'Link không hợp lệ';
+		}
+
+		$body = '';
+		if ( $type === 'success' && $row && $user ) {
+			$zalo_name = esc_html( $row->display_name );
+			$wp_name   = esc_html( $user->display_name );
+			$body      = "<p>Tài khoản Zalo <strong>{$zalo_name}</strong> đã được kết nối với tài khoản <strong>{$wp_name}</strong>.</p>"
+			           . "<p>Từ nay, khi nhắn tin cho bot Zalo, AI sẽ nhận diện bạn và sử dụng đầy đủ thông tin cá nhân hóa.</p>";
+		} else {
+			$body = '<p>' . esc_html( $message ) . '</p>';
+		}
+
+		$home = esc_url( home_url( '/' ) );
+
+		echo "<!doctype html><html lang='vi'><head><meta charset='utf-8'>"
+		   . "<title>" . esc_html( $title ) . "</title>"
+		   . "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+		   . "<style>"
+		   . "body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f8fafc}"
+		   . ".card{max-width:480px;width:100%;background:#fff;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.1);padding:40px 32px;text-align:center}"
+		   . ".icon{font-size:64px;margin-bottom:16px}.title{font-size:22px;font-weight:700;color:#0f172a;margin-bottom:12px}"
+		   . ".body{color:#64748b;font-size:15px;line-height:1.6;margin-bottom:28px}"
+		   . ".btn{display:inline-block;padding:12px 28px;border-radius:12px;font-weight:600;text-decoration:none;color:#fff}"
+		   . "</style></head><body>"
+		   . "<div class='card'>"
+		   . "<div class='icon'>{$icon}</div>"
+		   . "<h1 class='title'>" . esc_html( $title ) . "</h1>"
+		   . "<div class='body'>{$body}</div>"
+		   . "<a class='btn' href='{$home}' style='background:{$color}'>Về trang chủ</a>"
+		   . "</div></body></html>";
+	}
+}

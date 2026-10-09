@@ -1,0 +1,16 @@
+{
+  "contract": "pipeline-definition",
+  "version": "1.1.0",
+  "kind": "sales_deal",
+  "label": "Bán hàng",
+  "ui": { "color": "red", "category": "everything" },
+  "stages": [
+    {
+      "key": "lost",
+      "label": "Không mua",
+      "terminal": true,
+      "outcome": "maybe",
+      "ui": { "stuck_after": "-3d", "next_suggestions": [""], "mood": "sad" }
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+node_modules/
+# dist/ phải nằm trong git (người dùng không build) — PHASE-0.96
+/.vite/
+*.log

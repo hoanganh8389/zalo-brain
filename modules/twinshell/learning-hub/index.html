@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learning Hub — Dev</title>
+    <style>
+      body { margin: 0; background: #0f1115; color: #e6e6e6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="bizcity-learning-hub-root"></div>
+    <script>
+      // Mock REST settings for `npm run dev`. In WP, this is injected by class-twin-shell-page.php.
+      window.BIZCITY_LEARNING_HUB = {
+        restRoot: '/wp-json/bizcity-twinchat/v1/',
+        nonce: '',
+        userId: 1,
+        canManageSite: true,
+        canManageCleanup: true,
+      };
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

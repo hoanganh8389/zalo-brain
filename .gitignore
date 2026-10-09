@@ -1,0 +1,175 @@
+# ============================================================================
+# [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — R-PROD-REPO: repo github.com/hoanganh8389/zalo-brain
+# chỉ chứa đúng phần chạy production (lean, dễ cài): file plugin chính + core/ modules/ plugins/ includes/
+# languages/ + bản build dist. Không src, node_modules, docs kỹ thuật, test, bin, diagnostics, log, ghi chú agent.
+# Danh sách cho phép (allowlist) ở gốc; các luật cũ bên dưới vẫn lọc tiếp bên trong.
+# ============================================================================
+/*
+!/.gitignore
+!/.gitattributes
+!/bizcity-twin-ai.php
+!/uninstall.php
+!/README.md
+!/LICENSE
+!/CHANGELOG.md
+!/SECURITY.md
+!/TRADEMARK.md
+!/CONTRIBUTING.md
+!/CODE_OF_CONDUCT.md
+!/composer.json
+!/composer.lock
+!/core/
+!/modules/
+!/plugins/
+!/includes/
+!/languages/
+# plugins/: chỉ các kênh đi kèm (CRM = repo riêng zalo-brain-crm)
+/plugins/*
+!/plugins/bizcity-zalo-personal/
+!/plugins/bizcity-zalo-bot/
+!/plugins/bizcity-facebook-bot/
+!/plugins/bizcity-chat-web/
+# Ở mọi độ sâu: không mã nguồn, thư viện tham khảo, tài liệu, test, chẩn đoán
+**/_archived/
+**/_library/
+**/app/
+**/docs/
+**/node_modules/
+**/src/
+**/tests/
+**/.vite/
+!**/dist/.vite/
+**/*.stderr
+# frontend/ = mã nguồn + cấu hình build; chỉ fallback/ là file PHP nạp lúc chạy
+**/frontend/*
+!**/frontend/fallback/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Ignore specific plugin
+/docs/ip-registration/
+/docs/roadmaps/*
+/_archived/
+# Roadmaps, audit material, and implementation planning remain private. The
+# local canonical files are retained for approved deployment/review work.
+/docs/audits/
+/docs/analysis/
+/docs/decisions/
+/docs/cutover/
+/docs/vibe/
+/docs/contracts/FRAMEWORK-CONTRACT-INVENTORY-v1.md
+/docs/rules/
+/docs/diagnostics/
+
+# Keep roadmap/audit/research documents private in module-owned documentation.
+**/docs/*ROADMAP*.md
+**/docs/*-ROADMAP*.md
+**/docs/*AUDIT*.md
+**/docs/*-AUDIT*.md
+**/docs/*RESEARCH*.md
+**/docs/*-RESEARCH*.md
+**/docs/*TRACE*.md
+**/docs/*-TRACE*.md
+**/docs/PHASE-*.md
+**/docs/*-CHECKLIST*.md
+/plugins/_achived/
+/plugins/_achived/
+
+
+/plugins/bizcity-tool-content/*
+!/plugins/bizcity-tool-content/uninstall.php
+/plugins/bizgpt-tool-google/*
+!/plugins/bizgpt-tool-google/uninstall.php
+/plugins/bizcity-video-kling/
+/plugins/bizcity-tool-image/*
+!/plugins/bizcity-tool-image/uninstall.php
+/plugins/bizcity-doc/*
+!/plugins/bizcity-doc/uninstall.php
+/plugins/bizcity-content-creator/*
+!/plugins/bizcity-content-creator/uninstall.php
+/plugins/bizcoach-pro/
+/plugins/ibs-hi/
+/plugins/bizcity-personal/
+/plugins/_archived/
+/plugins/bizcity-tool-mindmap/
+/plugins/bizcity-tool-pdf/
+/plugins/bizcity-agent-calo/
+/plugins/bizcity-tarot/
+# Profile is loaded by the main plugin and is part of the shipped framework.
+# Keep its source and runtime contract available in clean Git checkouts.
+/plugins/bizcity-video-kling/*
+!/plugins/bizcity-video-kling/uninstall.php
+# Proprietary utility/pro packages — deploy separately for approved customers; do NOT publish.
+# These are not framework core, channel owners, or must-load dependencies.
+
+
+# bizcity-twin-crm — CRM Inbox Hub (Phase 0.32) — proprietary commercial vertical (PHASE-0.98).
+
+/core/intent/logs/
+
+/modules/twinsource/
+# Env
+.env
+.env.*
+
+# Logs
+*.log
+
+# Build
+# [2026-06-03 Johnny Chu] HOTFIX — KHÔNG ignore `dist/` global nữa.
+# End-user pull GitHub zip về không chạy `npm run build`, nên mọi `dist/`
+# (Vite/webpack output cho React UI, asset bundles) PHẢI nằm trong git.
+# Nếu muốn ignore 1 dist tạm cụ thể → thêm path tuyệt đối, vd:
+#   /tools/scratch/dist/
+
+# Mac
+.DS_Store
+
+# Skill library — user-generated content, must NOT be in git
+/core/skills/library/
+
+# Reference / research libraries (3rd-party source for inspiration only)
+/modules/twinclaw/_library/
+/modules/twinclaw/_research/
+
+# Phase 0.42 — LiteParse layout-preserving adapter (private/optional addon).
+# Kept OUT of public repo: deployed to Linux VPS via scp; absent on most clones.
+# Registry + bootstrap both guard with file_exists() so vắng file = no-op.
+/core/kg-hub/includes/adapters/class-liteparse-adapter.php
+/core/kg-hub/includes/adapters/liteparse-sidecar.py
+/core/diagnostics/includes/probes/class-probe-liteparse.php
+
+# R-AGENT-PARITY — private agent instructions and generated local indexes.
+# Public counterparts: .github/copilot-instructions.md, .github/instructions/
+# agent-environment.instructions.md, docs/AGENT-DOC-CATALOG.md, AGENTS.md.
+/.github/copilot-instructions.local.md
+/.github/instructions/*.local.instructions.md
+/docs/AGENT-DOC-CATALOG.local.md
+/CLAUDE.local.md
+
+# R-DIAG-LOCAL (D-35, 2026-09-28) — LOCAL DEVELOPMENT ONLY: never uploaded to a VPS, never committed to GitHub.
+# Full list: bin/dev-only-paths.txt · rule: docs/rules/PHASE-0-RULE-DIAGNOSTICS-DEV-LOCAL.md.
+# core/diagnostics = Diagnostics engine, probes, diagnostic pages/REST (the schema changelog moved to core/helper/schema/);
+# tests = PHPUnit, fixtures, baselines; _notes = reduction snapshots/tarballs.
+# Production never requires them (is_file + Safe_Loader / class_exists guards). CI `shipped-tree` fails if
+# core/diagnostics or tests is tracked. Commits are made from the VPS: upload this .gitignore with every change,
+# and if a path was ever committed run `git rm -r --cached <path>` once there.
+/core/diagnostics/
+/tests/
+/_notes/
+# [2026-09-30 Claude Opus 5.5] R-LEAN-4 WP-16 B-1 — nested harness/unit folders are dev-local too (bin/dev-only-paths.txt).
+**/tests/
+# [2026-09-30 Claude Opus 5.5] zalo-hub = the Node data-plane repo (cell + ai-gateway + brain-core), its own deploy unit
+# (Docker on the VPS). Moved here from core/channel-gateway/_library/ (never committed there either). It needs its own
+# git repository (zalo-hub/.git, initialised 2026-09-30, branch main, no remote yet); it must never ride along
+# with the plugin repo or upload.
+/zalo-hub/
+# WP-13 DL-5 — module diagnostic pages and probes (same list as bin/dev-only-paths.txt).
+/core/channel-gateway/includes/class-sprint-diagnostic.php
+/core/channel-gateway/includes/class-phase-037-diagnostic.php
+/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic.php
+/plugins/bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php
+/modules/twinchat/includes/diagnostics/
+/modules/twinweb/includes/class-probe-twinweb-*.php

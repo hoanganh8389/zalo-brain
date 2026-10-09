@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bizcity.vn/schema/twin/contracts/v1/pipeline-kind-board.schema.json",
+  "title": "BizCity Definition-driven Pipeline Kind Board",
+  "description": "Framework aggregate contract for a scoped CRM Kanban and dashboard board. Columns come from the current pipeline-definition; counts and risk values come from canonical scoped SQL aggregation. The legacy customer board is not this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "version", "surface", "as_of", "kind", "label", "def_version", "columns", "outdated", "kpis", "matrix"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "success": { "type": "boolean" },
+    "contract": { "const": "pipeline-kind-board" },
+    "version": { "const": "1.0.0" },
+    "surface": { "enum": ["B2_ADMIN_CRM", "C_PUBLIC_TWINGPT"] },
+    "as_of": { "type": "string", "format": "date-time" },
+    "kind": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+    "label": { "type": "string", "maxLength": 120 },
+    "def_version": { "type": "integer", "minimum": 1 },
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "days"],
+      "properties": {
+        "key": { "enum": ["7d", "30d", "90d"] },
+        "days": { "type": "integer", "minimum": 1, "maximum": 90 }
+      }
+    },
+    "view": { "enum": ["stage", "staff"] },
+    "columns": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/column" }
+    },
+    "outdated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "cards"],
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "cards": { "type": "array", "maxItems": 60, "items": { "$ref": "#/$defs/card" } }
+      }
+    },
+    "kpis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["open", "stuck", "no_next", "overdue", "breached", "closed_in_range"],
+      "properties": {
+        "open": { "type": "integer", "minimum": 0 },
+        "stuck": { "type": "integer", "minimum": 0 },
+        "no_next": { "type": "integer", "minimum": 0 },
+        "overdue": { "type": "integer", "minimum": 0 },
+        "breached": { "type": "integer", "minimum": 0 },
+        "closed_in_range": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["owner_id", "owner_label", "counts"],
+        "properties": {
+          "owner_id": { "type": ["integer", "null"], "minimum": 0 },
+          "owner_label": { "type": "string", "maxLength": 120 },
+          "counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "terminal", "count", "stuck", "at_risk", "breached", "avg_h", "sub_total", "cards"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "label": { "type": "string", "maxLength": 120 },
+        "color": { "type": ["string", "null"], "pattern": "^#[0-9a-fA-F]{6}$" },
+        "role_label": { "type": ["string", "null"], "maxLength": 120 },
+        "terminal": { "type": "boolean" },
+        "outcome": { "type": ["string", "null"], "enum": ["won", "lost", "closed", null] },
+        "count": { "type": "integer", "minimum": 0 },
+        "stuck": { "type": "integer", "minimum": 0 },
+        "at_risk": { "type": "integer", "minimum": 0 },
+        "breached": { "type": "integer", "minimum": 0 },
+        "avg_h": { "type": ["number", "null"], "minimum": 0 },
+        "sub_total": { "type": "integer", "minimum": 0 },
+        "cards": { "type": "array", "maxItems": 60, "items": { "$ref": "#/$defs/card" } }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "contact_id", "display_name", "days_in_stage", "sub_done", "sub_total", "sla_level", "exception_open", "lock_version", "next_due"],
+      "properties": {
+        "run_id": { "type": "integer", "minimum": 1 },
+        "contact_id": { "type": ["integer", "null"], "minimum": 0 },
+        "display_name": { "type": "string", "maxLength": 120 },
+        "owner_name": { "type": ["string", "null"], "maxLength": 120 },
+        "days_in_stage": { "type": "number", "minimum": 0 },
+        "sub_done": { "type": "integer", "minimum": 0 },
+        "sub_total": { "type": "integer", "minimum": 0 },
+        "sla_level": { "type": ["string", "null"], "enum": ["due_24h", "at_risk", "breached", null] },
+        "stuck": { "type": "boolean", "description": "Optional (PHASE-0.63C): this card is older in its stage than the stage threshold — the same rule as the column `stuck` count." },
+        "exception_open": { "type": "boolean" },
+        "lock_version": { "type": "integer", "minimum": 0 },
+        "next_due": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

@@ -113,10 +113,11 @@ final class BizCity_Rewrite_Flush_Registry {
 		update_option( self::MODULES_OPTION, $stored, false );
 		update_option( self::PENDING_OPTION, 1, false );
 
-		// [2026-06-26 Johnny Chu] R-PERF — register wp_loaded hook ONLY when needed.
-		if ( ! is_admin() && ! did_action( 'wp_loaded' ) ) {
-			add_action( 'wp_loaded', array( __CLASS__, 'flush_if_pending' ), 99 );
-		}
+		// [2026-10-11 10:22 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-1 — no frontend flush any more. Since R-PERF
+		// (2026-08) modules load by URI, so a frontend request does not register every add_rewrite_rule(); flushing there rebuilt the
+		// rules from a partial set and dropped /facehook/, /zalohook/, /gateway/, /twinchat/, /scheduler/, /twin/, /google-auth/
+		// (W20-Z6 loader map). The pending flag stays set and the next admin_init (wp-admin or admin-ajax, where every owner loads)
+		// flushes once. Trade-off: a NEW route answers after the first wp-admin visit; an existing route is never lost.
 	}
 
 	/* ── Internal hooks (public for WP add_action compatibility) ─────── */
@@ -150,12 +151,11 @@ final class BizCity_Rewrite_Flush_Registry {
 			update_option( self::MODULES_OPTION, $stored, false );
 			update_option( self::PENDING_OPTION, 1, false );
 
-			// [2026-06-26 Johnny Chu] R-PERF — register wp_loaded hook ONLY when needed.
-			// Frontend heal: flush on wp_loaded:99 when pending (admin_init doesn't fire
-			// on frontend). wp_loaded is post-parse, doesn't violate R-CR.1 (no init flush).
-			if ( ! is_admin() ) {
-				add_action( 'wp_loaded', array( __CLASS__, 'flush_if_pending' ), 99 );
-			}
+			// [2026-10-11 10:22 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-1 — no frontend flush any more. Since R-PERF
+			// (2026-08) modules load by URI, so a frontend request does not register every add_rewrite_rule(); flushing there rebuilt the
+			// rules from a partial set and dropped /facehook/, /zalohook/, /gateway/, /twinchat/, /scheduler/, /twin/, /google-auth/
+			// (W20-Z6 loader map). The pending flag stays set and the next admin_init (wp-admin or admin-ajax, where every owner loads)
+			// flushes once. Trade-off: a NEW route answers after the first wp-admin visit; an existing route is never lost.
 		}
 	}
 

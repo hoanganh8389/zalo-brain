@@ -166,6 +166,35 @@ final class BizCity_Automation_Action_MCP_Service {
 		return class_exists( 'BizCity_Automation_Repo_Workflows' ) && class_exists( 'BizCity_Automation_Repo_Runs' );
 	}
 
+	/**
+	 * [2026-10-11 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G8 fix — handler of `registry.proposal.submit`: load the Automation plugin
+	 * (not loaded on MCP routes), then hand over to BizCity_Automation_Proposals::submit (which keeps its own system-only gate).
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function proposal_submit( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Automation_Proposals' ) ) {
+			self::boot_addon();
+		}
+		if ( ! class_exists( 'BizCity_Automation_Proposals' ) ) {
+			return new WP_Error( 'proposal_unavailable', 'Plugin Automation chưa sẵn sàng nên chưa nhận đề xuất.', array( 'status' => 503 ) );
+		}
+		return BizCity_Automation_Proposals::submit( $args, $ctx );
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L3 (doc 30 lệch 3) — the automation.* tools belong to the sibling plugin
+	 * bizcity-automation even though the handlers sit here (lazy boot seam): register through BizCity_Zalo_Brain::register_tool() with
+	 * owner = bizcity-automation so describe().tools_by_owner / the validator attribute them correctly. Bare registry as fallback.
+	 */
+	private static function reg( string $name, array $d ): void {
+		if ( class_exists( 'BizCity_Zalo_Brain' ) && method_exists( 'BizCity_Zalo_Brain', 'register_tool' ) ) {
+			BizCity_Zalo_Brain::register_tool( $d + array( 'name' => $name, 'owner' => 'bizcity-automation' ) );
+			return;
+		}
+		BizCity_MCP_Tool_Registry::register( $name, $d );
+	}
+
 	/** @deprecated 2026-10-05 PHASE-0.91 AX-0.2 — kept for callers; = installed(). */
 	public static function available() {
 		return self::installed();
@@ -196,7 +225,7 @@ final class BizCity_Automation_Action_MCP_Service {
 		}
 
 		// @mcp bizcity-mcp-standard@1 tool automation.run
-		BizCity_MCP_Tool_Registry::register( 'automation.run', array(
+		self::reg( 'automation.run', array(
 			'title'          => 'Chạy kịch bản tự động',
 			'description'    => 'Chạy một kịch bản Automation (workflow_id) của cửa hàng, có thể kèm dữ liệu đầu vào (input). Chỉ quản trị viên dùng được. Kịch bản chạy nền; kết quả trả run_id để theo dõi. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'workflow_id' ), 'properties' => array(
@@ -229,7 +258,7 @@ final class BizCity_Automation_Action_MCP_Service {
 
 		// [2026-10-05 06:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-1.4 — the ONE model door to the extension arm (R-VA-11): by slug.
 		// @mcp bizcity-mcp-standard@1 tool automation.run_scenario
-		BizCity_MCP_Tool_Registry::register( 'automation.run_scenario', array(
+		self::reg( 'automation.run_scenario', array(
 			'title'          => 'Chạy kịch bản tự động',
 			// [2026-10-08 02:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.94-S94-PKG — website chỉ NHẬN yêu cầu + nguyên liệu đã đủ: trợ lý (cell) hỏi người dùng / tự tạo nguyên liệu TRƯỚC, rồi gửi prompt + input JSON
 			'description'    => 'Giao cho website chạy một kịch bản (kỹ năng) theo mã scenario. Website KHÔNG hỏi lại người dùng: bạn phải chuẩn bị ĐỦ nguyên liệu trước (hỏi người dùng những gì kịch bản cần hỏi, tự viết nội dung, tự tạo ảnh và gửi LINK ảnh), rồi gửi prompt = yêu cầu gốc của người dùng và input = gói JSON đầy đủ. Chỉ dùng khi tool có sẵn của trợ lý không làm trọn được việc. Kịch bản chạy ở nền; kết quả sẽ được gửi lại cho chính người yêu cầu, nên hãy nói trước thời gian dự kiến. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
@@ -277,7 +306,7 @@ final class BizCity_Automation_Action_MCP_Service {
 
 		// [2026-10-05 06:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-1.5 — what the model may call, filtered by the caller's role.
 		// @mcp bizcity-mcp-standard@1 tool automation.list_scenarios
-		BizCity_MCP_Tool_Registry::register( 'automation.list_scenarios', array(
+		self::reg( 'automation.list_scenarios', array(
 			'title'          => 'Danh sách kịch bản tự động',
 			'description'    => 'Liệt kê các kịch bản (kỹ năng) website đã chuẩn bị mà người này được gọi: mã scenario, tên, một câu mô tả, trường dữ liệu vào, thời gian dự kiến. Chỉ đọc. Dùng trước automation_run_scenario khi chưa biết mã.',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
@@ -531,6 +560,7 @@ final class BizCity_Automation_Action_MCP_Service {
 					// [2026-10-06 09:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-CL-4 / S92-CL-3 — who may call it and what it does (cell confirms harder for publish/order/booking).
 					'audience'    => (string) ( $c['audience'] ?? 'owner_agent' ),
 					'effects'     => array_values( (array) ( $e['effects'] ?? array() ) ),
+					'required_caps' => array_values( (array) ( $e['required_caps'] ?? array() ) ), // [2026-10-11 12:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — WP caps the scenario needs (R-NB-10)
 					'workflow_id' => (int) $e['workflow_id'],
 					'status'      => 'not_configured' === (string) ( $e['blocks'] ?? '' ) ? 'not_configured' : 'usable',
 				);
@@ -606,6 +636,13 @@ final class BizCity_Automation_Action_MCP_Service {
 		//    (cell.roles then holds `customer`); owner_agent cards stay owner / staff.
 		if ( '' === $role || ! in_array( $role, $entry['cell']['roles'], true ) ) {
 			return $S::error( BizCity_MCP_Error::SCOPE_DENIED, 'Bạn chưa được phép chạy kịch bản này.', 403, array( 'reason' => 'scenario_role_denied' ) );
+		}
+		// 4a. capabilities (automation-scenario 1.6.0, R-NB-10). [2026-10-11 12:25 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L13 — the WP user the turn
+		//     runs as ($uid: the number's "Làm việc bằng quyền của" user for the owner and for guests, the staff member's own user for staff) must hold every
+		//     cap of the scenario's graph. Refused before the ledger row: nothing runs, nothing is written.
+		$cap_denied = self::cap_denied( $entry, $uid, $role );
+		if ( null !== $cap_denied ) {
+			return $cap_denied;
 		}
 		// 4b. contact (automation-scenario@1.5.0 §4): who the run is for ⇒ CRM contact id in `_cell`. Required on a guest turn.
 		$contact = self::resolve_contact( $args, $role );
@@ -771,6 +808,68 @@ final class BizCity_Automation_Action_MCP_Service {
 			'contact_id'   => 0,
 			'on_behalf_of' => 'customer' === $role ? 'guest' : '',
 		);
+	}
+
+	/** @var callable|null test seam: fn(int $user_id, string $cap): bool — replaces user_can() for the scenario cap check (S97-L13) */
+	public static $cap_checker = null;
+
+	/**
+	 * [2026-10-11 12:25 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L13 — 403 `scenario_cap_denied` when the acting user lacks a cap of the scenario, else
+	 * null. Shape = FRAMEWORK-GUIDE-v1 Appendix A: message names the work + the missing permission, hint says how to fix, data carries the cap and the
+	 * role LABEL only (never the user id, email or login). A guest turn gets a neutral sentence; the detail stays in the owner's log (data).
+	 *
+	 * @return WP_Error|null
+	 */
+	private static function cap_denied( array $entry, int $uid, string $role ) {
+		$caps = array_values( array_filter( array_map( 'strval', (array) ( $entry['required_caps'] ?? array() ) ) ) );
+		if ( ! $caps ) {
+			return null;
+		}
+		foreach ( $caps as $cap ) {
+			$ok = is_callable( self::$cap_checker )
+				? (bool) call_user_func( self::$cap_checker, $uid, $cap )
+				: ( $uid > 0 && function_exists( 'user_can' ) && user_can( $uid, $cap ) );
+			if ( $ok ) {
+				continue;
+			}
+			$label = class_exists( 'BizCity_Automation_Cell_Scenario' ) && method_exists( 'BizCity_Automation_Cell_Scenario', 'cap_label' )
+				? BizCity_Automation_Cell_Scenario::cap_label( $cap )
+				: $cap;
+			$name  = (string) ( $entry['cell']['label'] ?? $entry['cell']['slug'] ?? '' );
+			$guest = 'customer' === $role;
+			$data  = array(
+				'reason'       => 'scenario_cap_denied',
+				'help_code'    => 'cap_denied',
+				'required_cap' => $cap,
+				'cap_label'    => $label,
+				'scenario'     => (string) ( $entry['cell']['slug'] ?? '' ),
+			);
+			if ( $guest ) {
+				$message      = 'Mục này chưa mở qua tin nhắn, mình báo chủ shop nhé.';
+				$data['hint'] = 'Chủ shop: tài khoản ở ô «Làm việc bằng quyền của» của số cần quyền «' . $label . '» để chạy kịch bản «' . $name . '».';
+			} else {
+				$data['acting_role'] = self::role_label( $uid );
+				$message      = 'Tài khoản đang làm việc chưa có quyền «' . $label . '» nên chưa chạy được kịch bản «' . $name . '».';
+				$data['hint'] = 'Nhờ quản trị viên cấp quyền «' . $label . '» cho tài khoản, hoặc đổi «Làm việc bằng quyền của» sang tài khoản có quyền.';
+			}
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::SCOPE_DENIED, $message, 403, $data );
+		}
+		return null;
+	}
+
+	/** Display name of the user's first WP role (e.g. "Tác giả"), '' when unknown. Never the user's own name or login. */
+	private static function role_label( int $uid ): string {
+		if ( $uid <= 0 || ! function_exists( 'get_userdata' ) ) {
+			return '';
+		}
+		$u     = get_userdata( $uid );
+		$roles = $u && isset( $u->roles ) ? array_values( (array) $u->roles ) : array();
+		if ( ! $roles ) {
+			return '';
+		}
+		$names = function_exists( 'wp_roles' ) ? (array) wp_roles()->get_names() : array();
+		$name  = (string) ( $names[ $roles[0] ] ?? $roles[0] );
+		return function_exists( 'translate_user_role' ) ? (string) translate_user_role( $name ) : $name;
 	}
 
 	/** @var callable|null test seam: fn(string $canon, string $uid, string $channel_ref, array $data): int — replaces BizCity_CRM_Contact_Identity::resolve_or_create */

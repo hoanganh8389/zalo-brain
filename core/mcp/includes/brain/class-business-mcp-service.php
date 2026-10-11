@@ -37,12 +37,57 @@ final class BizCity_Business_MCP_Service {
 		if ( '' === $bridge ) {
 			return array( '_degraded' => true, 'reason' => 'crm_woo_reports_unavailable', 'from' => $from, 'to' => $to, 'summary' => $this->zero_sales( $from, $to ) );
 		}
-		return array(
+		$out = array(
 			'from'    => $from,
 			'to'      => $to,
 			'source'  => 'BizCity_CRM_Woo_Reports_Bridge::get_revenue_summary',
 			'summary' => call_user_func( array( $bridge, 'get_revenue_summary' ), $from, $to ),
 		);
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L7 — `compare_to` (previous_period | previous_year | none): kỳ kề trước cùng
+		// độ dài hoặc cùng ngày năm trước; trả `compare {from,to,summary}` + `delta` theo khoá số (abs, pct) để cell/harness so "tuần này vs
+		// tuần trước" trong một lời gọi. Không gọi model, không ghi (R-BCB-2). Ca thử HT-W5 đo khoá này.
+		$cmp = $this->compare_range( $from, $to, isset( $args['compare_to'] ) ? (string) $args['compare_to'] : 'none' );
+		if ( $cmp ) {
+			$prev           = (array) call_user_func( array( $bridge, 'get_revenue_summary' ), $cmp[0], $cmp[1] );
+			$out['compare'] = array( 'from' => $cmp[0], 'to' => $cmp[1], 'summary' => $prev );
+			$out['delta']   = self::delta( (array) $out['summary'], $prev );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L7 — khoảng so sánh. `previous_period` = cùng số ngày ngay trước `from`;
+	 * `previous_year` = cùng ngày năm trước; khác ⇒ null.
+	 *
+	 * @return array{0:string,1:string}|null
+	 */
+	public function compare_range( $from, $to, $mode ) {
+		$f = strtotime( $from . ' 00:00:00' );
+		$t = strtotime( $to . ' 00:00:00' );
+		if ( false === $f || false === $t || $t < $f ) {
+			return null;
+		}
+		if ( 'previous_period' === $mode ) {
+			$days = (int) round( ( $t - $f ) / DAY_IN_SECONDS ) + 1;
+			return array( date( 'Y-m-d', $f - $days * DAY_IN_SECONDS ), date( 'Y-m-d', $f - DAY_IN_SECONDS ) );
+		}
+		if ( 'previous_year' === $mode ) {
+			return array( date( 'Y-m-d', strtotime( '-1 year', $f ) ), date( 'Y-m-d', strtotime( '-1 year', $t ) ) );
+		}
+		return null;
+	}
+
+	/** Chênh lệch theo khoá số của hai summary: { key: { abs, pct|null } }; khoá không phải số bị bỏ. */
+	public static function delta( array $now, array $prev ) {
+		$out = array();
+		foreach ( $now as $k => $v ) {
+			if ( ! is_numeric( $v ) || ! isset( $prev[ $k ] ) || ! is_numeric( $prev[ $k ] ) ) {
+				continue;
+			}
+			$a         = (float) $v - (float) $prev[ $k ];
+			$out[ $k ] = array( 'abs' => round( $a, 2 ), 'pct' => 0.0 === (float) $prev[ $k ] ? null : round( $a / (float) $prev[ $k ] * 100, 1 ) );
+		}
+		return $out;
 	}
 
 	public function get_customer_metrics( array $args, array $ctx ) {

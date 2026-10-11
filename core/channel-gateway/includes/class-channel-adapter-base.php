@@ -181,7 +181,9 @@ if ( interface_exists( 'BizCity_Channel_Magic_Link_Capable' ) ) {
 		public function health(): array {
 			return array( 'ok' => null, 'latency_ms' => 0, 'last_error' => 'MagicLink interface missing', 'last_success_at' => '', 'token_expires_at' => '' );
 		}
-		public function test_connection(): array { return array( 'success' => false, 'error' => 'interface_missing' ); }
+		// [2026-10-10 11:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — protected like the primary branch (:146); the public
+		// fallback made webchat/class-webchat-adapter.php (protected override) a fatal "access level must be public" on a half-deploy.
+		protected function test_connection(): array { return array( 'success' => false, 'error' => 'interface_missing' ); }
 		public function describe_capabilities(): array { return array( 'inbound', 'outbound' ); }
 		protected function make_wp_error( string $code, string $message ): \WP_Error {
 			return new \WP_Error( 'bizcity_adapter_' . $code, $message );

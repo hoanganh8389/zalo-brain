@@ -1048,7 +1048,7 @@ class BizCity_Zalo_Bridge_REST {
 	private static function manager_user_ids(): array {
 		$ids = get_users( array(
 			'blog_id'  => (int) get_current_blog_id(),
-			'role__in' => array( 'administrator', 'editor', 'shop_manager' ),
+			'role__in' => array( 'administrator', 'editor', 'shop_manager', 'author' ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L4 — Tác giả chọn được ở ô ③ (bài của họ chờ duyệt nếu thiếu publish_posts)
 			'fields'   => 'ID',
 			'number'   => 500,
 		) );
@@ -1362,6 +1362,8 @@ class BizCity_Zalo_Bridge_REST {
 				'email'        => sanitize_email( (string) $user->user_email ),
 				'avatar_url'   => (string) get_avatar_url( $user_id, array( 'size' => 64 ) ),
 				'roles'        => $role_labels,
+				// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-U3 — ô ③ "Làm việc bằng quyền của" hiện quyền (danh sách đóng, R-NB-3)
+				'caps'         => class_exists( 'BizCity_Agent_Mode_Access' ) && method_exists( 'BizCity_Agent_Mode_Access', 'caps_for_user' ) ? BizCity_Agent_Mode_Access::caps_for_user( $user_id ) : array(),
 				'accounts'     => $accounts,
 				'quota'        => array(
 					'limit'     => (int) ( $quota_status['quota'] ?? 0 ),

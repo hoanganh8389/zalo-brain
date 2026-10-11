@@ -154,6 +154,8 @@ if ( is_admin() ) {
 }
 
 // Phase 2 Priority 4 — Prompt Parser (write-only prompt specs)
+// [2026-10-10 11:43 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — no live caller (census OWNER-DECISION O-2),
+// kept loaded because the Z-7 tables harness (T5 prompt_specs writer-stop) requires this path; archive after that rebase.
 require_once $twin_includes . '/class-twin-prompt-parser.php';
 
 // Memory Table Migration — rename scattered tables to unified bizcity_memory_* prefix
@@ -163,7 +165,8 @@ require_once $twin_includes . '/class-memory-table-migration.php';
 if ( BIZCITY_TWIN_FOCUS_ENABLED ) {
     require_once $twin_includes . '/class-focus-router.php';
     require_once $twin_includes . '/class-focus-gate.php';
-    require_once $twin_includes . '/class-twin-suggest.php';
+    // [2026-10-10 11:30 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — class-twin-suggest.php archived
+    // (core/_archived/z8b-20261010/twin-core/includes/): its only caller was the retired Chat Gateway (Z-3b).
 
     // Hook Focus Gate at priority 1 — BEFORE all context injectors
     add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Focus_Gate', 'gate_context' ], 1, 2 );

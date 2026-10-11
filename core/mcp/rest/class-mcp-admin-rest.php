@@ -196,7 +196,14 @@ final class BizCity_MCP_Admin_REST {
 		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) ) {
 			return rest_ensure_response( array( 'success' => true, 'tools' => array(), '_degraded' => true ) );
 		}
-		return rest_ensure_response( array( 'success' => true, 'tools' => BizCity_MCP_Tool_Registry::catalog_for_settings() ) );
+		$out = array( 'success' => true, 'tools' => BizCity_MCP_Tool_Registry::catalog_for_settings() );
+		// [2026-10-11 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-S2 — ?detail=1: the full public descriptors (bizcity-mcp-tool@1: inputSchema +
+		// _meta.bizcity confirm/roles/scope/mode) of every registered tool, admin policy ignored, so the browser selfcheck reads the real contract.
+		// Same data as MCP tools/list (no handler, no secret); still behind this route's admin gate.
+		if ( $request->get_param( 'detail' ) && method_exists( 'BizCity_MCP_Tool_Registry', 'list_descriptors' ) ) {
+			$out['descriptors'] = BizCity_MCP_Tool_Registry::list_descriptors( false );
+		}
+		return rest_ensure_response( $out );
 	}
 
 	public static function update_tools( WP_REST_Request $request ) {

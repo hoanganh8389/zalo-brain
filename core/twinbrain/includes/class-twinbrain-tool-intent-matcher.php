@@ -440,3 +440,17 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		return '';
 	}
 }
+
+// [2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-13 (owner: "giữ lại để vẫn dùng") — bizcity_skills lost its schema owner when core/skills was archived
+// (WP-12 R3); this matcher is its only live reader (every bot turn, R13f), so the registry row lives here. Installer is
+// null on purpose: no code creates the table on a new site any more and load_user_skills() degrades to [] when it is absent.
+// Guarded by core/twinbrain/tests/harness/wp20-skills-keep-harness.php.
+if ( class_exists( 'BizCity_Schema_Registry' ) ) {
+	BizCity_Schema_Registry::register(
+		'bizcity_skills',
+		'core.skills',
+		'1.5.0',
+		'bizcity_skills_db_version',
+		null
+	);
+}

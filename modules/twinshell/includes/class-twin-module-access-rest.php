@@ -319,8 +319,9 @@ class BizCity_Twin_Module_Access_REST {
 			$on   = $role && $role->has_cap( BizCity_Twin_Module_Access::PRIM_PREFIX . $entry['id'] );
 			return [ 'state' => $on ? 'on' : 'off', 'editable' => true, 'reason' => '' ];
 		}
-		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_REST' ) && method_exists( 'BizCity_TwinWeb_REST', 'module_access_role_state' ) ) {
-			$state = BizCity_TwinWeb_REST::instance()->module_access_role_state();
+		// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded Twin GPT access policy, never class_exists( REST ) (the REST slice is not loaded on bizcity-twinchat/v1).
+		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			$state = BizCity_TwinWeb_Access_Policy::module_access_role_state();
 			if ( in_array( $role_slug, $state['editable_roles'], true ) ) {
 				return [ 'state' => in_array( $role_slug, $state['allowed_roles'], true ) ? 'on' : 'off', 'editable' => true, 'reason' => '' ];
 			}
@@ -368,8 +369,9 @@ class BizCity_Twin_Module_Access_REST {
 			}
 			return true;
 		}
-		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_REST' ) ) {
-			return BizCity_TwinWeb_REST::instance()->module_access_set_role( $role_slug, $allowed );
+		// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded Twin GPT access policy, never class_exists( REST ) (the REST slice is not loaded on bizcity-twinchat/v1).
+		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			return BizCity_TwinWeb_Access_Policy::module_access_set_role( $role_slug, $allowed );
 		}
 		return self::error( 'module_access_write_failed', __( 'This switch cannot be changed here.', 'bizcity-twin-ai' ), '', 409, [ 'reason' => 'not_grantable' ] );
 	}
@@ -383,8 +385,9 @@ class BizCity_Twin_Module_Access_REST {
 			}
 			return $user->caps[ $prim ] ? 'allow' : 'deny';
 		}
-		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_REST' ) && method_exists( 'BizCity_TwinWeb_REST', 'module_access_user_state' ) ) {
-			return BizCity_TwinWeb_REST::instance()->module_access_user_state( $user->ID );
+		// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded Twin GPT access policy, never class_exists( REST ) (the REST slice is not loaded on bizcity-twinchat/v1).
+		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			return BizCity_TwinWeb_Access_Policy::module_access_user_state( $user->ID );
 		}
 		return null;
 	}
@@ -400,8 +403,9 @@ class BizCity_Twin_Module_Access_REST {
 			}
 			return true;
 		}
-		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_REST' ) ) {
-			return BizCity_TwinWeb_REST::instance()->module_access_set_user( $user->ID, $state );
+		// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded Twin GPT access policy, never class_exists( REST ) (the REST slice is not loaded on bizcity-twinchat/v1).
+		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			return BizCity_TwinWeb_Access_Policy::module_access_set_user( $user->ID, $state );
 		}
 		return self::error( 'module_access_write_failed', __( 'This module is managed elsewhere.', 'bizcity-twin-ai' ), __( 'Use the link on that row to change it where it is managed.', 'bizcity-twin-ai' ), 409, [ 'reason' => 'not_grantable' ] );
 	}

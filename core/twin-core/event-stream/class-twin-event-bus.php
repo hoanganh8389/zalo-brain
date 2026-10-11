@@ -95,7 +95,9 @@ class BizCity_Twin_Event_Bus {
 		$impacts = $taxonomy[ $event_key ]['state_impact'];
 
 		// Record milestone for events that affect milestones
-		if ( in_array( 'milestones', $impacts, true ) ) {
+		// [2026-10-10 10:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7-2 — the milestones projection is stopped; record_milestone() refuses the write anyway.
+		if ( in_array( 'milestones', $impacts, true ) && class_exists( 'BizCity_Legacy_Table_Policy' )
+			&& BizCity_Legacy_Table_Policy::allow_sql( BizCity_Twin_State_Schema::milestones_table(), 'insert' ) ) {
 			self::record_milestone_from_event( $event_key, $payload );
 		}
 
@@ -134,6 +136,10 @@ class BizCity_Twin_Event_Bus {
 		global $wpdb;
 		$table = BizCity_Twin_State_Schema::milestones_table();
 
+		// [2026-10-10 10:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7-2 — quarantined + writer-stop: refuse SQL writes (checked before the table probe, so no SHOW TABLES either).
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) || ! BizCity_Legacy_Table_Policy::allow_sql( $table, 'insert' ) ) {
+			return 0;
+		}
 		if ( ! bizcity_tbl_exists( $table ) ) { // [2026-06-21 Johnny Chu] R-SHOW-TABLES
 			return 0;
 		}

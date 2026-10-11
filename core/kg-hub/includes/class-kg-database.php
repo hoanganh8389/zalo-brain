@@ -799,6 +799,9 @@ class BizCity_KG_Database {
 		$this->migrate_v030_passage_view_filestore_columns();
 
 		// 22. PHASE-6.6-SKELETON-DOC S3.1 — skeleton history (per-version archive).
+		// [2026-10-10 11:13 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — bizcity_kg_skeleton_history is quarantined
+		// (rows stay); BizCity_KG_Skeleton_Service writes the keyed JSONL contract core.kg_hub.skeleton_history instead.
+		if ( false ) {
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_skeleton_history (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			notebook_id BIGINT UNSIGNED NOT NULL,
@@ -814,6 +817,7 @@ class BizCity_KG_Database {
 			UNIQUE KEY uk_notebook_version (notebook_id, version),
 			KEY idx_notebook_built (notebook_id, built_at)
 		) {$cs};" );
+		}
 
 		// [2026-09-19 Johnny Chu - Chu Hoàng Anh] PHASE-0.57A W1-01 — shared workspace, view-only grant and ACL audit tables. All are per-blog via $wpdb->prefix.
 		dbDelta( "CREATE TABLE IF NOT EXISTS {$wpdb->prefix}bizcity_kg_workspaces (

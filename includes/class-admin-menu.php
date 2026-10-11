@@ -257,7 +257,7 @@ class BizCity_Admin_Menu {
 		);
 
 		// WebChat Settings
-		if ( class_exists( 'BizCity_WebChat_Admin_Menu', false ) ) {
+		if ( class_exists( 'BizCity_WebChat_Admin_Menu', false ) && method_exists( 'BizCity_WebChat_Admin_Menu', 'instance' ) ) { // [2026-10-11 01:25 PM Johnny Chu - Chu Hoàng Anh] HOTFIX stale-class guard
 			$wc = BizCity_WebChat_Admin_Menu::instance();
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Cài đặt Chatbot', $td ), __( 'Cài đặt Chatbot', $td ),
@@ -516,7 +516,7 @@ class BizCity_Admin_Menu {
 		}
 
 		/* ── Zalo Hotline (mu-plugins/bizcity-admin-hook-zalo) submenu under Channels ── */
-		if ( class_exists( 'BizCity_Zalo_Hotline_Admin_Menu', false ) ) {
+		if ( class_exists( 'BizCity_Zalo_Hotline_Admin_Menu', false ) && method_exists( 'BizCity_Zalo_Hotline_Admin_Menu', 'instance' ) ) { // [2026-10-11 01:25 PM Johnny Chu - Chu Hoàng Anh] HOTFIX stale-class guard
 			add_submenu_page( self::SLUG_PLUGINS,
 				__( 'Zalo Hotline (ZNS)', $td ), __( 'Zalo Hotline', $td ),
 				self::menu_cap(), 'bizcity-zalo-hotline',
@@ -627,7 +627,9 @@ class BizCity_Admin_Menu {
 		}
 
 		// Skills library (task delegation)
-		if ( class_exists( 'BizCity_Skill_Admin_Page', false ) ) {
+		// [2026-10-11 01:15 PM Johnny Chu - Chu Hoàng Anh] HOTFIX — a stale file left on a server can define this class without instance()
+		// (wp-admin fatal "Call to undefined method BizCity_Skill_Admin_Page::instance()", log 2026-10-11 06:14 UTC): check the method too.
+		if ( class_exists( 'BizCity_Skill_Admin_Page', false ) && method_exists( 'BizCity_Skill_Admin_Page', 'instance' ) ) {
 			add_submenu_page( self::SLUG_WORKSPACE,
 				__( 'Kỹ năng chia việc', $td ), __( 'Kỹ năng chia việc', $td ),
 				self::menu_cap(), 'bizcity-skills',
@@ -693,7 +695,7 @@ class BizCity_Admin_Menu {
 	 * ══════════════════════════════════════ */
 	/**
 	 * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (D96-15) — "Zalo Brain" › the 7 surfaces, in BizCity_Zalo_Brain order.
-	 * Surfaces are public pages (/gpt/, /crm/, …), so the submenu items are absolute URLs (WordPress links them as-is).
+	 * Submenu items are admin.php?page=… links (see surface_admin_url()); WordPress links an absolute URL slug as-is.
 	 * "Cấu hình Zalo" opens the Bot Studio admin SPA; "Cài đặt" is the Control Panel page this root already renders.
 	 */
 	public static function register_zalo_brain_surfaces(): void {
@@ -712,13 +714,51 @@ class BizCity_Admin_Menu {
 			if ( 'setting' === $id || empty( $surface['available'] ) || ! isset( $labels[ $id ] ) ) {
 				continue;
 			}
-			$url = 'gateway' === $id
-				? admin_url( 'admin.php?page=bizchat-gateway-spa' )
-				: home_url( (string) $surface['slug'] );
+			$url = self::surface_admin_url( $id, (string) $surface['slug'] );
 			$cap = 'gateway' === $id ? self::menu_cap() : 'read';
 			add_submenu_page( self::SLUG_CONTROL_PANEL, $labels[ $id ], $labels[ $id ], $cap, $url );
 		}
 		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Cài đặt', 'bizcity-twin-ai' ), __( 'Cài đặt', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );
+	}
+
+	/**
+	 * [2026-10-11 12:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (owner: "chuyển sang dạng link admin.php?page=… cho đúng tiêu chuẩn chung") —
+	 * every "Zalo Brain" submenu item is an admin.php?page=… link, never a public URL:
+	 *   - entry with mode 'link' in the TwinShell registry -> its target_url (gateway = admin.php?page=bizchat-gateway-spa,
+	 *     flow = admin.php?page=bizcity-automation);
+	 *   - entry with mode 'embed' (gpt, crm, twinchat, scheduler) -> the TwinShell admin page inside wp-admin,
+	 *     admin.php?page=bizcity-twinchat&plugin=<id> (render_page() embeds the shell; no redirect to /twin/);
+	 *   - "Cài đặt" stays admin.php?page=bizcity-twin-control-panel (the root's own page).
+	 * Without the TwinShell registry the public slug is the last resort, so a missing module never hides a surface.
+	 *
+	 * @param string $id   Zalo Brain surface id (gpt|gateway|crm|twinchat|scheduler|flow).
+	 * @param string $slug Public slug of the surface (e.g. /gpt/).
+	 */
+	public static function surface_admin_url( string $id, string $slug ): string {
+		// Zalo Brain "flow" is the registry's "workflow" entry (Automation).
+		$shell_id = 'flow' === $id ? 'workflow' : $id;
+		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
+			$entry = BizCity_Twin_Shell_Registry::instance()->get( $shell_id );
+			if ( is_array( $entry ) ) {
+				if ( 'link' === ( $entry['mode'] ?? '' ) && ! empty( $entry['target_url'] ) ) {
+					return (string) $entry['target_url'];
+				}
+				return admin_url( 'admin.php?page=bizcity-twinchat&plugin=' . rawurlencode( $shell_id ) );
+			}
+		}
+		// [2026-10-11 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 fix (owner: "flow, crm, twin vẫn chưa thay") — the registry lookup above is
+		// skipped when the TwinShell module is not loaded yet at admin_menu time, and the fallback used to be the PUBLIC slug for every surface.
+		// Fixed map instead: same admin.php?page=… targets the registry would give; only `gpt` (no TwinShell entry) keeps its public slug.
+		if ( 'gateway' === $id ) {
+			return admin_url( 'admin.php?page=bizchat-gateway-spa' );
+		}
+		if ( 'flow' === $id ) {
+			return admin_url( 'admin.php?page=bizcity-automation' );
+		}
+		if ( in_array( $id, array( 'crm', 'twinchat', 'scheduler' ), true ) ) {
+			return admin_url( 'admin.php?page=bizcity-twinchat&plugin=' . rawurlencode( $id ) );
+		}
+		return home_url( $slug );
 	}
 
 	/**

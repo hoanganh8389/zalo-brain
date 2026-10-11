@@ -209,155 +209,6 @@
         "uniq_field":    { "type": "UNIQUE KEY", "cols": ["blog_id", "character_id", "field"], "since": "1.8.0" },
         "idx_character": { "type": "KEY",        "cols": ["blog_id", "character_id"],          "since": "1.8.0" }
       }
-    },
-    "bizcity_cg_broadcasts": {
-      "since": "1.9.0",
-      "purpose": "Broadcast (mass-send) jobs. Created by BizCity_Broadcast_Installer (SCHEMA_VERSION 1.0.0) since PHASE-CG-BROADCAST 2026-06-27; declared here by WP-14 B3 (R-DCL debt). The engine stays in Channel Gateway because CRM Broadcast runs on it (bizcity-channel/v1/broadcasts*, BizCity_Broadcast_Manager). Cron bizcity_cg_broadcast_tick.",
-      "owner_class": "BizCity_Broadcast_Installer",
-      "installer_option": "bizcity_cg_broadcast_schema_version",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id": {
-          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
-          "since": "1.9.0",
-          "pk": true
-        },
-        "name": {
-          "type": "VARCHAR(255) NOT NULL DEFAULT ''",
-          "since": "1.9.0"
-        },
-        "type": {
-          "type": "VARCHAR(20) NOT NULL DEFAULT 'zns'",
-          "since": "1.9.0"
-        },
-        "status": {
-          "type": "VARCHAR(20) NOT NULL DEFAULT 'draft'",
-          "since": "1.9.0"
-        },
-        "meta_json": {
-          "type": "LONGTEXT NULL",
-          "since": "1.9.0"
-        },
-        "total_count": {
-          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
-          "since": "1.9.0"
-        },
-        "sent_count": {
-          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
-          "since": "1.9.0"
-        },
-        "failed_count": {
-          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
-          "since": "1.9.0"
-        },
-        "batch_size": {
-          "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 10",
-          "since": "1.9.0"
-        },
-        "delay_sec": {
-          "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 5",
-          "since": "1.9.0"
-        },
-        "created_by": {
-          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
-          "since": "1.9.0"
-        },
-        "created_at": {
-          "type": "DATETIME NOT NULL",
-          "since": "1.9.0"
-        },
-        "started_at": {
-          "type": "DATETIME NULL",
-          "since": "1.9.0"
-        },
-        "done_at": {
-          "type": "DATETIME NULL",
-          "since": "1.9.0"
-        }
-      },
-      "indexes": {
-        "idx_status": {
-          "type": "KEY",
-          "cols": [
-            "status"
-          ],
-          "since": "1.9.0"
-        },
-        "idx_created": {
-          "type": "KEY",
-          "cols": [
-            "created_at"
-          ],
-          "since": "1.9.0"
-        }
-      }
-    },
-    "bizcity_cg_broadcast_recipients": {
-      "since": "1.9.0",
-      "purpose": "One row per recipient of a broadcast job (queued → sent/failed). Same owner and installer as bizcity_cg_broadcasts; declared by WP-14 B3.",
-      "owner_class": "BizCity_Broadcast_Installer",
-      "installer_option": "bizcity_cg_broadcast_schema_version",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id": {
-          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
-          "since": "1.9.0",
-          "pk": true
-        },
-        "broadcast_id": {
-          "type": "BIGINT UNSIGNED NOT NULL",
-          "since": "1.9.0"
-        },
-        "name": {
-          "type": "VARCHAR(255) NOT NULL DEFAULT ''",
-          "since": "1.9.0"
-        },
-        "phone": {
-          "type": "VARCHAR(50) NULL",
-          "since": "1.9.0"
-        },
-        "email": {
-          "type": "VARCHAR(190) NULL",
-          "since": "1.9.0"
-        },
-        "custom_data": {
-          "type": "LONGTEXT NULL",
-          "since": "1.9.0"
-        },
-        "status": {
-          "type": "VARCHAR(20) NOT NULL DEFAULT 'queued'",
-          "since": "1.9.0"
-        },
-        "error": {
-          "type": "TEXT NULL",
-          "since": "1.9.0"
-        },
-        "sent_at": {
-          "type": "DATETIME NULL",
-          "since": "1.9.0"
-        }
-      },
-      "indexes": {
-        "idx_bc_status": {
-          "type": "KEY",
-          "cols": [
-            "broadcast_id",
-            "status"
-          ],
-          "since": "1.9.0"
-        },
-        "idx_bc_id": {
-          "type": "KEY",
-          "cols": [
-            "broadcast_id"
-          ],
-          "since": "1.9.0"
-        }
-      }
     }
   },
   "history": [
@@ -425,6 +276,11 @@
       "version": "1.9.0",
       "date": "2026-09-28",
       "change": "CORE-REDUCTION WP-14 B3 — declare bizcity_cg_broadcasts and bizcity_cg_broadcast_recipients (created since 2026-06-27 by BizCity_Broadcast_Installer, SCHEMA_VERSION 1.0.0, option bizcity_cg_broadcast_schema_version, but never declared — R-DCL debt). No DDL change. The CG Broadcast screen was removed in WP-14; the engine and both tables stay because CRM Broadcast runs on them."
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-10-11",
+      "change": "[2026-10-11 10:19 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7d (D-W20-1, Q-W16-4; supersedes the WP-14 Q-1 decision \"broadcast backend stays in CG\") — bizcity_cg_broadcasts and bizcity_cg_broadcast_recipients left this changelog: the broadcast engine moved into the Zalo Brain CRM plugin and the two declarations moved to modules.twin-crm (extension-owned). No DDL change, no version bump; rows stay. Old core files: core/_archived/z7d-20261011/."
     }
   ]
 }

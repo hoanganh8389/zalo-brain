@@ -1,0 +1,171 @@
+{
+  "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
+  "module_id": "core.automation",
+  "owner": "plugins/bizcity-automation",
+  "retired": "2026-10-11",
+  "note": "[2026-10-11 12:12 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-14 (owner 2026-10-11: \"có thể bỏ vì không ai dùng\") — no creator, reader or writer in bizcity-twin-ai or bizcity-automation; quarantined + writer-stop in BizCity_Legacy_Table_Policy; rows stay, never DROP.",
+  "tables": {
+    "bizcity_automation_config_packs": {
+      "since": "1.12.0",
+      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable imported CSV/Excel/Google Sheet config packs before workflow activation.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.12.0",
+          "pk": true
+        },
+        "pack_key": {
+          "type": "VARCHAR(96) NOT NULL DEFAULT ''",
+          "since": "1.12.0"
+        },
+        "name": {
+          "type": "VARCHAR(200) NOT NULL DEFAULT ''",
+          "since": "1.12.0"
+        },
+        "schema_key": {
+          "type": "VARCHAR(48) NOT NULL DEFAULT 'content_calendar'",
+          "since": "1.12.0"
+        },
+        "guru_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.12.0"
+        },
+        "owner_user_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.12.0"
+        },
+        "source_type": {
+          "type": "VARCHAR(32) NOT NULL DEFAULT 'manual'",
+          "since": "1.12.0"
+        },
+        "source_ref": {
+          "type": "TEXT NULL",
+          "since": "1.12.0"
+        },
+        "version": {
+          "type": "INT UNSIGNED NOT NULL DEFAULT 1",
+          "since": "1.12.0"
+        },
+        "status": {
+          "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",
+          "since": "1.12.0"
+        },
+        "created_at": {
+          "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+          "since": "1.12.0"
+        },
+        "updated_at": {
+          "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+          "since": "1.12.0"
+        },
+        "created_by": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.12.0"
+        }
+      },
+      "indexes": {
+        "uniq_pack_key": {
+          "cols": [
+            "pack_key"
+          ],
+          "since": "1.12.0",
+          "unique": true
+        },
+        "idx_schema_status": {
+          "cols": [
+            "schema_key",
+            "status"
+          ],
+          "since": "1.12.0"
+        },
+        "idx_owner": {
+          "cols": [
+            "owner_user_id"
+          ],
+          "since": "1.12.0"
+        },
+        "idx_guru": {
+          "cols": [
+            "guru_id"
+          ],
+          "since": "1.12.0"
+        }
+      }
+    },
+    "bizcity_automation_config_rows": {
+      "since": "1.12.0",
+      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable datatable rows with loose row_json, runtime canonical_json and normalized search_text.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.12.0",
+          "pk": true
+        },
+        "pack_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.12.0"
+        },
+        "row_key": {
+          "type": "VARCHAR(64) NOT NULL DEFAULT ''",
+          "since": "1.12.0"
+        },
+        "row_order": {
+          "type": "INT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.12.0"
+        },
+        "row_json": {
+          "type": "LONGTEXT NULL",
+          "since": "1.12.0"
+        },
+        "canonical_json": {
+          "type": "LONGTEXT NULL",
+          "since": "1.12.0"
+        },
+        "search_text": {
+          "type": "LONGTEXT NULL",
+          "since": "1.12.0"
+        },
+        "validation_status": {
+          "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",
+          "since": "1.12.0"
+        },
+        "validation_errors_json": {
+          "type": "TEXT NULL",
+          "since": "1.12.0"
+        },
+        "updated_at": {
+          "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+          "since": "1.12.0"
+        }
+      },
+      "indexes": {
+        "idx_pack_order": {
+          "cols": [
+            "pack_id",
+            "row_order"
+          ],
+          "since": "1.12.0"
+        },
+        "idx_pack_status": {
+          "cols": [
+            "pack_id",
+            "validation_status"
+          ],
+          "since": "1.12.0"
+        },
+        "idx_row_key": {
+          "cols": [
+            "row_key"
+          ],
+          "since": "1.12.0"
+        }
+      }
+    }
+  }
+}

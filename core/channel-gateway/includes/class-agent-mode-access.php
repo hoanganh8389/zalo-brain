@@ -151,6 +151,28 @@ final class BizCity_Agent_Mode_Access {
 	}
 
 	/**
+	 * [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1 (R-NUMBER-BRAIN R-NB-3/R-NB-5, owner-agent-block@1.5 `caps[]`) — the standard WP /
+	 * WooCommerce capabilities the bundle projects for a principal, so the cell can filter scenarios and site tools BEFORE the model sees them
+	 * (site still refuses at run time: `scenario_cap_denied` / `MCP_PERMISSION_DENIED`). CLOSED list — never the user's whole cap map: it must
+	 * match the caps `BizCity_Automation_Cell_Scenario::CAP_OF` and `required_cap` of MCP tools can ask for. Projection only; no new permission.
+	 */
+	const PROJECTED_CAPS = array( 'edit_posts', 'publish_posts', 'upload_files', 'edit_shop_orders', 'manage_woocommerce', 'manage_options' );
+
+	/** @return string[] subset of PROJECTED_CAPS the user holds, in that order; [] for no user */
+	public static function caps_for_user( int $user_id ): array {
+		if ( $user_id <= 0 || ! function_exists( 'user_can' ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( self::PROJECTED_CAPS as $cap ) {
+			if ( user_can( $user_id, $cap ) ) {
+				$out[] = $cap;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Why each mode is allowed or not (UI §7) — source is one of admin, role, user, delegated, denied.
 	 *
 	 * @return array<string,array{allowed:bool,source:string,label:string}>

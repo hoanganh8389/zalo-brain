@@ -754,84 +754,9 @@ add_action( 'wp_ajax_messenger_pull_inbox_fn', 'messenger_pull_inbox_fn' );
  * FROM: messenger/comment.php
  * ============================================================================ */
 
-/**
- * Comment log page
- */
-if ( ! function_exists( 'bizgpt_comment_log_page' ) ) {
-	function bizgpt_comment_log_page() {
-		global $wpdb;
-		
-		// Try new table first
-		$table = $wpdb->prefix . 'bizcity_facebook_comments';
-		$wpdb->suppress_errors( true );
-		$test = $wpdb->get_var( "SHOW TABLES LIKE '$table'" );
-		$wpdb->suppress_errors( false );
-		if ( ! $test ) {
-			$table = $wpdb->prefix . 'bizgpt_inbox_comment';
-		}
-		
-		$wpdb->suppress_errors( true );
-		$rows = $wpdb->get_results( "SELECT * FROM $table ORDER BY created_at DESC LIMIT 100" );
-		$wpdb->suppress_errors( false );
-
-		echo '<div class="wrap"><h2>Nhật ký Comment</h2>
-		<p>Danh sách các bình luận và phản hồi của AI. Bạn có thể click vào link để xem chi tiết từng bình luận trên Facebook.</p>
-		<table class="widefat"><thead><tr>
-			<th>Page/Post</th><th>Khách</th><th>Nội dung</th><th>AI reply</th><th>Chi tiết</th></tr></thead><tbody>';
-
-		if ( $rows ) {
-			foreach ( $rows as $row ) {
-				$fb_comment_link = "https://www.facebook.com/{$row->post_id}/comments/{$row->comment_id}";
-				echo "<tr>
-					<td>" . esc_html( $row->page_id ) . "<br><small>" . esc_html( $row->post_id ) . "</small></td>
-					<td><strong>" . esc_html( $row->sender_name ) . "</strong><br>ID: " . esc_html( $row->sender_id ) . "</td>
-					<td>" . esc_html( $row->message ) . "</td>
-					<td>" . esc_html( $row->ai_reply ) . "</td>
-					<td><a href='" . esc_url( $fb_comment_link ) . "' target='_blank'>Xem</a></td>
-				</tr>";
-			}
-		} else {
-			echo '<tr><td colspan="5">Chưa có dữ liệu.</td></tr>';
-		}
-
-		echo '</tbody></table></div>';
-	}
-}
-
-/**
- * Comment detail page
- */
-if ( ! function_exists( 'bizgpt_comment_detail_page' ) ) {
-	function bizgpt_comment_detail_page() {
-		global $wpdb;
-		$comment_id = sanitize_text_field( $_GET['comment_id'] ?? '' );
-		
-		// Try new table first
-		$table = $wpdb->prefix . 'bizcity_facebook_comments';
-		$wpdb->suppress_errors( true );
-		$test = $wpdb->get_var( "SHOW TABLES LIKE '$table'" );
-		$wpdb->suppress_errors( false );
-		if ( ! $test ) {
-			$table = $wpdb->prefix . 'bizgpt_inbox_comment';
-		}
-
-		$wpdb->suppress_errors( true );
-		$logs = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM $table WHERE comment_id = %s OR parent_comment_id = %s ORDER BY created_at ASC",
-			$comment_id, $comment_id
-		) );
-		$wpdb->suppress_errors( false );
-
-		echo "<div class='wrap'><h2>Chi tiết comment ID: " . esc_html( $comment_id ) . "</h2><ol>";
-		if ( $logs ) {
-			foreach ( $logs as $log ) {
-				echo "<li><strong>" . esc_html( $log->sender_name ) . ":</strong> " . esc_html( $log->message ) . "<br>
-					  <em>AI:</em> " . esc_html( $log->ai_reply ) . "</li><hr>";
-			}
-		}
-		echo "</ol></div>";
-	}
-}
+// [2026-10-11 12:23 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8c — bizgpt_comment_log_page() and bizgpt_comment_detail_page() moved to
+// core/_archived/z8c-20261011/plugins/bizcity-facebook-bot/lib/legacy-old-functions.php: no admin menu registers them (the add_submenu_page lines live only in
+// archived mu-plugins/backup copies).
 
 /**
  * Log comment and AI reply
@@ -961,42 +886,5 @@ if ( ! function_exists( 'bizgpt_parse_comment_flow_dynamic' ) ) {
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — bizgpt_suggest_facebook_posts() removed: no caller left, it read the
 // retired CPT biz_facebook and called OpenAI directly with twf_openai_api_key (R-ONE-AXIS R-AX-3, R-GW).
 
-/**
- * Send post to all connected FB pages
- */
-if ( ! function_exists( 'fb_send_post' ) ) {
-	function fb_send_post( $title, $message, $image_url = '' ) {
-		$pages = get_option( 'fb_pages_connected' );
-        back_trace( 'INFO', 'Sending FB post to pages: ' . print_r( $pages, true ) );
-		if ( ! $pages || ! is_array( $pages ) ) return false;
-
-		$fb_links = array();
-		foreach ( $pages as $page ) {
-			$page_id = $page['id'];
-			$token   = $page['access_token'];
-			$endpoint = "https://graph.facebook.com/$page_id/photos";
-
-			$args = array(
-				'body' => array(
-					'caption'      => "$title\n\n$message",
-					'url'          => $image_url,
-					'access_token' => $token,
-				),
-			);
-
-			$res = wp_remote_post( $endpoint, $args );
-			if ( is_wp_error( $res ) ) {
-				error_log( "FB POST ERROR for page $page_id: " . $res->get_error_message() );
-				continue;
-			}
-			$body = wp_remote_retrieve_body( $res );
-			$data = json_decode( $body, true );
-
-			if ( ! empty( $data['post_id'] ) ) {
-				$fb_link = "https://www.facebook.com/{$page_id}/posts/{$data['post_id']}";
-				$fb_links[] = $fb_link;
-			}
-		}
-		return $fb_links;
-	}
-}
+// [2026-10-11 12:23 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8c — fb_send_post() moved to core/_archived/z8c-20261011/plugins/bizcity-facebook-bot/lib/legacy-old-functions.php: no live caller (only
+// archived mu-plugins/backup copies called it).

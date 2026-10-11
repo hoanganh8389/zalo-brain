@@ -257,6 +257,7 @@
     }
   },
   "history": [
+    { "version": "0.31.0", "date": "2026-10-10", "change": "CORE-REDUCTION WP-20 Z-7c (no DDL change, no version bump): bizcity_kg_skeleton_history is quarantined + writer-stopped in BizCity_Legacy_Table_Policy (rows stay, never dropped) and the installer no longer creates it. Skeleton version history now lives in the keyed JSONL contract core.kg_hub.skeleton_history (bizcity-kg-logs/skeleton-history/nb-{notebook_id}/YYYY-MM-DD.jsonl, retention 365 days): BizCity_KG_Skeleton_Service appends, BizCity_KG_Skeleton_Adapter::list_versions()/get_skeleton_at_version() read newest-first. Versions built before the switch are no longer listed (no SQL fallback)." },
     { "version": "0.31.0", "date": "2026-09-19", "change": "PHASE-0.57A: add per-blog workspace, view-only grant and ACL audit tables for shared/public notebook access." },
     { "version": "0.30.3", "date": "2026-08-21", "change": "KG-GURU-SCHEMA-INVENTORY: declare the existing bizcity_notebook_character_attachments table in the canonical R-DCL catalog and include it in schema readiness checks." },
     { "version": "0.21.0", "date": "2026-05-06", "change": "PHASE-0.21: declare the existing bizcity_notebook_character_attachments table linking notebooks to Guru UUID namespaces." },

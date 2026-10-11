@@ -40,7 +40,8 @@ final class BizCity_TwinWeb_CRM_Projection {
 		foreach ( $conversations as $conversation ) {
 			$conversation_items[] = self::conversation_item( $conversation );
 		}
-		$tasks = BizCity_CRM_Repository::list_tasks_for_member( $user_id, $limit );
+		// [2026-10-10 11:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 hotfix — list_tasks_for_member moved to the CRM plugin (BizCity_CRM_Repository_Ext); no plugin ⇒ no tasks, never a fatal.
+		$tasks = class_exists( 'BizCity_CRM_Repository_Ext' ) ? BizCity_CRM_Repository_Ext::list_tasks_for_member( $user_id, $limit ) : array();
 		$task_items = array();
 		foreach ( $tasks as $task ) {
 			$task_items[] = self::task_item( $task );

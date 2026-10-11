@@ -18,14 +18,12 @@
 defined( 'ABSPATH' ) || exit;
 
 require_once __DIR__ . '/includes/class-cron-manager.php';
-require_once __DIR__ . '/includes/class-cron-admin-page.php';
 require_once __DIR__ . '/includes/class-cron-rest.php';
 require_once __DIR__ . '/includes/class-cron-mcp.php';
 // [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — JSONL per-day file logger
 require_once __DIR__ . '/includes/class-cron-file-logger.php';
 // [2026-07-15 Johnny Chu] R-CRON-TIER — tier-based interval resolver + network UI.
 require_once __DIR__ . '/includes/class-cron-tier-settings.php';
-require_once __DIR__ . '/includes/class-cron-tier-admin-page.php';
 
 // R-PERF / PERF-CRON-FIX — đăng ký schedule NAMES động (bizcity_tier_{N}min)
 // VÔ ĐIỀU KIỆN mỗi request, priority 1, để wp_reschedule_event() không gặp
@@ -45,11 +43,19 @@ add_action( 'plugins_loaded', static function () {
 }, 4 );
 
 // Admin UI · REST · MCP — Phase 2.
-BizCity_Cron_Admin_Page::register();
 BizCity_Cron_REST::register();
 BizCity_Cron_MCP::register();
-// [2026-07-15 Johnny Chu] R-CRON-TIER — Network Admin settings page.
-BizCity_Cron_Tier_Admin_Page::register();
+// [2026-10-11 11:12 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P1 — the two admin pages (Cron admin page + R-CRON-TIER
+// Network Admin settings page, 30 KB) register only admin_menu/admin_init/admin_post_* hooks and nothing outside this file
+// references them ⇒ load + register only under is_admin() (admin-post.php is is_admin()). Schedules/REST/MCP stay ungated.
+if ( is_admin() && class_exists( 'BizCity_Safe_Loader', false ) ) {
+	if ( BizCity_Safe_Loader::require_file( __DIR__ . '/includes/class-cron-admin-page.php', 'cron.admin_page' ) && class_exists( 'BizCity_Cron_Admin_Page', false ) ) {
+		BizCity_Cron_Admin_Page::register();
+	}
+	if ( BizCity_Safe_Loader::require_file( __DIR__ . '/includes/class-cron-tier-admin-page.php', 'cron.tier_admin_page' ) && class_exists( 'BizCity_Cron_Tier_Admin_Page', false ) ) {
+		BizCity_Cron_Tier_Admin_Page::register();
+	}
+}
 
 // [2026-08-27 Johnny Chu] PHASE-DIAG-CI-MOCK — register cron schema repair
 // with Site Provisioner so headless Diagnostics provisions cron tables before
@@ -82,7 +88,9 @@ add_filter( 'bizcity_diagnostics_register_tables', static function ( $tables ) {
 	$tables[] = [ 'name' => 'bizcity_cron_locks',    'owner' => 'core/cron', 'group' => 'cron', 'class' => 'BizCity_Cron_Manager', 'installer' => 'cron',
 		// [2026-08-01 Johnny Chu] PHASE-1.24-LOG-RETENTION — annotate: distributed mutex, not a log. Must NEVER migrate to JSONL — atomic INSERT...ON DUPLICATE KEY UPDATE guards concurrent cron runs.
 		'feature' => 'distributed mutex', 'purpose' => 'Per-job lock preventing duplicate concurrent cron execution. Self-bounded by concurrent job count — keep SQL.',
-		'readers' => [ 'BizCity_Cron_Manager::wrap_start' ], 'writers' => [ 'BizCity_Cron_Manager::try_lock' ] ];
+		// [2026-10-10 11:15 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — superseded: the mutex moved to one wp_options row per job
+		// (INSERT IGNORE + guarded UPDATE takeover, owner token on release); this table is quarantined + writer-stopped, rows stay.
+		'status' => 'quarantined', 'readers' => [], 'writers' => [] ];
 	return $tables;
 }, 10 );
 

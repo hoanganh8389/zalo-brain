@@ -1,0 +1,26 @@
+{
+  "contract": "bizcity-mcp-adapter@1.0.0",
+  "slug": "supplier-search",
+  "$comment": "[2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L13 (doc 50 §2 step 2, doc 80 HT-W6/HT-P3) — supplier.search exists only when a stock/MRO plugin answers the filter `bizcity_mcp_supplier_search` (null, args{query, limit}, ctx) with { suppliers: [{ name, code, lead_days, price, currency, in_stock }] }. No provider ⇒ the tool is absent (never a fake answer, R-GW-8).",
+  "requires": { "filter": "bizcity_mcp_supplier_search" },
+  "tools": [
+    {
+      "marker": "@mcp bizcity-mcp-standard@1 tool supplier.search",
+      "name": "supplier.search",
+      "title": "Tìm nhà cung cấp",
+      "description": "Tìm nhà cung cấp / nguồn hàng cho một mã hoặc tên vật tư (query) từ dữ liệu nhà cung cấp của cửa hàng (plugin kho / MRO). Trả tên, mã, thời gian giao, giá nếu có. Không đặt hàng.",
+      "input_schema": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string", "maxLength": 160 }, "limit": { "type": "integer", "minimum": 1, "maximum": 20 } } },
+      "output": { "suppliers": "array", "total": "integer" },
+      "mode": "stock",
+      "scopes": ["commerce.read"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": true,
+      "llm_alias": "supplier_search",
+      "fallback_pack": null,
+      "since": "0.101.0",
+      "source": { "type": "wp_filter", "filter": "bizcity_mcp_supplier_search" },
+      "output_map": { "suppliers": "suppliers", "total": "total" }
+    }
+  ]
+}

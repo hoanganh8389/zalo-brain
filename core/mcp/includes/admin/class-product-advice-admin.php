@@ -30,6 +30,12 @@ final class BizCity_Product_Advice_Admin {
 	const MAX_CSV    = 2097152; // 2 MB
 	const NOTICE_TTL = 120;
 	const DRAFT_ACT  = 'bizcity_advice_draft';
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F5b — Zalo Brain tự soạn meta tư vấn khi thêm / cập nhật sản phẩm (chủ: "không cần người dùng cài đặt").
+	const AUTO_HOOK   = 'bizcity_advice_autodraft';
+	const AUTO_META   = '_bizcity_advice_auto';   // {hash, at, tries} — stored advice came from Zalo Brain, owner has not changed it
+	const OWNER_META  = '_bizcity_advice_owner';  // 1 — owner edited the advice: Zalo Brain never overwrites it again
+	const AUTO_OPTION = 'bizcity_advice_autodraft'; // 'auto' (default) | 'off'
+	const AUTO_DELAY  = 20;
 
 	/** @var array<string,callable> test seams: get_meta(id) · update_meta(id, value) · delete_meta(id) · find_product(match) · can_edit(id) · product_payload(id) · accounts() · hub(path, body) */
 	public static $io = array();
@@ -60,7 +66,7 @@ final class BizCity_Product_Advice_Admin {
 		if ( ! $on ) {
 			return;
 		}
-		wp_enqueue_script( 'bizcity-product-advice-admin', plugins_url( 'product-advice-admin.js', __FILE__ ), array(), '0.95.2', true );
+		wp_enqueue_script( 'bizcity-product-advice-admin', plugins_url( 'product-advice-admin.js', __FILE__ ), array(), '0.95.3', true ); // S95-F5b
 		wp_localize_script( 'bizcity-product-advice-admin', 'bizcityAdviceDraft', array(
 			'ajax'   => admin_url( 'admin-ajax.php' ),
 			'action' => self::DRAFT_ACT,
@@ -82,7 +88,12 @@ final class BizCity_Product_Advice_Admin {
 			. '.bzadv-chips input.bzadv-chip-in{border:0!important;box-shadow:none!important;flex:1;min-width:120px;padding:2px 4px;width:auto}'
 			. '.bzadv .bzadv-err{border-color:#d63638!important;box-shadow:0 0 0 1px #d63638!important}.bzadv .bzadv-errmsg{color:#d63638;font-size:12px}'
 			. '.bzadv .bzadv-over{color:#d63638;font-weight:600}.bzadv-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}'
-			. '.bzadv-csv{background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:10px 12px;margin:10px 0}';
+			. '.bzadv-csv{background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:10px 12px;margin:10px 0}'
+			// PHASE-0.95 S95-F5b — the AI button stands out
+			. '.bzadv .button.bzadv-ai{background:linear-gradient(135deg,#7c3aed,#db2777);border:0;color:#fff;border-radius:999px;padding:4px 18px;min-height:34px;font-weight:600;box-shadow:0 2px 8px rgba(124,58,237,.35);transition:transform .12s,box-shadow .12s}'
+			. '.bzadv .button.bzadv-ai:hover,.bzadv .button.bzadv-ai:focus{color:#fff;transform:translateY(-1px);box-shadow:0 4px 14px rgba(219,39,119,.4)}'
+			. '.bzadv .button.bzadv-ai[disabled]{opacity:.7;transform:none}'
+			. '.bzadv-auto{display:inline-flex;align-items:center;gap:6px;background:#f5f3ff;border:1px solid #ddd6fe;color:#5b21b6;border-radius:999px;padding:2px 10px;font-size:12px}';
 	}
 
 	/* ── product metabox ──────────────────────────────────────────── */
@@ -145,7 +156,9 @@ final class BizCity_Product_Advice_Admin {
 			<input type="text" name="bizcity_advice[compliance]" value="<?php echo esc_attr( (string) $v( 'compliance' ) ); ?>" placeholder="vd: Sản phẩm không thay thế thuốc chữa bệnh" class="<?php echo self::err_class( 'compliance', $errors ); ?>">
 			<div class="bzadv-row" style="margin-top:10px">
 				<span class="bzadv-h">Bấm <b>Cập nhật</b> của sản phẩm để lưu.</span>
-				<button type="button" class="button" data-bzadv-draft="<?php echo (int) $post_id; ?>" title="Trợ lý soạn nháp từ tên, mô tả, danh mục, thuộc tính của sản phẩm. Chỉ điền vào ô — bấm Cập nhật mới lưu.">✨ Gợi ý từ mô tả</button>
+				<?php // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F5b — nút nổi bật + trạng thái tự soạn ?>
+				<button type="button" class="button bzadv-ai" data-bzadv-draft="<?php echo (int) $post_id; ?>" title="Zalo Brain soạn nháp từ tên, mô tả, danh mục, thuộc tính — viết bằng chữ khách hay dùng. Chỉ điền vào ô — bấm Cập nhật mới lưu.">✨ Gợi ý Zalo Brain tư vấn</button>
+				<?php echo self::auto_status_html( (int) $post_id ); // phpcs:ignore WordPress.Security.EscapeOutput -- escaped inside ?>
 				<span class="bzadv-h" data-bzadv-draft-note role="status" aria-live="polite"></span>
 			</div>
 		</div>
@@ -164,7 +177,9 @@ final class BizCity_Product_Advice_Admin {
 			return;
 		}
 		$form   = wp_unslash( $_POST['bizcity_advice'] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput -- sanitized by save_product().
+		$before = self::io( 'get_meta', $post_id );
 		$result = self::save_product( $post_id, $form );
+		self::mark_owner_after_form( $post_id, $result, is_array( $before ) ? $before : null );
 		if ( $result['errors'] ) {
 			self::put_flash( 'p' . $post_id, array( 'errors' => $result['errors'], 'raw' => $result['raw'] ) );
 			self::put_notice( 'error', self::errors_text( 'Tư vấn AI chưa lưu — sản phẩm vẫn được lưu. Sửa ô:', $result['errors'] ) );
@@ -371,8 +386,8 @@ final class BizCity_Product_Advice_Admin {
 	 * Product id ⇒ {ok:true, draft:{audience,goals,avoid_for,key_questions,pitch}} or {ok:false, error}. Saves nothing.
 	 * The cell's draft is cleaned again here to product-advice@1 caps (never trust the wire).
 	 */
-	public static function draft( int $product_id ): array {
-		if ( $product_id <= 0 || ! self::io( 'can_edit', $product_id ) ) {
+	public static function draft( int $product_id, bool $check_cap = true ): array {
+		if ( $product_id <= 0 || ( $check_cap && ! self::io( 'can_edit', $product_id ) ) ) {
 			return array( 'ok' => false, 'error' => 'Bạn không có quyền sửa sản phẩm này.' );
 		}
 		$product = (array) self::io( 'product_payload', $product_id );
@@ -424,8 +439,128 @@ final class BizCity_Product_Advice_Admin {
 				'avoid_for'     => $list( $d['avoid_for'] ?? null, 6, 40 ),
 				'key_questions' => $list( $d['key_questions'] ?? null, 3, 120 ),
 				'pitch'         => mb_substr( $pitch, 0, 300 ),
-			),
+			) + self::draft_extras( $d, $clean ),
 		);
+	}
+
+	/** S95-F5b — age range + compliance of the cell's draft (cleaned again; missing ⇒ absent). */
+	private static function draft_extras( array $d, callable $clean ): array {
+		$out  = array();
+		$unit = 'month' === ( $d['age_unit'] ?? '' ) ? 'month' : 'year';
+		$cap  = 'month' === $unit ? 1440 : 120;
+		$age  = static function ( $v ) use ( $cap ) { return is_numeric( $v ) && $v >= 0 && $v <= $cap ? round( (float) $v * 2 ) / 2 : null; };
+		$lo   = $age( $d['age_min'] ?? null );
+		$hi   = $age( $d['age_max'] ?? null );
+		if ( ( null !== $lo || null !== $hi ) && ( null === $lo || null === $hi || $lo <= $hi ) ) {
+			if ( null !== $lo ) {
+				$out['age_min'] = $lo;
+			}
+			if ( null !== $hi ) {
+				$out['age_max'] = $hi;
+			}
+			$out['age_unit'] = $unit;
+		}
+		$comp = mb_substr( $clean( $d['compliance'] ?? null ), 0, 200 );
+		if ( '' !== $comp ) {
+			$out['compliance'] = $comp;
+		}
+		return $out;
+	}
+
+	/* ── S95-F5b: Zalo Brain tự soạn khi thêm / cập nhật sản phẩm ──────────────── */
+
+	/** Fingerprint of what the draft is made from (name, texts, categories, attributes). */
+	public static function payload_hash( array $payload ): string {
+		return md5( (string) wp_json_encode( $payload ) );
+	}
+
+	/**
+	 * save_post_product (any path: editor, quick edit, REST, import). Schedules ONE background draft when auto is on, the product is
+	 * published, the owner never edited its advice, and the advice is empty or was written by Zalo Brain from a different text.
+	 */
+	public static function maybe_schedule_auto( $post_id, $post = null ): void {
+		$post_id = (int) $post_id;
+		if ( $post_id <= 0 || ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) || ( function_exists( 'wp_is_post_revision' ) && wp_is_post_revision( $post_id ) ) ) {
+			return;
+		}
+		if ( 'off' === (string) self::io( 'option', self::AUTO_OPTION, 'auto' ) ) {
+			return;
+		}
+		$status = is_object( $post ) && isset( $post->post_status ) ? (string) $post->post_status : (string) self::io( 'post_status', $post_id );
+		if ( 'publish' !== $status || self::io( 'post_meta', $post_id, self::OWNER_META ) ) {
+			return;
+		}
+		$auto   = self::io( 'post_meta', $post_id, self::AUTO_META );
+		$advice = self::io( 'get_meta', $post_id );
+		if ( is_array( $advice ) && $advice && ! is_array( $auto ) ) {
+			return; // advice typed by the owner before auto existed (or via CSV): theirs
+		}
+		$payload = (array) self::io( 'product_payload', $post_id );
+		if ( '' === trim( (string) ( $payload['name'] ?? '' ) ) ) {
+			return;
+		}
+		if ( is_array( $auto ) && (string) ( $auto['hash'] ?? '' ) === self::payload_hash( $payload ) ) {
+			return; // same text as the last draft
+		}
+		if ( ! self::io( 'next_scheduled', self::AUTO_HOOK, array( $post_id ) ) ) {
+			self::io( 'schedule', time() + self::AUTO_DELAY, self::AUTO_HOOK, array( $post_id ) );
+		}
+	}
+
+	/** WP-cron: ask the cell, store the draft as the product's advice (keeps tier / priority / next step / pairs), mark it auto. */
+	public static function run_auto_draft( $post_id ): array {
+		$post_id = (int) $post_id;
+		if ( $post_id <= 0 || self::io( 'post_meta', $post_id, self::OWNER_META ) ) {
+			return array( 'ok' => false, 'skip' => 'owner' );
+		}
+		$payload = (array) self::io( 'product_payload', $post_id );
+		$r       = self::draft( $post_id, false );
+		$auto    = self::io( 'post_meta', $post_id, self::AUTO_META );
+		$tries   = is_array( $auto ) ? (int) ( $auto['tries'] ?? 0 ) : 0;
+		if ( empty( $r['ok'] ) ) {
+			// one retry later (rate limit / cell busy); the owner can always press the button
+			if ( $tries < 1 ) {
+				self::io( 'update_post_meta', $post_id, self::AUTO_META, array( 'hash' => '', 'at' => '', 'tries' => $tries + 1 ) );
+				self::io( 'schedule', time() + 120, self::AUTO_HOOK, array( $post_id ) );
+			}
+			return array( 'ok' => false, 'error' => (string) ( $r['error'] ?? '' ) );
+		}
+		$current = self::io( 'get_meta', $post_id );
+		$keep    = is_array( $current ) ? array_intersect_key( $current, array_flip( array( 'tier', 'priority', 'next_action', 'pair_with' ) ) ) : array();
+		$clean   = BizCity_Product_Advice::sanitize( array_merge( $keep, (array) $r['draft'] ) );
+		self::io( 'update_meta', $post_id, $clean );
+		self::io( 'update_post_meta', $post_id, self::AUTO_META, array( 'hash' => self::payload_hash( $payload ), 'at' => gmdate( 'c' ), 'tries' => 0 ) );
+		return array( 'ok' => true, 'advice' => $clean );
+	}
+
+	/** The owner saved the form: unchanged auto values stay "auto"; any real change (or a typed advice) becomes owner-managed. */
+	public static function mark_owner_after_form( int $post_id, array $result, ?array $before ): void {
+		if ( ! empty( $result['errors'] ) || empty( $result['saved'] ) ) {
+			return; // refused, or blank form (deleted): nothing to own; auto may draft later
+		}
+		$auto = self::io( 'post_meta', $post_id, self::AUTO_META );
+		if ( is_array( $auto ) && is_array( $before ) && $before == $result['clean'] ) { // phpcs:ignore Universal.Operators.StrictComparisons -- same values, key order irrelevant
+			return;
+		}
+		self::io( 'update_post_meta', $post_id, self::OWNER_META, 1 );
+		self::io( 'delete_post_meta', $post_id, self::AUTO_META );
+	}
+
+	/** Badge next to the button: drafted automatically / drafting / nothing. */
+	private static function auto_status_html( int $post_id ): string {
+		if ( self::io( 'post_meta', $post_id, self::OWNER_META ) ) {
+			return '';
+		}
+		$auto = self::io( 'post_meta', $post_id, self::AUTO_META );
+		if ( is_array( $auto ) && '' !== (string) ( $auto['at'] ?? '' ) ) {
+			$t = strtotime( (string) $auto['at'] );
+			$when = $t ? ' lúc ' . esc_html( function_exists( 'wp_date' ) ? wp_date( 'H:i d/m', $t ) : gmdate( 'H:i d/m', $t ) ) : '';
+			return '<span class="bzadv-auto" title="Zalo Brain soạn từ mô tả khi sản phẩm được lưu. Sửa bất kỳ ô nào rồi bấm Cập nhật ⇒ thành của bạn, Zalo Brain không ghi đè nữa.">🤖 Zalo Brain đã tự soạn' . $when . ' — xem lại rồi Cập nhật để chốt</span>';
+		}
+		if ( self::io( 'next_scheduled', self::AUTO_HOOK, array( $post_id ) ) ) {
+			return '<span class="bzadv-auto">🤖 Zalo Brain đang soạn gợi ý… tải lại trang sau ít giây</span>';
+		}
+		return '';
 	}
 
 	/** Product ⇒ the text the cell may read (name, short, description, category names, ≤ 8 attributes). No price, stock or customer data. */
@@ -591,6 +726,21 @@ final class BizCity_Product_Advice_Admin {
 		switch ( $op ) {
 			case 'get_meta':
 				return BizCity_Product_Advice::for_product( (int) $args[0] );
+			// S95-F5b — auto draft plumbing
+			case 'option':
+				return function_exists( 'get_option' ) ? get_option( (string) $args[0], $args[1] ?? null ) : ( $args[1] ?? null );
+			case 'post_status':
+				return function_exists( 'get_post_status' ) ? (string) get_post_status( (int) $args[0] ) : '';
+			case 'post_meta':
+				return get_post_meta( (int) $args[0], (string) $args[1], true );
+			case 'update_post_meta':
+				return update_post_meta( (int) $args[0], (string) $args[1], $args[2] );
+			case 'delete_post_meta':
+				return delete_post_meta( (int) $args[0], (string) $args[1] );
+			case 'next_scheduled':
+				return function_exists( 'wp_next_scheduled' ) ? wp_next_scheduled( (string) $args[0], (array) $args[1] ) : false;
+			case 'schedule':
+				return function_exists( 'wp_schedule_single_event' ) ? wp_schedule_single_event( (int) $args[0], (string) $args[1], (array) $args[2] ) : false;
 			case 'update_meta':
 				return update_post_meta( (int) $args[0], BizCity_Product_Advice::META_KEY, $args[1] );
 			case 'delete_meta':

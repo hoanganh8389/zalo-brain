@@ -483,6 +483,37 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 		'retention_days'     => 7,
 		'indexed'            => true,
 	) );
+	// [2026-10-10 11:10 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — notebook skeleton version history leaves SQL
+	// (bizcity_kg_skeleton_history, quarantined): one keyed segment per notebook, verbatim records written by
+	// BizCity_KG_Skeleton_Service, read newest-first by BizCity_KG_Skeleton_Adapter::list_versions()/get_skeleton_at_version().
+	// Layout bizcity-kg-logs/skeleton-history/nb-{notebook_id}/YYYY-MM-DD.jsonl; long retention because it is a version picker, not a trace.
+	BizCity_Log_Contract_Registry::register( 'core.kg_hub.skeleton_history', array(
+		'owner_module'       => 'core/kg-hub',
+		'label'              => 'KG notebook skeleton version history',
+		'jsonl_folder'       => 'bizcity-kg-logs',
+		'jsonl_module'       => 'skeleton-history',
+		'segments_template'  => array( 'notebook_id' ),
+		'related_sql_tables' => array( 'bizcity_kg_skeleton_history' ),
+		'retention_days'     => 365,
+		'indexed'            => false,
+	) );
+	// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — TwinChat learning events leave SQL
+	// (bizcity_kg_learning_events, quarantined): one keyed segment per notebook, ring of the newest
+	// BizCity_TwinChat_Learning_Database::EVENTS_RING_PER_NB records (cursor id from write_scoped_sequenced_record()).
+	// Written by BizCity_TwinChat_Learning_Events::push(); read by read_since()/latest_id() (SSE + poll) and read_latest()
+	// (source learning log + share snapshot). Layout bizcity-kg-logs/learning-events/nb-{notebook_id}/YYYY-MM-DD.jsonl.
+	BizCity_Log_Contract_Registry::register( 'modules.twinchat.learning_events', array(
+		'owner_module'       => 'modules/twinchat',
+		'label'              => 'TwinChat learning events ring (SSE / poll / learning log)',
+		'jsonl_folder'       => 'bizcity-kg-logs',
+		'jsonl_module'       => 'learning-events',
+		'segments_template'  => array( 'notebook_id' ),
+		'related_sql_tables' => array( 'bizcity_kg_learning_events' ),
+		// [2026-10-11 10:44 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7e-1 (owner: shorter) — 365 → 30 days: the log matters while a
+		// learning job runs and shortly after; job status lives in bizcity_kg_learning_jobs. The 1000-events ring per notebook still applies.
+		'retention_days'     => 30,
+		'indexed'            => false,
+	) );
 	BizCity_Log_Contract_Registry::register( 'core.twin_core.event_stream_trace', array(
 		'owner_module'       => 'core/twin-core',
 		'label'              => 'Twin Event Stream operational trace',

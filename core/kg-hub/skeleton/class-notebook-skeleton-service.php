@@ -39,6 +39,9 @@ class BizCity_KG_Skeleton_Service {
 	/** Transient lock TTL (seconds) — F-3. */
 	const LOCK_TTL = 180;
 
+	/** [2026-10-10 11:11 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — keyed JSONL history (replaces SQL bizcity_kg_skeleton_history). */
+	const HISTORY_CONTRACT = 'core.kg_hub.skeleton_history';
+
 	// [2026-06-04 Johnny Chu] SKEL-FAIL-REASON — option prefix stores last fail detail per notebook.
 	const FAIL_OPT_PREFIX = 'bizcity_kg_skel_fail_';
 
@@ -773,9 +776,12 @@ class BizCity_KG_Skeleton_Service {
 	}
 
 	/**
-	 * Phase 6.6 S3.2 — append history row to bizcity_kg_skeleton_history.
-	 * Best-effort: swallows MySQL errors if table is missing on legacy blogs;
-	 * site provisioner will create it on next install pass.
+	 * Phase 6.6 S3.2 — append one immutable history record per built version.
+	 * Best-effort: a failed append only logs a warning.
+	 *
+	 * [2026-10-10 11:11 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — the record goes to the keyed JSONL
+	 * contract core.kg_hub.skeleton_history (one segment per notebook) instead of SQL bizcity_kg_skeleton_history,
+	 * which is quarantined + writer-stopped (rows stay, never dropped). Same fields as the old row.
 	 */
 	private static function insert_history_row(
 		int $notebook_id,
@@ -784,25 +790,20 @@ class BizCity_KG_Skeleton_Service {
 		string $built_at,
 		string $trigger_reason
 	): void {
-		global $wpdb;
-		$tbl = $wpdb->prefix . 'bizcity_kg_skeleton_history';
-		$prev_suppress = $wpdb->suppress_errors( true );
-		$ok = $wpdb->insert(
-			$tbl,
-			[
+		$ok = class_exists( 'BizCity_JSONL_File_Logger' ) && method_exists( 'BizCity_JSONL_File_Logger', 'write_scoped_record' )
+			&& BizCity_JSONL_File_Logger::write_scoped_record( self::HISTORY_CONTRACT, [ 'nb-' . $notebook_id ], [
 				'notebook_id'    => $notebook_id,
 				'version'        => $version,
 				'skeleton_json'  => $skeleton_json,
 				'trigger_reason' => $trigger_reason !== '' ? $trigger_reason : 'ingest',
 				'built_at'       => $built_at,
-			],
-			[ '%d', '%d', '%s', '%s', '%s' ]
-		);
-		$wpdb->suppress_errors( $prev_suppress );
-		if ( false === $ok && ! empty( $wpdb->last_error ) ) {
-			error_log( '[bizcity-kg-skeleton] history insert skipped notebook=' . $notebook_id
-			           . ' v=' . $version . ' err=' . $wpdb->last_error );
-			self::write_skeleton_log( 'warn', 'history_insert_skipped', $wpdb->last_error, array( 'notebook_id' => $notebook_id, 'version' => $version ) );
+				'llm_model'      => null,
+				'token_in'       => null,
+				'token_out'      => null,
+			] );
+		if ( ! $ok ) {
+			error_log( '[bizcity-kg-skeleton] history append skipped notebook=' . $notebook_id . ' v=' . $version );
+			self::write_skeleton_log( 'warn', 'history_insert_skipped', 'jsonl append failed', array( 'notebook_id' => $notebook_id, 'version' => $version ) );
 		}
 	}
 

@@ -78,6 +78,7 @@ final class BizCity_CRM_Action_MCP_Service {
 			'destructive'    => false,
 			'idempotent'     => true,
 			'required_scope' => 'crm.write',
+			'required_cap'   => 'bizcity_crm_handle_inbox', // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — seeded onto administrator + editor (BizCity_CRM_Capabilities)
 			'handler'        => array( __CLASS__, 'update' ),
 			'mode'           => 'customers',
 			'scopes'         => array( 'crm.write' ),
@@ -139,6 +140,7 @@ final class BizCity_CRM_Action_MCP_Service {
 				'destructive'    => false,
 				'idempotent'     => false,
 				'required_scope' => 'staff.write',
+				'required_cap'   => 'bizcity_crm_handle_inbox', // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — base gate; supervisor-only is still checked in the handler
 				'handler'        => array( __CLASS__, 'assign' ),
 				'preview'        => array( __CLASS__, 'assign_preview' ),
 				'mode'           => 'customers',

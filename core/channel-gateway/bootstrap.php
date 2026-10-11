@@ -33,8 +33,10 @@ if ( file_exists( $_bizcity_legacy_dir . 'legacy-messenger-compat.php' ) ) {
 if ( file_exists( $_bizcity_legacy_dir . 'legacy-zalo-compat.php' ) ) {
 	require_once $_bizcity_legacy_dir . 'legacy-zalo-compat.php';
 }
-if ( file_exists( $_bizcity_legacy_dir . 'legacy-zalo-shortcodes.php' ) ) {
-	require_once $_bizcity_legacy_dir . 'legacy-zalo-shortcodes.php';
+// [2026-10-11 12:23 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8c — legacy-zalo-shortcodes.php archived
+// ([zalo_login_form] had no link issuer left); retired tags now render '' via one central registrar.
+if ( file_exists( $_bizcity_legacy_dir . 'class-retired-shortcodes.php' ) ) {
+	require_once $_bizcity_legacy_dir . 'class-retired-shortcodes.php';
 }
 if ( file_exists( $_bizcity_legacy_dir . 'legacy-gateway-functions.php' ) ) {
 	require_once $_bizcity_legacy_dir . 'legacy-gateway-functions.php';
@@ -96,10 +98,8 @@ if ( file_exists( $_bzc_smtp_integ ) && file_exists( $_bzc_smtp_rest ) ) {
 }
 unset( $_bzc_smtp_integ, $_bzc_smtp_rest );
 
-// PHASE 0.36 W1 — WebChat-as-Channel auto-binding bootstrap.
-// Ensures `_bizcity_channel_bindings` has a row for (blog_id, WEBCHAT, blog_id)
-// on first webchat message so Universal Listener can resolve a Guru.
-require_once $webchat_dir . 'class-webchat-binding-bootstrap.php';
+// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — the PHASE 0.36 W1 webchat auto-binding helper
+// (BizCity_WebChat_Binding_Bootstrap) had no hook and no caller anywhere; moved to core/_archived/z8a-20261010/.
 
 // PHASE 0.36 W4 — WebChat Inbox REST (admin SPA bubble UI backend).
 require_once $webchat_dir . 'class-webchat-inbox-rest.php';
@@ -163,21 +163,29 @@ require_once $adapters_dir . 'class-zalo-oa-contact-sync.php';
 BizCity_Zalo_OA_Contact_Sync::init();
 
 // PHASE 0.37 M1.W2 — Migrate 13 bizcity-channels submenus → bizchat-gateway hub.
-require_once $gateway_dir . 'class-channel-menu-migrate.php';
-
 // 2026-06-04 — Unified Google Hub admin page (group=integrations,sub=google-hub).
-require_once $gateway_dir . 'class-google-hub-page.php';
+// [2026-10-11 11:12 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P1 — both are wp-admin UI only (admin_menu, admin_init,
+// bizchat_gateway_register_subpages fired from admin_menu; the hub renderer is a menu callback) and every outside reference is
+// class_exists( …, false ) in admin code ⇒ not loaded on REST, cron, webhooks or public pages any more.
+if ( is_admin() && class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( $gateway_dir . 'class-channel-menu-migrate.php', 'channel_gateway.menu_migrate' );
+	BizCity_Safe_Loader::require_file( $gateway_dir . 'class-google-hub-page.php', 'channel_gateway.google_hub_page' );
+}
 
 // [2026-09-23 R-SAFE-LOADER] guard each file individually — a partial deploy
 // missing/truncating one of these three must not fatal the whole gateway
 // bootstrap (this is exactly what produced the "/gateway/" and "/twin/" 500s:
 // bare require_once + an unconditional call right after it, no class_exists
 // guard, same anti-pattern the bot-files loop above was already fixed for).
+// [2026-10-11 11:12 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P1 — the two admin menu classes (BizCity_Gateway_Admin + _SPA,
+// 53 KB; their instance() already ran only under is_admin(), AJAX is admin-ajax = is_admin()) load only in wp-admin. The public
+// /gateway/ page (rewrite owner) stays on every Channel Gateway request.
 $_bzc_gw_page_files = array(
-	$gateway_dir . 'class-admin-menu.php',
-	$gateway_dir . 'class-admin-menu-spa.php',
 	$gateway_dir . 'class-public-gateway-page.php',
 );
+if ( is_admin() ) {
+	array_unshift( $_bzc_gw_page_files, $gateway_dir . 'class-admin-menu.php', $gateway_dir . 'class-admin-menu-spa.php' );
+}
 foreach ( $_bzc_gw_page_files as $_bzc_gw_page_file ) {
 	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 		BizCity_Safe_Loader::require_file( $_bzc_gw_page_file, 'channel_gateway.admin_menu_pages' );
@@ -346,20 +354,10 @@ if ( file_exists( $_bzc_tracking ) && ! class_exists( 'BizCity_Tracking_Codes_RE
 unset( $_bzc_tracking );
 
 // [2026-06-27 Johnny Chu] PHASE-CG-BROADCAST — Broadcast mass-send module (ZNS + Email).
-$_bzc_bcast_dir = $gateway_dir . 'broadcast/';
-if ( is_dir( $_bzc_bcast_dir ) ) {
-	require_once $_bzc_bcast_dir . 'class-broadcast-installer.php';
-	require_once $_bzc_bcast_dir . 'class-broadcast-manager.php';
-	require_once $_bzc_bcast_dir . 'class-broadcast-dispatcher.php';
-	require_once $_bzc_bcast_dir . 'class-broadcast-rest.php';
-	// Install tables (idempotent).
-	BizCity_Broadcast_Installer::maybe_upgrade();
-	// Register cron at file-load time (ngoài mọi hook — R-CR.1).
-	BizCity_Broadcast_Dispatcher::init_cron();
-	// Register REST routes.
-	BizCity_Broadcast_REST::init();
-}
-unset( $_bzc_bcast_dir );
+// [2026-10-11 10:19 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7d — moved to the Zalo Brain CRM plugin
+// (bizcity-twin-crm/includes/broadcast/, D-W20-1 + Q-W16-4): its only UI is CRM Broadcast, which proxies to it. Without
+// the plugin there is no bizcity-channel/v1/broadcasts* route (404) and BizCity_CRM_Spine::has( 'broadcast' ) is false.
+// Old files: core/_archived/z7d-20261011/.
 
 // PHASE CG-TASK-UNIFY v0.1 — Web Post Publisher: event_type='web_post' →
 // wp_insert_post. Mirrors FB Publisher pattern (same hook, same metadata

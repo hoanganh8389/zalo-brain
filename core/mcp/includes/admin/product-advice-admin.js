@@ -118,6 +118,13 @@
 			(d.key_questions || []).forEach(function (q, i) { if (qs[i]) plan.push({ el: qs[i], val: q }); });
 			var pitch = field('pitch');
 			if (pitch && d.pitch) plan.push({ el: pitch, val: d.pitch });
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F5b — độ tuổi + câu lưu ý từ mô tả
+			['age_min', 'age_max', 'compliance'].forEach(function (k) {
+				var el = field(k);
+				if (el && d[k] !== undefined && d[k] !== null && String(d[k]) !== '') plan.push({ el: el, val: String(d[k]) });
+			});
+			var unit = field('age_unit');
+			if (unit && d.age_unit) unit.value = d.age_unit;
 			if (!plan.length) { say('Trợ lý không rút được gì từ mô tả — nhập tay nhé.'); return; }
 
 			var busy = plan.filter(function (p) { return p.el.value.trim() !== '' && p.el.value.trim() !== p.val; });
@@ -135,7 +142,7 @@
 		btn.addEventListener('click', function () {
 			var label = btn.textContent;
 			btn.disabled = true;
-			btn.textContent = '✨ Đang soạn…';
+			btn.textContent = '✨ Zalo Brain đang soạn…';
 			say('');
 			var body = new URLSearchParams();
 			body.set('action', cfg.action);

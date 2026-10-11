@@ -129,61 +129,10 @@
         "idx_category_active": { "cols": ["category", "is_active"],      "since": "1.1.0" },
         "idx_source":          { "cols": ["source"],                     "since": "1.1.0" }
       }
-    },
-
-    "bizcity_automation_config_packs": {
-      "since": "1.12.0",
-      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable imported CSV/Excel/Google Sheet config packs before workflow activation.",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.12.0", "pk": true },
-        "pack_key":      { "type": "VARCHAR(96) NOT NULL DEFAULT ''",          "since": "1.12.0" },
-        "name":          { "type": "VARCHAR(200) NOT NULL DEFAULT ''",         "since": "1.12.0" },
-        "schema_key":    { "type": "VARCHAR(48) NOT NULL DEFAULT 'content_calendar'", "since": "1.12.0" },
-        "guru_id":       { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
-        "owner_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
-        "source_type":   { "type": "VARCHAR(32) NOT NULL DEFAULT 'manual'",    "since": "1.12.0" },
-        "source_ref":    { "type": "TEXT NULL",                                "since": "1.12.0" },
-        "version":       { "type": "INT UNSIGNED NOT NULL DEFAULT 1",          "since": "1.12.0" },
-        "status":        { "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",     "since": "1.12.0" },
-        "created_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",                            "since": "1.12.0" },
-        "updated_at":    { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.12.0" },
-        "created_by":    { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" }
-      },
-      "indexes": {
-        "uniq_pack_key":  { "cols": ["pack_key"],              "since": "1.12.0", "unique": true },
-        "idx_schema_status": { "cols": ["schema_key", "status"], "since": "1.12.0" },
-        "idx_owner":      { "cols": ["owner_user_id"],         "since": "1.12.0" },
-        "idx_guru":       { "cols": ["guru_id"],               "since": "1.12.0" }
-      }
-    },
-
-    "bizcity_automation_config_rows": {
-      "since": "1.12.0",
-      "purpose": "PHASE-1-TEMPLATES-AUTOMATION Wave 1 — editable datatable rows with loose row_json, runtime canonical_json and normalized search_text.",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id":                     { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.12.0", "pk": true },
-        "pack_id":                { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",       "since": "1.12.0" },
-        "row_key":                { "type": "VARCHAR(64) NOT NULL DEFAULT ''",          "since": "1.12.0" },
-        "row_order":              { "type": "INT UNSIGNED NOT NULL DEFAULT 0",          "since": "1.12.0" },
-        "row_json":               { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
-        "canonical_json":         { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
-        "search_text":            { "type": "LONGTEXT NULL",                            "since": "1.12.0" },
-        "validation_status":      { "type": "VARCHAR(24) NOT NULL DEFAULT 'draft'",     "since": "1.12.0" },
-        "validation_errors_json": { "type": "TEXT NULL",                                "since": "1.12.0" },
-        "updated_at":             { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.12.0" }
-      },
-      "indexes": {
-        "idx_pack_order": { "cols": ["pack_id", "row_order"],         "since": "1.12.0" },
-        "idx_pack_status": { "cols": ["pack_id", "validation_status"], "since": "1.12.0" },
-        "idx_row_key":    { "cols": ["row_key"],                      "since": "1.12.0" }
-      }
     }
+
+
+
   },
   "history": [
     { "version": "1.0.0", "date": "2026-05-29", "change": "Initial schema for native automation runner (workflows + runs + logs). Replaces legacy WAIC bizcity_workflows." },
@@ -206,6 +155,8 @@
     { "version": "1.13.0", "date": "2026-07-21", "change": "PHASE-ZALOBOT-GROUP W8 / R-AUTO-TEMPLATE-ID — ADD template identity columns to bizcity_automation_templates: template_uuid (stable Hub/seeder upsert key), template_version (author-controlled semver), visibility (global/private). ADD unique index uniq_template_uuid and idx_visibility. Seeder/repo can update templates by UUID before slug and split global ZaloBot recipes from private user-owned recipes." },
     { "version": "1.13.1", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM — contract-only (no DDL). `trigger_config_json` vocabulary extends with optional bool `allow_costack` (default false by behavior) to opt-in intentional co-stack workflows while matcher reduces competing keyword/filter matches to one winner. Matcher now emits trace `matched_keyword_singleclaim_reduced` and file-log decision `matcher.singleclaim_suppressed`; rollout guard filter `bizcity_automation_single_claim_enabled` default true. Applied consistently to both dispatch (`on_channel_message`) and preview (`find_matching_workflows_for_payload`) paths." },
     { "version": "1.13.2", "date": "2026-07-26", "change": "RULE-TRIGGER-SINGLE-CLAIM hotfix — contract-only (no DDL). Add @directed precedence: when message contains `@` and matched workflow term starts with `@`, matcher suppresses generic competing workflows with reason `at_keyword_priority` before final winner selection. Add raw_text fallback for @term matching when message_text_clean strips mention. Keeps dispatch/preview parity and existing rollout guard filter." },
-    { "version": "1.13.3", "date": "2026-10-06", "change": "PHASE-0.92 (R-AUTOMATION-PERMISSION, automation-scenario@1.2.0) — contract-only (no DDL; installer DB_VERSION stays 1.13.0 because 1.13.1–1.13.3 add no column). trigger_config_json.cell gains `audience` (owner_agent|guest; guest ⇒ roles incl. customer, rate.per_day default 5); scenario `effects[]` is computed from the graph, never stored; event runs that answer through the cell open a Lịch row (source `event`); new block action.notify_contact_via_cell writes `deliver_to` onto the run row metadata (scheduler, not this table). Stamp [2026-10-06 10:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-CL-2." }
+    { "version": "1.13.3", "date": "2026-10-06", "change": "PHASE-0.92 (R-AUTOMATION-PERMISSION, automation-scenario@1.2.0) — contract-only (no DDL; installer DB_VERSION stays 1.13.0 because 1.13.1–1.13.3 add no column). trigger_config_json.cell gains `audience` (owner_agent|guest; guest ⇒ roles incl. customer, rate.per_day default 5); scenario `effects[]` is computed from the graph, never stored; event runs that answer through the cell open a Lịch row (source `event`); new block action.notify_contact_via_cell writes `deliver_to` onto the run row metadata (scheduler, not this table). Stamp [2026-10-06 10:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-CL-2." },
+    {"version":"1.13.3","date":"2026-10-11","change":"[2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-14 — bizcity_automation_config_packs + bizcity_automation_config_rows retired (owner): no creator, reader or writer in bizcity-twin-ai or bizcity-automation. Quarantined + writer-stop in BizCity_Legacy_Table_Policy; rows stay, never DROP. Declarations kept for history."},
+    {"version":"1.13.3","date":"2026-10-11","change":"[2026-10-11 12:12 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-14 (owner 2026-10-11: \"có thể bỏ vì không ai dùng\") — no creator, reader or writer in bizcity-twin-ai or bizcity-automation; quarantined + writer-stop in BizCity_Legacy_Table_Policy; rows stay, never DROP. Declarations moved to _deleted/core.automation.config-packs-20261011.json."}
   ]
 }

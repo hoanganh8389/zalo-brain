@@ -29,7 +29,10 @@ class BizCity_Cron_Manager {
 	const TABLE_RUNS     = 'bizcity_cron_runs';
 	const TABLE_RETRIES  = 'bizcity_cron_retries';
 	// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — new lock table (see TRACE-CRON-OVERLOAD-2026-07-26.md).
+	// [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — table quarantined + writer-stopped (rows stay);
+	// name kept only so census/legacy tooling can resolve it. Locks now live in wp_options under LOCK_OPTION_PREFIX.
 	const TABLE_LOCKS    = 'bizcity_cron_locks';
+	const LOCK_OPTION_PREFIX = 'bizcity_cron_lock_';
 
 	const DB_VERSION        = '1.3.0';
 	const DB_VERSION_OPTION = 'bizcity_cron_db_version';
@@ -84,6 +87,12 @@ class BizCity_Cron_Manager {
 	 * @var array<string, bool> whether job_id was locked-out (duplicate concurrent fire) THIS request — handlers may call is_locked_out() to bail early.
 	 */
 	private array $locked_out = array();
+
+	/**
+	 * [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c
+	 * @var array<string, string> owner token of each lock THIS request acquired via try_lock() (job_id => token); unlock() needs it.
+	 */
+	private array $lock_tokens = array();
 
 	/**
 	 * @var array<string, array> static jobs pending deferred DB flush (job_id => row).
@@ -152,7 +161,7 @@ class BizCity_Cron_Manager {
 			BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES ),
 		);
 		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — provision lock table.
-		$results[] = BizCity_Diagnostics_Auto_Create::run( self::TABLE_LOCKS );
+		// [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — no longer: locks live in wp_options (try_lock()).
 
 		$schema_changed = false;
 		foreach ( $results as $result ) {
@@ -757,16 +766,21 @@ class BizCity_Cron_Manager {
 
 	/**
 	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A
+	 * [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — the lock no longer needs its own table
+	 * (bizcity_cron_locks is quarantined + writer-stopped; rows stay). One wp_options row per job instead:
+	 *   option_name  = LOCK_OPTION_PREFIX . md5( job_id )  (UNIQUE key ⇒ the insert is the atomic check-and-set)
+	 *   option_value = {"job":…,"token":…,"until":<unix>}  autoload = no
 	 *
-	 * Atomically try to acquire the runtime lock for $job_id. Uses the MySQL
-	 * `INSERT ... ON DUPLICATE KEY UPDATE` affected-rows trick for a race-safe
-	 * check-and-set without needing a persistent object cache:
-	 *   - no existing row            → INSERT happens        → rows_affected === 1 → acquired
-	 *   - existing row but EXPIRED   → UPDATE changes a value → rows_affected === 2 → acquired (took over)
-	 *   - existing row still VALID   → UPDATE is a no-op      → rows_affected === 0 → NOT acquired
+	 * Atomically try to acquire the runtime lock for $job_id. Same three outcomes as before:
+	 *   - no row                   → INSERT IGNORE inserts            → acquired
+	 *   - row whose `until` passed → guarded UPDATE … WHERE option_value = <the expired value>
+	 *                                (only one racer can match it)    → acquired (took over)
+	 *   - row still valid          → nothing changes                  → NOT acquired
+	 * add_option() is deliberately NOT used: WordPress implements it as INSERT … ON DUPLICATE KEY UPDATE, which
+	 * would overwrite a live lock under a race. A second try_lock() for a job this request already holds is refused,
+	 * exactly like the table version.
 	 *
-	 * Fails OPEN (returns true) on DB error / missing table so a not-yet-migrated
-	 * site never has cron silently disabled by this guard.
+	 * Fails OPEN (returns true) on DB error so a broken DB never silently disables cron.
 	 *
 	 * @param string $job_id
 	 * @param int    $ttl_seconds Safety-net expiry; defaults to LOCK_TTL_SECONDS.
@@ -776,37 +790,98 @@ class BizCity_Cron_Manager {
 		if ( ! $wpdb || $job_id === '' ) { return true; }
 		if ( $ttl_seconds <= 0 ) { $ttl_seconds = self::LOCK_TTL_SECONDS; }
 
-		$t            = $wpdb->prefix . self::TABLE_LOCKS;
-		$locked_until = gmdate( 'Y-m-d H:i:s', time() + $ttl_seconds );
+		$table = $wpdb->options;
+		$name  = self::lock_option_name( $job_id );
+		$token = self::new_lock_token();
+		$value = (string) wp_json_encode( array( 'job' => $job_id, 'token' => $token, 'until' => time() + $ttl_seconds ) );
 
+		$acquired = null;
 		$wpdb->suppress_errors( true );
-		$result = $wpdb->query( $wpdb->prepare(
-			"INSERT INTO {$t} (job_id, locked_until) VALUES (%s, %s)
-			 ON DUPLICATE KEY UPDATE
-				locked_until = IF( locked_until < UTC_TIMESTAMP(), VALUES(locked_until), locked_until )",
-			$job_id,
-			$locked_until
-		) );
-		$affected = (int) $wpdb->rows_affected;
+		for ( $attempt = 0; $attempt < 2 && null === $acquired; $attempt++ ) {
+			$inserted = $wpdb->query( $wpdb->prepare(
+				"INSERT IGNORE INTO {$table} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				$name,
+				$value
+			) );
+			if ( false === $inserted ) {
+				break; // SQL error → fail-open below.
+			}
+			if ( 1 === (int) $wpdb->rows_affected ) {
+				$acquired = true;
+				break;
+			}
+			$held = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$table} WHERE option_name = %s LIMIT 1", $name ) );
+			if ( null === $held ) {
+				continue; // released between our INSERT and SELECT — try the insert once more.
+			}
+			$held_row = json_decode( (string) $held, true );
+			$until    = is_array( $held_row ) ? (int) ( $held_row['until'] ?? 0 ) : 0;
+			if ( $until >= time() ) {
+				$acquired = false; // valid lock held by another run.
+				break;
+			}
+			$updated = $wpdb->query( $wpdb->prepare(
+				"UPDATE {$table} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				$value,
+				$name,
+				(string) $held
+			) );
+			$acquired = ( false !== $updated && 1 === (int) $wpdb->rows_affected );
+		}
 		$wpdb->suppress_errors( false );
 
-		if ( false === $result ) {
-			return true; // table missing / SQL error → fail-open, don't block cron entirely.
+		if ( null === $acquired ) {
+			return true; // DB error / unresolved race → fail-open, don't block cron entirely.
 		}
-		return ( 1 === $affected || 2 === $affected );
+		if ( $acquired ) {
+			$this->lock_tokens[ $job_id ] = $token;
+		}
+		return $acquired;
 	}
 
 	/**
-	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — release the lock row for $job_id.
-	 * Safe to call even if no lock row exists (no-op).
+	 * [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — release the lock for $job_id.
+	 * Safe to call even if no lock exists (no-op).
+	 *
+	 * [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — owner-checked: only the token this
+	 * request received from try_lock() (or an explicit $token) can release it, so a run whose lock expired and was taken
+	 * over can no longer delete the new owner's lock. Returns true when a lock row was removed.
 	 */
-	public function unlock( string $job_id ): void {
+	public function unlock( string $job_id, string $token = '' ): bool {
 		global $wpdb;
-		if ( ! $wpdb || $job_id === '' ) { return; }
-		$t = $wpdb->prefix . self::TABLE_LOCKS;
+		if ( ! $wpdb || $job_id === '' ) { return false; }
+		if ( $token === '' ) {
+			$token = (string) ( $this->lock_tokens[ $job_id ] ?? '' );
+		}
+		unset( $this->lock_tokens[ $job_id ] );
+		if ( $token === '' ) {
+			return false; // this request never acquired it.
+		}
+		$table = $wpdb->options;
+		$name  = self::lock_option_name( $job_id );
 		$wpdb->suppress_errors( true );
-		$wpdb->delete( $t, array( 'job_id' => $job_id ) );
+		$held     = $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$table} WHERE option_name = %s LIMIT 1", $name ) );
+		$held_row = null === $held ? null : json_decode( (string) $held, true );
+		$released = false;
+		if ( is_array( $held_row ) && hash_equals( (string) ( $held_row['token'] ?? '' ), $token ) ) {
+			$deleted  = $wpdb->query( $wpdb->prepare( "DELETE FROM {$table} WHERE option_name = %s AND option_value = %s", $name, (string) $held ) );
+			$released = ( false !== $deleted && 1 === (int) $wpdb->rows_affected );
+		}
 		$wpdb->suppress_errors( false );
+		return $released;
+	}
+
+	/** [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — fixed-length option key per job. */
+	private static function lock_option_name( string $job_id ): string {
+		return self::LOCK_OPTION_PREFIX . md5( $job_id );
+	}
+
+	/** [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — unguessable per-acquire owner token. */
+	private static function new_lock_token(): string {
+		if ( function_exists( 'wp_generate_uuid4' ) ) {
+			return wp_generate_uuid4();
+		}
+		return bin2hex( random_bytes( 16 ) );
 	}
 
 	/**
@@ -1002,8 +1077,23 @@ class BizCity_Cron_Manager {
 		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — sweep orphaned lock rows (crashed
 		// process that never reached wrap_end/unlock). Harmless if it never accumulates —
 		// this is just hygiene since try_lock() already self-heals expired rows on read.
-		$tl = $wpdb->prefix . self::TABLE_LOCKS;
-		$wpdb->query( "DELETE FROM {$tl} WHERE locked_until < (UTC_TIMESTAMP() - INTERVAL 1 DAY)" );
+		// [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — sweep lock OPTIONS expired > 1 day
+		// (guarded delete on the exact value, so a lock re-acquired meanwhile survives); the quarantined table is not touched.
+		$stale = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
+			$wpdb->esc_like( self::LOCK_OPTION_PREFIX ) . '%'
+		), ARRAY_A );
+		foreach ( $stale as $lock ) {
+			$held = json_decode( (string) ( $lock['option_value'] ?? '' ), true );
+			if ( is_array( $held ) && (int) ( $held['until'] ?? 0 ) >= time() - DAY_IN_SECONDS ) {
+				continue;
+			}
+			$wpdb->query( $wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+				(string) $lock['option_name'],
+				(string) $lock['option_value']
+			) );
+		}
 		$wpdb->suppress_errors( false );
 	}
 

@@ -271,18 +271,38 @@ class BizCity_TwinChat_Learning_Events {
 	}
 
 	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — JSONL contract that replaced
+	 * the SQL ring bizcity_kg_learning_events (quarantined, rows stay). One keyed segment per notebook.
+	 */
+	const CONTRACT = 'modules.twinchat.learning_events';
+
+	/** Ring size per notebook (same cap the SQL trim used). */
+	private static function ring_cap() {
+		return class_exists( 'BizCity_TwinChat_Learning_Database' )
+			? (int) BizCity_TwinChat_Learning_Database::EVENTS_RING_PER_NB
+			: 1000;
+	}
+
+	/** Keyed segment of one notebook. */
+	private static function segments( $notebook_id ) {
+		return array( 'nb-' . (int) $notebook_id );
+	}
+
+	/**
 	 * Append a single event row.
+	 *
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — appends to the notebook's JSONL
+	 * segment instead of INSERT INTO bizcity_kg_learning_events. The returned id is the stream cursor
+	 * (strictly increasing per notebook; microsecond based, so always above the old AUTO_INCREMENT ids).
 	 *
 	 * @param int    $notebook_id
 	 * @param string $event   short event name (log|progress|done|job|chat)
 	 * @param array  $payload arbitrary JSON-able payload
 	 * @param int    $job_id  optional
-	 * @return int inserted row id (0 on failure)
+	 * @return int event id (0 on failure)
 	 */
 	public function push( $notebook_id, $event, array $payload = [], $job_id = 0 ) {
-		global $wpdb;
-		$db = BizCity_TwinChat_Learning_Database::instance();
-		if ( ! $db->is_ready() ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return 0;
 		}
 		$notebook_id = (int) $notebook_id;
@@ -291,28 +311,95 @@ class BizCity_TwinChat_Learning_Events {
 			return 0;
 		}
 		$payload = $this->normalize_payload( $notebook_id, $event, $payload, $job_id );
-		$tbl = $db->table_events();
-		$ok  = $wpdb->insert( $tbl, [
+		$id = (int) BizCity_JSONL_File_Logger::write_scoped_sequenced_record( self::CONTRACT, self::segments( $notebook_id ), [
 			'notebook_id' => $notebook_id,
 			'job_id'      => $job_id > 0 ? (int) $job_id : null,
 			'ts'          => current_time( 'mysql', true ),
 			'event'       => $event,
-			'payload'     => wp_json_encode( $payload ),
-		] );
-		if ( ! $ok ) {
+			'payload'     => $payload,
+		], 'id' );
+		if ( $id <= 0 ) {
 			return 0;
 		}
-		$id = (int) $wpdb->insert_id;
 
 		// Opportunistic ring trim — once every ~50 inserts, sample by id.
 		if ( $id % 50 === 0 ) {
-			BizCity_TwinChat_Learning_Database::instance()->trim_events( $notebook_id );
+			$this->trim( $notebook_id );
 		}
 		return $id;
 	}
 
 	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — keep the newest N events of a notebook.
+	 *
+	 * @return int Events removed.
+	 */
+	public function trim( $notebook_id, $keep = 0 ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || (int) $notebook_id <= 0 ) {
+			return 0;
+		}
+		$keep = (int) $keep > 0 ? max( 100, (int) $keep ) : self::ring_cap();
+		return (int) BizCity_JSONL_File_Logger::trim_scoped_records( self::CONTRACT, self::segments( $notebook_id ), $keep );
+	}
+
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — drop every event of a notebook (notebook deleted).
+	 *
+	 * @return int Events removed.
+	 */
+	public function delete_for_notebook( $notebook_id ) {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || (int) $notebook_id <= 0 ) {
+			return 0;
+		}
+		return (int) BizCity_JSONL_File_Logger::delete_scoped_records( self::CONTRACT, self::segments( $notebook_id ) );
+	}
+
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — newest raw rows of the ring,
+	 * newest first (what `ORDER BY id DESC LIMIT n` returned). Rows keep the old column set
+	 * { id, job_id, ts, event, payload } with payload already decoded.
+	 *
+	 * @param int $notebook_id
+	 * @param int $limit  1..ring cap
+	 * @param int $job_id 0 = every job
+	 * @return array<int,array{ id:int, job_id:int|null, ts:string, event:string, payload:array }>
+	 */
+	public function read_latest( $notebook_id, $limit = 200, $job_id = 0 ) {
+		$notebook_id = (int) $notebook_id;
+		if ( $notebook_id <= 0 || ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
+			return [];
+		}
+		$limit  = max( 1, min( self::ring_cap(), (int) $limit ) );
+		$job_id = (int) $job_id;
+		$match  = $job_id > 0
+			? static function ( array $row ) use ( $job_id ) {
+				return isset( $row['job_id'] ) && (int) $row['job_id'] === $job_id;
+			}
+			: null;
+		$out = [];
+		foreach ( BizCity_JSONL_File_Logger::read_scoped_records( self::CONTRACT, self::segments( $notebook_id ), $limit, $match ) as $r ) {
+			$out[] = self::raw_row( $r );
+		}
+		return $out;
+	}
+
+	/** Project a JSONL record onto the old SQL column set. */
+	private static function raw_row( array $r ) {
+		return [
+			'id'      => isset( $r['id'] ) ? (int) $r['id'] : 0,
+			'job_id'  => isset( $r['job_id'] ) ? (int) $r['job_id'] : null,
+			'ts'      => isset( $r['ts'] ) ? (string) $r['ts'] : '',
+			'event'   => isset( $r['event'] ) ? (string) $r['event'] : 'log',
+			'payload' => isset( $r['payload'] ) && is_array( $r['payload'] ) ? $r['payload'] : [],
+		];
+	}
+
+	/**
 	 * Read events with id > $last_id for a notebook, oldest first.
+	 *
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — rows above the cursor are a
+	 * suffix of the segment (ids grow in file order), so the newest ring-cap rows above it, reversed and cut
+	 * to $limit, are exactly what `WHERE id > %d ORDER BY id ASC LIMIT %d` returned from the SQL ring.
 	 *
 	 * @param int $notebook_id
 	 * @param int $last_id
@@ -320,40 +407,36 @@ class BizCity_TwinChat_Learning_Events {
 	 * @return array<int,array{ id:int, ts:string, event:string, payload:mixed, job_id:int }>
 	 */
 	public function read_since( $notebook_id, $last_id = 0, $limit = 200, $scope = 'private' ) {
-		global $wpdb;
-		$db = BizCity_TwinChat_Learning_Database::instance();
-		if ( ! $db->is_ready() ) {
+		$notebook_id = (int) $notebook_id;
+		if ( $notebook_id <= 0 || ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return [];
 		}
-		$tbl = $db->table_events();
-
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, job_id, ts, event, payload
-			   FROM {$tbl}
-			  WHERE notebook_id=%d AND id > %d
-			  ORDER BY id ASC
-			  LIMIT %d",
-			(int) $notebook_id, (int) $last_id, max( 1, min( 1000, (int) $limit ) )
-		), ARRAY_A );
+		$last_id = (int) $last_id;
+		$limit   = max( 1, min( 1000, (int) $limit ) );
+		$rows = BizCity_JSONL_File_Logger::read_scoped_records(
+			self::CONTRACT,
+			self::segments( $notebook_id ),
+			self::ring_cap(),
+			static function ( array $row ) use ( $last_id ) {
+				return isset( $row['id'] ) && (int) $row['id'] > $last_id;
+			}
+		);
+		$rows = array_slice( array_reverse( $rows ), 0, $limit );
 
 		$out = [];
-		foreach ( (array) $rows as $r ) {
-			$out[] = self::sanitize_event_row_for_output( $r, $scope );
+		foreach ( $rows as $r ) {
+			$out[] = self::sanitize_event_row_for_output( self::raw_row( $r ), $scope );
 		}
 		return $out;
 	}
 
 	/** Latest event id for a notebook (for "since" cursor on first connect). */
 	public function latest_id( $notebook_id ) {
-		global $wpdb;
-		$db = BizCity_TwinChat_Learning_Database::instance();
-		if ( ! $db->is_ready() ) {
+		$notebook_id = (int) $notebook_id;
+		if ( $notebook_id <= 0 || ! class_exists( 'BizCity_JSONL_File_Logger' ) ) {
 			return 0;
 		}
-		$tbl = $db->table_events();
-		return (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT IFNULL(MAX(id),0) FROM {$tbl} WHERE notebook_id=%d",
-			(int) $notebook_id
-		) );
+		$rows = BizCity_JSONL_File_Logger::read_scoped_records( self::CONTRACT, self::segments( $notebook_id ), 1 );
+		return ! empty( $rows ) && isset( $rows[0]['id'] ) ? (int) $rows[0]['id'] : 0;
 	}
 }

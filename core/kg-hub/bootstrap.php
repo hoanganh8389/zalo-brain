@@ -209,8 +209,9 @@ if ( is_admin() ) {
 	// `class-kg-settings-page.php` retired; the React mount moved to modules/twinkg (slug
 	// `bizcity-twinkg`, page `/twinkg/`) and settings & cost became REST `cost/settings` + a
 	// twinkg view.
-	// Phase 0.21 Wave 2 — browser-accessible .bin diagnostic (Tools → KG .bin Diagnostic).
-	require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-bin-diagnostic.php';
+	// [2026-10-10 11:30 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — class-kg-bin-diagnostic.php (198 KB)
+	// archived to core/_archived/z8b-20261010/kg-hub/includes/: BizCity_KG_Bin_Diagnostic::instance() was never called
+	// by live code (only the dev-only diagnostics probe, guarded), so its page and bin-missing listener never registered.
 }
 // Phase 0.6 — Multisite cron backfill (runs in cron context, not admin-only).
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-backfill.php';

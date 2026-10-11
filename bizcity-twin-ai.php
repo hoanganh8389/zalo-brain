@@ -143,7 +143,11 @@ require_once __DIR__ . '/includes/class-connection-gate.php';
 require_once __DIR__ . '/includes/class-admin-support-link.php';
 // [2026-10-01 Claude Opus 5.5] CORE-REDUCTION WP-16 B-4 S3b — add-on locator loaded early: core/memory (and later loaders) resolve add-on parts through it.
 require_once __DIR__ . '/includes/class-bizcity-addon-locator.php';
-require_once __DIR__ . '/includes/class-admin-menu.php';
+// [2026-10-11 10:28 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 SW-Z6-1 — admin menu (84 KB) only on admin requests (incl. admin-ajax);
+// boot() already returned outside admin and every outside reference is class_exists( 'BizCity_Admin_Menu', false )-guarded (W20-Z6 loader map).
+if ( is_admin() ) {
+    require_once __DIR__ . '/includes/class-admin-menu.php';
+}
 require_once __DIR__ . '/includes/class-twin-ai.php';
 
 // [2026-08-09 Johnny Chu] R-PERF-LOADER-QM - register only Query Monitor
@@ -643,6 +647,18 @@ if ( function_exists( 'add_action' ) ) {
             BizCity_Safe_Loader::require_file( $bootstrap, 'context_bank.commerce_bootstrap' );
         }
     }, 1 );
+    // [2026-10-11 11:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-4 — same pattern for the Woo hooks of gated owners
+    // (core/mcp Woo pack cache, Channel Gateway ZNS): a classic ?wc-ajax=checkout / IPN is not $_bizcity_admin_ctx, so they never fired.
+    // The listener only subscribes; it requires the owner when one of its hooks fires (no-op when the owner is already loaded).
+    add_action( 'woocommerce_init', function () {
+        $listeners = __DIR__ . '/core/runtime/class-woo-lazy-listeners.php';
+        if ( ! class_exists( 'BizCity_Woo_Lazy_Listeners', false ) && class_exists( 'BizCity_Safe_Loader', false ) && is_file( $listeners ) ) {
+            BizCity_Safe_Loader::require_file( $listeners, 'runtime.woo_lazy_listeners' );
+        }
+        if ( class_exists( 'BizCity_Woo_Lazy_Listeners', false ) ) {
+            BizCity_Woo_Lazy_Listeners::boot();
+        }
+    }, 1 );
 }
 // [2026-08-09 Johnny Chu] R-PERF — defer Twin Core file graph and schema work off plain frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twin-core/bootstrap.php' ) ) {
@@ -689,9 +705,15 @@ unset( $_bzc_tracking_file );
 // [2026-06-09 Johnny Chu] PERF-2 — channel-gateway: webhook routing + channel admin UI.
 // Not needed on plain frontend HTML renders — twinchat has its own REST routes.
 // Still loads on: REST (/wp-json/), channel webhooks (/zalohook/, /facehook/, /bizfbhook/), wp-admin, cron, WP-CLI, /tool-* pages.
-if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request ) && ! $_bizcity_twinchat_admin_page ) {
+// [2026-10-11 11:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-5 — + the public Bot Studio shell /gateway/: its owner
+// BizCity_Public_Gateway_Page (rule ^gateway/?$ → bizcity_channel_gateway_public, query var + template_redirect) lives in this
+// bootstrap, so without CG on its own URL WordPress dropped the unknown query var and the page could never render.
+$_bizcity_gateway_public_request = ! empty( $_SERVER['REQUEST_URI'] )
+    && preg_match( '#/gateway(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
+if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request || $_bizcity_gateway_public_request ) && ! $_bizcity_twinchat_admin_page ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
+unset( $_bizcity_gateway_public_request );
 
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 (D96-16) — Zalo Brain framework registry (zalo-brain-extension@1):
 // 7 surfaces, extensions, features, standard feature_unavailable error. Loaded before core/crm so the spine can mirror into it.
@@ -771,6 +793,12 @@ unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation
 // SMTP → core/smtp (it had been misplaced inside content-ops), Journal DB → core/kg-hub, recipe parser + slash
 // matcher → core/automation, the four send functions → core/channel-gateway/legacy/legacy-send-functions.php.
 // See core/knowledge/docs/CORE-REDUCTION-WP-12-ARCHIVE-CONTENT-TOOLS-SKILLS-LEGACY.md.
+// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L6 (D101-16 v2) — core/skills is back in its LEAN form only: the SKILL.md
+// file library + editor SPA + BizCity_Skills_Service + five MCP tools skills.* + pack `skills`. The PHP prompt router, slash matcher,
+// pipeline bridge, tool map, SQL registry and journal stay archived (R-BCB-1/2). Admin/REST/cron context only, like core/mcp.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/skills/bootstrap.php';
+}
 // Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
 // [2026-06-09 Johnny Chu] PERF-2 — cron registry only needed on admin/REST/cron context.
 // Always-load modules (twinchat, knowledge) use wp_schedule_event() directly without BizCity_Cron_Manager.
@@ -1052,7 +1080,9 @@ add_action( 'init', function() {
 } );
 
 BizCity_Admin_Support_Link::init();
-BizCity_Admin_Menu::boot();
+if ( class_exists( 'BizCity_Admin_Menu', false ) ) { // SW-Z6-1 — loaded only under is_admin()
+    BizCity_Admin_Menu::boot();
+}
 
 // Boot at plugins_loaded priority 0 — load modules + fire loaded action
 if ( ! $_bizcity_twinchat_admin_shell_request ) {

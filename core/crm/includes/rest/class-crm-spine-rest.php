@@ -553,7 +553,7 @@ class BizCity_CRM_Spine_REST {
 		return $contact_id > 0 && self::contact_is_in_scope( $contact_id, (int) get_current_user_id() );
 	}
 
-	private static function contact_is_in_scope( int $contact_id, int $user_id ): bool {
+	protected static function contact_is_in_scope( int $contact_id, int $user_id ): bool {
 		if ( $contact_id <= 0 || $user_id <= 0 ) { return false; }
 		if ( ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) { return false; }
 		$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
@@ -566,7 +566,7 @@ class BizCity_CRM_Spine_REST {
 		return (bool) $wpdb->get_var( $sql );
 	}
 
-	private static function contact_scope_sql( string $contact_alias = 'id' ): string {
+	protected static function contact_scope_sql( string $contact_alias = 'id' ): string {
 		$user_id = (int) get_current_user_id();
 		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) && BizCity_CRM_Inbox_Access::is_admin( $user_id ) ) {
 			return '1=1';
@@ -668,7 +668,7 @@ class BizCity_CRM_Spine_REST {
 	/**
 	 * Employee Inbox handle capability (send/resolve/assign/notes).
 	 */
-	private static function can_handle_inbox(): bool {
+	protected static function can_handle_inbox(): bool {
 		return class_exists( 'BizCity_CRM_Capabilities' ) && method_exists( 'BizCity_CRM_Capabilities', 'user_can_handle_inbox' )
 			? BizCity_CRM_Capabilities::user_can_handle_inbox()
 			: current_user_can( 'manage_options' );
@@ -1021,7 +1021,7 @@ class BizCity_CRM_Spine_REST {
 		), 200 );
 	}
 
-	private static function grants_version(): int {
+	protected static function grants_version(): int {
 		$v = (int) get_option( self::GRANTS_VERSION_OPTION, 0 );
 		if ( $v <= 0 ) {
 			$v = time();
@@ -1189,7 +1189,7 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
-	private static function shape_admin_chat_grant( array $row ): array {
+	protected static function shape_admin_chat_grant( array $row ): array {
 		$user_id = (int) ( $row['user_id'] ?? 0 );
 		$user    = $user_id ? get_user_by( 'id', $user_id ) : null;
 		$char_id = (int) ( $row['character_id'] ?? 0 );
@@ -1259,7 +1259,7 @@ class BizCity_CRM_Spine_REST {
 	 *
 	 * @return array{role:string,pipeline_kind:string}
 	 */
-	private static function role_kind_filters( WP_REST_Request $req ): array {
+	protected static function role_kind_filters( WP_REST_Request $req ): array {
 		$roles = class_exists( 'BizCity_CRM_Contact_Roles' ) ? array_keys( BizCity_CRM_Contact_Roles::CATALOG ) : array();
 		$roles[] = 'none';
 		$role = sanitize_key( (string) $req->get_param( 'role' ) );
@@ -1390,7 +1390,7 @@ class BizCity_CRM_Spine_REST {
 	 * @param array  $items  shaped conversations (each with `contact.id`)
 	 * @param string $stage_filter '' | a BizCity_CRM_Customer_Pipeline::ALL_STAGES value | 'stuck'
 	 */
-	private static function merge_pipeline_into_conversations( array $items, string $stage_filter, int $limit ): array {
+	protected static function merge_pipeline_into_conversations( array $items, string $stage_filter, int $limit ): array {
 		if ( empty( $items ) || ! class_exists( 'BizCity_CRM_Customer_Pipeline' ) ) { return $items; }
 		$contact_ids = array_values( array_unique( array_filter( array_map( static function ( $item ) {
 			return (int) ( $item['contact']['id'] ?? 0 );
@@ -1616,7 +1616,7 @@ class BizCity_CRM_Spine_REST {
 		);
 	}
 
-	private static function wrap( callable $fn ) {
+	protected static function wrap( callable $fn ) {
 		try {
 			$data = $fn();
 			if ( $data instanceof WP_REST_Response ) {
@@ -1640,7 +1640,7 @@ class BizCity_CRM_Spine_REST {
 	}
 
 	/** Return a catalogued REST error when a channel has no CRM runtime owner. */
-	private static function channel_setup_error( string $code ) {
+	protected static function channel_setup_error( string $code ) {
 		if ( ! class_exists( 'BizCity_CRM_Channel_Contract' ) ) {
 			return null;
 		}
@@ -1677,7 +1677,7 @@ class BizCity_CRM_Spine_REST {
 	 * @param array $payload { content, content_type, attachments, mentions, reply_to }
 	 * @return array Normalized dispatch result for update_message_delivery().
 	 */
-	private static function dispatch_crm_outbound( array $conv, $inbox_row, array $resolved, array $payload ): array {
+	protected static function dispatch_crm_outbound( array $conv, $inbox_row, array $resolved, array $payload ): array {
 		$content     = (string) ( $payload['content'] ?? '' );
 		$ctype       = (string) ( $payload['content_type'] ?? 'text' );
 		$attachments = is_array( $payload['attachments'] ?? null ) ? $payload['attachments'] : array();
@@ -2172,7 +2172,7 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
-	private static function care_error( string $code, string $message, int $status ): WP_REST_Response {
+	protected static function care_error( string $code, string $message, int $status ): WP_REST_Response {
 		return new WP_REST_Response( array(
 			'ok'    => false,
 			'error' => array( 'code' => $code, 'message' => $message ),
@@ -2183,7 +2183,7 @@ class BizCity_CRM_Spine_REST {
 	/**
 	 * Canonical contact ID behind a conversation (0 when unresolved).
 	 */
-	private static function care_contact_id_for_conversation( array $conv ): int {
+	protected static function care_contact_id_for_conversation( array $conv ): int {
 		global $wpdb;
 		$contact_inbox_id = (int) ( $conv['contact_inbox_id'] ?? 0 );
 		if ( $contact_inbox_id <= 0 ) { return 0; }
@@ -2197,7 +2197,7 @@ class BizCity_CRM_Spine_REST {
 	 *
 	 * @return int[]
 	 */
-	private static function care_scoped_conversation_ids( int $contact_id ): array {
+	protected static function care_scoped_conversation_ids( int $contact_id ): array {
 		global $wpdb;
 		$ci_tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
 		$ci_ids = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( "SELECT id FROM `{$ci_tbl}` WHERE contact_id = %d LIMIT 200", $contact_id ) ) );
@@ -2215,7 +2215,7 @@ class BizCity_CRM_Spine_REST {
 		return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( $sql, $params ) ) );
 	}
 
-	private static function care_user_label( int $user_id ): string {
+	protected static function care_user_label( int $user_id ): string {
 		if ( $user_id <= 0 ) { return ''; }
 		$user = get_userdata( $user_id );
 		return $user ? (string) $user->display_name : '';
@@ -2635,7 +2635,7 @@ class BizCity_CRM_Spine_REST {
 	}
 
 	/** Four-field error helper for the 0.60B routes (R-ERR: code · message · hint · help_code). */
-	private static function enrichment_error( string $code, string $message, string $hint, string $help_code, int $status = 400 ) {
+	protected static function enrichment_error( string $code, string $message, string $hint, string $help_code, int $status = 400 ) {
 		return new WP_REST_Response( array( 'ok' => false, 'code' => $code, 'message' => $message, 'hint' => $hint, 'help_code' => $help_code ), $status );
 	}
 
@@ -2872,7 +2872,7 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
-	private static function shape_label( ?array $row ): ?array {
+	protected static function shape_label( ?array $row ): ?array {
 		if ( ! $row ) { return null; }
 		return array(
 			'id'              => (int) $row['id'],
@@ -2888,14 +2888,14 @@ class BizCity_CRM_Spine_REST {
 	/**
 	 * Shared JSON body extractor (handles JSON + form-encoded fallbacks).
 	 */
-	private static function extract_json_body( WP_REST_Request $req ): array {
+	protected static function extract_json_body( WP_REST_Request $req ): array {
 		$json = $req->get_json_params();
 		if ( ! is_array( $json ) ) { $json = array(); }
 		$body = wp_parse_args( $json, $req->get_body_params() ?: array() );
 		return is_array( $body ) ? $body : array();
 	}
 
-	private static function resolve_canonical_contact_id( int $id ): int {
+	protected static function resolve_canonical_contact_id( int $id ): int {
 		if ( $id <= 0 ) { return 0; }
 		global $wpdb;
 		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contacts();
@@ -3153,7 +3153,7 @@ class BizCity_CRM_Spine_REST {
 	 * PHASE-0.50 W1 columns for one page of contacts (≤500): current owner (assignee of the most
 	 * recent conversation), last human touch (time + who), open task count. Three grouped queries.
 	 */
-	private static function enrich_contacts_team_columns( array $contacts ): array {
+	protected static function enrich_contacts_team_columns( array $contacts ): array {
 		global $wpdb;
 		$ids = array_values( array_filter( array_map( static function ( $c ) { return (int) ( $c['id'] ?? 0 ); }, $contacts ) ) );
 		if ( empty( $ids ) ) { return $contacts; }
@@ -3207,7 +3207,7 @@ class BizCity_CRM_Spine_REST {
 		return $contacts;
 	}
 
-	private static function shape_crm_contact( ?array $r ): ?array {
+	protected static function shape_crm_contact( ?array $r ): ?array {
 		if ( ! $r ) { return null; }
 		$tags = json_decode( (string) ( $r['tags_json'] ?? '' ), true );
 		$attrs = json_decode( (string) ( $r['additional_attributes'] ?? '' ), true );
@@ -3248,7 +3248,7 @@ class BizCity_CRM_Spine_REST {
 		);
 	}
 
-	private static function shape_crm_task( ?array $r ): ?array {
+	protected static function shape_crm_task( ?array $r ): ?array {
 		if ( ! $r ) { return null; }
 		return array(
 			'id'                  => (int) $r['id'],
@@ -3287,7 +3287,7 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
-	private static function shape_crm_document( ?array $r ): ?array {
+	protected static function shape_crm_document( ?array $r ): ?array {
 		if ( ! $r ) { return null; }
 		return array(
 			'id'                  => (int) $r['id'],
@@ -3391,7 +3391,7 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
-	private static function is_crm_assignable_user( int $user_id ): bool {
+	protected static function is_crm_assignable_user( int $user_id ): bool {
 		// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — mirror assignable-users eligibility before resolving another principal.
 		if ( $user_id <= 0 || ! function_exists( 'get_userdata' ) ) { return false; }
 		$user = get_userdata( $user_id );

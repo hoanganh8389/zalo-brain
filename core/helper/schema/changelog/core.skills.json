@@ -1,7 +1,7 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "core.skills",
-  "owner": "core/skills",
+  "owner": "core/twinbrain (bizcity_skills reader + schema registry row) · core/kg-hub (bizcity_journal_entries)",
   "installer_id": "skills",
   "current_version": "1.5.0",
   "version_option": "bizcity_skills_db_version",
@@ -87,6 +87,7 @@
     { "version": "1.4.3", "date": "2026-08-02", "change": "Repair provenance dbDelta comment parsing and fail closed when required columns are not verified after routed-shard DDL." },
     { "version": "1.5.0", "date": "2026-08-02", "change": "Add canonical Journal Entry table with ownership, revision, idempotency, and separate KG learning status." },
     { "version": "1.5.0", "date": "2026-10-01", "change": "Documentation only (R13f, WP-12 N40/N20) -- no schema change. Annotated bizcity_skills.purpose as orphaned (owning module core/skills archived; still read by TwinBrain's Tool_Intent_Matcher in the add-on; retirement gated on PHASE-0.87 CL-9, not started)." },
-    { "version": "1.5.0", "date": "2026-10-02", "change": "Owner decision: feature turned off, data only -- all 45 rows that were status='active' set to status='archived' (bizcity-twin-ai/_notes/bizcity-skills-active-backup-20261002.json has the pre-change snapshot). No schema change; the table, its columns and BizCity_TwinBrain_Tool_Intent_Matcher itself are UNCHANGED and still load on every turn -- load_user_skills() now simply returns no rows, same as the already-supported empty-table case. Do not delete the table or the matcher class; see R13f (WP-12 N20/N40) for why the matcher is load-bearing." }
+    { "version": "1.5.0", "date": "2026-10-02", "change": "Owner decision: feature turned off, data only -- all 45 rows that were status='active' set to status='archived' (bizcity-twin-ai/_notes/bizcity-skills-active-backup-20261002.json has the pre-change snapshot). No schema change; the table, its columns and BizCity_TwinBrain_Tool_Intent_Matcher itself are UNCHANGED and still load on every turn -- load_user_skills() now simply returns no rows, same as the already-supported empty-table case. Do not delete the table or the matcher class; see R13f (WP-12 N20/N40) for why the matcher is load-bearing." },
+    {"version":"1.5.0","date":"2026-10-11","change":"[2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-13 — documentation only, no schema change. Owner decision: keep bizcity_skills in use. Schema_Registry row re-homed to core/twinbrain/includes/class-twinbrain-tool-intent-matcher.php (installer null: nothing creates it on new sites; the matcher degrades to [] when absent). Protected by core/twinbrain/tests/harness/wp20-skills-keep-harness.php."}
   ]
 }

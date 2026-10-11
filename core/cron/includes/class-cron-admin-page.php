@@ -40,14 +40,19 @@ class BizCity_Cron_Admin_Page {
 	private static function quick_toggle_specs(): array {
 		// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 — 'Content Scheduler tick' (core/content-ops) and
 		// 'Legacy TWF task reminder' (core/helper-legacy) toggles removed: their handlers are archived.
-		return array(
-			array(
+		// [2026-10-11 10:19 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7d — the broadcast dispatcher moved to the Zalo Brain CRM
+		// plugin; its toggle is listed only when that plugin loaded it (same option + hook, so a saved choice carries over).
+		$specs = array();
+		if ( class_exists( 'BizCity_Broadcast_Dispatcher', false ) ) {
+			$specs[] = array(
 				'option'  => 'bizcity_cg_broadcast_tick_enabled',
-				'label'   => 'Channel Gateway broadcast tick',
+				'label'   => 'Broadcast tick (Zalo Brain CRM)',
 				'hook'    => 'bizcity_cg_broadcast_tick',
 				'default' => 0,
-				'note'    => 'core/channel-gateway broadcast dispatcher',
-			),
+				'note'    => 'bizcity-twin-crm broadcast dispatcher (ZNS/email mass-send)',
+			);
+		}
+		return array_merge( $specs, array(
 			array(
 				'option'  => 'bizcity_scheduler_hil_timeout_enabled',
 				'label'   => 'Scheduler HIL timeout sweep',
@@ -62,7 +67,7 @@ class BizCity_Cron_Admin_Page {
 				'default' => 1,
 				'note'    => 'MU monitoring: main-site-only 30-minute schedule',
 			),
-		);
+		) );
 	}
 
 	public static function add_menu(): void {

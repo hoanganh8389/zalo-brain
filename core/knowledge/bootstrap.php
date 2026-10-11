@@ -116,11 +116,9 @@ require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-knowledge-source.php';
 // class-agent-binding.php, class-intent-provider.php, lib/class-intent-parser.php, lib/class-context-api.php and
 // lib/class-chat-api.php moved to the add-on (bizcity-twin-brain-addon/knowledge-legacy/); loaded + instantiated
 // below through BizCity_Addon_Locator, at the same points in this file as before.
-$_bizcity_knowledge_legacy = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'knowledge-legacy/bootstrap.php' ) : '';
-if ( '' !== $_bizcity_knowledge_legacy ) {
-    require_once $_bizcity_knowledge_legacy;
-}
-unset( $_bizcity_knowledge_legacy );
+// [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — knowledge-legacy retired (owner 2026-10-10):
+// the add-on folder moved to bizcity-twin-brain-addon/_archived/knowledge-legacy-20261010/ and is no longer loaded. Every
+// caller of its classes (Chat_Gateway, Profile_Context, Knowledge_Context_API, Intent_Parser) is class_exists-guarded.
 
 // [2026-06-11 Johnny Chu] R-PERF — Admin-only (~277 KB): admin menu + admin chat
 if ( is_admin() ) {
@@ -135,13 +133,8 @@ if ( $_kg_admin_ctx ) {
     // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T5a–T5c — Guru editor REST (R1–R9) for /twinkg/.
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-service.php';
     require_once BIZCITY_KNOWLEDGE_INCLUDES . 'class-guru-admin-rest.php';
-    // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-2 — class-chat-gateway.php moved to the add-on; same
-    // R-PERF gate as before, the locator only resolves where the file is.
-    $_bizcity_chat_gateway_file = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'knowledge-legacy/includes/class-chat-gateway.php' ) : '';
-    if ( '' !== $_bizcity_chat_gateway_file ) {
-        require_once $_bizcity_chat_gateway_file;
-    }
-    unset( $_bizcity_chat_gateway_file );
+    // [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — the PHP fallback reply
+    // (BizCity_Chat_Gateway, WP-17 K-2 add-on part) is archived with knowledge-legacy; nothing loads it any more.
 }
 // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14d / R-VERTICAL-AXIS R-VA-6 (CUT, owner 2026-09-30) — Phase 4.5 "Companion Intelligence" is off: emotional memory,
 // thread tracker, companion context and response texture are in core/_archived/knowledge-companion/. Their writer hooks
@@ -200,9 +193,8 @@ if ( ! wp_next_scheduled( 'bizcity_knowledge_fabric_cleanup' ) ) {
 
 // Initialize Chat Gateway, REST controllers (gated — only loaded in admin/REST/AJAX context)
 // [2026-06-11 Johnny Chu] R-PERF — class_exists guards match the require_once gates above
-if ( class_exists( 'BizCity_Chat_Gateway' ) ) {
-    BizCity_Chat_Gateway::instance();
-}
+// [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — BizCity_Chat_Gateway::instance() removed:
+// the class is archived with knowledge-legacy (no loader left).
 // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R14c / R-VERTICAL-AXIS R-VA-6 (CUT) — REST bizcity-chat/v1 and bizcity-agent/v1 (path C,
 // flag-only since WP-11 C2) are archived; BIZCITY_LEGACY_PATH_C no longer brings them back.
 

@@ -30,13 +30,13 @@ final class BizCity_FB_Channel_Tools {
 		// @mcp bizcity-mcp-standard@1 tool fb.post.create
 		$common    = array( 'tier' => 'channel', 'read_only' => false, 'destructive' => false, 'idempotent' => false, 'open_world' => true, 'mode' => 'channel', 'since' => '0.90' );
 
-		BizCity_MCP_Tool_Registry::register( 'messenger.send', $common + array(
+		self::reg( 'messenger.send', $common + array(
 			'title' => 'Nhắn khách trên Messenger', 'description' => 'Gửi một tin nhắn vào ĐÚNG cuộc trò chuyện Messenger của lượt này (trong cửa sổ 24 giờ). Không chọn được page hay người nhận.',
 			'input_schema' => $text_in, 'output_schema' => $reply_out, 'platform' => array( 'messenger' ), 'roles' => array( 'owner', 'staff', 'customer' ), 'scope' => 'thread',
 			'capability' => 'channel.messenger.send', 'required_scope' => 'channel.reply', 'scopes' => array( 'channel.reply' ), 'confirm' => 'never', 'llm_alias' => 'messenger_send',
 			'handler' => array( __CLASS__, 'messenger_send' ),
 		) );
-		BizCity_MCP_Tool_Registry::register( 'fb.comment.reply', $common + array(
+		self::reg( 'fb.comment.reply', $common + array(
 			'title' => 'Trả lời bình luận Facebook', 'description' => 'Trả lời ĐÚNG bình luận của lượt này (dưới chính bình luận đó). Không chọn được bài hay bình luận khác.',
 			'input_schema' => $text_in, 'output_schema' => $reply_out, 'platform' => array( 'fb' ), 'roles' => array( 'owner', 'staff', 'customer' ), 'scope' => 'thread',
 			'capability' => 'channel.fb.reply', 'required_scope' => 'channel.reply', 'scopes' => array( 'channel.reply' ), 'confirm' => 'never', 'llm_alias' => 'reply_comment',
@@ -48,20 +48,33 @@ final class BizCity_FB_Channel_Tools {
 		$post_in_at = $post_in;
 		$post_in_at['properties']['run_at'] = array( 'type' => 'string', 'description' => 'Tùy chọn. Giờ của website, dạng YYYY-MM-DD HH:MM. Bỏ trống = đăng ngay ở nền.' );
 		$post_out_at = BizCity_MCP_Tool_Registry::envelope_schema( array( 'status' => array( 'type' => 'string', 'enum' => array( 'needs_confirmation', 'queued', 'scheduled', 'done' ) ), 'preview' => array( 'type' => 'object' ), 'confirm_token' => array( 'type' => 'string' ), 'expires_at' => array( 'type' => 'string' ), 'event_id' => array( 'type' => 'integer' ), 'run_at' => array( 'type' => 'string' ), 'post_id' => array( 'type' => 'string' ), 'permalink' => array( 'type' => 'string' ) ) );
-		BizCity_MCP_Tool_Registry::register( 'fb.post.create', $common + array(
+		self::reg( 'fb.post.create', $common + array(
 			'title' => 'Đăng bài lên Fanpage', 'description' => 'Đăng một bài lên Fanpage đã chọn ở bước kết nối, ngay hoặc theo giờ hẹn (run_at). Chỉ chủ/nhân viên. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
 			'input_schema' => $post_in_at, 'output_schema' => $post_out_at, 'platform' => array( 'fb' ), 'roles' => array( 'owner', 'staff' ), 'scope' => 'channel',
-			'capability' => 'channel.fb.post', 'required_scope' => 'channel.post', 'scopes' => array( 'channel.post' ), 'confirm' => 'always', 'llm_alias' => 'fb_post_create',
+			'capability' => 'channel.fb.post', 'required_cap' => 'publish_posts', /* [2026-10-11 12:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 */ 'required_scope' => 'channel.post', 'scopes' => array( 'channel.post' ), 'confirm' => 'always', 'llm_alias' => 'fb_post_create',
 			'handler' => array( __CLASS__, 'post_create' ), 'preview' => array( __CLASS__, 'post_preview' ),
 		) );
 		if ( class_exists( 'BizCity_FB_Group_Adapter' ) && BizCity_FB_Group_Adapter::enabled() ) {
-			BizCity_MCP_Tool_Registry::register( 'fb.group.post', $common + array(
+			self::reg( 'fb.group.post', $common + array(
 				'title' => 'Đăng bài vào nhóm Facebook', 'description' => 'Đăng một bài vào nhóm Facebook đã chọn. Chỉ chủ/nhân viên. Lần gọi đầu chỉ trả bản xem trước + confirm_token.',
 				'input_schema' => $post_in, 'output_schema' => $post_out, 'platform' => array( 'fb_group' ), 'roles' => array( 'owner', 'staff' ), 'scope' => 'channel',
-				'capability' => 'channel.fb.group.post', 'required_scope' => 'channel.post', 'scopes' => array( 'channel.post' ), 'confirm' => 'always', 'llm_alias' => 'fb_group_post',
+				'capability' => 'channel.fb.group.post', 'required_cap' => 'publish_posts', /* [2026-10-11 12:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 */ 'required_scope' => 'channel.post', 'scopes' => array( 'channel.post' ), 'confirm' => 'always', 'llm_alias' => 'fb_group_post',
 				'handler' => array( __CLASS__, 'group_post' ), 'preview' => array( __CLASS__, 'group_preview' ),
 			) );
 		}
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L3 (doc 30 lệch 3, zalo-brain-extension@1.1 §3) — the extension path B:
+	 * BizCity_Zalo_Brain::register_tool() with owner = this plugin, so describe().tools_by_owner names it; the bare registry only when the
+	 * framework class is absent (standalone harness).
+	 */
+	private static function reg( string $name, array $d ): void {
+		if ( class_exists( 'BizCity_Zalo_Brain' ) && method_exists( 'BizCity_Zalo_Brain', 'register_tool' ) ) {
+			BizCity_Zalo_Brain::register_tool( $d + array( 'name' => $name, 'owner' => 'bizcity-facebook-bot' ) );
+			return;
+		}
+		BizCity_MCP_Tool_Registry::register( $name, $d );
 	}
 
 	/** R-ERROR-UX: code + message + hint + help_code. */

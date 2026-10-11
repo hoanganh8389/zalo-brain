@@ -34,6 +34,9 @@ class BizCity_KG_Skeleton_Adapter {
 	/** Hard cap on bytes returned by get_prompt_block() (F-6). */
 	const PROMPT_BLOCK_MAX_BYTES = 16384;
 
+	/** [2026-10-10 11:12 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — keyed JSONL history (replaces SQL bizcity_kg_skeleton_history). */
+	const HISTORY_CONTRACT = 'core.kg_hub.skeleton_history';
+
 	/** Lifecycle states allowed in `kg_notebooks.skeleton_status`. */
 	const STATUS_PENDING  = 'pending';
 	const STATUS_BUILDING = 'building';
@@ -394,7 +397,7 @@ class BizCity_KG_Skeleton_Adapter {
 	 *
 	 *  Powers the Visual Panel "Version" picker + the standalone
 	 *  /tool-doc/ canvas that lets users re-bind to an older skeleton
-	 *  snapshot. Backed by wp_bizcity_kg_skeleton_history (S3.1).
+	 *  snapshot. Backed by JSONL contract core.kg_hub.skeleton_history (WP-20 Z-7c; was SQL S3.1).
 	 * ──────────────────────────────────────────────────────────────── */
 
 	/**
@@ -416,26 +419,29 @@ class BizCity_KG_Skeleton_Adapter {
 		if ( $notebook_id <= 0 ) {
 			return [];
 		}
-		global $wpdb;
-		$tbl = $wpdb->prefix . 'bizcity_kg_skeleton_history';
 		$limit = max( 1, min( 20, $limit ) );
 
 		$current = self::get_version( $notebook_id );
 
-		$prev = $wpdb->suppress_errors( true );
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT version, built_at, trigger_reason, llm_model, token_in, token_out
-			   FROM {$tbl}
-			  WHERE notebook_id = %d
-			  ORDER BY version DESC
-			  LIMIT %d",
-			$notebook_id, $limit
-		), ARRAY_A );
-		$wpdb->suppress_errors( $prev );
-
-		if ( ! is_array( $rows ) ) {
-			return [];
+		// [2026-10-10 11:12 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — read the notebook's keyed JSONL
+		// segment (newest first) instead of SQL bizcity_kg_skeleton_history (quarantined). No fallback to the old
+		// table: versions built before the switch are no longer listed (the skeleton itself is regenerable and the
+		// live version is always served from bizcity_kg_notebooks). Same output shape, ORDER BY version DESC, LIMIT ≤ 20.
+		$rows = self::read_history_records( $notebook_id, $limit * 3 );
+		$seen = [];
+		$uniq = [];
+		foreach ( $rows as $r ) {
+			$v = (int) ( $r['version'] ?? 0 );
+			if ( $v <= 0 || isset( $seen[ $v ] ) ) {
+				continue;
+			}
+			$seen[ $v ] = true;
+			$uniq[]     = $r;
 		}
+		usort( $uniq, static function ( $a, $b ) {
+			return (int) $b['version'] <=> (int) $a['version'];
+		} );
+		$rows = array_slice( $uniq, 0, $limit );
 
 		return array_map( static function ( $r ) use ( $current ) {
 			$v = (int) $r['version'];
@@ -467,19 +473,13 @@ class BizCity_KG_Skeleton_Adapter {
 			return self::get_skeleton( $notebook_id );
 		}
 
-		global $wpdb;
-		$tbl  = $wpdb->prefix . 'bizcity_kg_skeleton_history';
-		$prev = $wpdb->suppress_errors( true );
-		$row  = $wpdb->get_row( $wpdb->prepare(
-			"SELECT skeleton_json, built_at, trigger_reason
-			   FROM {$tbl}
-			  WHERE notebook_id = %d AND version = %d
-			  LIMIT 1",
-			$notebook_id, $version
-		), ARRAY_A );
-		$wpdb->suppress_errors( $prev );
+		// [2026-10-10 11:12 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — newest record of that version from the keyed JSONL segment.
+		$found = self::read_history_records( $notebook_id, 1, static function ( array $r ) use ( $version ): bool {
+			return (int) ( $r['version'] ?? 0 ) === $version;
+		} );
+		$row = $found[0] ?? null;
 
-		if ( ! $row || empty( $row['skeleton_json'] ) ) {
+		if ( ! $row || empty( $row['skeleton_json'] ) || ! is_string( $row['skeleton_json'] ) ) {
 			return null;
 		}
 		$decoded = json_decode( (string) $row['skeleton_json'], true );
@@ -493,6 +493,19 @@ class BizCity_KG_Skeleton_Adapter {
 			'trigger_reason' => (string) ( $row['trigger_reason'] ?? 'ingest' ),
 		];
 		return $decoded;
+	}
+
+	/**
+	 * [2026-10-10 11:12 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — newest-first history records of one
+	 * notebook from the keyed JSONL contract; [] when the logger/contract is unavailable.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private static function read_history_records( int $notebook_id, int $limit, ?callable $match = null ): array {
+		if ( ! class_exists( 'BizCity_JSONL_File_Logger' ) || ! method_exists( 'BizCity_JSONL_File_Logger', 'read_scoped_records' ) ) {
+			return [];
+		}
+		return (array) BizCity_JSONL_File_Logger::read_scoped_records( self::HISTORY_CONTRACT, [ 'nb-' . $notebook_id ], $limit, $match );
 	}
 
 	/**

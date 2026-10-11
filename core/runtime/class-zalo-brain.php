@@ -22,6 +22,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-3 — request-independent feature declarations.
+if ( is_file( $bizcity_zb_declared = __DIR__ . '/class-zalo-brain-declared.php' ) ) { require_once $bizcity_zb_declared; }
+unset( $bizcity_zb_declared );
+
 if ( class_exists( 'BizCity_Zalo_Brain', false ) ) {
 	return;
 }
@@ -29,7 +33,11 @@ if ( class_exists( 'BizCity_Zalo_Brain', false ) ) {
 final class BizCity_Zalo_Brain {
 
 	const CONTRACT = 'zalo-brain-extension@1';
-	const VERSION  = '1.0.0';
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — 1.1.0 (additive): register_from_manifest(), register_block(), register_scenarios(),
+	// manifest keys mcp_library / scenarios / automation_blocks read, tools_by_owner in describe(). 1.0 callers unchanged.
+	const VERSION  = '1.1.0';
+	/** Manifest keys 1.1 reads beyond 1.0 (all optional). */
+	const MANIFEST_KEYS_11 = array( 'mcp_library', 'scenarios', 'automation_blocks', 'skills' );
 
 	/** The seven surfaces of Zalo Brain (doc 50 §3). Owner = code that renders it; requires = feature or plugin. */
 	const CORE_SURFACES = array(
@@ -56,6 +64,12 @@ final class BizCity_Zalo_Brain {
 
 	/** @var array<string,array> app id => def · @var array<string,string> tool name / changelog id => owner extension */
 	private static $apps = array(), $tools = array(), $tables = array();
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — 1.1: Automation block id => owner · scenario JSON file => owner ·
+	 * owner => manifest `mcp_tools[]` (declared, checked against the real registrations by the validator and `wp bizcity health`).
+	 */
+	private static $blocks = array(), $scenarios = array(), $declared_tools = array();
 
 	/** @var bool */
 	private static $loaded = false;
@@ -117,7 +131,105 @@ final class BizCity_Zalo_Brain {
 		if ( ! empty( $manifest['tables_changelog'] ) ) {
 			self::register_tables( (string) $manifest['tables_changelog'], $id );
 		}
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 (0.101 doc 30 lệch 2) — 1.1 reads what 1.0 only stored: the declared tool names
+		// (validator + health compare them with register_tool()) and, when the caller gave the plugin dir (register_from_manifest), its scenario file.
+		$declared = array();
+		foreach ( (array) ( $manifest['mcp_tools'] ?? array() ) as $t ) {
+			$t = trim( (string) $t );
+			if ( '' !== $t && preg_match( '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,2}$/', $t ) && ! in_array( $t, $declared, true ) ) {
+				$declared[] = $t;
+			}
+		}
+		self::$declared_tools[ $id ] = $declared;
+		$dir = isset( $manifest['_dir'] ) ? rtrim( (string) $manifest['_dir'], '/\\' ) : '';
+		if ( '' !== $dir && ! empty( $manifest['scenarios'] ) && is_string( $manifest['scenarios'] ) ) {
+			self::register_scenarios( $dir . '/' . ltrim( str_replace( '\\', '/', $manifest['scenarios'] ), '/' ), $id );
+		}
 		return true;
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — the one-line way in for an extension:
+	 *   add_action( 'zalo_brain_register', fn() => BizCity_Zalo_Brain::register_from_manifest( __DIR__ . '/zalo-brain.json' ) );
+	 * Reads the manifest, remembers the plugin dir (so `scenarios` resolves) and registers. Returns the decoded manifest or null.
+	 */
+	public static function register_from_manifest( string $file ): ?array {
+		if ( '' === $file || ! is_readable( $file ) ) {
+			return null;
+		}
+		$raw = file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$m   = is_string( $raw ) ? json_decode( $raw, true ) : null;
+		if ( ! is_array( $m ) || empty( $m['id'] ) ) {
+			return null;
+		}
+		$m['_dir'] = dirname( $file );
+		if ( ! isset( $m['id'] ) || sanitize_key( (string) $m['id'] ) !== basename( $m['_dir'] ) ) {
+			// the validator refuses this too; at runtime we keep going (the id decides ownership, not the folder)
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( '[zalo-brain] manifest id "' . (string) ( $m['id'] ?? '' ) . '" differs from folder "' . basename( $m['_dir'] ) . '"' );
+			}
+		}
+		return self::register_extension( $m ) ? $m : null;
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L2 — an Automation block from an extension. Queued onto
+	 * `bizcity_automation_register_blocks` (or registered at once when the registry already booted). Without the Automation plugin the
+	 * block is only recorded (describe()['blocks']) — nothing breaks, the extension needs no `class_exists` dance.
+	 * The block must be a BizCity_Automation_Block (id(), kind(), meta(), execute()); its meta() declares effect, guest_safe, required_cap.
+	 */
+	public static function register_block( $block, string $owner = '' ): bool {
+		if ( ! is_object( $block ) || ! method_exists( $block, 'id' ) || ! method_exists( $block, 'execute' ) || ! method_exists( $block, 'meta' ) ) {
+			return false;
+		}
+		$id = (string) $block->id();
+		if ( ! preg_match( '/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/', $id ) ) {
+			return false;
+		}
+		self::$blocks[ $id ] = $owner;
+		$add = static function ( $registry = null ) use ( $block ): void {
+			if ( ! is_object( $registry ) && class_exists( 'BizCity_Automation_Block_Registry' ) ) {
+				$registry = BizCity_Automation_Block_Registry::instance();
+			}
+			if ( is_object( $registry ) && method_exists( $registry, 'register' ) && method_exists( $registry, 'has' ) && ! $registry->has( $block->id() ) ) {
+				$registry->register( $block );
+			}
+		};
+		if ( ( function_exists( 'did_action' ) && did_action( 'bizcity_automation_register_blocks' ) ) || ! function_exists( 'add_action' ) ) {
+			$add(); // registry already booted (or no WordPress: unit tests) ⇒ now
+			return true;
+		}
+		add_action( 'bizcity_automation_register_blocks', $add, 10, 1 );
+		return true;
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L3 — a scenario/template JSON file (same shape as Automation's
+	 * templates/*.json: an array of blueprints with slug + graph) the extension contributes. Automation's seeder reads
+	 * `BizCity_Zalo_Brain::scenario_files()` (filter `bizcity_automation_blueprint_files`); the blueprints hash includes it ⇒ reseed.
+	 */
+	public static function register_scenarios( string $file, string $owner = '' ): bool {
+		$file = str_replace( '\\', '/', $file );
+		if ( '' === $file || '.json' !== substr( $file, -5 ) || ! is_readable( $file ) ) {
+			return false;
+		}
+		self::$scenarios[ $file ] = $owner;
+		return true;
+	}
+
+	/** @return array<string,string> block id => owner (extensions only) */
+	public static function blocks(): array { return self::$blocks; }
+	/** @return string[] absolute paths of extension scenario files */
+	public static function scenario_files(): array { return array_keys( self::$scenarios ); }
+	/** @return array<string,string[]> owner => tool names the manifest declared */
+	public static function declared_tools(): array { return self::$declared_tools; }
+	/** @return array<string,string[]> owner => tool names really registered through register_tool() */
+	public static function tools_by_owner(): array {
+		$out = array();
+		foreach ( self::$tools as $name => $owner ) {
+			$out[ '' !== $owner ? $owner : 'core' ][] = $name;
+		}
+		return $out;
 	}
 
 	/** Register one feature id (e.g. 'pipeline'). Mirrored by BizCity_CRM_Spine for CRM features. */
@@ -163,13 +275,19 @@ final class BizCity_Zalo_Brain {
 		}
 		$feature = sanitize_key( (string) ( $tool['feature'] ?? '' ) );
 		self::$tools[ $name ] = (string) ( $tool['owner'] ?? '' );
-		unset( $tool['feature'], $tool['owner'] );
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 (R-NB-10, validator R19 for the catalog) — a write tool says which WP cap the acting
+		// user needs, or says explicitly that no standard cap fits (`no_standard_cap`). 1.1 warns; 1.2 refuses (0.101 Q101-8).
+		$is_write = array_key_exists( 'read_only', $tool ) && false === $tool['read_only'];
+		if ( $is_write && '' === trim( (string) ( $tool['required_cap'] ?? '' ) ) && empty( $tool['no_standard_cap'] ) && defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			error_log( '[zalo-brain] tool ' . $name . ' is a write without required_cap / no_standard_cap (zalo-brain-extension@1.1 §6).' );
+		}
+		unset( $tool['feature'], $tool['owner'], $tool['no_standard_cap'], $tool['budget_ms'], $tool['effects'] );
 		$add = static function () use ( $name, $tool, $feature ): bool {
 			return ( '' === $feature || self::has( $feature ) ) && class_exists( 'BizCity_MCP_Tool_Registry' )
 				&& false !== BizCity_MCP_Tool_Registry::register( $name, $tool );
 		};
-		if ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) {
-			return $add();
+		if ( ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) || ! function_exists( 'add_action' ) ) {
+			return $add(); // S98-L1: also the no-WordPress (unit) path
 		}
 		add_action( 'bizcity_mcp_register_tools', static function () use ( $add ) { $add(); } );
 		return true;
@@ -216,19 +334,16 @@ final class BizCity_Zalo_Brain {
 	public static function tables(): array { return self::$tables; }
 	public static function tools(): array { return self::$tools; }
 
+	/** [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-3 — registered here OR declared on disk (BizCity_Zalo_Brain_Declared): a request that skipped an extension boot keeps the answer; callers keep class_exists(). */
 	public static function has( string $feature ): bool {
 		$feature = sanitize_key( $feature );
-		if ( isset( self::$features[ $feature ] ) ) {
-			return true;
-		}
-		return (bool) apply_filters( 'zalo_brain_has_feature', false, $feature );
+		return isset( self::$features[ $feature ] ) || isset( self::declared()[ $feature ] )
+			|| (bool) apply_filters( 'zalo_brain_has_feature', false, $feature );
 	}
 
-	/** @return array<string,array{version:string,owner:string}> */
-	public static function features(): array {
-		return self::$features;
-	}
-
+	/** @return array<string,array{version:string,owner:string}> registered on this request first, then declared-only (Z-6 P0-3). */
+	public static function features(): array { return self::$features + self::declared(); }
+	private static function declared(): array { return class_exists( 'BizCity_Zalo_Brain_Declared', false ) ? BizCity_Zalo_Brain_Declared::features( self::CONTRACT ) : array(); }
 	/** @return array<string,array> */
 	public static function extensions(): array {
 		return self::$extensions;
@@ -270,7 +385,7 @@ final class BizCity_Zalo_Brain {
 			'contract'   => self::CONTRACT,
 			'version'    => defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '',
 			'surfaces'   => self::surfaces(),
-			'features'   => self::$features,
+			'features'   => self::features(), // Z-6 P0-3 — registered + declared
 			'extensions' => array_map(
 				static function ( array $m ): array {
 					return array( 'id' => (string) ( $m['id'] ?? '' ), 'name' => (string) ( $m['name'] ?? '' ), 'version' => (string) ( $m['version'] ?? '' ) );
@@ -280,6 +395,12 @@ final class BizCity_Zalo_Brain {
 			'apps'       => array_values( self::$apps ),
 			'tables'     => self::$tables,
 			'tools'      => array_keys( self::$tools ),
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — 1.1: who owns what (additive keys; old FE ignores them)
+			'contract_version' => self::VERSION,
+			'tools_by_owner'   => self::tools_by_owner(),
+			'declared_tools'   => self::$declared_tools,
+			'blocks'           => self::$blocks,
+			'scenarios'        => array_map( 'basename', array_keys( self::$scenarios ) ),
 		);
 		return (array) apply_filters( 'zalo_brain_boot_dto', $dto );
 	}

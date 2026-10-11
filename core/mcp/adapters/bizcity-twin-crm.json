@@ -1,0 +1,26 @@
+{
+  "contract": "bizcity-mcp-adapter@1.0.0",
+  "slug": "bizcity-twin-crm",
+  "$comment": "[2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L5 (doc 30 §3, D101-8) — first adapter case: the CRM plugin's pipeline read, wrapped without touching the plugin. Yields to the plugin's own mcp/tools.json when it ships one. crm.task.create / crm.followup.list / crm.staff.metrics are real core tools (class-crm-action-mcp-service.php), not adapted.",
+  "requires": { "class": "BizCity_CRM_Customer_Pipeline" },
+  "tools": [
+    {
+      "marker": "@mcp bizcity-mcp-standard@1 tool crm.pipeline.stage",
+      "name": "crm.pipeline.stage",
+      "title": "Giai đoạn pipeline của khách",
+      "description": "Đọc giai đoạn (target → contacted → consult → quote → won → repeat), số ngày ở giai đoạn, có đang kẹt không, các bước đã làm và việc sắp tới của MỘT khách CRM (contact_ref crm:<id>). Chỉ khách trong phạm vi của người hỏi.",
+      "input_schema": { "type": "object", "required": ["contact_ref"], "properties": { "contact_ref": { "type": "string" } } },
+      "output": { "contact_ref": "string", "stage": "string", "label": "string", "days": "integer", "stuck": "boolean", "steps": "array", "next": "object" },
+      "mode": "customers",
+      "scopes": ["crm.read"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": true,
+      "llm_alias": "crm_pipeline_stage",
+      "fallback_pack": "customers",
+      "since": "0.101.0",
+      "source": { "type": "php_callable", "callable": "BizCity_CRM_Customer_Pipeline::detail", "args": ["$contact_id", false], "guard": "crm_contact:contact_ref" },
+      "output_map": { "stage": "stage", "label": "label", "days": "days", "stuck": "stuck", "steps": "steps", "next": "next", "base_stage": "base_stage", "paid_orders": "paid_orders" }
+    }
+  ]
+}

@@ -159,6 +159,7 @@ final class BizCity_Zalo_Agent_Principals {
 			'uid'       => (string) $row['zalo_uid'],
 			'user_hash' => self::user_hash( $user ),
 			'modes'     => $modes,
+			'caps'      => $exists ? self::caps( $user ) : array(), // [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1
 			'capture'   => array( 'files' => $nb && ! empty( $row['capture_files'] ), 'remember' => $nb && ! empty( $row['capture_remember'] ) ),
 			'active'    => ! empty( $row['enabled'] ) && $exists && ! self::suspended( $user ),
 			'suspended' => self::suspended( $user ),
@@ -207,7 +208,7 @@ final class BizCity_Zalo_Agent_Principals {
 			if ( ! $p['active'] ) {
 				continue;
 			}
-			$out[] = array( 'uid' => $p['uid'], 'user_hash' => $p['user_hash'], 'modes' => array_values( $p['modes'] ), 'capture' => $p['capture'], 'uid_verified_at' => $row['verified_at'] )
+			$out[] = array( 'uid' => $p['uid'], 'user_hash' => $p['user_hash'], 'modes' => array_values( $p['modes'] ), 'caps' => array_values( (array) ( $p['caps'] ?? array() ) ), 'capture' => $p['capture'], 'uid_verified_at' => $row['verified_at'] )
 				// [2026-10-03 Claude Opus 5.5] PHASE-0.90 S90-Z3 — owner-agent-block@1.4 person fields (R-CONTACT-ID)
 				+ ( class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ? BizCity_Zalo_Hub_Config_Sync::person_fields( (int) $p['user_id'], $account_id, (string) $p['uid'], $row['verified_at'] ? (string) $row['verified_at'] : null ) : array() );
 		}
@@ -285,6 +286,18 @@ final class BizCity_Zalo_Agent_Principals {
 			return array_values( array_map( 'strval', (array) call_user_func( self::$readers['modes'], $user_id ) ) );
 		}
 		return class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::modes_for_user( $user_id ) : array();
+	}
+
+	/**
+	 * [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1 — projected WP caps of a principal (owner-agent-block@1.5 `caps[]`). Seam `caps` for tests.
+	 *
+	 * @return string[]
+	 */
+	public static function caps( int $user_id ): array {
+		if ( isset( self::$readers['caps'] ) ) {
+			return array_values( array_map( 'strval', (array) call_user_func( self::$readers['caps'], $user_id ) ) );
+		}
+		return class_exists( 'BizCity_Agent_Mode_Access' ) && method_exists( 'BizCity_Agent_Mode_Access', 'caps_for_user' ) ? BizCity_Agent_Mode_Access::caps_for_user( $user_id ) : array();
 	}
 
 	public static function suspended( int $user_id ): bool {

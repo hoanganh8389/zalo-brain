@@ -78,7 +78,8 @@ require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
 
 /* -- classification/ -- */
 // [2026-09-25 Claude Opus 5.5] WP-11 C5 — Mode_Classifier is a thin alias over Intent_Router (sunset); Classify_Cache retired.
-require_once BIZCITY_INTENT_DIR . '/includes/classification/class-mode-classifier.php';
+// [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — BizCity_Mode_Classifier → core/_archived/z3b-20261010/intent/:
+// its SUNSET condition is met — the last caller (bizcity-gemini-knowledge pipeline) is archived; no installed plugin names it.
 
 /* -- tools/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
@@ -202,6 +203,33 @@ add_action( 'plugins_loaded', function () {
         delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
         update_option( 'bizcity_wp12_r5_builtin_rows_retired', 1, false );
     }, 30 );
+
+    // [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — bizcity-gemini-knowledge, bizcity-tool-slide,
+    // bizcity-video-editor and the knowledge-legacy intent provider are archived (owner 2026-10-10). Their folders were moved,
+    // not deactivated, so `deactivated_plugin` never fired (and it unsyncs by folder slug, while rows carry the provider id).
+    // Deactivate their bizcity_tool_registry rows once per blog — same R5 pattern as above; rows are kept, never deleted.
+    add_action( 'init', static function () {
+        if ( get_option( 'bizcity_wp20_z3b_provider_rows_retired' ) ) {
+            return;
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_tool_registry';
+        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+            update_option( 'bizcity_wp20_z3b_provider_rows_retired', 1, false );
+            return;
+        }
+        $retired      = array( 'gemini-knowledge', 'tool-slide', 'video-editor', 'knowledge-fabric',
+            'bizcity-gemini-knowledge', 'bizcity-tool-slide', 'bizcity-video-editor' );
+        $placeholders = implode( ',', array_fill( 0, count( $retired ), '%s' ) );
+        $prev         = $wpdb->suppress_errors( true );
+        $wpdb->query( $wpdb->prepare(
+            "UPDATE {$table} SET active = 0 WHERE active = 1 AND plugin IN ({$placeholders})",
+            ...$retired
+        ) );
+        $wpdb->suppress_errors( $prev );
+        delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
+        update_option( 'bizcity_wp20_z3b_provider_rows_retired', 1, false );
+    }, 31 );
 
     // ── Tool Registry: event-driven sync on plugin activate/deactivate ──
     // WordPress fires `activated_plugin` after activate_plugin() succeeds.

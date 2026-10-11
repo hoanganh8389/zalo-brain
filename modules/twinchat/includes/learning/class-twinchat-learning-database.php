@@ -221,6 +221,11 @@ class BizCity_TwinChat_Learning_Database {
 		return $this->jobs_table_name();
 	}
 
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — no caller left: events live in the
+	 * JSONL contract modules.twinchat.learning_events (BizCity_TwinChat_Learning_Events). Kept for name lookups only;
+	 * bizcity_kg_learning_events is quarantined + writer-stopped (rows stay).
+	 */
 	public function table_events() {
 		if ( ! $this->is_installing ) {
 			$this->maybe_install();
@@ -290,9 +295,9 @@ class BizCity_TwinChat_Learning_Database {
 	 * This protects against stale version options after partial deploys/migrations.
 	 */
 	protected function required_tables_exist() {
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — the events table is no longer required (JSONL ring).
 		$tables = [
 			$this->jobs_table_name(),
-			$this->events_table_name(),
 			$this->batches_table_name(),
 		];
 		foreach ( $tables as $tbl ) {
@@ -364,6 +369,10 @@ class BizCity_TwinChat_Learning_Database {
 		global $wpdb;
 		$prev_supp = $wpdb->suppress_errors( true );
 		foreach ( self::LEGACY_TABLES as $old_base => $new_base ) {
+			// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — never rename into the quarantined events table.
+			if ( $new_base === 'bizcity_kg_learning_events' ) {
+				continue;
+			}
 			$old = $wpdb->prefix . $old_base;
 			$new = $wpdb->prefix . $new_base;
 			$old_exists = $this->table_exists( $old );
@@ -388,7 +397,6 @@ class BizCity_TwinChat_Learning_Database {
 
 		$charset = $wpdb->get_charset_collate();
 		$jobs    = $this->table_jobs();
-		$events  = $this->table_events();
 		$batches = $this->table_batches();
 
 		$sql_jobs = "CREATE TABLE {$jobs} (
@@ -425,6 +433,11 @@ class BizCity_TwinChat_Learning_Database {
 			KEY idx_updated (updated_at)
 		) {$charset};";
 
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — bizcity_kg_learning_events is quarantined
+		// (rows stay); BizCity_TwinChat_Learning_Events writes the keyed JSONL contract modules.twinchat.learning_events instead.
+		$sql_events = '';
+		if ( false ) {
+		$events     = $this->events_table_name();
 		$sql_events = "CREATE TABLE {$events} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			notebook_id BIGINT UNSIGNED NOT NULL,
@@ -436,6 +449,7 @@ class BizCity_TwinChat_Learning_Database {
 			KEY idx_notebook_id (notebook_id, id),
 			KEY idx_job (job_id)
 		) {$charset};";
+		}
 
 		// Batch ledger — one row per extract/approve sub-step.
 		// Lets cron + ajax tick share progress and resume after crash.
@@ -467,7 +481,9 @@ class BizCity_TwinChat_Learning_Database {
 		$prev_supp = $wpdb->suppress_errors( true );
 
 		dbDelta( $sql_jobs );
-		dbDelta( $sql_events );
+		if ( $sql_events !== '' ) {
+			dbDelta( $sql_events );
+		}
 		dbDelta( $sql_batches );
 
 		$wpdb->suppress_errors( $prev_supp );
@@ -476,22 +492,11 @@ class BizCity_TwinChat_Learning_Database {
 
 	/** Trim old events for a notebook so the ring buffer never grows past N rows. */
 	public function trim_events( $notebook_id, $keep = self::EVENTS_RING_PER_NB ) {
-		global $wpdb;
-		$notebook_id = (int) $notebook_id;
-		$keep        = max( 100, (int) $keep );
-		$tbl         = $this->table_events();
-
-		$cutoff_id = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$tbl} WHERE notebook_id=%d ORDER BY id DESC LIMIT 1 OFFSET %d",
-			$notebook_id, $keep
-		) );
-		if ( ! $cutoff_id ) {
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — the ring lives in JSONL now.
+		if ( ! class_exists( 'BizCity_TwinChat_Learning_Events' ) ) {
 			return 0;
 		}
-		return (int) $wpdb->query( $wpdb->prepare(
-			"DELETE FROM {$tbl} WHERE notebook_id=%d AND id <= %d",
-			$notebook_id, (int) $cutoff_id
-		) );
+		return BizCity_TwinChat_Learning_Events::instance()->trim( (int) $notebook_id, max( 100, (int) $keep ) );
 	}
 
 	/**
@@ -509,7 +514,6 @@ class BizCity_TwinChat_Learning_Database {
 		}
 
 		$jobs_tbl    = $this->jobs_table_name();
-		$events_tbl  = $this->events_table_name();
 		$batches_tbl = $this->batches_table_name();
 
 		$prev_supp = $wpdb->suppress_errors( true );
@@ -523,11 +527,10 @@ class BizCity_TwinChat_Learning_Database {
 				$notebook_id
 			) );
 		}
-		if ( $this->table_exists( $events_tbl ) ) {
-			$deleted_events = (int) $wpdb->query( $wpdb->prepare(
-				"DELETE FROM {$events_tbl} WHERE notebook_id = %d",
-				$notebook_id
-			) );
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — events: drop the notebook's JSONL segment
+		// (quarantined SQL rows are left alone; they are never read again).
+		if ( class_exists( 'BizCity_TwinChat_Learning_Events' ) ) {
+			$deleted_events = BizCity_TwinChat_Learning_Events::instance()->delete_for_notebook( $notebook_id );
 		}
 		if ( $this->table_exists( $jobs_tbl ) ) {
 			$deleted_jobs = (int) $wpdb->query( $wpdb->prepare(

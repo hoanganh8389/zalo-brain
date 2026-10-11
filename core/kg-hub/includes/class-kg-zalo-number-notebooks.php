@@ -183,7 +183,16 @@ final class BizCity_KG_Zalo_Number_Notebooks {
 		$owner  = self::current_owner( $bridge );
 		$target = $owner > 0 && get_userdata( $owner ) ? $owner : (int) $row['owner_id'];
 		$ws_id  = self::ensure_workspace( $target, $bridge );
+		// [2026-10-11 12:17 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 follow-up — notebooks created before the 2026-10-01 ASCII title fix
+		// still carry bidi isolates / U+FFFD around the number and date ("Zalo ⁨…899⁩ 01/10⁩" shows boxes). Clean the stored name once here,
+		// so it also happens on numbers whose migration already finished (reconcile_account re-settles on every listing).
+		$name    = (string) ( $row['name'] ?? '' );
+		$clean   = self::clean_name( $name );
+		$rename  = '' !== $name && '' !== $clean && $clean !== $name;
 		if ( (string) ( $settings['workspace_id'] ?? '' ) === $ws_id && (int) $row['owner_id'] === $target ) {
+			if ( $rename ) {
+				$wpdb->update( BizCity_KG_Database::instance()->tbl_notebooks(), array( 'name' => $clean ), array( 'id' => (int) $row['id'] ), array( '%s' ), array( '%d' ) );
+			}
 			return 'kept';
 		}
 		$settings['workspace_id'] = $ws_id;
@@ -191,14 +200,24 @@ final class BizCity_KG_Zalo_Number_Notebooks {
 		if ( (int) $row['owner_id'] !== $target ) {
 			$settings['previous_owner_id'] = (int) $row['owner_id'];
 		}
-		$wpdb->update(
-			BizCity_KG_Database::instance()->tbl_notebooks(),
-			array( 'owner_id' => $target, 'settings' => wp_json_encode( $settings, JSON_UNESCAPED_UNICODE ) ),
-			array( 'id' => (int) $row['id'] ),
-			array( '%d', '%s' ),
-			array( '%d' )
-		);
+		$data    = array( 'owner_id' => $target, 'settings' => wp_json_encode( $settings, JSON_UNESCAPED_UNICODE ) );
+		$formats = array( '%d', '%s' );
+		if ( $rename ) {
+			$data['name'] = $clean;
+			$formats[]    = '%s';
+		}
+		$wpdb->update( BizCity_KG_Database::instance()->tbl_notebooks(), $data, array( 'id' => (int) $row['id'] ), $formats, array( '%d' ) );
 		return 'moved';
+	}
+
+	/**
+	 * Notebook name without invisible / bidi / replacement characters, spaces collapsed, "…" as "..." — the same format the capture
+	 * builds today (BizCity_Zalo_Personal_Knowledge_Capture::notebook_title). A clean name comes back unchanged. PURE.
+	 */
+	public static function clean_name( string $name ): string {
+		$s = (string) preg_replace( '/[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FEFF}\x{FFFD}]/u', '', $name );
+		$s = trim( (string) preg_replace( '/\s+/u', ' ', $s ) );
+		return str_replace( '…', '...', $s );
 	}
 
 	/** Notebook rows captured through a number (optionally one number), oldest id first, after `$after_id`. */
@@ -212,7 +231,7 @@ final class BizCity_KG_Zalo_Number_Notebooks {
 			? '%"scope_id":"' . $wpdb->esc_like( self::SCOPE_PREFIX ) . '%'
 			: '%"scope_id":"' . $wpdb->esc_like( self::SCOPE_PREFIX . $bridge_id ) . '"%';
 		return (array) $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, owner_id, settings, updated_at FROM {$tbl} WHERE id > %d AND settings LIKE %s ORDER BY id ASC LIMIT %d",
+			"SELECT id, name, owner_id, settings, updated_at FROM {$tbl} WHERE id > %d AND settings LIKE %s ORDER BY id ASC LIMIT %d", // [2026-10-11 12:17 AM Johnny Chu - Chu Hoàng Anh] + name (clean_name)
 			$after_id,
 			$like,
 			$limit

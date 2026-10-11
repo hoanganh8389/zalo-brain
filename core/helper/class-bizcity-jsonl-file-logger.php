@@ -501,6 +501,320 @@ class BizCity_JSONL_File_Logger {
 		}
 	}
 
+	/**
+	 * [2026-10-10 11:10 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — keyed-segment record store
+	 * (WP-16 B-5 §3 "scoped" primitive, applied for the first time to real code: notebook skeleton history).
+	 *
+	 * Appends one caller-owned record verbatim (no scrub/truncation — the caller owns the envelope, like
+	 * write_contract_record()) to {folder}/{module}/{segments...}/YYYY-MM-DD.jsonl of a registered blog contract.
+	 * Segments are relative to the contract module (e.g. array( 'nb-42' )). Never put secrets in a record.
+	 *
+	 * @param string              $contract_id Registered contract ID (storage_scope blog).
+	 * @param array<int,string>   $segments    Key path below the module root, at least one segment.
+	 * @param array<string,mixed> $record      Public record; `ts` and `blog_id` are stamped here.
+	 * @return bool True when the line reached disk.
+	 */
+	public static function write_scoped_record( $contract_id, array $segments, array $record ) {
+		try {
+			$parts = self::contract_scoped_parts( $contract_id, $segments );
+			if ( null === $parts ) {
+				return false;
+			}
+			$dir = self::get_scoped_dir( $parts['folder'], $parts['segments'] );
+			if ( $dir === '' ) {
+				return false;
+			}
+			$ts = gmdate( 'Y-m-d\\TH:i:s\\Z' );
+			$record = array_merge( array( 'ts' => $ts, 'blog_id' => (int) get_current_blog_id() ), $record );
+			$line = function_exists( 'wp_json_encode' )
+				? wp_json_encode( $record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+				: json_encode( $record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			if ( ! is_string( $line ) || $line === '' ) {
+				return false;
+			}
+			$append = self::append_jsonl_line( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . substr( $ts, 0, 10 ) . '.jsonl', $line );
+			return ! empty( $append['written'] );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * [2026-10-10 11:10 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — read one keyed segment newest-first.
+	 *
+	 * Walks the segment's day files from the newest date backwards and keeps at most $limit matching rows,
+	 * so memory stays bounded by $limit (not by file size). Never creates directories.
+	 *
+	 * @param string            $contract_id Registered contract ID.
+	 * @param array<int,string> $segments    Key path below the module root.
+	 * @param int               $limit       Max rows returned (1..1000).
+	 * @param callable|null     $match       Optional row filter: fn( array $row ): bool.
+	 * @return array<int,array<string,mixed>> Rows, newest first.
+	 */
+	public static function read_scoped_records( $contract_id, array $segments, $limit = 20, $match = null ) {
+		try {
+			$parts = self::contract_scoped_parts( $contract_id, $segments );
+			if ( null === $parts ) {
+				return array();
+			}
+			$dir = self::get_scoped_dir( $parts['folder'], $parts['segments'], false );
+			if ( $dir === '' ) {
+				return array();
+			}
+			$limit = max( 1, min( 1000, (int) $limit ) );
+			$files = glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' );
+			$dated = array();
+			foreach ( (array) $files as $file ) {
+				if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', basename( $file, '.jsonl' ) ) ) {
+					$dated[] = $file;
+				}
+			}
+			rsort( $dated );
+			$out = array();
+			foreach ( $dated as $file ) {
+				$remaining = $limit - count( $out );
+				if ( $remaining <= 0 ) {
+					break;
+				}
+				$handle = @fopen( $file, 'rb' );
+				if ( false === $handle ) {
+					continue;
+				}
+				// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — shared lock so a reader never sees a ring compaction (trim_scoped_records) half-written.
+				@flock( $handle, LOCK_SH );
+				$buffer = array();
+				while ( false !== ( $raw = fgets( $handle ) ) ) {
+					$row = json_decode( trim( $raw ), true );
+					if ( ! is_array( $row ) || ( null !== $match && ! call_user_func( $match, $row ) ) ) {
+						continue;
+					}
+					$buffer[] = $row;
+					if ( count( $buffer ) > $remaining ) {
+						array_shift( $buffer );
+					}
+				}
+				@flock( $handle, LOCK_UN );
+				fclose( $handle );
+				foreach ( array_reverse( $buffer ) as $row ) {
+					$out[] = $row;
+				}
+			}
+			return $out;
+		} catch ( \Throwable $e ) {
+			return array();
+		}
+	}
+
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — keyed record with a cursor id.
+	 *
+	 * Like write_scoped_record(), but stamps $seq_field with an integer id that is strictly increasing in file
+	 * order of the segment: the id is taken while the day file is locked (max of the microsecond clock and the
+	 * last line's id + 1), so a reader that walks `id > cursor` never skips a row written by a slower worker.
+	 * Microsecond ids stay below 2^53, so browsers read them exactly. Replaces an AUTO_INCREMENT cursor
+	 * (first user: TwinChat learning events, bizcity_kg_learning_events).
+	 *
+	 * @param string              $contract_id Registered contract ID (storage_scope blog).
+	 * @param array<int,string>   $segments    Key path below the module root, at least one segment.
+	 * @param array<string,mixed> $record      Public record; `ts` (when absent), `blog_id` and $seq_field are stamped here.
+	 * @param string              $seq_field   Field that receives the id.
+	 * @return int The id written, 0 on failure.
+	 */
+	public static function write_scoped_sequenced_record( $contract_id, array $segments, array $record, $seq_field = 'id' ) {
+		try {
+			$seq_field = (string) $seq_field;
+			$parts = self::contract_scoped_parts( $contract_id, $segments );
+			if ( null === $parts || $seq_field === '' ) {
+				return 0;
+			}
+			$dir = self::get_scoped_dir( $parts['folder'], $parts['segments'] );
+			if ( $dir === '' ) {
+				return 0;
+			}
+			$record = array_merge( array( 'ts' => gmdate( 'Y-m-d\\TH:i:s\\Z' ), 'blog_id' => (int) get_current_blog_id() ), $record );
+			$file   = rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . gmdate( 'Y-m-d' ) . '.jsonl';
+			$handle = @fopen( $file, 'a+b' );
+			if ( false === $handle ) {
+				return 0;
+			}
+			if ( ! @flock( $handle, LOCK_EX ) ) {
+				fclose( $handle );
+				return 0;
+			}
+			$last = self::last_line_int_field( $handle, $seq_field );
+			$id   = max( (int) floor( microtime( true ) * 1000000 ), $last + 1 );
+			$record = array( $seq_field => $id ) + $record;
+			$record[ $seq_field ] = $id;
+			$line = function_exists( 'wp_json_encode' )
+				? wp_json_encode( $record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES )
+				: json_encode( $record, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+			$ok = false;
+			if ( is_string( $line ) && $line !== '' && 0 === @fseek( $handle, 0, SEEK_END ) ) {
+				$ok = false !== @fwrite( $handle, $line . "\n" );
+				@fflush( $handle );
+			}
+			@flock( $handle, LOCK_UN );
+			fclose( $handle );
+			return $ok ? $id : 0;
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+	}
+
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — ring buffer for one keyed segment.
+	 *
+	 * Keeps the newest $keep records of the segment: older day files are deleted, the day file holding the
+	 * boundary is rewritten under an exclusive lock (writers and readers lock the same file, so no line is
+	 * lost or read half-written). Never creates directories.
+	 *
+	 * @return int Records removed.
+	 */
+	public static function trim_scoped_records( $contract_id, array $segments, $keep ) {
+		try {
+			$keep  = max( 1, (int) $keep );
+			$files = self::scoped_day_files( $contract_id, $segments );
+			$seen = 0;
+			$removed = 0;
+			foreach ( $files as $file ) {
+				if ( $seen >= $keep ) {
+					$removed += self::count_lines( $file );
+					@unlink( $file );
+					continue;
+				}
+				$handle = @fopen( $file, 'r+b' );
+				if ( false === $handle ) {
+					continue;
+				}
+				if ( ! @flock( $handle, LOCK_EX ) ) {
+					fclose( $handle );
+					continue;
+				}
+				$lines = array();
+				while ( false !== ( $raw = fgets( $handle ) ) ) {
+					if ( trim( $raw ) !== '' ) {
+						$lines[] = rtrim( $raw, "\r\n" );
+					}
+				}
+				$need = $keep - $seen;
+				if ( count( $lines ) > $need ) {
+					$removed += count( $lines ) - $need;
+					$lines = array_slice( $lines, -1 * $need );
+					@ftruncate( $handle, 0 );
+					@rewind( $handle );
+					@fwrite( $handle, implode( "\n", $lines ) . "\n" );
+					@fflush( $handle );
+				}
+				@flock( $handle, LOCK_UN );
+				fclose( $handle );
+				$seen += count( $lines );
+			}
+			return $removed;
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+	}
+
+	/**
+	 * [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — remove one keyed segment (notebook deleted).
+	 *
+	 * @return int Records removed.
+	 */
+	public static function delete_scoped_records( $contract_id, array $segments ) {
+		try {
+			$removed = 0;
+			$dir = '';
+			foreach ( self::scoped_day_files( $contract_id, $segments ) as $file ) {
+				$removed += self::count_lines( $file );
+				@unlink( $file );
+				$dir = dirname( $file );
+			}
+			if ( $dir !== '' && is_dir( $dir ) ) {
+				@rmdir( $dir );
+				foreach ( array_keys( self::$dir_cache ) as $key ) {
+					if ( self::$dir_cache[ $key ] === $dir ) {
+						unset( self::$dir_cache[ $key ] );
+					}
+				}
+			}
+			return $removed;
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+	}
+
+	/** [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — a segment's day files, newest first (never creates folders). */
+	private static function scoped_day_files( $contract_id, array $segments ) {
+		$parts = self::contract_scoped_parts( $contract_id, $segments );
+		if ( null === $parts ) {
+			return array();
+		}
+		$dir = self::get_scoped_dir( $parts['folder'], $parts['segments'], false );
+		if ( $dir === '' || ! is_dir( $dir ) ) {
+			return array();
+		}
+		$dated = array();
+		foreach ( (array) glob( rtrim( $dir, '/\\' ) . DIRECTORY_SEPARATOR . '*.jsonl' ) as $file ) {
+			if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', basename( $file, '.jsonl' ) ) ) {
+				$dated[] = $file;
+			}
+		}
+		rsort( $dated );
+		return $dated;
+	}
+
+	/** [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — non-empty lines of one file. */
+	private static function count_lines( $file ) {
+		$handle = @fopen( $file, 'rb' );
+		if ( false === $handle ) {
+			return 0;
+		}
+		$n = 0;
+		while ( false !== ( $raw = fgets( $handle ) ) ) {
+			if ( trim( $raw ) !== '' ) {
+				$n++;
+			}
+		}
+		fclose( $handle );
+		return $n;
+	}
+
+	/** [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — integer field of the last line of a locked handle (0 when absent). */
+	private static function last_line_int_field( $handle, $field ) {
+		$stat = @fstat( $handle );
+		$size = is_array( $stat ) ? (int) $stat['size'] : 0;
+		if ( $size <= 0 ) {
+			return 0;
+		}
+		$chunk = min( $size, 262144 );
+		if ( 0 !== @fseek( $handle, $size - $chunk, SEEK_SET ) ) {
+			return 0;
+		}
+		$tail  = (string) @fread( $handle, $chunk );
+		$lines = preg_split( '/\r?\n/', rtrim( $tail, "\r\n" ) );
+		$last  = is_array( $lines ) ? (string) end( $lines ) : '';
+		$row   = json_decode( $last, true );
+		return ( is_array( $row ) && isset( $row[ $field ] ) && is_numeric( $row[ $field ] ) ) ? (int) $row[ $field ] : 0;
+	}
+
+	/** Resolve folder + full segment path (module first) for a blog-scoped contract, or null. */
+	private static function contract_scoped_parts( $contract_id, array $segments ) {
+		if ( ! class_exists( 'BizCity_Log_Contract_Registry' ) ) {
+			return null;
+		}
+		$contract = BizCity_Log_Contract_Registry::get( (string) $contract_id );
+		if ( ! is_array( $contract ) || (string) ( $contract['storage_scope'] ?? 'blog' ) !== 'blog' ) {
+			return null;
+		}
+		$folder = (string) ( $contract['jsonl_folder'] ?? '' );
+		$module = self::slug( (string) ( $contract['jsonl_module'] ?? '' ) );
+		$keys   = array_values( array_filter( array_map( array( __CLASS__, 'slug' ), $segments ) ) );
+		if ( $folder === '' || $module === '' || empty( $keys ) || count( $keys ) !== count( $segments ) ) {
+			return null;
+		}
+		return array( 'folder' => $folder, 'segments' => array_merge( array( $module ), $keys ) );
+	}
+
 	public static function error( $folder, $module, $event, $message, array $ctx = array(), $exception = null ) {
 		if ( $exception instanceof \Throwable ) {
 			$ctx['exception_class'] = get_class( $exception );
@@ -1068,7 +1382,7 @@ class BizCity_JSONL_File_Logger {
 		return $dir;
 	}
 
-	private static function get_scoped_dir( $folder, array $segments ) {
+	private static function get_scoped_dir( $folder, array $segments, $create = true ) {
 		$folder = self::slug( $folder );
 		$parts = array_values( array_filter( array_map( array( __CLASS__, 'slug' ), $segments ) ) );
 		if ( $folder === '' || empty( $parts ) ) {
@@ -1087,6 +1401,10 @@ class BizCity_JSONL_File_Logger {
 		$dir = $root;
 		foreach ( $parts as $part ) {
 			$dir .= DIRECTORY_SEPARATOR . $part;
+		}
+		// [2026-10-10 11:10 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — readers must not create empty key folders.
+		if ( ! $create ) {
+			return is_dir( $dir ) ? $dir : '';
 		}
 		if ( ! is_dir( $dir ) ) {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_mkdir

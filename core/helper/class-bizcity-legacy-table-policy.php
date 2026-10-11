@@ -141,6 +141,25 @@ final class BizCity_Legacy_Table_Policy {
 		// subscriptions and payments are not Zalo Brain's job (licence = 1API master tier). Rows stay; nothing reads or writes them.
 		'bizcity_member_subscriptions', 'bizcity_member_usage', 'bizcity_member_payments',
 		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 (census core/knowledge/docs/CORE-REDUCTION-WP-20/evidence/W20-Z7/census.md)
+		// — no live reader and no live writer (tokenizer-stripped grep of bizcity-twin-ai + sibling plugins + mu-plugins, accessor names included):
+		// twin_prompt_specs: BizCity_Twin_Prompt_Parser::parse()/get_latest() have zero callers; zalo_oa_window: its only
+		// reader/writer plugins/bizcity-zalo-personal/includes/oa/class-zalo-oa-integration.php is never loaded, update_oa_window() has no caller.
+		'bizcity_twin_prompt_specs', 'bizcity_zalo_oa_window',
+		// [2026-10-10 10:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7-2 (owner: "dừng ghi ngay lập tức, ko cần") — write-only projection: BizCity_Twin_Event_Bus::get_milestones() has zero
+		// callers anywhere; the Event Stream (bizcity_twin_event_stream) stays the canonical record of the same events.
+		'bizcity_twin_milestones',
+		// [2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-14 (owner: "có thể bỏ vì không ai dùng") — declared in core.automation.json but no code in bizcity-twin-ai
+		// or bizcity-automation creates, reads or writes them any more (hygiene census + validate-ddl-table-parity, 2026-10-10).
+		'bizcity_automation_config_packs', 'bizcity_automation_config_rows',
+		// [2026-10-10 11:15 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c (census W20-Z7 P6/P9) — both moved off their own table:
+		// kg_skeleton_history → keyed JSONL contract core.kg_hub.skeleton_history (BizCity_KG_Skeleton_Service writes, Adapter reads);
+		// cron_locks → one wp_options row per job (BizCity_Cron_Manager::try_lock()/unlock()). Rows stay; never DROP.
+		'bizcity_kg_skeleton_history', 'bizcity_cron_locks',
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e (census core/knowledge/docs/CORE-REDUCTION-WP-20/evidence/W20-Z7e/census.md) —
+		// TwinChat learning events ring → keyed JSONL contract modules.twinchat.learning_events (BizCity_TwinChat_Learning_Events writes and reads;
+		// SSE/poll cursor ids come from write_scoped_sequenced_record()). Rows stay; never DROP. Jobs/batches tables stay live (job queue).
+		'bizcity_kg_learning_events',
 	);
 
 	/** [2026-08-29 Johnny Chu] PHASE-1.30-WRITER-STOP — JSONL-backed log owners start in draining so SQL writes are refused by default while reads remain available during cutover. */
@@ -187,6 +206,25 @@ final class BizCity_Legacy_Table_Policy {
 		// subscriptions and payments are not Zalo Brain's job (licence = 1API master tier). Rows stay; nothing reads or writes them.
 		'bizcity_member_subscriptions', 'bizcity_member_usage', 'bizcity_member_payments',
 		'bizcity_webchat_sessions', 'bizcity_webchat_conversations',
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 (census core/knowledge/docs/CORE-REDUCTION-WP-20/evidence/W20-Z7/census.md)
+		// — no live reader and no live writer (tokenizer-stripped grep of bizcity-twin-ai + sibling plugins + mu-plugins, accessor names included):
+		// twin_prompt_specs: BizCity_Twin_Prompt_Parser::parse()/get_latest() have zero callers; zalo_oa_window: its only
+		// reader/writer plugins/bizcity-zalo-personal/includes/oa/class-zalo-oa-integration.php is never loaded, update_oa_window() has no caller.
+		'bizcity_twin_prompt_specs', 'bizcity_zalo_oa_window',
+		// [2026-10-10 10:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7-2 (owner: "dừng ghi ngay lập tức, ko cần") — write-only projection: BizCity_Twin_Event_Bus::get_milestones() has zero
+		// callers anywhere; the Event Stream (bizcity_twin_event_stream) stays the canonical record of the same events.
+		'bizcity_twin_milestones',
+		// [2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-14 (owner: "có thể bỏ vì không ai dùng") — declared in core.automation.json but no code in bizcity-twin-ai
+		// or bizcity-automation creates, reads or writes them any more (hygiene census + validate-ddl-table-parity, 2026-10-10).
+		'bizcity_automation_config_packs', 'bizcity_automation_config_rows',
+		// [2026-10-10 11:15 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c (census W20-Z7 P6/P9) — both moved off their own table:
+		// kg_skeleton_history → keyed JSONL contract core.kg_hub.skeleton_history (BizCity_KG_Skeleton_Service writes, Adapter reads);
+		// cron_locks → one wp_options row per job (BizCity_Cron_Manager::try_lock()/unlock()). Rows stay; never DROP.
+		'bizcity_kg_skeleton_history', 'bizcity_cron_locks',
+		// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e (census core/knowledge/docs/CORE-REDUCTION-WP-20/evidence/W20-Z7e/census.md) —
+		// TwinChat learning events ring → keyed JSONL contract modules.twinchat.learning_events (BizCity_TwinChat_Learning_Events writes and reads;
+		// SSE/poll cursor ids come from write_scoped_sequenced_record()). Rows stay; never DROP. Jobs/batches tables stay live (job queue).
+		'bizcity_kg_learning_events',
 	);
 
 	private static $base_prefix_tables = array( 'bizcity_zalo_bot_memory', 'bizcity_google_usage_logs' );

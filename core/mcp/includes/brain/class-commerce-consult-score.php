@@ -90,7 +90,9 @@ final class BizCity_Commerce_Consult_Score {
 		} else {
 			$aud_list = $advice ? array_values( array_filter( array_map( 'strval', (array) ( $advice['audience'] ?? array() ) ), 'strlen' ) ) : array();
 			$hay      = $aud_list ? implode( ' | ', $aud_list ) : self::product_text( $product, false );
-			$for_v    = self::has_term( $hay, $for, $syn ) ? 1.0 : 0.0;
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-16 v1.1 (ca thật Ostelin 234k) — without an advice audience, product text that does
+			// not name the person is NOT evidence of a mismatch: unknown (0.5), not 0. A declared audience still decides 1 / 0.
+			$for_v    = self::has_term( $hay, $for, $syn ) ? 1.0 : ( $aud_list && 1.0 !== $age_v ? 0.0 : 0.5 ); // v1.1b: age already fits ⇒ a wording mismatch ("bé" vs "thanh thiếu niên") is unknown, not 0
 			if ( 1.0 === $for_v ) {
 				$reasons[] = 'audience_fit';
 			}
@@ -104,12 +106,15 @@ final class BizCity_Commerce_Consult_Score {
 			$gaps[] = 'goals';
 		} else {
 			$adv_goals = $advice ? array_values( array_filter( array_map( 'strval', (array) ( $advice['goals'] ?? array() ) ), 'strlen' ) ) : array();
-			$hay       = $adv_goals ? implode( ' | ', $adv_goals ) : $text;
+			// v1.1b (ca thật "phát triển chiều cao"): declared goals AND the product's own text — the owner's short goal list never covers every wording
+			$hay       = $adv_goals ? implode( ' | ', $adv_goals ) . ' | ' . $text : $text;
 			$hits      = 0;
 			foreach ( $goals as $g ) {
 				if ( self::has_term( $hay, $g, $syn ) ) {
 					$hits++;
 					$reasons[] = 'goal:' . self::norm( $g );
+				} elseif ( self::partial_term( $hay, $g ) ) {
+					$hits += 0.5; // D95-16 v1.1: "còi xương" vs a text that says "xương" ⇒ half credit
 				}
 			}
 			$goal = $hits / count( $goals );
@@ -174,7 +179,8 @@ final class BizCity_Commerce_Consult_Score {
 		foreach ( (array) ( $need['constraints'] ?? array() ) as $c ) {
 			$c  = trim( (string) $c );
 			$nc = self::norm( $c );
-			if ( '' === $nc ) {
+			// v1.1b — a negated condition ("không sỏi thận") is what the person does NOT have: never a reason to exclude
+			if ( '' === $nc || self::is_negated( $nc ) ) {
 				continue;
 			}
 			foreach ( $avoid as $a ) {
@@ -233,6 +239,30 @@ final class BizCity_Commerce_Consult_Score {
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-16 v1.1 — half of the term's content words (norm, ≥ 3 letters) appear in the text, and the term
+	 * has ≥ 2 such words. One-word terms never get partial credit (they either match or not).
+	 */
+	/** v1.1b — norm text starting with a Vietnamese/English negation (không, ko, khong co, chưa từng, no, not). */
+	public static function is_negated( string $norm ): bool {
+		return (bool) preg_match( '/^(khong|ko|k|chua tung|chua|no|not|without)/', $norm );
+	}
+
+	public static function partial_term( string $text, string $term ): bool {
+		$words = array_values( array_unique( array_filter( explode( ' ', self::norm( $term ) ), static function ( $w ) { return strlen( $w ) >= 3; } ) ) );
+		if ( count( $words ) < 2 ) {
+			return false;
+		}
+		$hay  = ' ' . (string) preg_replace( '/[^a-z0-9]+/', ' ', self::norm( $text ) ) . ' ';
+		$hits = 0;
+		foreach ( $words as $w ) {
+			if ( false !== strpos( $hay, ' ' . $w . ' ' ) ) {
+				$hits++;
+			}
+		}
+		return $hits * 2 >= count( $words );
 	}
 
 	/** Age range in months: advice range wins over product.age_range_months; null = unknown. */

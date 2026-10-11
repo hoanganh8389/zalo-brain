@@ -109,11 +109,8 @@ class BizCity_Zalo_Bot_Plugin {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-channel-adapter.php';
 		}
 
-		// PHASE 0.31 T-S2.1 — WaicChannelIntegration_zalobot (filter-discovered).
-		// Lưu ý: file SỐNG ở plugins/bizcity-twin-ai/plugins/bizcity-zalo-bot/, KHÔNG ở mu-plugins/.
-		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/integration-zalo.php' ) ) {
-			require_once BIZCITY_ZALO_BOT_DIR . '/includes/integration-zalo.php';
-		}
+		// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — integration-zalo.php (WaicChannelIntegration_zalobot)
+		// is archived at core/_archived/z8a-20261010/: its filter bizcity_register_channel_integrations is applied only by the dev-only sprint diagnostic.
 
 		// PHASE 0.31 Sprint 6 follow-up — frontend /tool-zalo-bizcity/ profile
 		// page (mirrors bizcity-tool-facebook /tool-facebook/). Provides 2-tab

@@ -79,7 +79,8 @@ final class BizCity_Guru_Context_Resolver {
 	// [2026-10-05 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — + automation.list_scenarios / run_scenario: the Guru may open audience-guest scenarios
 	// (khách vãng lai) to customers; the site still refuses every owner_agent scenario to them (R-AUTOMATION-PERMISSION).
 	// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 — + commerce.search_products (public catalog consult). Order = fixture guru.profile.consult.json `allowed`.
-	const CUSTOMER_TOOLS_ALLOWED = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks', 'commerce.search_products', 'automation.list_scenarios', 'automation.run_scenario' );
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 Q98-M2 (chủ: mở) — + site.content.search: published posts/pages/CPT/media only, public by nature.
+	const CUSTOMER_TOOLS_ALLOWED = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks', 'commerce.search_products', 'site.content.search', 'automation.list_scenarios', 'automation.run_scenario' );
 	const CUSTOMER_AUTOMATION_TOOLS = array( 'automation.list_scenarios', 'automation.run_scenario' );
 
 	/**
@@ -89,6 +90,7 @@ final class BizCity_Guru_Context_Resolver {
 	const CUSTOMER_TOOL_GROUPS = array(
 		'knowledge'  => array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks' ),
 		'commerce'   => array( 'commerce.search_products' ),
+		'content'    => array( 'site.content.search' ), // PHASE-0.98 Q98-M2 — always usable (needs nothing)
 		'automation' => array( 'automation.list_scenarios', 'automation.run_scenario' ),
 	);
 	const CUSTOMER_TOOLS_NEED_NOTEBOOK = array( 'knowledge.search', 'knowledge.get_passage', 'knowledge.list_notebooks' );
@@ -106,7 +108,7 @@ final class BizCity_Guru_Context_Resolver {
 	 */
 	public static function consult_parts( array $raw, bool $has_woo, bool $has_notebooks, array $existing_cat_ids ): array {
 		$tools = isset( $raw['customer_tools'] ) && is_array( $raw['customer_tools'] )
-			? array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_map( 'strval', $raw['customer_tools'] ) ) )
+			? self::upgrade_customer_tools( array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_map( 'strval', $raw['customer_tools'] ) ) ), $raw, $has_woo )
 			: self::default_customer_tools( $has_woo );
 		return array(
 			'customer_tools'  => self::filter_customer_tools( $tools, $has_notebooks, $has_woo ),
@@ -124,7 +126,26 @@ final class BizCity_Guru_Context_Resolver {
 		if ( $has_woo ) {
 			$tools[] = 'commerce.search_products';
 		}
+		$tools[] = 'site.content.search'; // PHASE-0.98 Q98-M2 — on by default (owner opened it 2026-10-11)
+		if ( $has_woo ) {
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F20 — shop có Woo ⇒ khách chạy được kịch bản dành cho khách (đặt đơn); site vẫn từ chối mọi kịch bản owner_agent
+			$tools = array_merge( $tools, self::CUSTOMER_AUTOMATION_TOOLS );
+		}
 		return array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, $tools ) );
+	}
+
+	/** [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F20 — rev of a saved customer_tools list; < 2 = saved before Bot Studio had the scenario toggle. */
+	const CUSTOMER_TOOLS_REV = 2;
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F20 — a list saved before rev 2 never had a scenario toggle, so missing automation tools
+	 * were not the owner's choice: with Woo and product search on, open the guest scenarios once (lists saved from rev 2 on are kept as is).
+	 */
+	public static function upgrade_customer_tools( array $tools, array $raw, bool $has_woo ): array {
+		if ( (int) ( $raw['customer_tools_rev'] ?? 1 ) >= self::CUSTOMER_TOOLS_REV || ! $has_woo || ! in_array( 'commerce.search_products', $tools, true ) ) {
+			return $tools;
+		}
+		return array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_merge( $tools, self::CUSTOMER_AUTOMATION_TOOLS ) ) );
 	}
 
 	/** Keep each tool whose group is usable (order kept). */
@@ -135,6 +156,8 @@ final class BizCity_Guru_Context_Resolver {
 				$ok = $has_notebooks;
 			} elseif ( in_array( $t, self::CUSTOMER_TOOL_GROUPS['commerce'], true ) ) {
 				$ok = $has_woo;
+			} elseif ( in_array( $t, self::CUSTOMER_TOOL_GROUPS['content'], true ) ) {
+				$ok = true;
 			} else {
 				$ok = in_array( $t, self::CUSTOMER_TOOL_GROUPS['automation'], true );
 			}
@@ -488,10 +511,12 @@ final class BizCity_Guru_Context_Resolver {
 		if ( isset( $raw['customer_tools'] ) && is_array( $raw['customer_tools'] ) ) {
 			// [2026-10-05 09:34 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-R-AP-6 — keep only allowed knowledge read tools, in a stable order.
 			$s['customer_tools'] = array_values( array_intersect( self::CUSTOMER_TOOLS_ALLOWED, array_map( 'strval', $raw['customer_tools'] ) ) );
+			$s['customer_tools'] = self::upgrade_customer_tools( $s['customer_tools'], $raw, self::has_woo() ); // PHASE-0.95 S95-F20
 		} else {
 			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 (D95-19) — never chosen ⇒ + commerce.search_products when Woo is active.
 			$s['customer_tools'] = self::default_customer_tools( self::has_woo() );
 		}
+		$s['customer_tools_rev'] = self::CUSTOMER_TOOLS_REV; // PHASE-0.95 S95-F20 — stored from now on: the next save keeps the owner's choice
 		// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13/F14/G4 — product categories (existing ones only) + consult switch/threshold.
 		if ( array_key_exists( 'product_cat_ids', $raw ) ) {
 			$has_woo              = self::has_woo();

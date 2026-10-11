@@ -136,7 +136,10 @@ class BizCity_Twin_State_Schema {
 		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( self::prompt_specs_table() ) ) {
 			self::create_prompt_specs_table( $charset );
 		}
-		self::create_milestones_table( $charset );
+		// [2026-10-10 10:07 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Q-Z7-2 — milestones is quarantined (write-only, 0 readers). Fail-closed: no policy, no install.
+		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( self::milestones_table() ) ) {
+			self::create_milestones_table( $charset );
+		}
 		// [2026-09-01 Johnny Chu] PHASE-1.30-DEAD-SQL-COHORT — do not provision the retired context-log SQL projection.
 		// [2026-09-18 10:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-FAIL-CLOSED — a missing lifecycle policy must not recreate the retired context-log table.
 		if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && ! BizCity_Legacy_Table_Policy::install_blocked( self::context_logs_table() ) ) {
@@ -270,7 +273,9 @@ class BizCity_Twin_State_Schema {
 			if ( class_exists( 'BizCity_Legacy_Table_Policy' ) && BizCity_Legacy_Table_Policy::is_legacy( 'bizcity_' . $t ) ) {
 				continue;
 			}
-			if ( ! BizCity_Twin_Data_Contract::table_exists( $t ) ) {
+			// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — table_exists() takes the name WITH
+			// 'bizcity_' (it only adds $wpdb->prefix); the bare 'twin_*' name never matched, so the DB version was never stamped.
+			if ( ! BizCity_Twin_Data_Contract::table_exists( 'bizcity_' . $t ) ) {
 				$missing[] = $t;
 			}
 		}

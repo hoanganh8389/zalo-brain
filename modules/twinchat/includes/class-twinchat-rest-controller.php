@@ -1612,30 +1612,17 @@ class BizCity_TwinChat_REST_Controller {
 		if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
 			$ldb = BizCity_TwinChat_Learning_Database::instance();
 			if ( $ldb->is_ready() ) {
-				$tbl_events = $ldb->table_events();
-				if ( $job_id > 0 ) {
-					$event_rows = $wpdb->get_results( $wpdb->prepare(
-						"SELECT id, job_id, ts, event, payload
-						   FROM {$tbl_events}
-						  WHERE notebook_id = %d AND job_id = %d
-						  ORDER BY id DESC
-						  LIMIT %d",
-						$notebook_id, $job_id, $limit
-					), ARRAY_A );
-				} else {
-					$event_rows = $wpdb->get_results( $wpdb->prepare(
-						"SELECT id, job_id, ts, event, payload
-						   FROM {$tbl_events}
-						  WHERE notebook_id = %d
-						  ORDER BY id DESC
-						  LIMIT %d",
-						$notebook_id, $limit
-					), ARRAY_A );
-				}
+				// [2026-10-11 10:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7e — newest events of the notebook (or of
+				// its job) from the JSONL ring instead of SELECT … FROM bizcity_kg_learning_events ORDER BY id DESC LIMIT n.
+				$event_rows = class_exists( 'BizCity_TwinChat_Learning_Events' )
+					? BizCity_TwinChat_Learning_Events::instance()->read_latest( $notebook_id, $limit, $job_id > 0 ? $job_id : 0 )
+					: [];
 				$event_rows = array_reverse( (array) $event_rows );
 				foreach ( $event_rows as $er ) {
 					$payload = [];
-					if ( isset( $er['payload'] ) && is_string( $er['payload'] ) && $er['payload'] !== '' ) {
+					if ( isset( $er['payload'] ) && is_array( $er['payload'] ) ) {
+						$payload = $er['payload'];
+					} elseif ( isset( $er['payload'] ) && is_string( $er['payload'] ) && $er['payload'] !== '' ) {
 						$decoded = json_decode( $er['payload'], true );
 						if ( is_array( $decoded ) ) {
 							$payload = $decoded;

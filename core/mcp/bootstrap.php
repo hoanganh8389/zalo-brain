@@ -117,6 +117,24 @@ if ( class_exists( 'BizCity_Product_Advice' ) ) {
 		require_once BIZCITY_MCP_DIR . 'includes/admin/class-product-advice-admin.php';
 		BizCity_Product_Advice_Admin::init();
 	}
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F5b — Zalo Brain tự soạn meta tư vấn khi thêm / cập nhật sản phẩm (mọi đường lưu + WP-cron, không chỉ admin).
+	$bizcity_advice_auto_load = static function (): bool {
+		if ( ! class_exists( 'BizCity_Product_Advice_Admin', false ) ) {
+			require_once BIZCITY_MCP_DIR . 'includes/admin/class-product-advice-form.php';
+			require_once BIZCITY_MCP_DIR . 'includes/admin/class-product-advice-admin.php';
+		}
+		return class_exists( 'BizCity_Product_Advice_Admin', false );
+	};
+	add_action( 'save_post_product', static function ( $post_id, $post = null ) use ( $bizcity_advice_auto_load ) {
+		if ( $bizcity_advice_auto_load() ) {
+			BizCity_Product_Advice_Admin::maybe_schedule_auto( $post_id, $post );
+		}
+	}, 30, 2 );
+	add_action( 'bizcity_advice_autodraft', static function ( $post_id ) use ( $bizcity_advice_auto_load ) {
+		if ( $bizcity_advice_auto_load() ) {
+			BizCity_Product_Advice_Admin::run_auto_draft( $post_id );
+		}
+	}, 10, 1 );
 }
 // [2026-10-09 10:46 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L2 — D-W20-1: the 5 Woo packs (sales, orders, stock,
 // catalog, catalog_map) and the shop money rule live in core, so the cell keeps its product-group map without the Zalo Brain CRM
@@ -150,6 +168,25 @@ require_once BIZCITY_MCP_DIR . 'includes/actions/class-automation-action-mcp-ser
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-schedule-sync-mcp-service.php';
 // [2026-10-08 01:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.94-MEM-H1 — memory.save / memory.recall / memory.forget (long-term person memory on the client, Q-MEM-1).
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-memory-mcp-service.php';
+// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-M7 — site.content.search (posts / pages / public CPTs / media library, each with its https image; media-out@1).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-site-content-mcp-service.php';
+// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L4/L5/L13 — plugin tool libraries (mcp/tools.json loader), adapters for plugins
+// without a manifest (core/mcp/adapters/*.json, read tools only) and the CRM task/follow-up/staff tools of doc 80 (gated on the CRM plugin).
+foreach ( array( 'includes/class-mcp-library.php' => 'mcp.library', 'includes/class-mcp-plugin-adapter.php' => 'mcp.plugin_adapter', 'includes/actions/class-crm-tasks-mcp-service.php' => 'mcp.crm_tasks' ) as $_bizcity_mcp_rel => $_bizcity_mcp_label ) {
+	$_bizcity_mcp_file = BIZCITY_MCP_DIR . $_bizcity_mcp_rel;
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bizcity_mcp_file, $_bizcity_mcp_label ); // R-SAFE-LOADER
+	} elseif ( is_file( $_bizcity_mcp_file ) && is_readable( $_bizcity_mcp_file ) ) {
+		require_once $_bizcity_mcp_file;
+	}
+}
+unset( $_bizcity_mcp_rel, $_bizcity_mcp_label, $_bizcity_mcp_file );
+if ( class_exists( 'BizCity_MCP_Plugin_Adapter', false ) ) {
+	BizCity_MCP_Plugin_Adapter::init();
+}
+if ( class_exists( 'BizCity_CRM_Tasks_MCP_Service', false ) ) {
+	BizCity_CRM_Tasks_MCP_Service::init();
+}
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-http-controller.php';
 require_once BIZCITY_MCP_DIR . 'rest/class-mcp-admin-rest.php';
 

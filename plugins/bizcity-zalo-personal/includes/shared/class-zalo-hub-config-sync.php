@@ -324,11 +324,21 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			'enabled'             => true,
 			// CL-14 (D-TAA-6): verified only for the CURRENT owner UID.
 			// [2026-10-03 Claude Opus 5.5] PHASE-0.90 S90-Z3 — owner-agent-block@1.4: person_id (Identity Hub uuid) + the owner's `wp` binding (R-CONTACT-ID).
-			'principal'           => array( 'user_hash' => $hash, 'modes' => $modes, 'uid_verified_at' => $verified ) + self::person_fields( $owner_user_id, $account_id, $owner_uid, $verified ),
+			// [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1 — owner-agent-block@1.5: `caps[]` = projected WP caps of the number's working user
+			// (R-NB-3); additive, an older cell ignores it.
+			'principal'           => array( 'user_hash' => $hash, 'modes' => $modes, 'caps' => self::principal_caps( $owner_user_id ), 'uid_verified_at' => $verified ) + self::person_fields( $owner_user_id, $account_id, $owner_uid, $verified ),
 			'capture'             => array( 'files' => $nb && $on( 'owner_capture_files' ), 'remember' => $nb && $on( 'owner_capture_remember' ) ),
 			'owner_knowledge_ref' => '' !== $hash ? 'u:' . $hash : '',
 			'staff'               => $staff,
 		);
+	}
+
+	/** [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1 — seam `caps` (tests), else BizCity_Zalo_Agent_Principals::caps(). @return string[] */
+	private static function principal_caps( int $user_id ): array {
+		if ( isset( self::$readers['caps'] ) ) {
+			return array_values( array_map( 'strval', (array) call_user_func( self::$readers['caps'], $user_id ) ) );
+		}
+		return class_exists( 'BizCity_Zalo_Agent_Principals' ) && method_exists( 'BizCity_Zalo_Agent_Principals', 'caps' ) ? BizCity_Zalo_Agent_Principals::caps( $user_id ) : array();
 	}
 
 	/**

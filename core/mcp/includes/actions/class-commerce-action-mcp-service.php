@@ -22,6 +22,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 	const META_HOLD    = '_bizcity_mcp_hold';
 	const META_HOLD_BY = '_bizcity_mcp_hold_by';
 	const MAX_LINES    = 50;
+	const META_MATCH   = '_bizcity_customer_match'; // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F19 — 'pending' = chờ nhân viên ghép hồ sơ
 
 	/** Woo's internal class (namespace may move between Woo versions — always class_exists first). Test seam. */
 	public static $reserve_class = 'Automattic\\WooCommerce\\Checkout\\Helpers\\ReserveStock';
@@ -50,17 +51,29 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'reserved'        => array( 'type' => 'array' ),
 			'hold_expires_at' => array( 'type' => 'string' ),
 		) );
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F19 — ca thật: model tra CRM để lấy contact_ref, không thấy hồ sơ ⇒ không lên đơn.
+		// order.create nhận thẳng thông tin giao hàng khách tự khai; ghép hồ sơ CRM là việc của nhân viên (handoff), không chặn đơn.
+		$order_create_input = $order_input;
+		$order_create_input['properties'] = array_slice( $order_input['properties'], 0, 4, true ) + array(
+			'customer' => array( 'type' => 'object', 'properties' => array(
+				'name'    => array( 'type' => 'string', 'maxLength' => 80 ),
+				'phone'   => array( 'type' => 'string', 'maxLength' => 20 ),
+				'address' => array( 'type' => 'string', 'maxLength' => 255 ),
+				'email'   => array( 'type' => 'string', 'maxLength' => 120 ),
+			) ),
+		) + array_slice( $order_input['properties'], 4, null, true );
 
 		// @mcp bizcity-mcp-standard@1 tool order.create
 		BizCity_MCP_Tool_Registry::register( 'order.create', array(
 			'title'          => 'Tạo đơn nháp (giữ hàng)',
-			'description'    => 'Tạo đơn WooCommerce trạng thái chờ (pending) và giữ hàng trong hold_minutes. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
-			'input_schema'   => $order_input,
+			'description'    => 'Tạo đơn WooCommerce trạng thái chờ (pending) và giữ hàng trong hold_minutes. Không cần hồ sơ CRM hay mã khách: ghi tên, số điện thoại, địa chỉ giao khách đã nói vào customer (không tra CRM trước khi tạo đơn); nhân viên ghép hồ sơ sau. contact_ref chỉ dùng khi đã có sẵn. Lần gọi đầu chỉ trả bản xem trước + confirm_token; gọi lại cùng tham số kèm confirm_token sau khi người dùng đồng ý.',
+			'input_schema'   => $order_create_input,
 			'output_schema'  => $order_output,
 			'read_only'      => false,
 			'destructive'    => false,
 			'idempotent'     => false,
 			'required_scope' => 'order.write',
+			'required_cap'   => 'edit_shop_orders', // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12
 			'handler'        => array( __CLASS__, 'create_order' ),
 			'preview'        => array( __CLASS__, 'preview_order' ),
 			'mode'           => 'orders',
@@ -81,6 +94,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'destructive'    => false,
 			'idempotent'     => false,
 			'required_scope' => 'inventory.write',
+			'required_cap'   => 'manage_woocommerce', // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12
 			'handler'        => array( __CLASS__, 'reserve' ),
 			'preview'        => array( __CLASS__, 'preview_reserve' ),
 			'mode'           => 'orders',
@@ -101,6 +115,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'destructive'    => true,
 			'idempotent'     => true,
 			'required_scope' => 'inventory.write',
+			'required_cap'   => 'manage_woocommerce', // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12
 			'handler'        => array( __CLASS__, 'release' ),
 			'mode'           => 'orders',
 			'scopes'         => array( 'inventory.write' ),
@@ -162,9 +177,10 @@ final class BizCity_Commerce_Action_MCP_Service {
 			foreach ( $plan['lines'] as $l ) {
 				$parts[] = $l['qty'] . ' × ' . $l['name'] . ' (' . self::money( $l['unit_price'], $plan['currency'] ) . ')';
 			}
-			$who = $plan['contact'] ? ' cho ' . $plan['contact']['name'] : '';
+			$who  = $plan['contact'] ? ' cho ' . $plan['contact']['name'] : '';
+			$ship = self::ship_line( $plan['customer'] );
 			return array(
-				'summary'      => $verb . $who . ': ' . implode( ', ', $parts ) . ' = ' . self::money( $plan['total'], $plan['currency'] ) . ', giữ hàng ' . $plan['hold_minutes'] . ' phút.',
+				'summary'      => $verb . $who . ': ' . implode( ', ', $parts ) . ' = ' . self::money( $plan['total'], $plan['currency'] ) . ', giữ hàng ' . $plan['hold_minutes'] . ' phút.' . ( '' !== $ship ? ' Giao: ' . $ship . '.' : '' ),
 				'lines'        => array_map( static function ( $l ) { unset( $l['product'] ); return $l; }, $plan['lines'] ),
 				'total'        => $plan['total'],
 				'currency'     => $plan['currency'],
@@ -273,6 +289,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'currency'     => function_exists( 'get_woocommerce_currency' ) ? (string) get_woocommerce_currency() : 'VND',
 			'hold_minutes' => self::hold_minutes( $args['hold_minutes'] ?? 0 ),
 			'contact'      => $contact,
+			'customer'     => self::customer_of( $args ),
 			'identity'     => self::identity_of( $args ),
 			'note'         => trim( sanitize_textarea_field( (string) ( $args['note'] ?? '' ) ) ),
 		);
@@ -297,6 +314,64 @@ final class BizCity_Commerce_Action_MCP_Service {
 		);
 	}
 
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F19 — `customer{name, phone, address, email}` khách tự khai, đã làm sạch; null khi trống.
+	 * SĐT chỉ giữ chữ số (+ ở đầu), 8–15 số, sai thì bỏ (không chặn đơn).
+	 */
+	public static function customer_of( array $args ) {
+		$raw   = isset( $args['customer'] ) && is_array( $args['customer'] ) ? $args['customer'] : array();
+		$phone = preg_replace( '/[^\d+]/', '', (string) ( $raw['phone'] ?? '' ) );
+		$phone = preg_match( '/^\+?\d{8,15}$/', $phone ) ? $phone : '';
+		$email = trim( (string) ( $raw['email'] ?? '' ) );
+		$c     = array(
+			'name'    => mb_substr( trim( sanitize_text_field( (string) ( $raw['name'] ?? '' ) ) ), 0, 80 ),
+			'phone'   => $phone,
+			'address' => mb_substr( trim( sanitize_text_field( (string) ( $raw['address'] ?? '' ) ) ), 0, 255 ),
+			'email'   => false !== filter_var( $email, FILTER_VALIDATE_EMAIL ) ? substr( $email, 0, 120 ) : '',
+		);
+		return '' === implode( '', $c ) ? null : $c;
+	}
+
+	/** Dòng giao hàng cho bản xem trước: SĐT che còn 3 số cuối. */
+	private static function ship_line( $c ) {
+		if ( ! is_array( $c ) ) {
+			return '';
+		}
+		$phone = '' !== $c['phone'] ? str_repeat( '•', max( 0, strlen( $c['phone'] ) - 3 ) ) . substr( $c['phone'], -3 ) : '';
+		return implode( ', ', array_filter( array( $c['name'], $phone, $c['address'] ) ) );
+	}
+
+	/** Ghi thông tin khách tự khai vào billing + shipping của đơn; đơn chưa gắn hồ sơ CRM ⇒ cờ cho nhân viên ghép (handoff). */
+	private static function apply_customer( $order, array $plan ) {
+		$c = $plan['customer'] ?? null;
+		if ( ! is_object( $order ) ) {
+			return;
+		}
+		if ( is_array( $c ) ) {
+			if ( '' !== $c['name'] ) {
+				$order->set_billing_first_name( $c['name'] );
+				$order->set_shipping_first_name( $c['name'] );
+			}
+			if ( '' !== $c['phone'] ) {
+				$order->set_billing_phone( $c['phone'] );
+				if ( method_exists( $order, 'set_shipping_phone' ) ) {
+					$order->set_shipping_phone( $c['phone'] );
+				}
+			}
+			if ( '' !== $c['address'] ) {
+				$order->set_billing_address_1( $c['address'] );
+				$order->set_shipping_address_1( $c['address'] );
+			}
+			if ( '' !== $c['email'] ) {
+				$order->set_billing_email( $c['email'] );
+			}
+		}
+		if ( ! $plan['contact'] ) {
+			$order->update_meta_data( self::META_MATCH, 'pending' );
+			$order->add_order_note( 'Khách đặt qua Zalo Brain, chưa gắn hồ sơ CRM — nhân viên kiểm tra và ghép hồ sơ nếu cần.' );
+		}
+	}
+
 	/** @var callable|null test seam: fn(string $canon, string $uid, string $channel_ref, array $data): int — replaces resolve_or_create */
 	public static $contact_resolver = null;
 
@@ -313,6 +388,13 @@ final class BizCity_Commerce_Action_MCP_Service {
 		$name = $plan['contact'] ? (string) $plan['contact']['name'] : '';
 		if ( $cid <= 0 ) {
 			$data = array( 'name' => '' !== $id['display_name'] ? $id['display_name'] : 'Khách ' . $id['platform'], 'source' => 'mcp_order_create' );
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F19 — khách mới: ghi luôn tên/SĐT/email khách tự khai vào hồ sơ CRM
+			$cust = is_array( $plan['customer'] ?? null ) ? $plan['customer'] : array();
+			foreach ( array( 'name', 'phone', 'email' ) as $k ) {
+				if ( '' !== ( $cust[ $k ] ?? '' ) ) {
+					$data[ $k ] = $cust[ $k ];
+				}
+			}
 			$cid  = is_callable( self::$contact_resolver )
 				? (int) call_user_func( self::$contact_resolver, $id['platform'], $id['platform_uid'], $id['channel_ref'], $data )
 				: (int) BizCity_CRM_Contact_Identity::resolve_or_create( $id['platform'], $id['platform_uid'], $id['channel_ref'], $data );
@@ -387,6 +469,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 		if ( ! $order || ! is_object( $order ) ) {
 			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INVENTORY_RESERVE_UNAVAILABLE, 'WooCommerce chưa sẵn sàng để tạo đơn.', 503 );
 		}
+		self::apply_customer( $order, $plan ); // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.95 S95-F19 — trước stamp_identity: tên khách khai thắng display_name
 		self::stamp_identity( $order, $plan ); // [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — saved by commit()
 		return $order;
 	}

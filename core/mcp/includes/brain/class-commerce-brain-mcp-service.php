@@ -121,14 +121,19 @@ final class BizCity_Commerce_Brain_MCP_Service {
 		if ( ! $rows && '' !== $q ) {
 			$rows = self::consult_candidates( '', $cat_ids ); // WP search ANDs every word: let the score pick instead
 		}
-		$rows = array_values( array_filter( $rows, static function ( $r ) use ( $allowed ) {
+		$default_cat = self::default_cat_id(); // [2026-10-11 10:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F3 fix — no category ⇒ the default one
+		$rows = array_values( array_filter( $rows, static function ( $r ) use ( $allowed, $default_cat ) {
 			if ( 'publish' !== (string) ( $r['status'] ?? 'publish' ) || '' !== (string) ( $r['password'] ?? '' ) ) {
 				return false;
 			}
 			if ( ! in_array( (string) ( $r['visibility'] ?? 'visible' ), array( 'visible', 'search' ), true ) ) {
 				return false;
 			}
-			return ! $allowed || (bool) array_intersect( $allowed, array_map( 'intval', (array) ( $r['category_ids'] ?? array() ) ) );
+			$cats = array_map( 'intval', (array) ( $r['category_ids'] ?? array() ) );
+			if ( ! $cats && $default_cat > 0 ) {
+				$cats = array( $default_cat ); // same rule as the catalog_map pack (BizCity_Woo_Pack_Exporter::catalog_map_items)
+			}
+			return ! $allowed || (bool) array_intersect( $allowed, $cats );
 		} ) );
 
 		// pop = sales share (0.7) + rating (0.3), normalised inside this candidate set.
@@ -383,13 +388,41 @@ final class BizCity_Commerce_Brain_MCP_Service {
 			}
 			$query['category'] = $slugs;
 		}
-		$out = array();
-		foreach ( (array) wc_get_products( $query ) as $p ) {
-			if ( is_object( $p ) && method_exists( $p, 'get_id' ) ) {
+		$out  = array();
+		$seen = array();
+		$list = (array) wc_get_products( $query );
+		// [2026-10-11 10:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F3 fix — the default category also holds the products that have no
+		// product_cat at all (bulk imports): wc_get_products( category ) cannot see them, so add them by id.
+		$default_cat = self::default_cat_id();
+		if ( $cat_ids && $default_cat > 0 && in_array( $default_cat, array_map( 'intval', $cat_ids ), true ) && function_exists( 'get_posts' ) ) {
+			$ids = get_posts( array(
+				'post_type'      => 'product',
+				'post_status'    => 'publish',
+				'fields'         => 'ids',
+				'posts_per_page' => self::CONSULT_CANDIDATES,
+				'no_found_rows'  => true,
+				's'              => '' !== $q ? $q : null,
+				'tax_query'      => array( array( 'taxonomy' => 'product_cat', 'operator' => 'NOT EXISTS' ) ), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_tax_query
+			) );
+			if ( $ids ) {
+				$list = array_merge( $list, (array) wc_get_products( array( 'include' => array_map( 'intval', $ids ), 'limit' => self::CONSULT_CANDIDATES, 'return' => 'objects' ) ) );
+			}
+		}
+		foreach ( $list as $p ) {
+			if ( is_object( $p ) && method_exists( $p, 'get_id' ) && ! isset( $seen[ (int) $p->get_id() ] ) ) {
+				$seen[ (int) $p->get_id() ] = true;
 				$out[] = self::consult_row( $p );
 			}
 		}
 		return $out;
+	}
+
+	/** Woo's default product category (where Woo puts a product saved without one). 0 = none. Seam: readers['default_cat']. */
+	private static function default_cat_id(): int {
+		if ( isset( self::$readers['default_cat'] ) ) {
+			return (int) call_user_func( self::$readers['default_cat'] );
+		}
+		return function_exists( 'get_option' ) ? (int) get_option( 'default_product_cat', 0 ) : 0;
 	}
 
 	/** WC_Product ⇒ public row (no exact stock count, no cost, no meta beyond attributes). */
@@ -424,8 +457,9 @@ final class BizCity_Commerce_Brain_MCP_Service {
 		}
 		return array(
 			'id'            => $id,
-			'name'          => (string) $p->get_name(),
-			'short'         => $short,
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] ca thật: tên 'Calcium &amp; Vitamin D3' lên thẻ Zalo ⇒ giải mã thực thể HTML (Zalo là chữ trơn)
+			'name'          => html_entity_decode( (string) $p->get_name(), ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
+			'short'         => html_entity_decode( $short, ENT_QUOTES | ENT_HTML5, 'UTF-8' ),
 			'status'        => (string) $p->get_status(),
 			'visibility'    => (string) $p->get_catalog_visibility(),
 			'password'      => method_exists( $p, 'get_post_password' ) ? (string) $p->get_post_password() : '',

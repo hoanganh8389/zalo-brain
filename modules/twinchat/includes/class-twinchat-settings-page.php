@@ -47,7 +47,7 @@ class BizCity_TwinChat_Settings_Page {
 		// [2026-06-09 Johnny Chu] PHASE-MASTER-PLANS — fetch plan config from hub.
 		add_action( 'wp_ajax_bizcity_twinchat_plan_config',        [ $this, 'ajax_plan_config' ] );
 		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — manual + bootload entitlement refresh from hub.
-		add_action( 'wp_ajax_bizcity_twinchat_refresh_entitlement',[ $this, 'ajax_refresh_entitlement' ] );
+		// [2026-10-10 11:36 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — wp_ajax_bizcity_twinchat_refresh_entitlement removed (no caller, nonce never issued; handler archived).
 		// [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — 6-dimension usage stats tab.
 		add_action( 'wp_ajax_bizcity_twinchat_usage_stats',        [ $this, 'ajax_usage_stats' ] );
 		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — runtime verify tab (cron schedule + drain batch before/after counters).
@@ -1259,67 +1259,7 @@ class BizCity_TwinChat_Settings_Page {
 		wp_send_json_success( $result );
 	}
 
-	/**
-	 * [2026-07-14 Johnny Chu] R-GW-API-CATALOG — AJAX: refresh entitlement immediately.
-	 *
-	 * Calls hub entitlement endpoint via BizCity_LLM_Client so local cached options
-	 * are synced on-demand from the admin settings page.
-	 */
-	public function ajax_refresh_entitlement(): void {
-		check_ajax_referer( 'bizcity_twinchat_ent_refresh', 'nonce' );
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( 'Permission denied.' );
-		}
-
-		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
-			wp_send_json_error( 'BizCity_LLM_Client not loaded.' );
-		}
-
-		$user_id = get_current_user_id();
-		if ( $user_id <= 0 ) {
-			wp_send_json_error( 'No current user.' );
-		}
-
-		$force = ! empty( $_POST['force_refresh'] );
-		// [2026-07-14 Johnny Chu] R-GW-API-CATALOG — use fresh=1 to force hub read on manual/boot sync.
-		$res = BizCity_LLM_Client::instance()->get_entitlement(
-			max( 1, $user_id ),
-			[
-				'fresh'   => $force,
-				'timeout' => 10,
-			]
-		);
-
-		if ( is_wp_error( $res ) ) {
-			// [2026-07-23 Johnny Chu] HOTFIX-SYNC-TRACE — keep code/status so admin UI can show why sync failed.
-			$data = $res->get_error_data();
-			wp_send_json_error( array(
-				'message' => $res->get_error_message(),
-				'code'    => $res->get_error_code(),
-				'status'  => is_array( $data ) && isset( $data['status'] ) ? (int) $data['status'] : 0,
-				'data'    => is_array( $data ) ? $data : array(),
-			) );
-		}
-
-		$accepted = [];
-		if ( isset( $res['accepted_file_types'] ) && is_array( $res['accepted_file_types'] ) ) {
-			foreach ( (array) $res['accepted_file_types'] as $ext ) {
-				$e = sanitize_key( strtolower( trim( (string) $ext ) ) );
-				if ( $e !== '' && ! in_array( $e, $accepted, true ) ) {
-					$accepted[] = $e;
-				}
-			}
-		}
-
-		wp_send_json_success(
-			[
-				'master_level'        => isset( $res['master_level'] ) ? sanitize_key( (string) $res['master_level'] ) : (string) get_option( 'bizcity_hub_master_level', 'free' ),
-				'accepted_file_types' => $accepted,
-				'kg_max_file_size_mb' => isset( $res['kg_max_file_size_mb'] ) ? (int) $res['kg_max_file_size_mb'] : (int) get_option( 'bizcity_hub_kg_max_file_size_mb', 5 ),
-				'synced_at'           => time(),
-			]
-		);
-	}
+	// [2026-10-10 11:36 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — ajax_refresh_entitlement() moved to modules/_archived/z8b-20261010/twinchat/includes/: no JS sends bizcity_twinchat_refresh_entitlement and nothing issues its nonce bizcity_twinchat_ent_refresh, so check_ajax_referer() could never pass.
 
 	/* ================================================================
 	 * [2026-06-08 Johnny Chu] PHASE-MASTER-PLANS — Usage Stats Tab

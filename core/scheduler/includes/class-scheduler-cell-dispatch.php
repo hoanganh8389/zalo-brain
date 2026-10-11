@@ -321,6 +321,19 @@ final class BizCity_Scheduler_Cell_Dispatch {
 			if ( preg_match( '/^[a-z0-9][a-z0-9_-]{0,79}$/', $pub ) ) {
 				$job['publish_scenario'] = $pub;
 			}
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-B4 — channel-inbound@1.3.x additive: the scenario's bất thường condition
+			// (automation-scenario 1.7.0, sanitized by Automation). The cell reads it after the owner turn; older cells drop the key.
+			$oa = isset( $meta['on_anomaly'] ) && is_array( $meta['on_anomaly'] ) ? $meta['on_anomaly'] : null;
+			if ( $oa && preg_match( '/^[a-z][a-z0-9_]*(.[a-z0-9_]+){1,3}$/', (string) ( $oa['metric'] ?? '' ) ) ) {
+				$job['on_anomaly'] = array(
+					'metric'      => (string) $oa['metric'],
+					'field'       => substr( preg_replace( '/[^a-z0-9_.]/', '', strtolower( (string) ( $oa['field'] ?? 'net' ) ) ), 0, 40 ),
+					'compare_to'  => 'previous_year' === ( $oa['compare_to'] ?? '' ) ? 'previous_year' : 'previous_period',
+					'drop_pct'    => max( 1, min( 95, (int) ( $oa['drop_pct'] ?? 20 ) ) ),
+					'kind'        => in_array( (string) ( $oa['kind'] ?? '' ), array( 'analysis@1', 'equivalence@1', 'draft@1' ), true ) ? (string) $oa['kind'] : 'analysis@1',
+					'max_per_day' => max( 1, min( 3, (int) ( $oa['max_per_day'] ?? 1 ) ) ),
+				);
+			}
 		}
 		$letter = array(
 			'contract'   => $workflow_id > 0 ? self::CONTRACT_WORKFLOW : self::CONTRACT,

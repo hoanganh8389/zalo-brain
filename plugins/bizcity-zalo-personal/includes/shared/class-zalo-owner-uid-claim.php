@@ -35,7 +35,12 @@ if ( class_exists( 'BizCity_Zalo_Owner_Uid_Claim', false ) ) {
 
 final class BizCity_Zalo_Owner_Uid_Claim {
 
-	const CONTRACT    = 'owner-uid-claim@1.0.0';
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2/B5 — 1.1.0 (additive): `greeting` in `open` (the cell says it on claim), a WP user
+	// WITHOUT a staff row may claim when their role is in `policy.staff_self_connect_roles` (the row is created on claim). Hub accepts `owner-uid-claim@1.*`.
+	const CONTRACT    = 'owner-uid-claim@1.1.0';
+	/** WP roles that may connect their own Zalo to a number without the owner adding them first (R-NB-5; owner edits in Bot Studio → Nhân sự & quyền). */
+	const SELF_CONNECT_ROLES_DEFAULT = array( 'editor', 'shop_manager', 'author', 'bizcity_crm_staff' );
+	const GREETING_MAX = 400;
 	const HUB_PATH    = '/zalo-hub/owner-claim';
 	const NS          = 'bizcity-channel/v1';
 	const TTL         = 600;
@@ -45,6 +50,8 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 	const MESSAGES = array(
 		'claim_binding_missing' => array( 'Số này chưa chọn Agent Guru.', 'Làm xong bước ④ (chọn Agent Guru) rồi nhận Zalo của bạn.' ),
 		'claim_not_yours'       => array( 'Chỉ người phụ trách số mới nhận được Zalo của mình cho số này.', 'Gửi cho người phụ trách đường vào trang thiết lập của họ để họ tự nhắn mã.' ),
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 — a site member whose WP role is not opened for self-connect
+		'claim_role_not_allowed' => array( 'Vai trò WordPress của bạn chưa được tự kết nối Zalo với số này.', 'Nhờ chủ số mở vai trò của bạn trong Bot Studio → Nhân sự & quyền, hoặc nhờ họ thêm bạn vào danh sách nhân sự của số.' ),
 		'claim_already'         => array( 'Số này đã có Zalo của chủ đã xác minh.', 'Bấm "Đổi Zalo chủ" nếu bạn muốn nhận một Zalo khác.' ),
 		'claim_none'            => array( 'Chưa có mã nào đang chờ.', 'Bấm "Lấy mã" để tạo mã mới.' ),
 		'claim_uid_taken'       => array( 'Zalo vừa nhắn đã là của một người khác trên số này.', 'Nhắn mã từ đúng Zalo cá nhân của bạn.' ),
@@ -60,7 +67,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 	/**
 	 * Test seams: binding(bridge):?array{binding_id,bridge_id,policy} · save(binding_id,policy):bool · owner_user_id(bridge):int ·
 	 * user_hash(user_id):string · current_user():int · can_manage():bool · send(body):array · now():int · code():string · claim_id():string ·
-	 * site_name():string · invite_url():string
+	 * site_name():string · invite_url():string · user_roles(user_id):string[] · caps(user_id):string[] (PHASE-0.97 S97-L2/B5)
 	 *
 	 * @var array<string,callable>
 	 */
@@ -137,7 +144,12 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 		$policy = $b['policy'];
 		$who    = self::role_of( $b, $owner_user, $user_id );
 		$out['role'] = $who['role'];
-		if ( 'staff' === $who['role'] ) {
+		if ( 'staff' === $who['role'] && null === $who['row'] ) {
+			// S97-L2: self-connect — nothing stored yet
+			$out['uid_set']    = false;
+			$out['verified']   = false;
+			$out['uid_masked'] = '';
+		} elseif ( 'staff' === $who['role'] ) {
 			$out['uid_set']    = true; // a staff row always carries a UID
 			$out['verified']   = ! empty( $who['row']['verified_at'] );
 			$out['uid_masked'] = self::mask( (string) $who['row']['zalo_uid'] );
@@ -148,7 +160,9 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			$out['uid_masked'] = self::mask( $uid );
 		}
 		if ( null === $who['role'] ) {
-			$out['reason'] = 'claim_not_yours';
+			// S97-L2: a member whose role is closed for self-connect gets the actionable reason; an admin keeps D92-SC-12 (invite link)
+			$member = class_exists( 'BizCity_Zalo_Agent_Principals' ) && null !== BizCity_Zalo_Agent_Principals::user( $user_id );
+			$out['reason'] = $member && ! self::can_manage() ? 'claim_role_not_allowed' : 'claim_not_yours';
 			// D92-SC-12: an admin sends the person in charge the way in; they claim it themself.
 			if ( self::can_manage() && $owner_user > 0 && $owner_user !== $user_id && ! $out['verified'] ) {
 				$out['invite_url'] = self::invite_url();
@@ -175,7 +189,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 		if ( null === $who['role'] ) {
 			return self::error( 'claim_not_yours', 403 );
 		}
-		$verified = 'staff' === $who['role'] ? ! empty( $who['row']['verified_at'] ) : null !== self::owner_verified_at( $b['policy'] );
+		$verified = 'staff' === $who['role'] ? ( null !== $who['row'] && ! empty( $who['row']['verified_at'] ) ) : null !== self::owner_verified_at( $b['policy'] );
 		if ( $verified && ! $replace ) {
 			return self::error( 'claim_already', 409 );
 		}
@@ -196,6 +210,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			'role'        => $who['role'],
 			'code_sha256' => hash( 'sha256', $code ),
 			'site_name'   => self::site_name(),
+			'greeting'    => self::greeting( (string) $who['role'], $user_id ), // 1.1.0 (S97-B5): the cell says this on claim; older cells ignore it
 			'expires_at'  => gmdate( 'Y-m-d\TH:i:s\Z', $exp ),
 		);
 		if ( 'staff' === $who['role'] ) {
@@ -296,7 +311,21 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 				}
 			}
 			if ( ! $found ) {
-				return 'claim_not_yours';
+				// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 — self-connect: the row is born here (enabled, no capture until the owner opens it)
+				if ( ! self::self_connect_allowed( $policy, $user_id ) ) {
+					return 'claim_not_yours';
+				}
+				$staff[] = array(
+					'user_id'          => $user_id,
+					'zalo_uid'         => $uid,
+					'zalo_name'        => '',
+					'enabled'          => true,
+					'capture_files'    => false,
+					'capture_remember' => false,
+					'added_by'         => $user_id,
+					'added_at'         => $at,
+					'verified_at'      => $at,
+				);
 			}
 			$policy['staff_principals'] = $staff;
 		}
@@ -328,7 +357,80 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 				return array( 'role' => 'staff', 'row' => $row );
 			}
 		}
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 — no row yet, but the person's WP role may self-connect: staff with row null;
+		// apply() creates the row on claim. The owner opens/closes roles in Bot Studio (`staff_self_connect_roles`).
+		if ( self::self_connect_allowed( $b['policy'], $user_id ) ) {
+			return array( 'role' => 'staff', 'row' => null );
+		}
 		return array( 'role' => null, 'row' => null );
+	}
+
+	/** Roles the owner opened for self-connect on this number (policy key, default SELF_CONNECT_ROLES_DEFAULT). */
+	public static function self_connect_roles( array $policy ): array {
+		$raw = isset( $policy['staff_self_connect_roles'] ) && is_array( $policy['staff_self_connect_roles'] ) ? $policy['staff_self_connect_roles'] : self::SELF_CONNECT_ROLES_DEFAULT;
+		$out = array();
+		foreach ( $raw as $r ) {
+			$r = strtolower( trim( (string) $r ) );
+			if ( '' !== $r && preg_match( '/^[a-z0-9_-]{1,40}$/', $r ) && ! in_array( $r, $out, true ) ) {
+				$out[] = $r;
+			}
+		}
+		return $out;
+	}
+
+	/** A site member (not the owner of the number) whose WP role ∩ self_connect_roles ≠ ∅. Admins are members too — they claim for themselves only. */
+	public static function self_connect_allowed( array $policy, int $user_id ): bool {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Zalo_Agent_Principals' ) || null === BizCity_Zalo_Agent_Principals::user( $user_id ) ) {
+			return false;
+		}
+		return count( array_intersect( self::user_roles( $user_id ), self::self_connect_roles( $policy ) ) ) > 0;
+	}
+
+	/** WP role slugs of a user (seam `user_roles`). */
+	private static function user_roles( int $user_id ): array {
+		if ( isset( self::$readers['user_roles'] ) ) {
+			return array_values( array_map( 'strval', (array) call_user_func( self::$readers['user_roles'], $user_id ) ) );
+		}
+		$u = function_exists( 'get_userdata' ) ? get_userdata( $user_id ) : false;
+		return $u && ! empty( $u->roles ) ? array_values( array_map( 'strval', (array) $u->roles ) ) : array();
+	}
+
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-B5 — the sentence the cell sends on claim: site name + the person's role + what the
+	 * Brain may do with their permissions (R-NB-3/5). ≤ GREETING_MAX chars; never the user id / email / login.
+	 */
+	public static function greeting( string $role, int $user_id ): string {
+		$site  = self::site_name();
+		$u     = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::user( $user_id ) : null;
+		$name  = trim( (string) ( $u['display_name'] ?? '' ) );
+		$roles = array_map( array( __CLASS__, 'role_label' ), self::user_roles( $user_id ) );
+		$caps  = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::caps( $user_id ) : array();
+		$can   = $caps ? implode( ', ', array_map( array( __CLASS__, 'cap_label' ), $caps ) ) : 'tra cứu và nhắc lịch (chưa có quyền đăng bài / ảnh / đơn hàng)';
+		$vai   = $roles ? ' với vai ' . implode( ', ', $roles ) : '';
+		$text  = 'owner' === $role
+			? 'Đã nhận Zalo này là chủ của số trên website ' . $site . '. Trợ lý làm việc bằng quyền của bạn' . $vai . ': ' . $can . '. Nhắn riêng cho số này để giao việc.'
+			: 'Chào ' . ( '' !== $name ? $name : 'bạn' ) . '! Đã kết nối Zalo của bạn với website ' . $site . $vai . '. Trợ lý làm việc bằng quyền của bạn: ' . $can . '. Nhắn riêng cho số này để giao việc.';
+		$text = trim( preg_replace( '/\s+/u', ' ', $text ) );
+		return function_exists( 'mb_substr' ) ? mb_substr( $text, 0, self::GREETING_MAX ) : substr( $text, 0, self::GREETING_MAX );
+	}
+
+	/** Translated WP role label ('' never; falls back to the slug). */
+	private static function role_label( string $slug ): string {
+		$names = function_exists( 'wp_roles' ) && is_object( wp_roles() ) && method_exists( wp_roles(), 'get_names' ) ? (array) wp_roles()->get_names() : array();
+		if ( isset( $names[ $slug ] ) ) {
+			return function_exists( 'translate_user_role' ) ? translate_user_role( $names[ $slug ] ) : (string) $names[ $slug ];
+		}
+		$vi = array( 'administrator' => 'Quản trị viên', 'editor' => 'Biên tập viên', 'author' => 'Tác giả', 'contributor' => 'Cộng tác viên', 'shop_manager' => 'Quản lý cửa hàng', 'bizcity_crm_staff' => 'Nhân viên CRM', 'subscriber' => 'Thành viên' );
+		return $vi[ $slug ] ?? $slug;
+	}
+
+	/** Same words as Automation's CAP_LABEL / WorkAsUser.jsx; local fallback when Automation is not loaded. */
+	private static function cap_label( string $cap ): string {
+		if ( class_exists( 'BizCity_Automation_Cell_Scenario', false ) && method_exists( 'BizCity_Automation_Cell_Scenario', 'cap_label' ) ) {
+			return BizCity_Automation_Cell_Scenario::cap_label( $cap );
+		}
+		$vi = array( 'edit_posts' => 'Soạn bài viết', 'publish_posts' => 'Đăng bài', 'upload_files' => 'Tải ảnh / tệp lên', 'edit_shop_orders' => 'Quản lý đơn hàng', 'manage_woocommerce' => 'Quản lý cửa hàng', 'manage_options' => 'Quản trị website' );
+		return $vi[ $cap ] ?? $cap;
 	}
 
 	/** The EXACT binding of this number (never the '*' wildcard: a UID is per number). */

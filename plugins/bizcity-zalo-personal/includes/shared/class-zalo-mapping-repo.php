@@ -85,7 +85,8 @@ class BizCity_Zalo_Mapping_Repo {
 			return true;
 		}
 		global $wpdb;
-		foreach ( array( 'bizcity_zalo_accounts', 'bizcity_zalo_message_map', 'bizcity_zalo_oa_window' ) as $_table_base ) {
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — bizcity_zalo_oa_window is quarantined (no live reader/writer), so it is no longer required.
+		foreach ( self::required_tables() as $_table_base ) {
 			if ( ! bizcity_tbl_exists( $wpdb->prefix . $_table_base ) ) {
 				return false;
 			}
@@ -97,6 +98,23 @@ class BizCity_Zalo_Mapping_Repo {
 			}
 		}
 		return true;
+	}
+
+	/** [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — true when bizcity_zalo_oa_window must not be installed or written (policy missing counts as quarantined). */
+	private static function oa_window_quarantined(): bool {
+		if ( ! class_exists( 'BizCity_Legacy_Table_Policy' ) ) {
+			return true;
+		}
+		return BizCity_Legacy_Table_Policy::install_blocked( 'bizcity_zalo_oa_window' );
+	}
+
+	/** [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — mapping tables this repo needs before it trusts its version stamp. */
+	private static function required_tables(): array {
+		$tables = array( 'bizcity_zalo_accounts', 'bizcity_zalo_message_map' );
+		if ( ! self::oa_window_quarantined() ) {
+			$tables[] = 'bizcity_zalo_oa_window';
+		}
+		return $tables;
 	}
 
 	private static function run_dbdelta(): void {
@@ -154,7 +172,11 @@ class BizCity_Zalo_Mapping_Repo {
 
 		dbDelta( $sql_accounts );
 		dbDelta( $sql_map );
-		dbDelta( $sql_window );
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — quarantined: its only reader/writer (includes/oa/class-zalo-oa-integration.php) is never loaded
+		// and update_oa_window() has no caller. Fail-closed: no policy, no install.
+		if ( ! self::oa_window_quarantined() ) {
+			dbDelta( $sql_window );
+		}
 	}
 
 	// ── bizcity_zalo_accounts ─────────────────────────────────────────────
@@ -593,6 +615,10 @@ class BizCity_Zalo_Mapping_Repo {
 	 * @param string     $zalo_uid     Sender Zalo UID.
 	 */
 	public static function update_oa_window( $account_ref, string $zalo_uid ): void {
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — quarantined + writer-stop (no live caller today; refuse SQL writes if one reappears).
+		if ( self::oa_window_quarantined() ) {
+			return;
+		}
 		global $wpdb;
 		$table      = $wpdb->prefix . 'bizcity_zalo_oa_window';
 		$account_id = is_int( $account_ref ) ? $account_ref : 0;
@@ -621,6 +647,10 @@ class BizCity_Zalo_Mapping_Repo {
 	 * @param string $zalo_uid  Recipient UID.
 	 */
 	public static function increment_oa_cs_count( string $oa_id, string $zalo_uid ): void {
+		// [2026-10-10 12:40 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7 — quarantined + writer-stop (no live caller today; refuse SQL writes if one reappears).
+		if ( self::oa_window_quarantined() ) {
+			return;
+		}
 		global $wpdb;
 		$table   = $wpdb->prefix . 'bizcity_zalo_oa_window';
 		$account = self::find_account_by_bridge_id( 'oa', $oa_id );

@@ -108,6 +108,9 @@ final class BizCity_MCP_Tool_Registry {
 			'roles'          => array( 'owner', 'staff' ),
 			'scope'          => 'tenant',
 			'capability'     => null,
+			// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 (R-NB-10) — WP capability the acting user must hold ('' = none).
+			// Not `capability` above (that is the plan/tier axis of tool-registry@1).
+			'required_cap'   => '',
 		), $descriptor );
 		$reason = self::registry_keys_error( $name, $tool );
 		if ( null !== $reason ) {
@@ -244,6 +247,10 @@ final class BizCity_MCP_Tool_Registry {
 			'scope'            => $t['scope'],
 			'capability'       => $t['capability'],
 		);
+		// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — additive, only when declared (old clients ignore it; fixtures of other tools unchanged).
+		if ( '' !== (string) ( $t['required_cap'] ?? '' ) ) {
+			$meta['required_cap'] = (string) $t['required_cap'];
+		}
 		if ( ! empty( $t['alias_of'] ) ) {
 			$meta['deprecated_alias_of'] = (string) $t['alias_of'];
 		}
@@ -366,6 +373,38 @@ final class BizCity_MCP_Tool_Registry {
 	 *
 	 * @return array
 	 */
+	/** @var callable|null test seam: fn(int $user_id, string $cap): bool — replaces user_can() for the required_cap gate (S97-L13) */
+	public static $cap_checker = null;
+
+	/**
+	 * [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L13 — the WP user a call runs as: ctx.user_id (owner / staff / external client), else the
+	 * number's user for a guest (`acting_user_id`, guru_public only — the Guru-public exception, T-2). No user ⇒ refused.
+	 */
+	private static function acting_user_can( array $ctx, string $cap ): bool {
+		$uid = (int) ( $ctx['user_id'] ?? 0 );
+		if ( $uid <= 0 && 'guru_public' === (string) ( $ctx['principal_kind'] ?? '' ) ) {
+			$uid = (int) ( $ctx['acting_user_id'] ?? 0 );
+		}
+		if ( is_callable( self::$cap_checker ) ) {
+			return (bool) call_user_func( self::$cap_checker, $uid, $cap );
+		}
+		return $uid > 0 && function_exists( 'user_can' ) && user_can( $uid, $cap );
+	}
+
+	/** Vietnamese label of a capability (shared with Automation's CAP_LABEL when the add-on is loaded). */
+	/** [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — caps outside Automation's standard WP/Woo list (deliberately not duplicated there, R-NB-10 note). */
+	const CAP_LABEL_EXTRA = array( 'bizcity_crm_handle_inbox' => 'Xử lý hộp thư CRM' );
+
+	private static function cap_label( string $cap ): string {
+		if ( isset( self::CAP_LABEL_EXTRA[ $cap ] ) ) {
+			return self::CAP_LABEL_EXTRA[ $cap ];
+		}
+		if ( class_exists( 'BizCity_Automation_Cell_Scenario', false ) && method_exists( 'BizCity_Automation_Cell_Scenario', 'cap_label' ) ) {
+			return BizCity_Automation_Cell_Scenario::cap_label( $cap );
+		}
+		return $cap;
+	}
+
 	public static function call( $name, array $args, array $ctx ) {
 		self::boot();
 		$t0 = microtime( true );
@@ -400,6 +439,11 @@ final class BizCity_MCP_Tool_Registry {
 			if ( ! BizCity_MCP_Auth::has_scope( $ctx, $scope ) ) {
 				return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::SCOPE_DENIED, 'Client thiếu scope: ' . $scope . '.', false, array(), array(), $ctx ), $t0 );
 			}
+		}
+		// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L13 (R-NB-10) — the WP user the turn runs as must hold the tool's required_cap.
+		$cap = (string) ( $tool['required_cap'] ?? '' );
+		if ( '' !== $cap && ! self::acting_user_can( $ctx, $cap ) ) {
+			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::PERMISSION_DENIED, 'Tài khoản đang làm việc chưa có quyền «' . self::cap_label( $cap ) . '» để dùng mục này.', false, array( 'required_cap' => $cap, 'cap_label' => self::cap_label( $cap ) ) ), $t0 );
 		}
 		if ( ! is_callable( $tool['handler'] ) ) {
 			return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::fail( $name, BizCity_MCP_Error::INTERNAL_ERROR, 'Tool chưa được triển khai.', false, array(), array( 'duration_ms' => (int) ( ( microtime( true ) - $t0 ) * 1000 ) ), $ctx ), $t0 );
@@ -1035,17 +1079,22 @@ final class BizCity_MCP_Tool_Registry {
 				'to'   => array( 'type' => 'string', 'pattern' => '^\\d{4}-\\d{2}-\\d{2}$' ),
 			),
 		);
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L7 — `compare_to` so kỳ (ca thử HT-W5); handler trả thêm `compare` + `delta`.
+		$sales_schema                             = $range_schema;
+		$sales_schema['properties']['compare_to'] = array( 'type' => 'string', 'enum' => array( 'none', 'previous_period', 'previous_year' ), 'description' => 'So với kỳ kề trước cùng độ dài, hoặc cùng kỳ năm trước' );
 		// @mcp bizcity-mcp-standard@1 tool sales.summary
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-2 (SW-MCP-1) — canonical name of business.get_sales_metrics; same handler,
 		// descriptor = fixture bridge.tools_list.owner.json.
 		self::register( 'sales.summary', array(
 			'title'          => 'Tổng kết doanh số',
-			'description'    => 'Doanh thu, số đơn, hoàn tiền và giá trị đơn trung bình trong một khoảng ngày (mặc định 30 ngày gần nhất; from=to=hôm nay cho \'hôm nay\').',
-			'input_schema'   => $range_schema,
+			'description'    => 'Doanh thu, số đơn, hoàn tiền và giá trị đơn trung bình trong một khoảng ngày (mặc định 30 ngày gần nhất; from=to=hôm nay cho \'hôm nay\'). compare_to=previous_period để so với kỳ trước.',
+			'input_schema'   => $sales_schema,
 			'output_schema'  => self::envelope_schema( array(
 				'from'    => array( 'type' => 'string' ),
 				'to'      => array( 'type' => 'string' ),
 				'summary' => array( 'type' => 'object' ),
+				'compare' => array( 'type' => 'object' ),
+				'delta'   => array( 'type' => 'object' ),
 			) ),
 			'required_scope' => 'business.read',
 			'handler'        => array( $svc, 'get_sales_metrics' ),
@@ -1178,9 +1227,19 @@ final class BizCity_MCP_Tool_Registry {
 		) );
 	}
 
-	/** PHASE-0.63A WP-8.4 — read-only pipeline lifecycle metrics bridge. */
+	/**
+	 * PHASE-0.63A WP-8.4 — read-only pipeline lifecycle metrics bridge.
+	 *
+	 * [2026-10-11 10:57 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2/doc 30 §5 — `BizCity_CRM_Pipeline_MCP_Bridge`
+	 * is a core class, always loaded, so this guard alone did not notice when the Zalo Brain CRM plugin (which owns
+	 * `BizCity_CRM_Reporting_Rollup`, the data the tool reads) is absent: the tool stayed listed in `tools/list` and
+	 * only failed at call time with `crm_feature_unavailable`. Same rule as `registry.proposal.submit`
+	 * (register_proposal_tools() above) and `automation.*` — a tool backed by an optional plugin is omitted from the
+	 * catalog entirely when that plugin's feature is not installed, not just rejected on call.
+	 */
 	private static function register_pipeline_brain_tools() {
 		if ( ! class_exists( 'BizCity_CRM_Pipeline_MCP_Bridge' ) ) { return; }
+		if ( ! class_exists( 'BizCity_CRM_Spine' ) || ! BizCity_CRM_Spine::has( 'reports' ) ) { return; }
 		$svc = BizCity_CRM_Pipeline_MCP_Bridge::instance();
 		self::register( 'pipeline.get_metrics', array(
 			'title' => 'Get pipeline metrics',
@@ -1203,7 +1262,13 @@ final class BizCity_MCP_Tool_Registry {
 	 * every principal but a delegated owner/staff of the cell. Skipped when the Automation plugin is not loaded.
 	 */
 	private static function register_proposal_tools() {
-		if ( ! class_exists( 'BizCity_Automation_Proposals' ) ) {
+		// [2026-10-11 10:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G8 fix — the Automation plugin is NOT loaded on MCP routes
+		// (bizcity-twin-ai.php loads it only on its own URLs), so `class_exists( 'BizCity_Automation_Proposals' )` was false on the cell's
+		// real tools/list + tools/call ⇒ the tool never existed (selfcheck S95-S2 2026-10-11: FAIL). Same rule as automation.*: listed when the
+		// plugin is installed; the handler loads it lazily (BizCity_Automation_Action_MCP_Service::proposal_submit).
+		$installed = class_exists( 'BizCity_Automation_Proposals' )
+			|| ( class_exists( 'BizCity_Automation_Action_MCP_Service' ) && BizCity_Automation_Action_MCP_Service::installed() );
+		if ( ! $installed ) {
 			return;
 		}
 		// @mcp bizcity-mcp-standard@1 tool registry.proposal.submit
@@ -1224,7 +1289,7 @@ final class BizCity_MCP_Tool_Registry {
 			'destructive'    => false,
 			'idempotent'     => true,
 			'required_scope' => 'automation.run',
-			'handler'        => array( 'BizCity_Automation_Proposals', 'submit' ),
+			'handler'        => array( 'BizCity_Automation_Action_MCP_Service', 'proposal_submit' ), // [2026-10-11 10:31 AM Johnny Chu - Chu Hoàng Anh] lazy-loads the plugin
 			'mode'           => 'automation',
 			'roles'          => array( 'owner', 'staff' ),
 			'scope'          => 'tenant',

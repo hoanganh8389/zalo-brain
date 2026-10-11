@@ -72,8 +72,20 @@ final class BizCity_Woo_Pack_Exporter {
 	/** @var bool per-request guard of on_catalog_map_change() (bulk edits fire many hooks). */
 	private static $catalog_map_flushed = false;
 
+	/** @var bool [2026-10-11 11:06 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-4 — register() runs once per request: core/mcp
+	 * calls it on plugins_loaded@20, BizCity_Woo_Lazy_Listeners calls it when a Woo hook fires on a request without core/mcp. */
+	private static $registered = false;
+
+	public static function registered(): bool {
+		return self::$registered;
+	}
+
 
 	public static function register(): void {
+		if ( self::$registered ) {
+			return;
+		}
+		self::$registered = true;
 		add_filter( self::PACK_FILTER, array( __CLASS__, 'exporters' ), 10 );
 		foreach ( array( 'woocommerce_order_status_changed', 'woocommerce_new_order', 'woocommerce_order_refunded' ) as $h ) {
 			add_action( $h, array( __CLASS__, 'on_order_change' ), 30, 0 );
@@ -248,6 +260,7 @@ final class BizCity_Woo_Pack_Exporter {
 	public static function reset(): void {
 		self::$memo                = array();
 		self::$catalog_map_flushed = false;
+		self::$registered          = false; // Z-6 P0-4 — tests re-register after remove_all_filters()
 	}
 
 	/** Paid statuses of the shared money rule (BizCity_Woo_Reports_Bridge), in wc_get_orders form. */
@@ -513,6 +526,25 @@ final class BizCity_Woo_Pack_Exporter {
 		$facet = (array) ( $src['facets'] ?? array() );
 		$ask   = (array) ( $src['ask_first'] ?? array() );
 		$strat = (array) ( $src['strategic'] ?? array() );
+		// [2026-10-11 10:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 fix — published products with NO product_cat at all (bulk imports skip Woo's
+		// default category; tranghana.vn 2026-10-11: 10/10 products, map = []) count in the default category, exactly where Woo would put them on
+		// save. commerce.search_products does the same for group_id = default (BizCity_Commerce_Brain_MCP_Service), so the map and the search agree.
+		$unc = (array) ( $src['uncategorized'] ?? array() );
+		$def = (int) ( $src['default_cat'] ?? 0 );
+		if ( $def > 0 && (int) ( $unc['count'] ?? 0 ) > 0 && in_array( $def, array_map( static function ( $g ) { return (int) ( ( (array) $g )['id'] ?? 0 ); }, (array) ( $src['groups'] ?? array() ) ), true ) ) {
+			$cur  = (array) ( $agg[ $def ] ?? array( 'count' => 0, 'in_stock' => 0, 'price_min' => null, 'price_max' => null ) );
+			$pick = static function ( $a, $b, string $fn ) {
+				$a = is_numeric( $a ) ? (float) $a : null;
+				$b = is_numeric( $b ) ? (float) $b : null;
+				return null === $a ? $b : ( null === $b ? $a : $fn( $a, $b ) );
+			};
+			$agg[ $def ] = array(
+				'count'     => (int) ( $cur['count'] ?? 0 ) + (int) $unc['count'],
+				'in_stock'  => (int) ( $cur['in_stock'] ?? 0 ) + (int) ( $unc['in_stock'] ?? 0 ),
+				'price_min' => $pick( $cur['price_min'] ?? null, $unc['price_min'] ?? null, 'min' ),
+				'price_max' => $pick( $cur['price_max'] ?? null, $unc['price_max'] ?? null, 'max' ),
+			);
+		}
 		$items = array();
 		foreach ( (array) ( $src['groups'] ?? array() ) as $g ) {
 			$g   = (array) $g;
@@ -604,6 +636,17 @@ final class BizCity_Woo_Pack_Exporter {
 		foreach ( (array) $wpdb->get_results( $sql, ARRAY_A ) as $r ) { // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- only table names interpolated
 			$agg[ (int) $r['id'] ] = array( 'count' => (int) $r['cnt'], 'in_stock' => (int) $r['in_stock'], 'price_min' => $r['pmin'], 'price_max' => $r['pmax'] );
 		}
+		// [2026-10-11 10:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 fix — published products without any product_cat (see catalog_map_items).
+		$no_cat = "FROM {$posts} p" . ( $has_lookup ? " LEFT JOIN {$lookup} l ON l.product_id = p.ID" : '' )
+			. " WHERE p.post_type = 'product' AND p.post_status = 'publish' AND p.post_password = '' AND NOT EXISTS ( SELECT 1 FROM {$tr} trx INNER JOIN {$tt} ttx ON ttx.term_taxonomy_id = trx.term_taxonomy_id AND ttx.taxonomy = 'product_cat' WHERE trx.object_id = p.ID )";
+		$u = (array) $wpdb->get_row( // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- only table names interpolated
+			$has_lookup
+				? "SELECT COUNT(*) AS cnt, SUM(CASE WHEN l.stock_status = 'instock' THEN 1 ELSE 0 END) AS in_stock, MIN(l.min_price) AS pmin, MAX(l.max_price) AS pmax {$no_cat}"
+				: "SELECT COUNT(*) AS cnt, COUNT(*) AS in_stock, NULL AS pmin, NULL AS pmax {$no_cat}",
+			ARRAY_A
+		);
+		$uncategorized = array( 'count' => (int) ( $u['cnt'] ?? 0 ), 'in_stock' => (int) ( $u['in_stock'] ?? 0 ), 'price_min' => $u['pmin'] ?? null, 'price_max' => $u['pmax'] ?? null );
+		$default_cat   = function_exists( 'get_option' ) ? (int) get_option( 'default_product_cat', 0 ) : 0;
 		$facets = array();
 		$sql = "SELECT tt.term_id AS cat, att.taxonomy AS tax, t.name AS val, COUNT(*) AS n {$base} INNER JOIN {$tr} tr2 ON tr2.object_id = p.ID INNER JOIN {$tt} att ON att.term_taxonomy_id = tr2.term_taxonomy_id AND att.taxonomy LIKE 'pa\\_%' INNER JOIN {$wpdb->terms} t ON t.term_id = att.term_id GROUP BY tt.term_id, att.taxonomy, t.term_id ORDER BY tt.term_id, n DESC LIMIT 20000";
 		foreach ( (array) $wpdb->get_results( $sql, ARRAY_A ) as $r ) { // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
@@ -626,7 +669,7 @@ final class BizCity_Woo_Pack_Exporter {
 				$ask[ (int) $g['id'] ] = (array) $advice['ask_first'];
 			}
 		}
-		return array( 'groups' => $groups, 'agg' => $agg, 'facets' => $facets, 'ask_first' => $ask, 'strategic' => $strategic );
+		return array( 'groups' => $groups, 'agg' => $agg, 'facets' => $facets, 'ask_first' => $ask, 'strategic' => $strategic, 'uncategorized' => $uncategorized, 'default_cat' => $default_cat );
 	}
 
 
@@ -720,6 +763,9 @@ final class BizCity_Woo_Pack_Exporter {
 	/** Same key as the old plugin exporter (`bizcity_pack_biz_<kind>_<blog>`): a running site keeps its cache. */
 	private static function cache_key( string $kind ): string {
 		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
-		return self::CACHE_PREFIX . $kind . '_' . $blog;
+		// [2026-10-11 10:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 fix — catalog_map changed shape-wise (no-category products now count),
+		// so its key carries a version: a cached `[]` from before the fix is never served again. Other kinds keep the old key.
+		$ver = self::CATALOG_MAP_KIND === $kind ? '_v2' : '';
+		return self::CACHE_PREFIX . $kind . $ver . '_' . $blog;
 	}
 }

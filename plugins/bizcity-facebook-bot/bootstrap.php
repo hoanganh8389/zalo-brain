@@ -109,9 +109,8 @@ class BizCity_Facebook_Bot_Plugin {
 			'/includes/class-fb-group-adapter.php',
 			'/includes/class-fb-channel-tools.php',
 			'/includes/class-fb-setup-rest.php',
-			// PHASE 0.31 T-S1.3: WaicChannelIntegration_facebook +
-			// bizcity_register_channel_integrations filter wiring
-			'/includes/integration-facebook.php',
+			// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — integration-facebook.php (WaicChannelIntegration_facebook)
+			// archived at core/_archived/z8a-20261010/: bizcity_register_channel_integrations is applied only by the dev-only sprint diagnostic.
 		);
 		
 		foreach ( $include_files as $file ) {
@@ -123,7 +122,7 @@ class BizCity_Facebook_Bot_Plugin {
 		// Library files
 		$lib_files = array(
 			'/lib/class-facebook-bot-api.php',
-			'/lib/functions.php',
+			// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — lib/functions.php (16 bizcity_facebook_bot_* helpers, no caller anywhere) archived at core/_archived/z8a-20261010/.
 			'/lib/legacy-old-functions.php',
 			'/lib/legacy-functions.php',
 			'/lib/legacy-poster.php',

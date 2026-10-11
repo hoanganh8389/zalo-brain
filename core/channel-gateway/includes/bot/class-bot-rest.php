@@ -528,6 +528,27 @@ final class BizCity_Bot_REST {
 	}
 
 	/** Staff UIDs leave the server only through the staff routes, masked (doc 50 §4.1). */
+	/**
+	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 — role slugs list: null/not-array ⇒ the claim class default (or [] when it is not loaded);
+	 * otherwise each slug lower-cased, `[a-z0-9_-]{1,40}`, unique, ≤ 10.
+	 */
+	private static function role_slugs( $raw ): array {
+		if ( ! is_array( $raw ) ) {
+			return class_exists( 'BizCity_Zalo_Owner_Uid_Claim' ) ? BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT : array();
+		}
+		$out = array();
+		foreach ( $raw as $r ) {
+			$r = strtolower( trim( (string) $r ) );
+			if ( '' !== $r && preg_match( '/^[a-z0-9_-]{1,40}$/', $r ) && ! in_array( $r, $out, true ) ) {
+				$out[] = $r;
+			}
+			if ( count( $out ) >= 10 ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
 	private static function strip_private( array $policy ): array {
 		$policy['staff_count'] = count( (array) ( $policy['staff_principals'] ?? array() ) );
 		unset( $policy['staff_principals'] );
@@ -600,6 +621,10 @@ final class BizCity_Bot_REST {
 			if ( array_key_exists( $owner_key, $body ) ) {
 				$policy[ $owner_key ] = (bool) $body[ $owner_key ];
 			}
+		}
+		// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 — roles opened for staff self-connect (array of WP role slugs; [] = nobody self-connects)
+		if ( array_key_exists( 'staff_self_connect_roles', $body ) ) {
+			$policy['staff_self_connect_roles'] = self::role_slugs( $body['staff_self_connect_roles'] );
 		}
 		// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 (unblocked by zca-bridge 0.40.0 actions) — both default OFF:
 		// they are actions that touch Zalo, so they are opt-in per number (0.60A "bật có ý thức").
@@ -703,6 +728,9 @@ final class BizCity_Bot_REST {
 			// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-1 — staff allowed to use the Agent on this number (doc 50 §4.1). Kept on every
 			// save (written only by the staff routes); never returned raw to a browser — see strip_private().
 			'staff_principals'       => class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::normalize( $decoded['staff_principals'] ?? array() ) : ( is_array( $decoded['staff_principals'] ?? null ) ? $decoded['staff_principals'] : array() ),
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L2 (R-NB-5) — WP roles that may connect their own Zalo to this number by BIZ code
+			// without a staff row (the row is created on claim). Key absent ⇒ BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT.
+			'staff_self_connect_roles' => self::role_slugs( $decoded['staff_self_connect_roles'] ?? null ),
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60E EA-4/EA-5 — default OFF (key absent = no behavior change).
 			'typing_indicator' => ! empty( $decoded['typing_indicator'] ),
 			'auto_react'       => ! empty( $decoded['auto_react'] ),

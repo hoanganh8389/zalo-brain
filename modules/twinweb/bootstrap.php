@@ -11,6 +11,9 @@
  *
  * Gates:
  *   - Always-load (public page, REST) — NO admin gate (R-PERF).
+ *   - [2026-10-11 11:01 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — except the REST slice
+ *     (BizCity_TwinWeb_Rest_Slice): only bizcity-twinweb REST, REST index, admin/ajax, CLI, TwinWeb cron hooks; lazy elsewhere.
+ *     The access policy (BizCity_TwinWeb_Access_Policy) is always loaded. Kill switch: bizcity_axis_rest_profile = off.
  *   - DB installer deferred to plugins_loaded (not file-scope).
  *
  * Rewrite flush: handled via BizCity_Rewrite_Flush_Registry (R-CR.1).
@@ -37,6 +40,9 @@ define( 'BIZCITY_TWINWEB_REWRITE_VERSION', '1.0.10' ); // [2026-09-30 Claude Opu
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-installer.php';
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-identity.php';
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-page.php';
+// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — the Twin GPT access policy, always loaded:
+// /gpt/, the Twin Shell module-access delegate and its REST answer from here, never from class_exists( REST ).
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-access-policy.php';
 // [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — load contract-only tool catalog for intent/artifact planning.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-agent-tool-catalog.php';
 // [2026-07-20 Johnny Chu] PHASE-TWIN-GPT-AGENT-TOOLS — register real Doc Studio handoff adapters in the canonical tool registry.
@@ -66,26 +72,27 @@ if ( '' !== $_bizcity_twinweb_content_artifact_service && is_readable( $_bizcity
 }
 unset( $_bizcity_twinweb_content_artifact_service );
 // [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — prompt input can reuse ZaloBot keyword workflow matching.
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-prompt-automation-bridge.php';
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-rest.php';
-// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — load the member-safe CRM projection contract before TwinWeb REST handlers.
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-projection.php';
+// [2026-08-25 Johnny Chu] PHASE-0.39F-F8 — member-safe CRM projection contract for TwinWeb REST handlers.
 // [2026-09-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 M4-02 — member-customer-360 serializer (C Customer 360).
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-member-customer-360.php';
+// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — prompt-automation bridge, class-twinweb-rest.php,
+// crm-projection and member-customer-360 moved into the REST slice (BizCity_TwinWeb_Rest_Slice, end of this list).
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-profile-grounding.php';
 // [2026-07-31 Johnny Chu] PHASE-TWINWEB-UNIFIED-SOURCES — persist MPR web citations into the canonical notebook source ledger through a deferred queue.
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-citation-source-persistence.php';
 BizCity_TwinWeb_Citation_Source_Persistence::init();
 // [2026-06-22 Johnny Chu] PHASE-TWINWEB — projects REST (port from webchat, clean prefix)
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-projects-rest.php';
 // [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.50 W5 — member "Việc được giao" REST (C surface, current user only).
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-tasks-rest.php';
 // [2026-09-18] PHASE-0.52 — member customer pipeline REST (Hôm nay, Khách của tôi, Inbox stage, Không gian của tôi).
-require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-pipeline-rest.php';
+// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — projects / crm-tasks / crm-pipeline REST moved into the REST slice.
 // [2026-09-19] PHASE-0.55 A2 — Brain Chat "work.*" retriever tools (member's own tasks/pipeline/space, no colleague data).
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-crm-work-tools.php';
 // [2026-07-14 Johnny Chu] PHASE-TWINWEB-SEARCH W1 — channel binding bootstrap (TWINWEB -> Guru)
 require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-binding-bootstrap.php';
+// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — REST slice (class-twinweb-rest.php 708 KB + REST-only
+// helpers): loaded for bizcity-twinweb REST, the REST index, admin/ajax, CLI and the TwinWeb cron hooks; any other request
+// gets a slice class lazily (autoloader / bizcity_twinweb_require_rest_slice()). Way back: bizcity_axis_rest_profile = off.
+require_once BIZCITY_TWINWEB_DIR . 'includes/class-twinweb-rest-slice.php';
+BizCity_TwinWeb_Rest_Slice::boot();
 
 // ── DB installer (deferred — avoid file-scope DB calls, R-PERF.2) ─────────────
 add_action( 'plugins_loaded', function () {
@@ -150,17 +157,20 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 } );
 
 // Delegated owner of the `gpt` icon: the Twin GPT access policy answers, never a copy of it.
+// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded policy class; class_exists( REST )
+// is false on every request that skips the REST slice and would silently answer the default.
 add_filter( 'bizcity_module_access_delegate', static function ( $allowed, $module_id, $user_id ) {
-	if ( 'gpt' !== $module_id || ! class_exists( 'BizCity_TwinWeb_REST' ) ) {
+	if ( 'gpt' !== $module_id || ! class_exists( 'BizCity_TwinWeb_Access_Policy', false ) ) {
 		return $allowed;
 	}
-	return BizCity_TwinWeb_REST::instance()->module_access_allows_user( (int) $user_id );
+	return BizCity_TwinWeb_Access_Policy::module_access_allows_user( (int) $user_id );
 }, 10, 3 );
 
 // ── REST routes ───────────────────────────────────────────────────────────────
 add_action( 'rest_api_init', function () {
 	// [2026-06-17 Johnny Chu] PHASE-TWINWEB — register bizcity-twinweb/v1 routes
-	if ( class_exists( 'BizCity_TwinWeb_REST' ) ) {
+	// [2026-10-11 11:00 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — class_exists( …, false ): never autoload the slice on another namespace.
+	if ( class_exists( 'BizCity_TwinWeb_REST', false ) ) {
 		BizCity_TwinWeb_REST::instance()->register_routes();
 	}
 	// [2026-06-22 Johnny Chu] PHASE-TWINWEB — projects REST

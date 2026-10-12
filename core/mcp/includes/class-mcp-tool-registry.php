@@ -132,8 +132,34 @@ final class BizCity_MCP_Tool_Registry {
 			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable. — see docs/developer/README.md §4' ); // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L7 — log text only, behaviour unchanged
 			return false;
 		}
+		// [2026-10-12 08:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.103 RK-15 — a SECOND registration of the same name with a DIFFERENT handler replaces the first silently (core owns
+		// booking.create / booking.cancel …). Behaviour is unchanged (last wins); the log is what a plugin author needs to find the clash. Same handler again = a re-boot, no log.
+		if ( isset( self::$tools[ $name ] ) && ! self::same_handler( self::$tools[ $name ]['handler'] ?? null, $tool['handler'] ?? null ) ) {
+			error_log( '[bizcity-mcp] tool ' . $name . ' re-registered with a different handler (' . self::handler_label( self::$tools[ $name ]['handler'] ?? null ) . ' → ' . self::handler_label( $tool['handler'] ?? null ) . '); the last registration wins. Pick a unique <plugin>.<verb> name — see docs/developer/README.md §4' );
+		}
 		self::$tools[ $name ] = $tool;
 		return true;
+	}
+
+	/** PHASE-0.103 RK-15 — same callable? (class + method for [object|class, method]; identity for closures/functions). null on either side ⇒ treated as the same (nothing to compare). */
+	private static function same_handler( $a, $b ) {
+		if ( null === $a || null === $b ) {
+			return true;
+		}
+		if ( is_array( $a ) && is_array( $b ) && 2 === count( $a ) && 2 === count( $b ) ) {
+			$ca = is_object( $a[0] ) ? get_class( $a[0] ) : (string) $a[0];
+			$cb = is_object( $b[0] ) ? get_class( $b[0] ) : (string) $b[0];
+			return $ca === $cb && (string) $a[1] === (string) $b[1];
+		}
+		return $a === $b;
+	}
+
+	/** PHASE-0.103 RK-15 — short label of a handler for the clash log (never the arguments). */
+	private static function handler_label( $h ) {
+		if ( is_array( $h ) && 2 === count( $h ) ) {
+			return ( is_object( $h[0] ) ? get_class( $h[0] ) : (string) $h[0] ) . '::' . (string) $h[1];
+		}
+		return is_string( $h ) ? $h : 'closure';
 	}
 
 	/**

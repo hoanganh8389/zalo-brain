@@ -389,6 +389,12 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'emoji'       => '📘',
 			'mode'        => 'link',
 			'target_url'  => admin_url( 'admin.php?page=bizcity-skills' ),
+			// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14b — Skill opens like the other surfaces: deep link `r=/skills/x.md`
+			// (TRC v1, hash route) instead of the leaked `page=…&file=…&_iurl=/wp-admin/…`; the editor page hides the WP admin chrome in the iframe
+			// (BizCity_Skill_Admin_Page::is_shell_iframe) and reads/writes the open file in its URL hash.
+			'route_mode'  => 'hash',
+			'route_entry' => admin_url( 'admin.php?page=bizcity-skills' ),
+			'admin_page'  => 'bizcity-skills',
 			'capability'  => class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::menu_cap() : 'edit_posts',
 			'section'     => 'top',
 			'desc'        => __( 'Custom skills: step-by-step instructions the assistant follows for a kind of request.', $td ),

@@ -35,6 +35,33 @@ final class BizCity_Skill_Admin_Page {
 		self::$hooked = true;
 		add_action( 'admin_menu', array( __CLASS__, 'add_menu' ), 30 );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
+
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14b — inside the TwinShell iframe (?bizcity_iframe=1) the editor owns the
+		// whole canvas: no WP admin bar / admin menu, same rule the Channel Gateway SPA already follows (class-admin-menu-spa.php).
+		if ( self::is_shell_iframe() ) {
+			add_filter( 'show_admin_bar', '__return_false', 999 );
+			add_action( 'admin_head', array( __CLASS__, 'print_iframe_chrome_css' ), 1 );
+		}
+	}
+
+	/** This request is the Skill editor inside the TwinShell iframe (read from $_GET: it must be known before admin_bar_init). */
+	public static function is_shell_iframe(): bool {
+		if ( ( isset( $_GET['page'] ) ? sanitize_key( (string) wp_unslash( $_GET['page'] ) ) : '' ) !== self::SLUG ) {
+			return false;
+		}
+		if ( ! empty( $_GET['bizcity_iframe'] ) ) {
+			return true;
+		}
+		return 'iframe' === strtolower( (string) ( isset( $_SERVER['HTTP_SEC_FETCH_DEST'] ) ? $_SERVER['HTTP_SEC_FETCH_DEST'] : '' ) );
+	}
+
+	public static function print_iframe_chrome_css(): void {
+		echo '<style id="bizcity-skills-iframe-chrome">'
+			. '#adminmenumain,#adminmenuback,#adminmenuwrap,#adminmenu,#collapse-menu,#wpadminbar,#wpfooter,#screen-meta,#screen-meta-links,#wpbody-content>.notice,#wpbody-content>.update-nag{display:none!important}'
+			. '#wpcontent,#wpfooter{margin-left:0!important;padding-left:0!important}'
+			. 'html.wp-toolbar{padding-top:0!important}'
+			. '#wpbody-content{padding-bottom:0!important}'
+			. '</style>' . "\n";
 	}
 
 	public static function add_menu(): void {
@@ -43,7 +70,8 @@ final class BizCity_Skill_Admin_Page {
 	}
 
 	public static function render_page(): void {
-		echo '<div class="wrap" style="margin:0;padding:0;"><div id="skill-app" style="min-height:calc(100vh - 32px);"></div></div>';
+		$min_h = self::is_shell_iframe() ? '100vh' : 'calc(100vh - 32px)'; // no admin bar inside the shell iframe
+		echo '<div class="wrap" style="margin:0;padding:0;"><div id="skill-app" style="min-height:' . esc_attr( $min_h ) . ';"></div></div>';
 	}
 
 	public static function enqueue_assets( string $hook ): void {

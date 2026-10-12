@@ -129,7 +129,7 @@ final class BizCity_MCP_Tool_Registry {
 		$tool['confirm'] = 'always' === $tool['confirm'] ? 'always' : 'never';
 		if ( 'always' === $tool['confirm'] && ! is_callable( $tool['preview'] ) ) {
 			// A write that must be confirmed cannot be offered without a side-effect-free preview (Q88-1).
-			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable.' );
+			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable. — see docs/developer/README.md §4' ); // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L7 — log text only, behaviour unchanged
 			return false;
 		}
 		self::$tools[ $name ] = $tool;

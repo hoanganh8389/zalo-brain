@@ -186,7 +186,7 @@ final class BizCity_MCP_Library {
 
 	private static function note( string $file, string $msg ): void {
 		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-			error_log( '[bizcity-mcp-library] ' . basename( dirname( $file ) ) . '/' . basename( $file ) . ': ' . $msg );
+			error_log( '[bizcity-mcp-library] ' . basename( dirname( $file ) ) . '/' . basename( $file ) . ': ' . $msg . ' — see docs/developer/README.md §4' ); // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L7 — log text only, behaviour unchanged
 		}
 	}
 }

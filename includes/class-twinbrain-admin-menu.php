@@ -154,6 +154,10 @@ final class BizCity_TwinBrain_Admin_Menu {
 		}
 
 		// [2026-09-16 10:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0-SETTING-PANEL-G6 — add the member-facing Twin GPT entry without exposing credentials or a second Brain owner.
+		// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L22 — no /gpt/ add-on ⇒ no menu entry that opens a page which does not exist (Channel Gateway is the home).
+		if ( function_exists( 'bizcity_twinweb_available' ) && ! bizcity_twinweb_available() ) {
+			return;
+		}
 		$gpt_url = home_url( '/gpt/' );
 		add_submenu_page(
 			$parent,

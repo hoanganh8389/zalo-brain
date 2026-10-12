@@ -41,7 +41,7 @@ final class BizCity_Zalo_Brain {
 
 	/** The seven surfaces of Zalo Brain (doc 50 §3). Owner = code that renders it; requires = feature or plugin. */
 	const CORE_SURFACES = array(
-		'gpt'       => array( 'slug' => '/gpt/',       'label' => 'Trợ lý',           'owner' => 'modules/twinweb',        'position' => 10 ),
+		'gpt'       => array( 'slug' => '/gpt/',       'label' => 'Trợ lý',           'owner' => 'bizcity-twinweb-addon',  'position' => 10, 'requires' => 'twinweb' ), // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L10 — available only when the /gpt/ part is (see surfaces())
 		'gateway'   => array( 'slug' => '/gateway/',   'label' => 'Cấu hình Zalo',    'owner' => 'core/channel-gateway',   'position' => 20 ),
 		'crm'       => array( 'slug' => '/crm/',       'label' => 'Đội Zalo',         'owner' => 'core/crm',               'position' => 30 ),
 		'twinchat'  => array( 'slug' => '/twinchat/',  'label' => 'Sổ tay',           'owner' => 'modules/twinchat',       'position' => 40 ),
@@ -355,7 +355,8 @@ final class BizCity_Zalo_Brain {
 		foreach ( self::CORE_SURFACES as $key => $def ) {
 			$requires  = isset( $def['requires'] ) ? (string) $def['requires'] : '';
 			$available = '' === $requires || self::has( $requires )
-				|| ( 'automation' === $requires && class_exists( 'BizCity_Addon_Locator' ) && '' !== BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) );
+				|| ( 'automation' === $requires && class_exists( 'BizCity_Addon_Locator' ) && '' !== BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) )
+				|| ( 'twinweb' === $requires && function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available() ); // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L10 — file presence, not class_exists
 			$pages     = self::$pages[ $key ] ?? array();
 			uasort( $pages, static function ( $a, $b ) { return (int) $a['position'] <=> (int) $b['position']; } );
 			$out[ $key ] = array_merge( $def, array( 'id' => $key, 'available' => $available, 'pages' => array_values( $pages ) ) );

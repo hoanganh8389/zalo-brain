@@ -912,9 +912,18 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
 }
 // [2026-06-17 Johnny Chu] PHASE-TWINWEB Wave 1 — Public user frontend (ChatGPT-like SPA).
 // Always-load: serves /twin/ public page + bizcity-twinweb/v1 REST (needed for guests + WP REST).
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/modules/twinweb/bootstrap.php' ) ) {
-    require_once __DIR__ . '/modules/twinweb/bootstrap.php';
+// [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — the CORE half of TwinWeb (REST controller + the classes it calls, Ask Brain tools,
+// artifact jobs, tables) is core/twinweb-axis and loads under the same gate, FIRST; modules/twinweb (the /gpt/ page, SPA, projects / CRM REST) follows and
+// does nothing without the axis. From W2 (ST102-L17) the second require goes through BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' ).
+if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twinweb-axis/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/twinweb-axis/bootstrap.php';
 }
+// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L17 — the /gpt/ half comes from BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' ): the add-on bizcity-twinweb-addon when it is installed and active (any folder name), otherwise nothing — Zalo Brain is complete without it.
+$_bizcity_twinweb_bootstrap = BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' );
+if ( ! $_bizcity_twinchat_admin_shell_request && '' !== $_bizcity_twinweb_bootstrap ) {
+    require_once $_bizcity_twinweb_bootstrap;
+}
+unset( $_bizcity_twinweb_bootstrap );
 // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-09 T2 — TwinKG owns the Knowledge Graph
 // React surface that used to live inside core/knowledge/kg-hub/ui (rule R-KG-UI: core
 // declares no React app). The module is four small PHP files; it must load for

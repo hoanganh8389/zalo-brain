@@ -25,7 +25,7 @@
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
 	$__trait = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/' ) . 'core/helper/includes/trait-rest-error.php';
 	if ( file_exists( $__trait ) ) {
 		require_once $__trait;

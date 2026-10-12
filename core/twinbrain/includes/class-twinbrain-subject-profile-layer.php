@@ -72,14 +72,11 @@ final class BizCity_TwinBrain_Subject_Profile_Layer {
 	 * @return string
 	 */
 	public static function seed_dir() {
-		if ( defined( 'BIZCITY_TWINWEB_DIR' ) ) {
-			return BIZCITY_TWINWEB_DIR . 'profile-templates/';
+		// [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L3 — the built-in templates live in core/twinweb-axis/profile-templates now (was modules/twinweb/…), so Ask Brain keeps them without the /gpt/ add-on; plugin root from the axis constant, else from this file's location.
+		if ( defined( 'BIZCITY_TWINWEB_AXIS_DIR' ) ) {
+			return BIZCITY_TWINWEB_AXIS_DIR . 'profile-templates/';
 		}
-		if ( defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
-			return BIZCITY_TWIN_AI_DIR . 'modules/twinweb/profile-templates/';
-		}
-		// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
-		return ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'modules/twinweb/profile-templates/';
+		return ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'core/twinweb-axis/profile-templates/';
 	}
 
 	/**

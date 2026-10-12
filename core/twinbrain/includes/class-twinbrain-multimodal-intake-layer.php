@@ -460,7 +460,7 @@ class BizCity_TwinBrain_Multimodal_Intake_Layer {
 		if ( class_exists( 'BizCity_AV_Transcribe_Client' ) ) {
 			return;
 		}
-		// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+		// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
 		$root = defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/';
 		$client = $root . 'core/kg-hub/includes/clients/class-av-transcribe-client.php';
 		if ( is_readable( $client ) ) {

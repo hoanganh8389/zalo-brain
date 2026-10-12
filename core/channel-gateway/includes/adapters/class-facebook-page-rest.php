@@ -398,7 +398,8 @@ class BizCity_Facebook_Page_REST {
 	 * Keep OAuth return_url on same host and fallback to canonical /gpt/.
 	 */
 	private static function sanitize_twinweb_return_url( string $candidate ): string {
-		$fallback = home_url( '/gpt/' );
+		// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L22 — without the /gpt/ add-on the OAuth return lands on the Twin Shell (Channel Gateway home), not on a missing page.
+		$fallback = function_exists( 'bizcity_twinweb_url' ) ? bizcity_twinweb_url() : home_url( '/gpt/' );
 		$candidate = trim( $candidate );
 		if ( $candidate === '' ) {
 			$ref = wp_get_referer();

@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<!-- [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.102 -->
+
+### Added
+- Add-on host standard (R-ADDON-HOST): an add-on plugin is recognised by the `BIZCITY_TWIN_AI_VERSION` constant and a `Zalo Brain Addon:` header, under any folder name. No `Requires Plugins` header; activation is refused with a clear message when Zalo Brain is not active.
+- `BizCity_Addon_Locator` finds add-ons by main file name and header in any plugin folder, remembers the path, and exposes `bizcity_twinweb_available()` and `bizcity_twinweb_url()`.
+- `core/twinweb-axis/`: the TwinWeb REST axis (`bizcity-twinweb/v1`), Ask Brain tools, artifact jobs, identity and access policy, and tables now live in core.
+- Production-package check (`PHASE-0.102-prod-package-check.mjs`): builds the exact shippable set and verifies it contains no developer-only files, loads without fatal errors, and boots in every add-on variant.
+
+### Changed
+- The `/gpt/` page and its UI moved out of the bundle into the separate add-on plugin `bizcity-twinweb-addon`. Zalo Brain alone is complete: Channel Gateway is the home page. The package is about 3 MB smaller (27.1 to 23.9 MB).
+- The Twin Shell ActivityBar entry for `/gpt/` is hidden (no upsell) when the add-on is absent; the `[bizcity_twin]` shortcode shows a card instead of raw text.
+- The Automation, TwinBrain, BizCoach and CRM add-ons use the same host standard (`Network: false`).
+
+### Fixed
+- Hard-coded plugin-folder paths in 16 files now resolve dynamically, so renamed or forked installs keep working (including the kg-hub bootstrap shortcode path).
+- Folder-name fallbacks removed from add-ons; a stale `modules/twinweb` copy can no longer redeclare classes.
+
 ## [1.4.0] — 2026-10-09 — Zalo Brain
 
 <!-- [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 -->

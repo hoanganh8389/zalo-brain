@@ -59,6 +59,25 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	$td = 'bizcity-twin-ai';
 
 	$defaults = [
+		// ── Assistant (/gpt/) ────────────────────────────────────────
+		// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L9 — moved here from modules/twinweb/bootstrap.php. Owner round 1 (QT102-3): without the add-on the icon is simply HIDDEN (no upsell, no badge, no licence) and the shell opens Zalo Setup first. 'addon' is a file check, so it also holds on requests that skip loading the TwinWeb classes.
+		[
+			'id'          => 'gpt',
+			'label'       => __( 'Assistant', $td ), // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — /gpt/ = Trợ lý
+			'icon'        => 'sparkles',
+			'emoji'       => '✦',
+			'mode'        => 'embed',
+			'public_slug' => '/gpt/',
+			'capability'  => 'read',
+			'section'     => 'top',
+			'route_mode'  => 'path',
+			'desc'        => __( 'Your personal AI workspace: chat, your Zalo numbers and your tasks.', $td ),
+			'requires'    => [ 'class' => 'BizCity_TwinWeb_Page', 'addon' => 'twinweb/bootstrap.php' ],
+			'access'      => [
+				'mode'  => 'delegated',
+				'owner' => 'core/twinweb-axis',
+			],
+		],
 		// ── Operating center ─────────────────────────────────────────
 		[
 			'id'          => 'twinchat',

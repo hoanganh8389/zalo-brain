@@ -2409,7 +2409,7 @@ class BizCity_TwinBrain_Runtime {
 	 * Server-authorized mode/plan/guest check for a resolved vertical row.
 	 *
 	 * Mirrors the exact tier resolver and rank table
-	 * `modules/twinweb/includes/class-twinweb-rest.php::get_effective_config()`
+	 * `core/twinweb-axis/includes/class-twinweb-rest.php::get_effective_config()`
 	 * already uses for its mode-LISTING check (`bizcity_twinweb_user_tier`
 	 * filter, `free < plus < pro`) and the identity resolver
 	 * `core/twinbrain/includes/class-twinbrain-goal-loop-rest.php::identity()`

@@ -255,7 +255,7 @@ add_shortcode( 'bizcity_notebook_notes', static function ( $atts ) {
 		'limit'       => 20,
 	), $atts, 'bizcity_notebook_notes' );
 
-	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — was a hard-coded plugin folder name — shortcode [bizcity_notebook_notes] rendered empty when the plugin folder had another name.
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L32 — was a hard-coded plugin folder name — shortcode [bizcity_notebook_notes] rendered empty when the plugin folder had another name.
 	$view = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 2 ) . '/' ) . 'core/knowledge/views/notebook-notes-panel.php';
 	if ( ! is_readable( $view ) ) { return ''; }
 	ob_start();

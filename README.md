@@ -76,7 +76,7 @@ Plugin mở rộng chính thức:
 
 Viết plugin mở rộng theo hợp đồng **`zalo-brain-extension@1`**:
 
-1. Header `Requires Plugins: bizcity-twin-ai` và `Network: false`.
+1. Header `Zalo Brain Addon: <phần>` và `Network: false`; **không** dùng `Requires Plugins` (tên thư mục plugin chính có thể khác). Nhận diện plugin chính bằng hằng `BIZCITY_TWIN_AI_VERSION`, thiếu thì từ chối kích hoạt — xem [ADDON-HOST-STANDARD](core/channel-gateway/docs/standards/ADDON-HOST-STANDARD.md). <!-- [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L2 -->
 2. File `zalo-brain.json` ở gốc plugin:
 
 ```json

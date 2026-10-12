@@ -23,8 +23,11 @@
  *
  * PHP 7.4 compatible.
  *
+ * [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — moved from modules/twinweb to core/twinweb-axis. Files are absolute paths now: the axis classes (prompt-automation bridge, REST, CRM projection, member customer 360) are always here;
+ * the /gpt/ add-on registers its own REST classes (projects, CRM tasks, CRM pipeline) with register_addon_classes() and they load/autoload exactly as before.
+ *
  * @package Bizcity_Twin_AI
- * @subpackage Modules\TwinWeb
+ * @subpackage Core\TwinWebAxis
  */
 defined( 'ABSPATH' ) || exit;
 
@@ -59,22 +62,40 @@ final class BizCity_TwinWeb_Rest_Slice {
 	private static $reason = '';
 	/** @var bool */
 	private static $booted = false;
+	/** @var array<string,string> REST classes registered by the /gpt/ add-on: class => absolute file. */
+	private static $addon_files = array();
 
 	/**
-	 * Slice files, in the old bootstrap order, keyed by the one class each declares.
+	 * Slice files, in the old bootstrap order, keyed by the one class each declares. Absolute paths.
+	 * Axis classes first, then whatever the add-on registered (projects, CRM tasks, CRM pipeline).
 	 *
 	 * @return array<string,string>
 	 */
 	public static function class_files() {
-		return array(
-			'BizCity_TwinWeb_Prompt_Automation_Bridge' => 'class-twinweb-prompt-automation-bridge.php',
-			'BizCity_TwinWeb_REST'                     => 'class-twinweb-rest.php',
-			'BizCity_TwinWeb_CRM_Projection'           => 'class-twinweb-crm-projection.php',
-			'BizCity_TwinWeb_Member_Customer_360'      => 'class-twinweb-member-customer-360.php',
-			'BizCity_TwinWeb_Projects_REST'            => 'class-twinweb-projects-rest.php',
-			'BizCity_TwinWeb_CRM_Tasks_REST'           => 'class-twinweb-crm-tasks-rest.php',
-			'BizCity_TwinWeb_CRM_Pipeline_REST'        => 'class-twinweb-crm-pipeline-rest.php',
+		$dir   = ( defined( 'BIZCITY_TWINWEB_AXIS_DIR' ) ? BIZCITY_TWINWEB_AXIS_DIR : dirname( __DIR__ ) . '/' ) . 'includes/';
+		$files = array(
+			'BizCity_TwinWeb_Prompt_Automation_Bridge' => $dir . 'class-twinweb-prompt-automation-bridge.php',
+			'BizCity_TwinWeb_REST'                     => $dir . 'class-twinweb-rest.php',
+			'BizCity_TwinWeb_CRM_Projection'           => $dir . 'class-twinweb-crm-projection.php',
+			'BizCity_TwinWeb_Member_Customer_360'      => $dir . 'class-twinweb-member-customer-360.php',
 		);
+		return array_merge( $files, self::$addon_files );
+	}
+
+	/**
+	 * The /gpt/ add-on (modules/twinweb today, bizcity-twinweb-addon later) hands over its own REST classes. They follow the
+	 * slice's rules: required with the slice, or on first use by the autoloader. Already-loaded slice ⇒ required right away.
+	 *
+	 * @param array<string,string> $map Class name => absolute file.
+	 * @return void
+	 */
+	public static function register_addon_classes( array $map ) {
+		foreach ( $map as $class => $file ) {
+			self::$addon_files[ (string) $class ] = (string) $file;
+			if ( self::$loaded && is_readable( (string) $file ) ) {
+				require_once (string) $file;
+			}
+		}
 	}
 
 	/**
@@ -174,7 +195,9 @@ final class BizCity_TwinWeb_Rest_Slice {
 		self::$loaded = true;
 		self::$reason = (string) $reason;
 		foreach ( self::class_files() as $file ) {
-			require_once BIZCITY_TWINWEB_DIR . 'includes/' . $file;
+			if ( is_readable( $file ) ) {
+				require_once $file;
+			}
 		}
 		return true;
 	}
@@ -197,13 +220,13 @@ final class BizCity_TwinWeb_Rest_Slice {
 	 */
 	public static function autoload( $class ) {
 		$map = self::class_files();
-		if ( isset( $map[ $class ] ) ) {
-			require_once BIZCITY_TWINWEB_DIR . 'includes/' . $map[ $class ];
+		if ( isset( $map[ $class ] ) && is_readable( $map[ $class ] ) ) {
+			require_once $map[ $class ];
 		}
 	}
 
 	/**
-	 * Decide for this request and wire the lazy paths. Called once from modules/twinweb/bootstrap.php.
+	 * Decide for this request and wire the lazy paths. Called once from core/twinweb-axis/bootstrap.php.
 	 *
 	 * @return string The load reason, or '' when the slice was skipped.
 	 */

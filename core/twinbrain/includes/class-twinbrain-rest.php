@@ -19,7 +19,7 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 // PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
 // this file works even if core/diagnostics bootstrap hasn't fired yet.
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
 	$__trait = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'core/helper/includes/trait-rest-error.php';
 	if ( file_exists( $__trait ) ) {
 		require_once $__trait;

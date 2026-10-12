@@ -170,4 +170,3 @@ vendor/
 /core/channel-gateway/includes/class-sprint-diagnostic.php
 /core/channel-gateway/includes/class-phase-037-diagnostic.php
 /modules/twinchat/includes/diagnostics/
-/modules/twinweb/includes/class-probe-twinweb-*.php

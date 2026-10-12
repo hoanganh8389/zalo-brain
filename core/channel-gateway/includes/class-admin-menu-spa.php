@@ -236,7 +236,10 @@ final class BizCity_Gateway_Admin_SPA {
 				'automation' => $this->module_tables_exist( [ 'bizcity_automation_workflows', 'bizcity_automation_runs' ] ),
 				// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — Zalo Brain CRM present on this site (plugin registered on the spine).
 				'crm'        => class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'admin_ui' ),
+				// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-U3 — the /gpt/ part is installed (file presence) — the Twin GPT control plane only makes sense with it.
+				'twinweb'    => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
 			],
+			'twinwebAvailable' => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
 			// PHASE-0.96 — crm-spine@1 capability map (features the extension plugin registered), for FE gates.
 			'crmSpine'     => class_exists( 'BizCity_CRM_Spine' ) ? BizCity_CRM_Spine::describe() : null,
 		];

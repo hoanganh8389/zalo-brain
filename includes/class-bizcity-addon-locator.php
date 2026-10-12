@@ -12,7 +12,7 @@
  * of TwinBrain). `automation/…` resolves against bizcity-automation; every other relative path (memory/…,
  * knowledge-legacy/…) still resolves against bizcity-twin-brain-addon exactly as before — zero change for those callers.
  *
- * [2026-10-12 11:24 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L31 (R-ADDON-HOST v1, standards/ADDON-HOST-STANDARD.md AH-6/AH-9) —
+ * [2026-10-12 11:24 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L31 (R-ADDON-HOST v1, standards/ADDON-HOST-STANDARD.md AH-6/AH-9) —
  * an add-on is found by its MAIN FILE NAME in ANY plugin folder, not by `<slug>/<slug>.php`, so a fork or a renamed folder
  * (`bizcity-automation-main/`) still resolves. Because a bare file name is not proof (third-party
  * `bizcity-automation-legacy/bizcity-automation.php` is a different plugin), a non-canonical folder is accepted only
@@ -34,9 +34,12 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( class_exists( 'BizCity_Addon_Locator', false ) ) {
+// [2026-10-12 11:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L31 — NOT class_exists(): the class below is declared at compile time (early binding), so that test is
+// always true here and the early return skipped everything after the class (the plugin-change hooks and the bizcity_twinweb_* helpers).
+if ( defined( 'BIZCITY_ADDON_LOCATOR_LOADED' ) ) {
 	return;
 }
+define( 'BIZCITY_ADDON_LOCATOR_LOADED', true );
 
 final class BizCity_Addon_Locator {
 
@@ -48,7 +51,7 @@ final class BizCity_Addon_Locator {
 	/** Parts resolved against AUTOMATION_SLUG instead of SLUG. One top-level folder name per entry. */
 	const AUTOMATION_PARTS = array( 'automation' );
 
-	/** [2026-10-12 11:24 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L31 — bizcity-twinweb-addon (/gpt/). */
+	/** [2026-10-12 11:24 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L31 — bizcity-twinweb-addon (/gpt/). */
 	const TWINWEB_SLUG = 'bizcity-twinweb-addon';
 
 	/** Parts resolved against TWINWEB_SLUG. */
@@ -267,20 +270,12 @@ final class BizCity_Addon_Locator {
 		}
 
 		if ( in_array( $part, self::TWINWEB_PARTS, true ) ) {
+			// [2026-10-12 12:19 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L16 — no fallback to a bundled modules/twinweb any more: the bundle does not ship it, and a stale folder left on a server by an upload (uploads never delete) must never be loaded on top of core/twinweb-axis — that would redeclare classes. The /gpt/ part is bizcity-twinweb-addon or nothing.
 			$path   = '';
 			$inside = ltrim( substr( ltrim( $relative, '/' ), strlen( $part ) ), '/' );
-			if ( '' !== $inside ) {
-				if ( '' !== self::addon_dir( 'twinweb' ) ) {
-					if ( self::addon_available( 'twinweb' ) ) {
-						$candidate = self::addon_dir( 'twinweb' ) . $inside;
-						$path      = is_file( $candidate ) ? $candidate : '';
-					}
-				} elseif ( 'off' !== self::mode_of( 'twinweb' ) ) {
-					// [2026-10-12 11:24 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L31 — transition only: while modules/twinweb still ships inside the
-					// bundle, a site WITHOUT the add-on folder keeps /gpt/. Removed at S102-L16 once the add-on is the only home.
-					$bundled = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__ ) . '/' ) . 'modules/twinweb/' . $inside;
-					$path    = is_file( $bundled ) ? $bundled : '';
-				}
+			if ( '' !== $inside && self::addon_available( 'twinweb' ) ) {
+				$candidate = self::addon_dir( 'twinweb' ) . $inside;
+				$path      = is_file( $candidate ) ? $candidate : '';
 			}
 			return self::$cache[ $relative ] = $path;
 		}
@@ -291,6 +286,32 @@ final class BizCity_Addon_Locator {
 			$path      = is_file( $candidate ) ? $candidate : '';
 		}
 		return self::$cache[ $relative ] = $path;
+	}
+}
+
+// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L17/L12 — helpers every caller uses instead of class_exists( 'BizCity_TwinWeb_*' ): availability by FILE presence (the request that builds a page may be one that skips loading the class on purpose).
+if ( ! function_exists( 'bizcity_twinweb_available' ) ) {
+	/** True when the /gpt/ part (the add-on bizcity-twinweb-addon, found and allowed by its load mode) can load. */
+	function bizcity_twinweb_available(): bool {
+		return '' !== BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' );
+	}
+}
+if ( ! function_exists( 'bizcity_twinweb_url' ) ) {
+	/**
+	 * Public URL of a /gpt/ page ('' ⇒ /gpt/). Without the add-on there is no /gpt/: the Channel Gateway home answers instead
+	 * (the Twin Shell, which opens "Zalo Setup" first; CRM-like pages open the CRM entry).
+	 */
+	function bizcity_twinweb_url( string $sub = '' ): string {
+		$sub = trim( $sub, '/' );
+		if ( bizcity_twinweb_available() ) {
+			return home_url( '/gpt/' . ( '' !== $sub ? $sub . '/' : '' ) );
+		}
+		if ( class_exists( 'BizCity_Twin_Shell_Page', false ) && method_exists( 'BizCity_Twin_Shell_Page', 'shell_url' ) ) {
+			return in_array( $sub, array( 'crm', 'mytasks', 'mycustomers', 'myspace' ), true )
+				? BizCity_Twin_Shell_Page::shell_url( array( 'plugin' => 'crm' ) )
+				: BizCity_Twin_Shell_Page::shell_url();
+		}
+		return home_url( '/twin/' );
 	}
 }
 

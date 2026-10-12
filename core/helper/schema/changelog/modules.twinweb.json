@@ -1,7 +1,7 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "modules.twinweb",
-  "owner": "modules/twinweb",
+  "owner": "core/twinweb-axis",
   "installer_id": "twinweb",
   "current_version": "1.2.4",
   "version_option": "bizcity_twinweb_db_version",

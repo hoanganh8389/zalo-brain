@@ -103,15 +103,27 @@ class BizCity_Admin_Menu {
 	 * add_filter( 'zalo_brain_single_link_menu', '__return_false' ).
 	 */
 	public static function collapse_zalo_brain_to_gateway_link(): void {
-		global $menu;
+		global $menu, $submenu;
 		if ( ! is_array( $menu ) || ! apply_filters( 'zalo_brain_single_link_menu', true ) ) {
 			return;
 		}
 		$target = 'admin.php?page=bizchat-gateway-spa';
 		foreach ( $menu as $index => $item ) {
 			if ( isset( $item[2] ) && self::SLUG_CONTROL_PANEL === $item[2] ) {
-				// WordPress builds the submenu from $submenu[ $item[2] ]; a URL slug has none, so the flyout disappears.
-				// $submenu[ SLUG_CONTROL_PANEL ] itself stays, which keeps page=bizcity-twin-control-panel reachable.
+				// WordPress builds the flyout from $submenu[ $item[2] ]. A URL slug has none, so the 7 surfaces (Trợ lý · Cấu hình Zalo ·
+				// Đội Zalo · Sổ tay · Lịch & nhiệm vụ · Kịch bản · Cài đặt) would vanish: copy them under the new key, "Cấu hình Zalo"
+				// first because WordPress points the root link at the first child. $submenu[ SLUG_CONTROL_PANEL ] itself stays, which
+				// keeps page=bizcity-twin-control-panel reachable.
+				$children = isset( $submenu[ self::SLUG_CONTROL_PANEL ] ) && is_array( $submenu[ self::SLUG_CONTROL_PANEL ] )
+					? array_values( $submenu[ self::SLUG_CONTROL_PANEL ] )
+					: array();
+				usort( $children, static function ( $a, $b ) {
+					$is_gw = static function ( $child ) {
+						return isset( $child[2] ) && false !== strpos( (string) $child[2], 'page=bizchat-gateway-spa' );
+					};
+					return (int) $is_gw( $b ) <=> (int) $is_gw( $a ); // stable on PHP 8: other items keep their order
+				} );
+				$submenu[ $target ] = $children;
 				$menu[ $index ][1] = self::menu_cap();
 				$menu[ $index ][2] = $target;
 				break;

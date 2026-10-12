@@ -52,7 +52,7 @@ class BizCity_TwinWeb_Artifact_Jobs {
 				'id'          => self::CRON_JOB_ID,
 				'hook'        => self::CRON_HOOK,
 				'interval'    => self::CRON_INTERVAL,
-				'owner'       => 'modules/twinweb',
+				'owner'       => 'core/twinweb-axis', // [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — was modules/twinweb
 				'description' => 'Poll durable Twin GPT artifact jobs and sync owner-service status.',
 				'singleton'   => true,
 				'enabled'     => true,

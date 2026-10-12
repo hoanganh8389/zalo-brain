@@ -42,6 +42,8 @@ final class BizCity_Zalo_Deep_Analysis_MCP {
 					'vertical' => array( 'type' => 'string', 'enum' => BizCity_Zalo_Deep_Analysis::verticals() ),
 					'job_id'   => array( 'type' => 'string', 'pattern' => '^da_[A-Za-z0-9_-]{6,64}$' ),
 					'trace_id' => array( 'type' => 'string', 'maxLength' => 128 ),
+					// [2026-10-11 11:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P29 — the notebooks the cell narrowed (doctor rule, doc 70 §3.2); intersected with this turn's scope.
+					'notebook_ids' => array( 'type' => 'array', 'maxItems' => BizCity_Zalo_Deep_Analysis::NOTEBOOK_IDS_MAX, 'items' => array( 'type' => 'integer', 'minimum' => 1 ) ),
 				),
 			),
 			'output_schema'  => BizCity_MCP_Tool_Registry::envelope_schema( array(
@@ -102,6 +104,7 @@ final class BizCity_Zalo_Deep_Analysis_MCP {
 			'user_hash'  => (string) ( $ctx['user_hash'] ?? '' ),
 			'vertical'   => (string) ( $args['vertical'] ?? '' ),
 			'question'   => $question,
+			'notebook_ids' => self::scoped_notebook_ids( (array) ( $args['notebook_ids'] ?? array() ), $ctx ),
 		) );
 		if ( 'failed' === $res['status'] ) {
 			return new WP_Error( BizCity_MCP_Error::INTERNAL_ERROR, 'Site chưa xếp được việc phân tích sâu.', array( 'reason' => 'schedule_failed' ) );
@@ -110,8 +113,24 @@ final class BizCity_Zalo_Deep_Analysis_MCP {
 			'status'      => $res['status'],
 			'job_id'      => $res['job_id'],
 			'vertical'    => $res['vertical'],
+			'notebook_ids' => $res['notebook_ids'] ?? array(),
 			'eta_seconds' => self::ETA_SECONDS,
 			'as_of'       => gmdate( 'Y-m-d\TH:i:s\Z' ),
 		);
+	}
+
+	/**
+	 * [2026-10-11 11:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P29 — keep only notebook ids this delegated turn may read
+	 * (same resolver as knowledge.search). The TwinBrain selector applies the owner scope again when it loads them.
+	 *
+	 * @return int[]
+	 */
+	public static function scoped_notebook_ids( array $ids, array $ctx ): array {
+		$ids = array_slice( array_values( array_unique( array_filter( array_map( 'intval', $ids ), static function ( $i ) { return $i > 0; } ) ) ), 0, BizCity_Zalo_Deep_Analysis::NOTEBOOK_IDS_MAX );
+		if ( ! $ids || ! class_exists( 'BizCity_MCP_Client_Scope_Resolver' ) ) {
+			return $ids;
+		}
+		$allowed = array_map( 'intval', (array) BizCity_MCP_Client_Scope_Resolver::allowed_notebook_ids( $ctx ) );
+		return array_values( array_intersect( $ids, $allowed ) );
 	}
 }

@@ -78,7 +78,8 @@ final class BizCity_TwinBrain_Subject_Profile_Layer {
 		if ( defined( 'BIZCITY_TWIN_AI_DIR' ) ) {
 			return BIZCITY_TWIN_AI_DIR . 'modules/twinweb/profile-templates/';
 		}
-		return ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'modules/twinweb/profile-templates/';
+		// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+		return ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'modules/twinweb/profile-templates/';
 	}
 
 	/**

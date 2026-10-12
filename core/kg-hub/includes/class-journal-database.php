@@ -9,6 +9,11 @@
  * Live writers: the Zalo Bot capture (plugins/bizcity-zalo-bot class-notebook-bridge-listener.php) and
  * BizCity_KG_Channel_Notebook_Bridge. Table `bizcity_journal_entries` and class name are unchanged.
  *
+ * [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-4) — this table becomes the
+ * one index "client has what, where" table: adds `kind`, `subject_hash`, `doc_date`, `tags` query columns + 2
+ * indexes. `BizCity_Journal_Index` (class-journal-index.php) is the read/write API other lanes call; this class
+ * stays the low-level storage (schema + raw CRUD), unchanged in shape for existing callers.
+ *
  * @package Bizcity_Twin_AI
  * @subpackage Core\KG_Hub
  * @since 2026-08-02
@@ -22,9 +27,11 @@ if ( class_exists( 'BizCity_Journal_Database', false ) ) {
 
 final class BizCity_Journal_Database {
 
-	const SCHEMA_VERSION = '1.0.0';
+	const SCHEMA_VERSION = '1.1.0';
 	const SCHEMA_VERSION_KEY = 'bizcity_journal_db_version';
 	const CACHE_GROUP = 'journal';
+	// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — backfill batch size, bounded (R-JOURNAL R-JN-4).
+	const BACKFILL_BATCH = 500;
 
 	private static $instance = null;
 	private $table;
@@ -61,6 +68,10 @@ final class BizCity_Journal_Database {
 		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		$charset = $wpdb->get_charset_collate();
+		// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-4) — `kind`,
+		// `subject_hash`, `doc_date`, `tags` are the index query columns (doc 92 §5): the thẻ body stays in
+		// `metadata`, file/KG pointers stay in `notebook_id`/`kg_source_id`. dbDelta diffs this full CREATE TABLE
+		// against the live one, so a pre-1.1.0 install gets these columns added in place (no data loss).
 		$sql = "CREATE TABLE {$this->table} (
 			id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			owner_user_id       BIGINT UNSIGNED NOT NULL DEFAULT 0,
@@ -76,6 +87,10 @@ final class BizCity_Journal_Database {
 			learning_error      VARCHAR(500) NOT NULL DEFAULT '',
 			notebook_id         BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			kg_source_id        BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			kind                VARCHAR(48) NOT NULL DEFAULT '',
+			subject_hash        CHAR(18) NOT NULL DEFAULT '',
+			doc_date            DATE NULL DEFAULT NULL,
+			tags                VARCHAR(400) NOT NULL DEFAULT '',
 			metadata            LONGTEXT DEFAULT NULL,
 			created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -84,13 +99,56 @@ final class BizCity_Journal_Database {
 			KEY idx_owner_status (owner_user_id, status),
 			KEY idx_workspace_updated (workspace_id, updated_at),
 			KEY idx_learning_status (learning_status),
-			KEY idx_kg_source (kg_source_id)
+			KEY idx_kg_source (kg_source_id),
+			KEY idx_owner_kind_date (owner_user_id, kind, doc_date),
+			KEY idx_subject_date (subject_hash, doc_date)
 		) {$charset};";
 
 		// [2026-08-02 Johnny Chu] PHASE-SKILLS-JOURNAL — provision Journal
 		// storage through the WordPress schema path, then stamp the version.
 		dbDelta( $sql );
+		// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — backfill old rows (kind='') to
+		// `common.*` by `source_type` before stamping the new version, bounded + idempotent (safe to re-run: it
+		// only ever touches rows where kind is still empty).
+		if ( version_compare( (string) $stored, '1.1.0', '<' ) ) {
+			$this->backfill_kind_from_source_type();
+		}
 		update_option( self::SCHEMA_VERSION_KEY, self::SCHEMA_VERSION, true );
+	}
+
+	/**
+	 * [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — one-time backfill: rows written
+	 * before `kind` existed get `common.*` from their `source_type` (doc 92 §9 S100-L15). Bounded batches
+	 * (BACKFILL_BATCH rows / pass) so a large table never blocks the request that triggers `ensure_schema()`.
+	 * Idempotent: only rows with `kind = ''` are touched, so re-running after a partial pass is safe.
+	 */
+	private function backfill_kind_from_source_type(): void {
+		global $wpdb;
+		$map = array(
+			'image'      => 'common.photo',
+			'photo'      => 'common.photo',
+			'file'       => 'common.document',
+			'document'   => 'common.document',
+			'audio'      => 'common.voice_note',
+			'voice'      => 'common.voice_note',
+			'voice_note' => 'common.voice_note',
+			'receipt'    => 'common.receipt',
+			'note'       => 'common.note',
+			'menu'       => 'common.note',
+		);
+		$guard = 0;
+		do {
+			$rows = $wpdb->get_results( "SELECT id, source_type FROM {$this->table} WHERE kind = '' ORDER BY id ASC LIMIT " . (int) self::BACKFILL_BATCH, ARRAY_A ) ?: array();
+			if ( empty( $rows ) ) {
+				break;
+			}
+			foreach ( $rows as $row ) {
+				$kind = $map[ strtolower( (string) $row['source_type'] ) ] ?? 'common.document';
+				$wpdb->update( $this->table, array( 'kind' => $kind ), array( 'id' => (int) $row['id'] ) );
+			}
+			$guard++;
+		} while ( count( $rows ) >= self::BACKFILL_BATCH && $guard < 200 ); // hard ceiling: never an infinite loop on a stuck row.
+		$this->flush_cache();
 	}
 
 	/**
@@ -171,6 +229,119 @@ final class BizCity_Journal_Database {
 		return $rows;
 	}
 
+	/**
+	 * [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-4/R-JN-5) — the SQL
+	 * filter `BizCity_Journal_Index::find()` builds on: structured columns first, `q` (title LIKE) only narrows
+	 * what the structured filter already matched. Never archived.
+	 *
+	 * @param array $filter {owner_user_id, all?, kind?, kinds?[], kind_prefix?, tags?[], subject_hash?, from?, to?, q?, limit, offset}
+	 * @return array{items:array,total:int}
+	 */
+	public function find_indexed( array $filter ): array {
+		global $wpdb;
+		$owner = (int) ( $filter['owner_user_id'] ?? 0 );
+		$all   = ! empty( $filter['all'] );
+		$where  = array( "status != 'archived'" );
+		$params = array();
+		if ( ! $all ) {
+			$where[]  = 'owner_user_id = %d';
+			$params[] = $owner;
+		}
+		if ( ! empty( $filter['kind'] ) ) {
+			$where[]  = 'kind = %s';
+			$params[] = self::sanitize_kind( (string) $filter['kind'] );
+		} elseif ( ! empty( $filter['kinds'] ) && is_array( $filter['kinds'] ) ) {
+			$kinds = array_map( array( __CLASS__, 'sanitize_kind' ), $filter['kinds'] );
+			$kinds = array_values( array_filter( $kinds ) );
+			if ( ! empty( $kinds ) ) {
+				$in       = implode( ',', array_fill( 0, count( $kinds ), '%s' ) );
+				$where[]  = "kind IN ({$in})";
+				$params   = array_merge( $params, $kinds );
+			}
+		} elseif ( ! empty( $filter['kind_prefix'] ) ) {
+			$where[]  = 'kind LIKE %s';
+			$params[] = $wpdb->esc_like( self::sanitize_kind( (string) $filter['kind_prefix'] ) ) . '%';
+		}
+		if ( ! empty( $filter['subject_hash'] ) ) {
+			$where[]  = 'subject_hash = %s';
+			$params[] = self::sanitize_subject_hash( (string) $filter['subject_hash'] );
+		}
+		if ( ! empty( $filter['from'] ) ) {
+			$where[]  = 'doc_date >= %s';
+			$params[] = (string) $filter['from'];
+		}
+		if ( ! empty( $filter['to'] ) ) {
+			$where[]  = 'doc_date <= %s';
+			$params[] = (string) $filter['to'];
+		}
+		if ( ! empty( $filter['tags'] ) && is_array( $filter['tags'] ) ) {
+			foreach ( array_slice( $filter['tags'], 0, 5 ) as $t ) {
+				$t = strtolower( (string) preg_replace( '/[^a-z0-9\-]/', '', trim( (string) $t ) ) );
+				if ( '' === $t ) {
+					continue;
+				}
+				$where[]  = 'tags LIKE %s';
+				$params[] = '%' . $wpdb->esc_like( ',' . $t . ',' ) . '%';
+			}
+		}
+		// `q` narrows the already-structured-filtered set (title only — R-JN-5: semantic search is a separate pass).
+		if ( '' !== trim( (string) ( $filter['q'] ?? '' ) ) ) {
+			$where[]  = 'title LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( trim( (string) $filter['q'] ) ) . '%';
+		}
+		$where_sql = implode( ' AND ', $where );
+		$total = (int) $wpdb->get_var( $params ? $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}", $params ) : "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}" );
+		$limit  = min( 50, max( 1, (int) ( $filter['limit'] ?? 20 ) ) );
+		$offset = max( 0, (int) ( $filter['offset'] ?? 0 ) );
+		$list_params = array_merge( $params, array( $limit, $offset ) );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE {$where_sql} ORDER BY doc_date DESC, id DESC LIMIT %d OFFSET %d", $list_params ), ARRAY_A ) ?: array();
+		return array( 'items' => $rows, 'total' => $total );
+	}
+
+	/** Shelf rows for `doc_index` (doc 92 §5): one row per `kind` the owner has, with count/date range/top tags/review count. */
+	public function shelf_rows( int $owner_user_id, int $max = 40 ): array {
+		global $wpdb;
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT kind, COUNT(*) AS c, MIN(doc_date) AS d_from, MAX(doc_date) AS d_to, MAX(updated_at) AS u
+			 FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' AND kind != '' GROUP BY kind ORDER BY c DESC LIMIT %d",
+			$owner_user_id, max( 1, $max )
+		), ARRAY_A ) ?: array();
+		return $rows;
+	}
+
+	/** Subject rows for `doc_index` (doc 92 §5): per subject, kind counts + last activity. */
+	public function subject_rows( int $owner_user_id, int $max = 30 ): array {
+		global $wpdb;
+		$subjects = $wpdb->get_col( $wpdb->prepare(
+			"SELECT DISTINCT subject_hash FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' AND subject_hash != '' ORDER BY updated_at DESC LIMIT %d",
+			$owner_user_id, max( 1, $max )
+		) ) ?: array();
+		$out = array();
+		foreach ( $subjects as $sh ) {
+			$kind_rows = $wpdb->get_results( $wpdb->prepare(
+				"SELECT kind, COUNT(*) AS c, MAX(doc_date) AS last FROM {$this->table} WHERE owner_user_id = %d AND subject_hash = %s AND status != 'archived' GROUP BY kind",
+				$owner_user_id, $sh
+			), ARRAY_A ) ?: array();
+			$kinds = array();
+			$last  = '';
+			foreach ( $kind_rows as $kr ) {
+				$kinds[ (string) $kr['kind'] ] = (int) $kr['c'];
+				$last = max( $last, (string) $kr['last'] );
+			}
+			$out[] = array( 'subject_hash' => $sh, 'kinds' => $kinds, 'last' => $last );
+		}
+		return $out;
+	}
+
+	/** Recent rows for `doc_index` (doc 92 §5). */
+	public function recent_rows( int $owner_user_id, int $max = 20 ): array {
+		global $wpdb;
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, kind, title, doc_date, tags, updated_at FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' ORDER BY updated_at DESC LIMIT %d",
+			$owner_user_id, max( 1, $max )
+		), ARRAY_A ) ?: array();
+	}
+
 	public function get( int $id, int $owner_user_id = 0, bool $all = false ) {
 		if ( $id <= 0 ) {
 			return null;
@@ -231,6 +402,20 @@ final class BizCity_Journal_Database {
 		}
 		if ( array_key_exists( 'metadata', $data ) ) {
 			$write['metadata'] = is_array( $data['metadata'] ) ? wp_json_encode( $data['metadata'], JSON_UNESCAPED_UNICODE ) : (string) $data['metadata'];
+		}
+		// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L17 — index columns are patchable
+		// (journal.file: re-kind, re-tag, re-subject a row — R-JN-6 "đổi loại = đổi liên kết, không chép file").
+		if ( array_key_exists( 'kind', $data ) ) {
+			$write['kind'] = self::sanitize_kind( (string) $data['kind'] );
+		}
+		if ( array_key_exists( 'subject_hash', $data ) ) {
+			$write['subject_hash'] = self::sanitize_subject_hash( (string) $data['subject_hash'] );
+		}
+		if ( array_key_exists( 'doc_date', $data ) ) {
+			$write['doc_date'] = self::sanitize_doc_date( $data['doc_date'] );
+		}
+		if ( array_key_exists( 'tags', $data ) ) {
+			$write['tags'] = self::encode_tags( (array) $data['tags'] );
 		}
 		if ( empty( $write ) ) {
 			return $row;
@@ -311,8 +496,65 @@ final class BizCity_Journal_Database {
 			'learning_status' => 'not_queued',
 			'notebook_id'     => (int) ( $data['notebook_id'] ?? 0 ),
 			'kg_source_id'    => (int) ( $data['kg_source_id'] ?? 0 ),
+			// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-4) — index columns.
+			'kind'            => self::sanitize_kind( (string) ( $data['kind'] ?? '' ) ),
+			'subject_hash'    => self::sanitize_subject_hash( (string) ( $data['subject_hash'] ?? '' ) ),
+			'doc_date'        => self::sanitize_doc_date( $data['doc_date'] ?? null ),
+			'tags'            => self::encode_tags( (array) ( $data['tags'] ?? array() ) ),
 			'metadata'        => is_array( $metadata ) ? wp_json_encode( $metadata, JSON_UNESCAPED_UNICODE ) : (string) $metadata,
 		);
+	}
+
+	/** `<family>.<kind>`, lowercase, dot + alnum/underscore only, ≤ 48 chars (journal-kinds@1). */
+	public static function sanitize_kind( string $kind ): string {
+		$kind = strtolower( trim( $kind ) );
+		$kind = (string) preg_replace( '/[^a-z0-9_.]/', '', $kind );
+		return substr( $kind, 0, 48 );
+	}
+
+	/** `s-` + 16 hex (R-CID-11 hashed subject, doc 92 §2). Anything else is dropped (empty = "no subject"). */
+	public static function sanitize_subject_hash( string $hash ): string {
+		$hash = strtolower( trim( $hash ) );
+		return 1 === preg_match( '/^s-[0-9a-f]{16}$/', $hash ) ? $hash : '';
+	}
+
+	/** 's-' + first 16 hex of sha256(type ':' value) — the one subject-hash builder every caller shares. */
+	public static function subject_hash( string $type, string $value ): string {
+		$type  = sanitize_key( $type ) ?: 'self';
+		$value = trim( $value );
+		if ( '' === $value && 'self' !== $type ) {
+			return '';
+		}
+		return 's-' . substr( hash( 'sha256', $type . ':' . $value ), 0, 16 );
+	}
+
+	/** 'Y-m-d' or null. */
+	public static function sanitize_doc_date( $date ) {
+		$date = trim( (string) $date );
+		return 1 === preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ? $date : null;
+	}
+
+	/** Stored as ',a,b,c,' so `LIKE '%,tag,%'` matches a whole tag (doc 92 §5). Lowercase, ≤ 12 tags, ≤ 40 chars each. */
+	public static function encode_tags( array $tags ): string {
+		$clean = array();
+		foreach ( $tags as $t ) {
+			$t = strtolower( trim( (string) $t ) );
+			$t = (string) preg_replace( '/[^a-z0-9\-]/', '', $t );
+			$t = substr( $t, 0, 40 );
+			if ( '' !== $t && ! in_array( $t, $clean, true ) ) {
+				$clean[] = $t;
+			}
+			if ( count( $clean ) >= 12 ) {
+				break;
+			}
+		}
+		return empty( $clean ) ? '' : ',' . implode( ',', $clean ) . ',';
+	}
+
+	/** Reverse of encode_tags(). */
+	public static function decode_tags( string $stored ): array {
+		$stored = trim( $stored, ',' );
+		return '' === $stored ? array() : explode( ',', $stored );
 	}
 
 	private function flush_cache(): void {

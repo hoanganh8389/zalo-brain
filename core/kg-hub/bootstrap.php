@@ -110,6 +110,30 @@ BizCity_KG_Notebook_Bridge_File_Logger::init();
 if ( class_exists( 'BizCity_Safe_Loader' ) ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_KG_HUB_INCLUDES . 'class-journal-database.php', 'kg_hub.journal_database' );
 }
+// [2026-10-12 12:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L16/L17/L18/L22 (R-JOURNAL) — the journal
+// index/filer/kinds/pack/REST layer on top of `bizcity_journal_entries` (doc 92). Order matters: kinds before
+// index/filer (both read it), index before the pack exporter (the exporter reads the index/database directly).
+foreach ( array(
+	'class-journal-kinds.php'                    => 'kg_hub.journal_kinds',
+	'class-journal-index.php'                    => 'kg_hub.journal_index',
+	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
+	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
+	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
+) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
+	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
+	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+		BizCity_Safe_Loader::require_file( $_bizcity_journal_path, $_bizcity_journal_label );
+	} elseif ( is_file( $_bizcity_journal_path ) && is_readable( $_bizcity_journal_path ) ) {
+		require_once $_bizcity_journal_path;
+	}
+}
+unset( $_bizcity_journal_rel, $_bizcity_journal_label, $_bizcity_journal_path );
+if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
+	BizCity_Journal_Doc_Index_Pack_Exporter::register();
+}
+if ( class_exists( 'BizCity_Journal_REST', false ) ) {
+	BizCity_Journal_REST::init();
+}
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — one notebook workspace per Zalo number (Q96-13 = a).
@@ -231,7 +255,8 @@ add_shortcode( 'bizcity_notebook_notes', static function ( $atts ) {
 		'limit'       => 20,
 	), $atts, 'bizcity_notebook_notes' );
 
-	$view = WP_PLUGIN_DIR . '/bizcity-twin-ai/core/knowledge/views/notebook-notes-panel.php';
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — was a hard-coded plugin folder name — shortcode [bizcity_notebook_notes] rendered empty when the plugin folder had another name.
+	$view = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 2 ) . '/' ) . 'core/knowledge/views/notebook-notes-panel.php';
 	if ( ! is_readable( $view ) ) { return ''; }
 	ob_start();
 	include $view; // $atts is in scope

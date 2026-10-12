@@ -38,8 +38,22 @@ class BizCity_KG_Vector_Index {
 		if ( ! class_exists( 'BizCity_Knowledge_Embedding' ) ) {
 			return new WP_Error( 'no_embedder', 'BizCity_Knowledge_Embedding not loaded' );
 		}
-		return BizCity_Knowledge_Embedding::instance()->create_embedding( $text );
+		// [2026-10-11 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P2 — successes are already cached by create_embedding (memory +
+		// transient); a FAILURE is not, so one knowledge.search over N notebooks retried the failing provider N times before
+		// every notebook fell back to keyword. Remember the failure for the rest of this request (same text only).
+		$key = md5( (string) $text );
+		if ( isset( $this->failed[ $key ] ) ) {
+			return $this->failed[ $key ];
+		}
+		$vec = BizCity_Knowledge_Embedding::instance()->create_embedding( $text );
+		if ( is_wp_error( $vec ) ) {
+			$this->failed[ $key ] = $vec;
+		}
+		return $vec;
 	}
+
+	/** PHASE-0.99 S99-P2 — embedding failures of this request, by md5(text). @var array<string,WP_Error> */
+	private $failed = [];
 
 	/**
 	 * Cosine similarity between two equal-length vectors.

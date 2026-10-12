@@ -534,7 +534,13 @@ final class BizCity_Bot_REST {
 	 */
 	private static function role_slugs( $raw ): array {
 		if ( ! is_array( $raw ) ) {
-			return class_exists( 'BizCity_Zalo_Owner_Uid_Claim' ) ? BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT : array();
+			// [2026-10-11 Johnny Chu - Chu Hoàng Anh] HOTFIX PHASE-0.97 S97-L2 — upload lệch: class-bot-rest.php mới đi trước class-zalo-owner-uid-claim.php cũ
+			// (chưa có hằng số) ⇒ Fatal "Undefined class constant" ở mọi lần lưu policy (poll mã BIZ không nhận chủ). Kiểm hằng số tồn tại trước khi đọc; thiếu ⇒ mặc định cứng.
+			if ( class_exists( 'BizCity_Zalo_Owner_Uid_Claim' ) && defined( 'BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT' ) ) {
+				return (array) constant( 'BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT' );
+			}
+			// Mặc định cứng = BizCity_Zalo_Owner_Uid_Claim::SELF_CONNECT_ROLES_DEFAULT; không ghi [] (sẽ khoá vai trò khác sau khi class mới lên).
+			return array( 'editor', 'shop_manager', 'author', 'bizcity_crm_staff' );
 		}
 		$out = array();
 		foreach ( $raw as $r ) {

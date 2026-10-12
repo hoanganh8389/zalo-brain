@@ -98,17 +98,23 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 */
 	public static function items_from_owner_capture( array $raw_items ): array {
 		$out = array();
-		foreach ( $raw_items as $it ) {
+		foreach ( $raw_items as $i => $it ) {
 			if ( ! is_array( $it ) ) {
 				continue;
 			}
+			// [2026-10-12 12:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (owner-capture@1.2.0, I-3) —
+			// carry the cell-extracted `card` + the item's position in the RAW payload through: `raw_index`
+			// survives any item this method drops (invalid url/empty text), so the journal idempotency_key built
+			// in capture() from it keeps matching the position the cell's own `items[]` used — the same position
+			// the later "card" patch event's `index` refers to.
+			$card = is_array( $it['card'] ?? null ) ? $it['card'] : array();
 			$kind = sanitize_key( (string) ( $it['kind'] ?? '' ) );
 			if ( 'text' === $kind ) {
 				$text = trim( (string) ( $it['text'] ?? '' ) );
 				if ( '' === $text ) {
 					continue;
 				}
-				$out[] = array( 'kind' => 'text', 'content' => $text );
+				$out[] = array( 'kind' => 'text', 'content' => $text, 'raw_index' => $i, 'card' => $card );
 				continue;
 			}
 			$url = trim( (string) ( $it['url'] ?? '' ) );
@@ -121,9 +127,66 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			if ( '' !== $name ) {
 				$att['file_name'] = $name;
 			}
-			$out[] = array( 'kind' => $att_kind, 'attachment' => $att );
+			$out[] = array( 'kind' => $att_kind, 'attachment' => $att, 'raw_index' => $i, 'card' => $card );
 		}
 		return $out;
+	}
+
+	/**
+	 * owner-capture@1.2.0 follow-up event `kind:"card"` (I-3): the cell saw the file in a LATER turn than the one
+	 * that sent it and now attaches the extracted card by `idempotency_key` (the ORIGINAL file event's) + each
+	 * item's `index` (its position in that same file event's `items[]`). Patches the journal index row synchronously
+	 * — this is a DB-only patch (no Zalo CDN download, no model call), so unlike `from_owner_capture()` it does not
+	 * need a cron hop (R-PF-2 is about avoiding a provider call on the request path, not every DB write).
+	 *
+	 * @param array $raw_items contract `items[]` ({msg_id?, index, card})
+	 * @return array { ok:bool, code:string, patched?:int }
+	 */
+	public static function from_owner_capture_card( string $bridge_id, string $idempotency_key, array $raw_items ): array {
+		if ( self::in_diagnostics_cli() ) {
+			return array( 'ok' => false, 'code' => 'cli_isolated' );
+		}
+		$bridge_id       = sanitize_text_field( $bridge_id );
+		$idempotency_key = sanitize_text_field( $idempotency_key );
+		if ( '' === $bridge_id || '' === $idempotency_key || empty( $raw_items ) ) {
+			return array( 'ok' => false, 'code' => 'invalid_param' );
+		}
+		if ( ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return array( 'ok' => false, 'code' => 'capture_unsupported' );
+		}
+		$patched = 0;
+		foreach ( $raw_items as $it ) {
+			if ( ! is_array( $it ) ) {
+				continue;
+			}
+			$index = isset( $it['index'] ) ? (int) $it['index'] : -1;
+			$card  = is_array( $it['card'] ?? null ) ? $it['card'] : array();
+			if ( $index < 0 || empty( $card ) ) {
+				continue;
+			}
+			$key   = 'oc:' . $idempotency_key . ':' . $index;
+			$patch = array( 'card' => $card, 'review' => false ); // a card now exists — no longer "cần xem lại" by default.
+			if ( '' !== (string) ( $card['kind'] ?? '' ) ) {
+				$patch['kind'] = (string) $card['kind'];
+			}
+			if ( '' !== (string) ( $card['subject']['hash'] ?? '' ) ) {
+				$patch['subject_hash'] = (string) $card['subject']['hash'];
+			}
+			if ( isset( $card['tags'] ) ) {
+				$patch['tags'] = (array) $card['tags'];
+			}
+			if ( '' !== (string) ( $card['doc_date'] ?? '' ) ) {
+				$patch['doc_date'] = (string) $card['doc_date'];
+			}
+			// owner_user_id 0: the Bearer gate on the REST route already proved this account's callback token;
+			// the row's own owner stays whatever the original file event wrote it as (R-JN-2: never reassigned here).
+			$r = BizCity_Journal_Index::file_by_idempotency_key( $key, 0, $patch );
+			if ( ! is_wp_error( $r ) ) {
+				$patched++;
+			}
+		}
+		self::log( 'owner_capture_card_patched', array( 'account_id' => $bridge_id, 'patched' => $patched, 'total' => count( $raw_items ) ) );
+		return array( 'ok' => true, 'code' => '', 'patched' => $patched );
 	}
 
 	/**
@@ -227,14 +290,41 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			$owner_hash = $owner_user_id > 0 && class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::user_hash( $owner_user_id ) : '';
 			return ( '' === $hash || ( '' !== $owner_hash && hash_equals( $owner_hash, $hash ) ) ) && $owner_user_id > 0 ? array( 'user_id' => $owner_user_id, 'role' => 'owner' ) : null;
 		}
-		if ( 'staff' !== $role || '' === $hash || ! class_exists( 'BizCity_Zalo_Agent_Principals' ) ) {
-			return null;
+		if ( 'staff' === $role ) {
+			if ( '' === $hash || ! class_exists( 'BizCity_Zalo_Agent_Principals' ) ) {
+				return null;
+			}
+			$p = BizCity_Zalo_Agent_Principals::by_hash( $bridge_id, $hash );
+			if ( null === $p || 'staff' !== $p['role'] || empty( $p['capture'][ $kind ] ) ) {
+				return null;
+			}
+			return array( 'user_id' => (int) $p['user_id'], 'role' => 'staff' );
 		}
-		$p = BizCity_Zalo_Agent_Principals::by_hash( $bridge_id, $hash );
-		if ( null === $p || 'staff' !== $p['role'] || empty( $p['capture'][ $kind ] ) ) {
-			return null;
+		if ( 'guest' === $role ) {
+			// [2026-10-12 01:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-9) — a guest's
+			// own photo/file (e.g. a student's homework photo) is captured ONLY when the thread is already
+			// labeled for this profile AND the profile has `journal.guest_capture` on (Q100-12). Neither the
+			// thread-label store nor the brain-profile flag exist yet (site-profile lane, PHASE-0.100 S100-L3+ /
+			// doc 90 §3 `journal.json`) — this filter is the single, fail-closed gate until that lane wires it:
+			// default false refuses every guest capture, exactly like "luồng chưa gắn nhãn: không lưu" (doc 92 §7).
+			if ( '' === $hash ) {
+				return null;
+			}
+			/**
+			 * @param bool   $allowed  default false (fail-closed).
+			 * @param string $bridge_id the number.
+			 * @param string $hash      the guest's user_hash (R-CID-11 — never a raw UID here).
+			 */
+			$allowed = (bool) apply_filters( 'bizcity_zalo_personal_capture_guest_allowed', false, $bridge_id, $hash );
+			if ( ! $allowed ) {
+				return null;
+			}
+			// The guest has no WP user in this system: the item is filed under the NUMBER's owner (so it lands
+			// in that number's journal index/notebooks, per-subject if the profile wants it — doc 92 §4 rule 3),
+			// with `by.role = guest` kept on the journal row (R-JN-11 provenance, never promoted to "owner").
+			return $owner_user_id > 0 ? array( 'user_id' => $owner_user_id, 'role' => 'guest' ) : null;
 		}
-		return array( 'user_id' => (int) $p['user_id'], 'role' => 'staff' );
+		return null;
 	}
 
 	/**
@@ -302,12 +392,21 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		}
 		$title = self::notebook_title( (string) ( $job['label'] ?? '' ), $bridge_id, $day_key );
 		$items = array();
+		// [2026-10-12 01:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — per-item journal metadata, keyed
+		// by its PUSH POSITION in $items (0..n-1 — the same index capture_batch()'s succeeded[]/queued[] use),
+		// not by `$i` (the loop key, which skips a gap when an earlier item is dropped).
+		$card_meta = array();
 		foreach ( (array) ( $job['items'] ?? array() ) as $i => $item ) {
 			if ( ! is_array( $item ) ) {
 				continue;
 			}
+			// [2026-10-12 01:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — `raw_index` (set by
+			// items_from_owner_capture()) is the item's position in the RAW owner-capture payload; a later
+			// owner-capture@1.2.0 "card" patch event's `index` refers to that same raw position, not to `$i`
+			// here (which can shift when an earlier raw item was dropped as invalid).
+			$raw_index = isset( $item['raw_index'] ) ? (int) $item['raw_index'] : $i;
 			// One message id per item: the bridge dedupes on it, so a retried job never adds the same item twice.
-			$mid = (string) ( $job['dedupe_key'] ?? '' ) . ':' . $i;
+			$mid = (string) ( $job['dedupe_key'] ?? '' ) . ':' . $raw_index;
 			$row = array(
 				'kind'       => (string) ( $item['kind'] ?? 'file' ),
 				'title_hint' => $title,
@@ -320,6 +419,11 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			} else {
 				continue;
 			}
+			$card_meta[ count( $items ) ] = array(
+				'card'             => is_array( $item['card'] ?? null ) ? $item['card'] : array(),
+				'idempotency_key'  => $mid,
+				'kind_hint'        => (string) ( $item['kind'] ?? 'file' ),
+			);
 			$items[] = $row;
 		}
 		if ( empty( $items ) ) {
@@ -357,6 +461,14 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			self::done( 'knowledge_capture_failed', array( 'account_id' => $bridge_id, 'reason' => $res->get_error_code(), 'items' => count( $items ) ), 'invalid_param', 'error' );
 			return;
 		}
+		// [2026-10-12 01:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L17 (R-JOURNAL R-JN-1/R-JN-3/R-JN-6) —
+		// K4 "đánh chỉ mục": every item the bridge actually captured (succeeded now, or queued for async KG ingest)
+		// gets one journal-entry@1 row, then K3 "xếp ngăn" files it into the day inbox (already done by the bridge
+		// above) plus its kind shelf / per-subject notebook (BizCity_Journal_Filer). A card-less item still gets a
+		// row (kind falls back to common.*, flags.review=true inside BizCity_Journal_Index::add() — R-JN-2: the
+		// original file is never blocked on this). Duplicates (same idempotency_key as an earlier capture) are
+		// skipped — they already have a row.
+		self::index_captured_items( $job, $owner, $bridge_id, $day_key, $card_meta, $res );
 		// [2026-10-01] capture_batch() returns a normal array even when an item failed (download/sideload before any placeholder
 		// source exists) — it used to be reported as "done" with succeeded=0, so a lost file left no trace here. Surface it.
 		$failed = self::failed_items_summary( $res );
@@ -381,6 +493,61 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			'succeeded'        => (int) ( $res['succeeded'] ?? 0 ),
 			'queued'           => (int) ( $res['queued'] ?? 0 ),
 		) );
+	}
+
+	/**
+	 * PHASE-0.100 S100-L15/L17 — one `BizCity_Journal_Index::add()` + `BizCity_Journal_Filer` placement per item
+	 * the bridge captured (succeeded or queued; duplicates and failures are skipped — a duplicate already has a
+	 * row, a failure never reached the client's filestore at all, R-JN-2 "lưu gốc không bao giờ phụ thuộc thẻ"
+	 * cuts the other way too: no gốc, no row).
+	 *
+	 * @param array $job       the cron job ({role, dedupe_key, ...}).
+	 * @param array $card_meta keyed by capture_batch() item index: {card, idempotency_key, kind_hint}.
+	 * @param array $res       capture_batch()'s return.
+	 */
+	private static function index_captured_items( array $job, int $owner, string $bridge_id, string $day_key, array $card_meta, array $res ): void {
+		if ( ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return;
+		}
+		$notebook_id = (int) ( $res['notebook_id'] ?? 0 );
+		$role        = (string) ( $job['role'] ?? 'owner' );
+		$rows        = array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) );
+		foreach ( $rows as $r ) {
+			if ( ! is_array( $r ) || ! empty( $r['duplicate'] ) ) {
+				continue; // already indexed by the capture that first wrote this item.
+			}
+			$idx = isset( $r['index'] ) ? (int) $r['index'] : -1;
+			if ( $idx < 0 || ! isset( $card_meta[ $idx ] ) ) {
+				continue;
+			}
+			$meta = $card_meta[ $idx ];
+			$card = (array) $meta['card'];
+			$kind = class_exists( 'BizCity_Journal_Kinds' )
+				? BizCity_Journal_Kinds::resolve( (string) ( $card['kind'] ?? '' ), (string) $meta['kind_hint'] )
+				: 'common.document';
+			$title = sanitize_text_field( (string) ( $card['title'] ?? '' ) );
+			$entry = BizCity_Journal_Index::add( array(
+				'owner_user_id'   => $owner,
+				'kind'            => $kind,
+				'title'           => $title,
+				'doc_date'        => $card['doc_date'] ?? null,
+				'subject'         => is_array( $card['subject'] ?? null ) ? $card['subject'] : array(),
+				'tags'            => (array) ( $card['tags'] ?? array() ),
+				'card'            => is_array( $card['fields'] ?? null ) ? $card['fields'] : array(),
+				'confidence'      => isset( $card['confidence'] ) ? (float) $card['confidence'] : ( empty( $card ) ? 0.0 : 1.0 ),
+				'original'        => array( 'mime' => (string) $meta['kind_hint'] ),
+				'notebook_id'     => $notebook_id,
+				'kg_source_id'    => (int) ( $r['kg_source_id'] ?? 0 ),
+				'source_type'     => 'owner_capture',
+				'idempotency_key' => (string) $meta['idempotency_key'],
+				'by'              => array( 'role' => $role ),
+			) );
+			if ( is_wp_error( $entry ) || ! class_exists( 'BizCity_Journal_Filer' ) ) {
+				continue;
+			}
+			$decision = BizCity_Journal_Filer::place( $entry );
+			BizCity_Journal_Filer::apply( $decision, $owner, $bridge_id, (int) ( $r['kg_source_id'] ?? 0 ), $day_key );
+		}
 	}
 
 	/**

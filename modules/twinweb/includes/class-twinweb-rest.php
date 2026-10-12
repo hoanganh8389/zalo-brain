@@ -1384,13 +1384,7 @@ class BizCity_TwinWeb_REST {
 			}
 		}
 
-		// [2026-08-16 Johnny Chu] CCG-1 — TwinWeb uses the canonical exact workflow resolver before normal brain fallback.
-		if ( $skill === '' && class_exists( 'BizCity_Automation_Command_Resolver' )
-			&& BizCity_Automation_Command_Resolver::extract( $message ) ) {
-			$this->handle_explicit_workflow_command( $message, $identity, $thread_id );
-			self::close_sse();
-			exit;
-		}
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L6 — #workflow_slug interception removed (owner Q102-6); #text is a normal prompt now.
 
 		// [2026-07-22 Johnny Chu] PHASE-3-TWIN-GPT — let normal prompt input trigger owner/global ZaloBot keyword workflows before TwinBrain fallback.
 		if ( $skill === '' && class_exists( 'BizCity_TwinWeb_Prompt_Automation_Bridge' ) ) {
@@ -1718,10 +1712,6 @@ class BizCity_TwinWeb_REST {
 			$this->legacy_reason = 'vertical_slug';
 			return 'php';
 		}
-		if ( class_exists( 'BizCity_Automation_Command_Resolver' ) && BizCity_Automation_Command_Resolver::extract( $message ) ) {
-			$this->legacy_reason = 'workflow_command';
-			return 'php';
-		}
 		$user_id  = (int) $identity['user_id'];
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 — owned image attachments go to the cell as image parts (public uploads URLs, the
 		// same URLs the PHP path already hands to the model); any non-image, foreign or unfetchable file keeps the turn on php.
@@ -1831,85 +1821,6 @@ class BizCity_TwinWeb_REST {
 		echo "\n";
 		if ( ob_get_level() ) { ob_flush(); }
 		flush();
-	}
-
-	private function handle_explicit_workflow_command( $prompt, array $identity, $thread_id ): void {
-		// [2026-08-16 Johnny Chu] CCG-1 — resolve and run one exact #workflow_slug in TwinWeb's admin Zone 2 surface.
-		$user_id = (int) ( $identity['user_id'] ?? 0 );
-		$resolved = BizCity_Automation_Command_Resolver::resolve(
-			$prompt,
-			array(
-				'user_id'  => $user_id,
-				'is_admin' => current_user_can( 'manage_options' ),
-				'zone'     => 'admin',
-			),
-			array( 'zone' => 'admin' )
-		);
-		$trace_id = 'tw_' . wp_generate_uuid4();
-		self::sse_emit( 'started', array(
-			'trace_id'   => $trace_id,
-			'session_id' => (string) $thread_id,
-			'surface'    => 'twinweb_workflow_command',
-		) );
-		if ( empty( $resolved['matched'] ) ) {
-			self::sse_error( array(
-				'code'      => (string) ( $resolved['reason'] ?? 'workflow_command_denied' ),
-				'message'   => 'Workflow command không được phép chạy.',
-				'hint'      => 'Chọn workflow được cấp quyền trong danh sách # rồi thử lại.',
-				'help_code' => 'automation_run_failed',
-			) );
-			return;
-		}
-		$workflow    = (array) ( $resolved['workflow'] ?? array() );
-		$workflow_id = (int) ( $workflow['id'] ?? 0 );
-		$chat_id     = 'twinweb_prompt_' . $user_id . '_' . sanitize_key( (string) $thread_id );
-		$run_payload = array(
-			'platform'            => 'TWINWEB',
-			'event_subtype'       => 'twinweb_prompt',
-			'origin_surface'      => 'twinweb_prompt',
-			'text'                => (string) $prompt,
-			'raw_text'            => (string) $prompt,
-			'wp_user_id'          => $user_id,
-			'_owner_user_id'      => $user_id,
-			'user_id'             => (string) $user_id,
-			'chat_id'             => $chat_id,
-			'conversation_chat_id'=> $chat_id,
-			'_trigger'            => 'prompt_command',
-			'command_slug'        => (string) ( $resolved['slug'] ?? '' ),
-			'command_args'        => (string) ( $resolved['args'] ?? '' ),
-			'zone'                => 'admin',
-		);
-		self::sse_emit( 'automation_run_started', array(
-			'trace_id'    => $trace_id,
-			'workflow_id' => $workflow_id,
-			'workflow'    => (string) ( $workflow['name'] ?? $workflow['slug'] ?? '' ),
-			'slug'        => (string) ( $resolved['slug'] ?? '' ),
-		) );
-		if ( ! class_exists( 'BizCity_Automation_Runner' ) ) {
-			self::sse_error( array(
-				'code'      => 'automation_runtime_unavailable',
-				'message'   => 'Automation runtime chưa sẵn sàng.',
-				'hint'      => 'Kiểm tra module Automation rồi thử lại.',
-				'help_code' => 'automation_run_failed',
-			) );
-			return;
-		}
-		$result = BizCity_Automation_Runner::instance()->run_now( $workflow_id, $run_payload );
-		if ( is_wp_error( $result ) ) {
-			self::sse_error( array(
-				'code'      => (string) $result->get_error_code(),
-				'message'   => 'Workflow không chạy được.',
-				'hint'      => 'Kiểm tra lại kịch bản Automation và thử lại.',
-				'help_code' => 'automation_run_failed',
-			) );
-			return;
-		}
-		self::sse_emit( 'automation_run_done', array(
-			'trace_id'    => $trace_id,
-			'workflow_id' => $workflow_id,
-			'run_id'      => is_scalar( $result ) ? (string) $result : '',
-			'slug'        => (string) ( $resolved['slug'] ?? '' ),
-		) );
 	}
 
 	private static function sse_emit( $event, $data ) {

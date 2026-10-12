@@ -55,6 +55,7 @@ class BizCity_Twin_Shell_Registry {
 		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — the 7 Zalo Brain surfaces in order: Trợ lý · Cấu hình Zalo · Đội Zalo · Sổ tay · Lịch & nhiệm vụ · Kịch bản · Cài đặt.
 		'scheduler'      => 50,
 		'workflow'       => 60,
+		'skills'         => 65, // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 — Skill right after Scenarios
 		'twinkg'         => 70,
 		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — personal/qr/web/creator/profile-public left the
 		// ActivityBar for the "Apps" launcher (group 'apps', D-W20-2); the one launcher tile sits right above Settings.

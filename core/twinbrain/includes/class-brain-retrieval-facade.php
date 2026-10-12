@@ -144,12 +144,14 @@ final class BizCity_Brain_Retrieval_Facade {
 			return true;
 		}
 		if ( ! class_exists( 'BizCity_Safe_Loader', false ) ) {
-			$loader = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'core/helper/class-bizcity-safe-loader.php';
+			// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+			$loader = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'core/helper/class-bizcity-safe-loader.php';
 			if ( is_readable( $loader ) ) {
 				require_once $loader;
 			}
 		}
-		$bootstrap = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'core/context-bank/bootstrap.php';
+		// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+		$bootstrap = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'core/context-bank/bootstrap.php';
 		if ( class_exists( 'BizCity_Safe_Loader', false ) && is_readable( $bootstrap ) ) {
 			BizCity_Safe_Loader::require_file( $bootstrap, 'brain.retrieval_facade.context_bank' );
 		}

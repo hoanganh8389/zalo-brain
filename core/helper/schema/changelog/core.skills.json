@@ -3,7 +3,7 @@
   "module_id": "core.skills",
   "owner": "core/twinbrain (bizcity_skills reader + schema registry row) · core/kg-hub (bizcity_journal_entries)",
   "installer_id": "skills",
-  "current_version": "1.5.0",
+  "current_version": "1.6.0",
   "version_option": "bizcity_skills_db_version",
   "tables": {
     "bizcity_skills": {
@@ -67,7 +67,11 @@
         "learning_error": { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "1.5.0" },
         "notebook_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
         "kg_source_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.5.0" },
-        "metadata": { "type": "LONGTEXT DEFAULT NULL", "since": "1.5.0" },
+        "kind": { "type": "VARCHAR(48) NOT NULL DEFAULT ''", "since": "1.6.0", "comment": "<family>.<type> (journal-kinds@1, docs/contracts/JOURNAL-KINDS-v1.json). Backfilled from source_type on upgrade; never empty after S100-L15." },
+        "subject_hash": { "type": "CHAR(18) NOT NULL DEFAULT ''", "since": "1.6.0", "comment": "'s-' + 16 hex (R-CID-11 hashed subject). '' = no subject." },
+        "doc_date": { "type": "DATE NULL DEFAULT NULL", "since": "1.6.0", "comment": "The document's own date (meal day, contract date), not created_at." },
+        "tags": { "type": "VARCHAR(400) NOT NULL DEFAULT ''", "since": "1.6.0", "comment": "Stored ',a,b,c,' so LIKE '%,tag,%' matches a whole tag." },
+        "metadata": { "type": "LONGTEXT DEFAULT NULL", "since": "1.5.0", "comment": "journal-entry@1 card/confidence/original/subject/derived_from/flags/by (R-FILESTORE-BUSINESS query-requirement exception: query columns above, body here)." },
         "created_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP", "since": "1.5.0" },
         "updated_at": { "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "since": "1.5.0" }
       },
@@ -76,7 +80,9 @@
         "idx_owner_status": { "cols": ["owner_user_id", "status"], "since": "1.5.0" },
         "idx_workspace_updated": { "cols": ["workspace_id", "updated_at"], "since": "1.5.0" },
         "idx_learning_status": { "cols": ["learning_status"], "since": "1.5.0" },
-        "idx_kg_source": { "cols": ["kg_source_id"], "since": "1.5.0" }
+        "idx_kg_source": { "cols": ["kg_source_id"], "since": "1.5.0" },
+        "idx_owner_kind_date": { "cols": ["owner_user_id", "kind", "doc_date"], "since": "1.6.0" },
+        "idx_subject_date": { "cols": ["subject_hash", "doc_date"], "since": "1.6.0" }
       }
     }
   },
@@ -88,6 +94,7 @@
     { "version": "1.5.0", "date": "2026-08-02", "change": "Add canonical Journal Entry table with ownership, revision, idempotency, and separate KG learning status." },
     { "version": "1.5.0", "date": "2026-10-01", "change": "Documentation only (R13f, WP-12 N40/N20) -- no schema change. Annotated bizcity_skills.purpose as orphaned (owning module core/skills archived; still read by TwinBrain's Tool_Intent_Matcher in the add-on; retirement gated on PHASE-0.87 CL-9, not started)." },
     { "version": "1.5.0", "date": "2026-10-02", "change": "Owner decision: feature turned off, data only -- all 45 rows that were status='active' set to status='archived' (bizcity-twin-ai/_notes/bizcity-skills-active-backup-20261002.json has the pre-change snapshot). No schema change; the table, its columns and BizCity_TwinBrain_Tool_Intent_Matcher itself are UNCHANGED and still load on every turn -- load_user_skills() now simply returns no rows, same as the already-supported empty-table case. Do not delete the table or the matcher class; see R13f (WP-12 N20/N40) for why the matcher is load-bearing." },
-    {"version":"1.5.0","date":"2026-10-11","change":"[2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-13 — documentation only, no schema change. Owner decision: keep bizcity_skills in use. Schema_Registry row re-homed to core/twinbrain/includes/class-twinbrain-tool-intent-matcher.php (installer null: nothing creates it on new sites; the matcher degrades to [] when absent). Protected by core/twinbrain/tests/harness/wp20-skills-keep-harness.php."}
+    {"version":"1.5.0","date":"2026-10-11","change":"[2026-10-11 12:10 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 D-W20-13 — documentation only, no schema change. Owner decision: keep bizcity_skills in use. Schema_Registry row re-homed to core/twinbrain/includes/class-twinbrain-tool-intent-matcher.php (installer null: nothing creates it on new sites; the matcher degrades to [] when absent). Protected by core/twinbrain/tests/harness/wp20-skills-keep-harness.php."},
+    {"version":"1.6.0","date":"2026-10-12","change":"[2026-10-12 12:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-4) — bizcity_journal_entries becomes the one 'client has what, where' index: add kind/subject_hash/doc_date/tags query columns + idx_owner_kind_date/idx_subject_date indexes (BizCity_Journal_Database::ensure_schema() dbDelta diff, bounded idempotent backfill of pre-1.1.0 rows to kind=common.* by source_type). New read/write API BizCity_Journal_Index (class-journal-index.php) and decision function BizCity_Journal_Filer::place() (class-journal-filer.php) sit on top; card body stays in metadata (R-FILESTORE-BUSINESS query-requirement exception, noted here as required)."}
   ]
 }

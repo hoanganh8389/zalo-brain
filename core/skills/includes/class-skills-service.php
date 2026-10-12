@@ -38,7 +38,7 @@ final class BizCity_Skills_Service {
 	const MAX_TOOLS   = 12;
 	const MAX_DESC    = 300;
 	const NAME_RE     = '/^[a-z0-9][a-z0-9-]{1,62}$/';
-	const TOOL_RE     = '/^[a-z][a-z0-9_]*(\.[a-z0-9_]+){1,3}$/';
+	const TOOL_RE     = '/^[a-z][a-z0-9_]*(\.[a-z0-9_]+){0,3}$/'; // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L3 — {0,3}: tool của cell không có dấu chấm (web_search, create_excel_file)
 
 	/** @var callable|null test seam: () => BizCity_Skill_Manager */
 	public static $manager = null;
@@ -334,6 +334,7 @@ final class BizCity_Skills_Service {
 			'updated_at'  => '' !== $updated ? $updated : ( $mtime > 0 ? gmdate( 'Y-m-d\TH:i:s\Z', $mtime ) : '' ),
 			'bytes'       => strlen( trim( $p['content'] ) ),
 			'body_md'     => trim( $p['content'] ), // normalised like clean_body(): a re-save of the same text is "no change"
+			'hash'        => self::body_hash( $p['content'] ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 — khớp `skill_plans.body_hash` của cell (kế hoạch đã dịch còn đúng thân)
 		);
 	}
 
@@ -431,6 +432,88 @@ final class BizCity_Skills_Service {
 	}
 
 	/* ── Helpers ──────────────────────────────────────────────────────── */
+
+	/* ── Create from a human title (PHASE-0.101 S102-L9) ─────────────── */
+
+	/**
+	 * "Nghiên cứu Facebook" ⇒ `nghien-cuu-facebook`: accents folded (đ ⇒ d), anything else ⇒ one hyphen, ≤ 55 chars so a
+	 * `-99` suffix still fits NAME_RE. Too short ⇒ `skill`.
+	 */
+	public static function slugify_name( string $title ): string {
+		$s = str_replace( array( 'đ', 'Đ' ), 'd', $title );
+		$s = function_exists( 'remove_accents' ) ? remove_accents( $s ) : $s;
+		if ( preg_match( '/[^\x00-\x7F]/', $s ) ) { // no WP / partial fold: Vietnamese vowels by hand
+			$s = function_exists( 'mb_strtolower' ) ? mb_strtolower( $s, 'UTF-8' ) : $s;
+			$map = array( 'a' => 'àáạảãâầấậẩẫăằắặẳẵ', 'e' => 'èéẹẻẽêềếệểễ', 'i' => 'ìíịỉĩ', 'o' => 'òóọỏõôồốộổỗơờớợởỡ', 'u' => 'ùúụủũưừứựửữ', 'y' => 'ỳýỵỷỹ' );
+			foreach ( $map as $ascii => $chars ) {
+				$s = (string) preg_replace( '/[' . $chars . ']/u', $ascii, $s );
+			}
+		}
+		$s = strtolower( $s );
+		$s = trim( (string) preg_replace( '/[^a-z0-9]+/', '-', $s ), '-' );
+		$s = trim( substr( $s, 0, 55 ), '-' );
+		return strlen( $s ) >= 2 ? $s : 'skill';
+	}
+
+	/** First free name: `base`, then `base-2`, `base-3`… — free = no skill of that name AND no file at /skills/<name>.md. */
+	public static function unique_name( string $title ): string {
+		$base  = self::slugify_name( $title );
+		$taken = array();
+		foreach ( self::mgr()->get_all_skills() as $file ) {
+			$s = self::from_raw( (string) $file['raw'], (string) $file['path'] );
+			if ( $s ) {
+				$taken[ $s['name'] ] = true;
+			}
+		}
+		for ( $i = 1; $i <= 99; $i++ ) {
+			$name = 1 === $i ? $base : $base . '-' . $i;
+			$abs  = self::mgr()->resolve_path( self::default_path( $name ) );
+			if ( ! isset( $taken[ $name ] ) && ! is_wp_error( $abs ) && ! file_exists( $abs ) ) {
+				return $name;
+			}
+		}
+		return $base . '-' . substr( md5( uniqid( '', true ) ), 0, 6 );
+	}
+
+	/**
+	 * New skill file from the editor: the owner types a Vietnamese title, the server picks the unique slug and fills the
+	 * template placeholders `{{name}}` / `{{title}}`. Always lands in /skills/ as a draft-or-whatever-the-template-says file;
+	 * never overwrites.
+	 *
+	 * @param array $in {title: string, raw: string}
+	 * @return array|WP_Error {path, name, title, raw}
+	 */
+	public static function create_from_title( array $in ) {
+		$title = trim( (string) preg_replace( '/[\r\n"\\\\]+/', ' ', wp_strip_all_tags( (string) ( $in['title'] ?? '' ) ) ) );
+		$title = function_exists( 'mb_substr' ) ? mb_substr( $title, 0, 80 ) : substr( $title, 0, 80 );
+		if ( '' === $title ) {
+			return new WP_Error( 'title_required', 'Nhập tên skill (tiếng Việt được).' );
+		}
+		if ( count( self::list() ) >= self::MAX_SKILLS ) {
+			return new WP_Error( 'skill_limit', 'Thư viện đã đủ ' . self::MAX_SKILLS . ' skill.' );
+		}
+		$name = self::unique_name( $title );
+		$tpl  = (string) ( $in['raw'] ?? '' );
+		if ( '' === trim( $tpl ) ) {
+			$tpl = self::build( '{{name}}', '{{title}}', array( 'scope' => 'site', 'tools' => array(), 'source' => 'manual', 'status' => 'draft', 'version' => 1 ), "# {{title}}\n" );
+		}
+		$raw  = str_replace( array( '{{name}}', '{{title}}' ), array( $name, $title ), $tpl );
+		$raw  = (string) preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $raw );
+		$path = self::default_path( $name );
+		$r    = self::mgr()->write_file( $path, $raw );
+		if ( is_wp_error( $r ) ) {
+			return $r;
+		}
+		self::invalidate_pack();
+		return array( 'path' => $path, 'name' => $name, 'title' => $title, 'raw' => $raw );
+	}
+
+	/** 16 hex đầu sha256 của thân đã chuẩn hoá (
+ ⇒ 
+, trim) — CÙNG công thức với cell `skillBodyHash` (zalo-hub/src/skills/skill-plan.ts). // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 */
+	public static function body_hash( string $body ): string {
+		return substr( hash( 'sha256', trim( str_replace( "\r\n", "\n", $body ) ) ), 0, 16 );
+	}
 
 	public static function clean_name( string $name ): string {
 		$name = strtolower( trim( $name ) );

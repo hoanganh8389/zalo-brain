@@ -13,7 +13,7 @@
  *   • Shortcode: [bizcity_notebook_notes notebook_id=22 limit=20]
  *   • PHP include:
  *       set_query_var( 'bizcity_nb_id', 22 );
- *       require WP_PLUGIN_DIR . '/bizcity-twin-ai/core/knowledge/views/notebook-notes-panel.php';
+ *       require BIZCITY_TWIN_AI_DIR . 'core/knowledge/views/notebook-notes-panel.php';
  *
  * Dependencies: WP REST + nonce, BizCity_KG_Source_Service::list_passages().
  *

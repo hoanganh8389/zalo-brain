@@ -49,6 +49,8 @@ final class BizCity_Zalo_Deep_Analysis {
 	const LOCK_TTL        = 900;
 	const TIME_LIMIT      = 600;
 	const QUESTION_MAX    = 4000;
+	/** [2026-10-11 11:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P29 — notebooks the cell narrowed (doc 60 hard cap 5). */
+	const NOTEBOOK_IDS_MAX = 5;
 	const ANSWER_MAX      = 20000;
 	const CITATIONS_MAX   = 10;
 	/** Seconds before each re-post of a stored result (Hub/cell unreachable, 5xx, 429). */
@@ -167,6 +169,7 @@ final class BizCity_Zalo_Deep_Analysis {
 			'user_hash'  => $hash,
 			'vertical'   => (string) ( $body['vertical'] ?? '' ),
 			'question'   => $question,
+			'notebook_ids' => (array) ( $body['notebook_ids'] ?? array() ), // S99-P29 outbox path; the selector applies the owner scope
 		) );
 		if ( 'failed' === $res['status'] ) {
 			return self::error( 503, 'schedule_failed', 'Site chưa xếp được việc phân tích sâu.', 'Cell sẽ gửi lại (outbox).', 'S87-CL8-503' );
@@ -203,6 +206,8 @@ final class BizCity_Zalo_Deep_Analysis {
 			'user_hash'  => strtolower( (string) $req['user_hash'] ),
 			'vertical'   => $vertical,
 			'question'   => function_exists( 'mb_substr' ) ? mb_substr( $question, 0, self::QUESTION_MAX ) : substr( $question, 0, self::QUESTION_MAX ),
+			// S99-P29: empty = TwinBrain picks notebooks itself (behaviour before 0.99 vòng 3)
+			'notebook_ids' => self::clean_notebook_ids( (array) ( $req['notebook_ids'] ?? array() ) ),
 		);
 		set_transient( $state_key, array( 'status' => 'queued', 'attempts' => 0, 'at' => self::now() ), self::STATE_TTL );
 		if ( ! self::schedule( $job, self::now() ) ) {
@@ -210,8 +215,20 @@ final class BizCity_Zalo_Deep_Analysis {
 			self::log( 'deep_analysis_schedule_failed', array( 'account_id' => $account, 'job_id' => $job_id ), 'error' );
 			return array( 'status' => 'failed', 'job_id' => $job_id, 'vertical' => $vertical );
 		}
-		self::log( 'deep_analysis_queued', array( 'account_id' => $account, 'job_id' => $job_id, 'vertical' => $vertical ) );
-		return array( 'status' => 'queued', 'job_id' => $job_id, 'vertical' => $vertical );
+		self::log( 'deep_analysis_queued', array( 'account_id' => $account, 'job_id' => $job_id, 'vertical' => $vertical, 'notebooks' => count( $job['notebook_ids'] ) ) );
+		return array( 'status' => 'queued', 'job_id' => $job_id, 'vertical' => $vertical, 'notebook_ids' => $job['notebook_ids'] );
+	}
+
+	/** @return int[] positive, unique, ≤ NOTEBOOK_IDS_MAX (S99-P29) */
+	public static function clean_notebook_ids( array $ids ): array {
+		$out = array();
+		foreach ( $ids as $id ) {
+			$id = (int) $id;
+			if ( $id > 0 && ! in_array( $id, $out, true ) ) {
+				$out[] = $id;
+			}
+		}
+		return array_slice( $out, 0, self::NOTEBOOK_IDS_MAX );
 	}
 
 	/** Verticals a caller may ask for (contract enum of analysis.request). */
@@ -397,6 +414,12 @@ final class BizCity_Zalo_Deep_Analysis {
 				'account_id'   => (string) $job['account_id'],
 				'surface'      => 'deep_analysis',
 			);
+			// [2026-10-11 11:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P29 — MPR reads exactly the notebooks the cell narrowed
+			// (TwinBrain selector `force_ids`, owner scope re-applied there). Empty ⇒ the selector chooses, as before.
+			$nb_ids = self::clean_notebook_ids( (array) ( $job['notebook_ids'] ?? array() ) );
+			if ( $nb_ids ) {
+				$opts['force_notebooks'] = $nb_ids;
+			}
 			$start = $rt->start_turn( $question, $opts );
 			if ( empty( $start['trace_id'] ) ) {
 				return array( 'ok' => false, 'code' => 'start_failed' );

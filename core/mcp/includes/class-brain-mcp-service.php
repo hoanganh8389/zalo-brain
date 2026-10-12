@@ -89,12 +89,16 @@ final class BizCity_Brain_MCP_Service {
 		}
 		$offset = $cursor === '' ? 0 : (int) $cursor;
 
-		$all = BizCity_KG_Notebook_Service::instance()->list_for_user( (int) $ctx['user_id'], array( 'limit' => 500 ) );
+		// [2026-10-11 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P18 — the schema already declares include_counts; honour it: false ⇒ no per-notebook COUNT(*) queries
+		// (the cell scores notebooks by title / sources and never reads counts).
+		$include_counts = ! array_key_exists( 'include_counts', $args ) || ! empty( $args['include_counts'] );
+		$list_args      = array( 'limit' => 500, 'with_stats' => $include_counts );
+		$all = BizCity_KG_Notebook_Service::instance()->list_for_user( (int) $ctx['user_id'], $list_args );
 		if ( class_exists( 'BizCity_MCP_Client_Scope_Resolver' ) && ! user_can( (int) $ctx['user_id'], 'manage_options' ) ) {
 			// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — customer MCP reads the admin-owned rows represented by the derived scope, not only the customer's own notebook list.
 			$admin_ids = get_users( array( 'capability' => 'manage_options', 'fields' => 'ID', 'number' => 100 ) );
 			foreach ( (array) $admin_ids as $admin_id ) {
-				$all = array_merge( $all, (array) BizCity_KG_Notebook_Service::instance()->list_for_user( (int) $admin_id, array( 'limit' => 500 ) ) );
+				$all = array_merge( $all, (array) BizCity_KG_Notebook_Service::instance()->list_for_user( (int) $admin_id, $list_args ) );
 			}
 		}
 		$unique_all = array();
@@ -125,6 +129,10 @@ final class BizCity_Brain_MCP_Service {
 				'updated_at'     => (string) ( isset( $nb['updated_at'] ) ? $nb['updated_at'] : '' ),
 				'capabilities'   => array( 'read' => true, 'render_document' => false ),
 			);
+			if ( ! $include_counts ) { // S99-P18: counts were not computed — omit rather than report 0
+				$last = count( $candidates ) - 1;
+				unset( $candidates[ $last ]['source_count'], $candidates[ $last ]['passage_count'], $candidates[ $last ]['entity_count'], $candidates[ $last ]['relation_count'] );
+			}
 		}
 		usort( $candidates, static function ( $a, $b ) {
 			$time_a = strtotime( (string) $a['updated_at'] );
@@ -136,7 +144,98 @@ final class BizCity_Brain_MCP_Service {
 		} );
 		$out       = array_slice( $candidates, $offset, $limit );
 		$next      = ( $offset + count( $out ) ) < count( $candidates ) ? (string) ( $offset + count( $out ) ) : null;
-		return array( 'notebooks' => array_values( $out ), 'next_cursor' => $next );
+		return array( 'notebooks' => array_values( self::with_focus_fields( $out, $ctx ) ), 'next_cursor' => $next );
+	}
+
+	/**
+	 * [2026-10-11 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P19 — a delegated turn of a Zalo number (the cell writes its own answer) searches by passage
+	 * vector only; web / Ask Brain and external clients keep the full graph retrieval. Filter `bizcity_mcp_search_fast` (false = back to graph).
+	 */
+	public static function use_fast_search( array $ctx ): bool {
+		$delegated = class_exists( 'BizCity_MCP_Delegation' ) && BizCity_MCP_Delegation::is_delegated( $ctx ) && '' !== (string) ( $ctx['account_id'] ?? '' );
+		return $delegated && (bool) apply_filters( 'bizcity_mcp_search_fast', true, $ctx );
+	}
+
+	/**
+	 * Test seam (PHASE-0.99 S99-P13): fn(int[] notebook_ids): array<int notebook_id, string[] titles newest first>.
+	 *
+	 * @var callable|null
+	 */
+	public static $source_titles_reader = null;
+
+	/**
+	 * [2026-10-11 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P13 (doc 60) — what the cell needs to SCORE notebooks before it
+	 * searches (doctor rule): up to 5 source titles per notebook (titles only — never content or URLs) and, for a turn of a
+	 * Zalo number, the layer (l1 = this number's notebooks, l2 = the person's own) from the same split as S99-P1.
+	 *
+	 * @param array[] $rows list_notebooks candidates
+	 * @return array[]
+	 */
+	private static function with_focus_fields( array $rows, array $ctx ): array {
+		if ( ! $rows ) {
+			return $rows;
+		}
+		$ids    = array_map( static function ( $r ) { return (int) $r['notebook_id']; }, $rows );
+		$titles = self::notebook_source_titles( $ids );
+		$layers = null;
+		if ( class_exists( 'BizCity_MCP_Delegation' ) && BizCity_MCP_Delegation::is_delegated( $ctx ) && '' !== (string) ( $ctx['account_id'] ?? '' ) ) {
+			$layers = BizCity_MCP_Delegation::notebook_layers( (int) ( $ctx['user_id'] ?? 0 ), (string) $ctx['account_id'] );
+		}
+		// [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P30 — notebook card (topic / summary / tags / skeleton state) from the
+		// skeleton already built after ingest (Q99-9: projected from JSON, no column). Missing ⇒ fields omitted, never an error.
+		$cards = class_exists( 'BizCity_KG_Skeleton_Adapter' ) && method_exists( 'BizCity_KG_Skeleton_Adapter', 'cards' )
+			? BizCity_KG_Skeleton_Adapter::cards( $ids ) : array();
+		foreach ( $rows as $i => $r ) {
+			$id                         = (int) $r['notebook_id'];
+			if ( isset( $cards[ $id ] ) ) {
+				$rows[ $i ] = array_merge( $rows[ $i ], $cards[ $id ] );
+			}
+			$rows[ $i ]['source_titles'] = array_slice( array_values( array_filter( array_map( 'strval', (array) ( $titles[ $id ] ?? array() ) ) ) ), 0, 5 );
+			if ( is_array( $layers ) ) {
+				$rows[ $i ]['layer'] = in_array( $id, $layers['l1'], true ) ? 'l1' : ( in_array( $id, $layers['l2'], true ) ? 'l2' : '' );
+			}
+		}
+		return $rows;
+	}
+
+	/**
+	 * Newest 5 distinct source titles per notebook — one grouped read of passages.source_id + kg_sources.title (the same
+	 * join the owner pack exporter uses), no N+1, no content column.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,string[]>
+	 */
+	private static function notebook_source_titles( array $ids ): array {
+		$ids = array_values( array_filter( array_map( 'intval', $ids ) ) );
+		if ( ! $ids ) {
+			return array();
+		}
+		if ( is_callable( self::$source_titles_reader ) ) {
+			return (array) call_user_func( self::$source_titles_reader, $ids );
+		}
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return array();
+		}
+		$db   = BizCity_KG_Database::instance();
+		$in   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = (array) $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.notebook_id, s.title, MAX(p.id) AS last_id
+			 FROM {$db->tbl_passages()} p
+			 JOIN {$db->tbl_sources()} s ON s.id = p.source_id
+			 WHERE p.notebook_id IN ({$in}) AND p.source_id > 0 AND s.title IS NOT NULL AND s.title <> ''
+			 GROUP BY p.notebook_id, s.title
+			 ORDER BY p.notebook_id, last_id DESC",
+			...$ids
+		), ARRAY_A );
+		$out = array();
+		foreach ( $rows as $r ) {
+			$nb = (int) $r['notebook_id'];
+			if ( count( $out[ $nb ] ?? array() ) < 5 ) {
+				$out[ $nb ][] = (string) $r['title'];
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -169,8 +268,24 @@ final class BizCity_Brain_MCP_Service {
 		$requested_ids = isset( $args['notebook_ids'] ) ? array_map( 'intval', (array) $args['notebook_ids'] ) : array();
 		$allowed_ids   = BizCity_MCP_Client_Scope_Resolver::allowed_notebook_ids( $ctx );
 		$notebook_ids  = empty( $requested_ids ) ? $allowed_ids : array_values( array_intersect( $requested_ids, $allowed_ids ) );
+		$fast          = self::use_fast_search( $ctx ); // PHASE-0.99 S99-P19
 		if ( empty( $notebook_ids ) ) {
 			return new WP_Error( BizCity_MCP_Error::NOTEBOOK_ACCESS_DENIED, 'Không có notebook hợp lệ trong scope của client.', array( 'status' => 403 ) );
+		}
+		// [2026-10-11 09:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P3 (vòng 2, doc 60) — a turn of a Zalo number searches at most
+		// 5 notebooks: the cell narrows to 3–5 first; an older cell that sends none gets the 5 newest. Each notebook costs one
+		// retriever pass (vector scan + rerank), so an uncapped list of daily notebooks made the search slow enough to time out.
+		$capped = false;
+		if ( class_exists( 'BizCity_MCP_Delegation' ) && BizCity_MCP_Delegation::is_delegated( $ctx ) && '' !== (string) ( $ctx['account_id'] ?? '' ) ) {
+			$cap = (int) apply_filters( 'bizcity_mcp_search_notebook_cap', 5, $ctx );
+			$cap = max( 1, min( 10, $cap ) );
+			if ( count( $notebook_ids ) > $cap ) {
+				if ( empty( $requested_ids ) ) {
+					$notebook_ids = BizCity_MCP_Delegation::newest_first( $notebook_ids, (int) ( $ctx['user_id'] ?? 0 ) );
+				}
+				$notebook_ids = array_slice( $notebook_ids, 0, $cap );
+				$capped       = true;
+			}
 		}
 
 		$top_k       = isset( $args['top_k'] ) ? max( 1, min( 50, (int) $args['top_k'] ) ) : 8;
@@ -184,7 +299,8 @@ final class BizCity_Brain_MCP_Service {
 		$profile_key = BizCity_MCP_Retrieval_Snapshot_Store::PROFILE_VERSION
 			. '|entities:' . (int) $include_entities
 			. '|relations:' . (int) $include_relations
-			. '|full:' . (int) $include_full_content;
+			. '|full:' . (int) $include_full_content
+			. '|fast:' . (int) $fast;
 		$cache_key   = BizCity_MCP_Retrieval_Snapshot_Store::build_cache_key(
 			(string) $ctx['client_id'] . '|user:' . (int) $ctx['user_id'], $norm['normalized'], $notebook_ids,
 			$profile_key, $kg_revision, $top_k, $graph_depth
@@ -212,6 +328,7 @@ final class BizCity_Brain_MCP_Service {
 				'seed_relations' => $top_k * 2,
 				'rerank_top_k'   => $top_k,
 				'expand_hops'    => $graph_depth,
+				'fast'           => $fast,
 				// [2026-07-27 Johnny Chu] PHASE-0.53-MCP — brain.search returns evidence
 				// only (no LLM prose answer); the calling MCP client composes its own
 				// answer from citation-tagged passages (source doc §7.7).
@@ -288,7 +405,8 @@ final class BizCity_Brain_MCP_Service {
 			'entities'          => array_values( $entities ),
 			'relations'         => array_values( $relations ),
 			'allowed_citations' => $allowed_citations,
-			'warnings'          => array(),
+			'warnings'          => $capped ? array( 'notebooks_capped' ) : array(), // PHASE-0.99 S99-P3
+			'notebooks_capped'  => $capped,
 			'_reused'           => false,
 		);
 

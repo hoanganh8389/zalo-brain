@@ -47,6 +47,8 @@ class BizCity_KG_Retriever {
 			'rerank_top_k'   => 5,
 			'expand_hops'    => 1,
 			'answer'         => true,
+			// [2026-10-11 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P19 — fast: passages by vector only (no entity/relation graph, no LLM rerank).
+			'fast'           => false,
 		], $opts );
 
 		$result = [
@@ -93,6 +95,18 @@ class BizCity_KG_Retriever {
 			}
 			$result['answer'] = 'Cannot embed query: ' . $err_msg;
 			$result['retrieval_mode'] = 'embed_failed';
+			return $result;
+		}
+
+		// PHASE-0.99 S99-P19 — the cell composes its own answer from passages: the graph walk + LLM rerank per notebook (several
+		// seconds each) only made a multi-notebook search outlive the cell's 5–8 s ceiling and fall back to a copy without the notebook.
+		if ( ! empty( $opts['fast'] ) ) {
+			$fast_hits = $this->search_passages_direct( (int) $notebook_id, $qvec, max( 1, min( 50, (int) $opts['rerank_top_k'] ) ) );
+			$result['passages'] = array_map( static function ( $p ) {
+				return [ 'id' => (int) $p['id'], 'content' => $p['content'], 'source_id' => (int) $p['source_id'], 'metadata' => isset( $p['metadata'] ) ? (string) $p['metadata'] : '', 'score' => isset( $p['score'] ) ? (float) $p['score'] : 0.0, 'score_source' => 'vector' ];
+			}, $fast_hits );
+			$result['retrieval_mode'] = 'fast_vector';
+			$result['steps'][]        = [ 'name' => 'Fast vector', 'passages' => count( $fast_hits ), 'note' => 'no graph, no LLM rerank (S99-P19)' ];
 			return $result;
 		}
 

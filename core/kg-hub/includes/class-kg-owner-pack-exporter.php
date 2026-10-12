@@ -125,10 +125,14 @@ final class BizCity_KG_Owner_Pack_Exporter {
 	private static function meta_rows( array $ctx ): array {
 		$nbs = self::notebooks( $ctx );
 		$s   = self::stats( array_keys( $nbs ) );
+		// [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P30 — notebook card (topic / summary / tags / skeleton state) so the
+		// cell can score a daily notebook by WHAT it is about, not only by its date title. Absent card ⇒ fields omitted.
+		$cards = class_exists( 'BizCity_KG_Skeleton_Adapter' ) && method_exists( 'BizCity_KG_Skeleton_Adapter', 'cards' )
+			? BizCity_KG_Skeleton_Adapter::cards( array_keys( $nbs ) ) : array();
 		$out = array();
 		foreach ( $nbs as $id => $nb ) {
-			$st = (array) $nb['settings'];
-			$out[] = array(
+			$st  = (array) $nb['settings'];
+			$row = array(
 				'notebook_id'  => (int) $id,
 				'title'        => (string) $nb['name'],
 				'day_key'      => (string) ( $st['day_key'] ?? '' ),
@@ -136,6 +140,10 @@ final class BizCity_KG_Owner_Pack_Exporter {
 				'source_count' => (int) ( $s['sources'][ $id ] ?? 0 ),
 				'updated_at'   => self::iso( (string) ( $nb['updated_at'] ?? '' ) ),
 			);
+			if ( isset( $cards[ (int) $id ] ) ) {
+				$row = array_merge( $row, $cards[ (int) $id ] );
+			}
+			$out[] = $row;
 		}
 		usort( $out, static function ( $a, $b ) { return $a['notebook_id'] <=> $b['notebook_id']; } );
 		return $out;

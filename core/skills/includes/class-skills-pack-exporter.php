@@ -78,6 +78,7 @@ final class BizCity_Skills_Pack_Exporter {
 					'scope'       => (string) $s['scope'],
 					'version'     => (int) $s['version'],
 					'updated_at'  => (string) $s['updated_at'],
+					'hash'        => (string) ( $s['hash'] ?? '' ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 — cell biết kế hoạch đã dịch còn đúng thân không
 				);
 				$len = strlen( (string) wp_json_encode( $item ) ) + 1;
 				if ( count( $items ) >= self::MAX_ITEMS || $bytes + $len > self::MAX_BYTES ) {

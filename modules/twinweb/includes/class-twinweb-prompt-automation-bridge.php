@@ -93,42 +93,12 @@ final class BizCity_TwinWeb_Prompt_Automation_Bridge {
 			'_dry_run'      => true,
 		);
 
-		// [2026-08-16 Johnny Chu] CCG-1 — exact #workflow_slug wins over legacy keyword matching.
-		$command_result = class_exists( 'BizCity_Automation_Command_Resolver' )
-			? BizCity_Automation_Command_Resolver::resolve(
-				$message,
-				array( 'user_id' => $user_id, 'is_admin' => current_user_can( 'manage_options' ), 'zone' => 'admin' ),
-				array( 'zone' => 'admin' )
-			)
-			: array( 'matched' => false, 'reason' => 'command_resolver_unavailable' );
-		$parsed_command = class_exists( 'BizCity_Automation_Command_Resolver' )
-			? BizCity_Automation_Command_Resolver::extract( $message )
-			: null;
-		if ( $parsed_command && empty( $command_result['matched'] ) ) {
-			BizCity_TwinWeb_REST::sse_error( array(
-				'code'      => (string) ( $command_result['reason'] ?? 'workflow_command_denied' ),
-				'message'   => 'Workflow command không được phép chạy.',
-				'hint'      => 'Chọn workflow được cấp quyền trong danh sách # rồi thử lại.',
-				'help_code' => 'automation_run_failed',
-			) );
-			BizCity_TwinWeb_REST::sse_complete( array( 'success' => false, 'surface' => 'prompt_automation' ) );
-			return true;
-		}
-
-		$wf = is_array( $command_result['workflow'] ?? null ) ? $command_result['workflow'] : array();
-		if ( empty( $command_result['matched'] ) ) {
-			$preview = BizCity_Automation_Trigger_Matcher::instance()->find_matching_workflows_for_payload( 'zalo_inbound', $payload, array( 'zone' => 'admin' ) );
-			$matched = (array) ( $preview['matched'] ?? array() );
-			if ( empty( $matched ) ) { return false; }
-			$row = $matched[0];
-			$wf = is_array( $row['wf'] ?? null ) ? $row['wf'] : array();
-		} else {
-			$payload['_trigger']      = 'prompt_command';
-			$payload['command_slug']  = (string) ( $command_result['slug'] ?? '' );
-			$payload['command_args']  = (string) ( $command_result['args'] ?? '' );
-			// [2026-08-16 Johnny Chu] CCG-5 — explicit # commands execute real workflow side effects; legacy keyword prompts stay dry-run.
-			unset( $payload['_dry_run'] );
-		}
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L6 — #workflow_slug path removed (owner Q102-6): only the legacy keyword dry-run match stays.
+		$preview = BizCity_Automation_Trigger_Matcher::instance()->find_matching_workflows_for_payload( 'zalo_inbound', $payload, array( 'zone' => 'admin' ) );
+		$matched = (array) ( $preview['matched'] ?? array() );
+		if ( empty( $matched ) ) { return false; }
+		$row = $matched[0];
+		$wf  = is_array( $row['wf'] ?? null ) ? $row['wf'] : array();
 		$workflow_id = (int) ( $wf['id'] ?? 0 );
 		if ( $workflow_id <= 0 ) { return false; }
 

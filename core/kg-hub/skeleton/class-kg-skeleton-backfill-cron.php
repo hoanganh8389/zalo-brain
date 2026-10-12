@@ -50,6 +50,9 @@ class BizCity_KG_Skeleton_Backfill_Cron {
 	 */
 	const STUCK_SECONDS = 900;
 
+	/** [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P33 — never-built Zalo daily notebooks queued per hourly run. */
+	const NEVER_BUILT_LIMIT = 5;
+
 	// ─── Boot ────────────────────────────────────────────────────────────────
 
 	public static function boot(): void {
@@ -103,6 +106,29 @@ class BizCity_KG_Skeleton_Backfill_Cron {
 		);
 
 		$ids = array_map( 'intval', (array) $ids );
+
+		// [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P33 (doc 70 §3.3) — a Zalo number's daily notebook that NEVER got
+		// a skeleton (status '' — created before the ingest hook, or its build was never queued) has no card, so the cell can
+		// only score it by date. Pick a few per run (newest first, only notebooks that hold passages); each build is one
+		// cost-guarded model call. Filter `bizcity_kg_skeleton_backfill_never_built` (int, 0 = off, max 10).
+		$never_cap = (int) apply_filters( 'bizcity_kg_skeleton_backfill_never_built', self::NEVER_BUILT_LIMIT );
+		$never_cap = max( 0, min( 10, $never_cap ) );
+		if ( $never_cap > 0 ) {
+			$tbl_pas = BizCity_KG_Database::instance()->tbl_passages();
+			$never   = $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT n.id FROM {$tbl} n
+					  WHERE ( n.skeleton_status = '' OR n.skeleton_status IS NULL )
+					    AND n.settings LIKE %s
+					    AND EXISTS ( SELECT 1 FROM {$tbl_pas} p WHERE p.notebook_id = n.id )
+					  ORDER BY n.id DESC
+					  LIMIT %d",
+					'%' . $wpdb->esc_like( '"scope_id":"zalo_account:' ) . '%',
+					$never_cap
+				)
+			);
+			$ids = array_values( array_unique( array_merge( $ids, array_map( 'intval', (array) $never ) ) ) );
+		}
 		$counters['scanned'] = count( $ids );
 
 		foreach ( $ids as $nb_id ) {

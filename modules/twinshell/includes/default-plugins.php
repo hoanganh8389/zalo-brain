@@ -24,6 +24,7 @@
  *   workflow   → admin: bizcity-automation               (mode=link)
  *   tools      → /tools-map/            (intent tool map)
  *   (skills entry removed 2026-09-27 — core/skills archived, WP-12)
+ *   skills     → admin: bizcity-skills  (mode=link, back 2026-10-11 PHASE-0.101 S101-L14 — lean core/skills)
  *   gateway    → admin: bizchat-gateway                  (mode=link)
  *   marketplace → admin: index.php?page=bizcity-marketplace (mode=link)
  *
@@ -358,6 +359,23 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// reachable via direct /learning-hub/ URL when needed).
 	];
 
+	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 (doc 102) — "📘 Skill" back on the ActivityBar, right after
+	// Scenarios: link to the lean core/skills editor (admin.php?page=bizcity-skills, D101-16 v2). core/skills loads in admin/REST/cron
+	// context only, so a `requires` class/const gate would always fail on /twin/ — gate on the module file instead.
+	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/skills/bootstrap.php' ) ) {
+		$defaults[] = [
+			'id'          => 'skills',
+			'label'       => __( 'Skills',                        $td ), // vi: Skill
+			'icon'        => 'skills',
+			'emoji'       => '📘',
+			'mode'        => 'link',
+			'target_url'  => admin_url( 'admin.php?page=bizcity-skills' ),
+			'capability'  => class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::menu_cap() : 'edit_posts',
+			'section'     => 'top',
+			'desc'        => __( 'Custom skills: step-by-step instructions the assistant follows for a kind of request.', $td ),
+		];
+	}
+
 	// [2026-09-30 Claude Opus 5.5] PHASE-0.84 W-12 — module-access@1.0.0: who may use each icon is
 	// answered by BizCity_Twin_Module_Access (meta cap bizcity_use_<id>). Grantable entries keep today's
 	// audience through a one-time seed from the capability each entry declared above.
@@ -368,7 +386,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// [2026-10-05 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-0 — Automation is the plugin bizcity-automation, not core/.
 		'workflow'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-automation' ],
 		'scheduler'      => [ 'mode' => 'grantable', 'owner' => 'core/scheduler' ],
-		'settings'       => [ 'mode' => 'admin_only', 'owner' => 'modules/twinshell' ],
+		'skills'         => [ 'mode' => 'admin_only', 'owner' => 'core/skills' ], // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 — skills are machine instructions; owner/admin edit (doc 90 §3)
+		'settings'      => [ 'mode' => 'admin_only', 'owner' => 'modules/twinshell' ],
 		'marketplace'    => [ 'mode' => 'grantable', 'owner' => 'marketplace' ],
 		'web'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-pagebuilder' ],
 		'personal'       => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-personal' ],

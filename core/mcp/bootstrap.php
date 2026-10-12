@@ -172,7 +172,11 @@ require_once BIZCITY_MCP_DIR . 'includes/actions/class-memory-mcp-service.php';
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-site-content-mcp-service.php';
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L4/L5/L13 — plugin tool libraries (mcp/tools.json loader), adapters for plugins
 // without a manifest (core/mcp/adapters/*.json, read tools only) and the CRM task/follow-up/staff tools of doc 80 (gated on the CRM plugin).
-foreach ( array( 'includes/class-mcp-library.php' => 'mcp.library', 'includes/class-mcp-plugin-adapter.php' => 'mcp.plugin_adapter', 'includes/actions/class-crm-tasks-mcp-service.php' => 'mcp.crm_tasks' ) as $_bizcity_mcp_rel => $_bizcity_mcp_label ) {
+// [2026-10-12 12:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L19 — journal.find/get/file/summarize/derive +
+// track.set/get (doc 92 §6, lanes/INTERFACES.md I-5). class_exists guard inside the file itself (needs
+// BizCity_Journal_Index from core/kg-hub — both modules load from bizcity-twin-ai.php, order not guaranteed, so
+// the registration runs lazily on `bizcity_mcp_register_tools`, by which point every module has loaded).
+foreach ( array( 'includes/class-mcp-library.php' => 'mcp.library', 'includes/class-mcp-plugin-adapter.php' => 'mcp.plugin_adapter', 'includes/actions/class-crm-tasks-mcp-service.php' => 'mcp.crm_tasks', 'includes/class-journal-mcp-tools.php' => 'mcp.journal_tools' ) as $_bizcity_mcp_rel => $_bizcity_mcp_label ) {
 	$_bizcity_mcp_file = BIZCITY_MCP_DIR . $_bizcity_mcp_rel;
 	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 		BizCity_Safe_Loader::require_file( $_bizcity_mcp_file, $_bizcity_mcp_label ); // R-SAFE-LOADER

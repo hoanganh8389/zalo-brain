@@ -182,6 +182,24 @@ class BizCity_KG_Triplet_Extractor {
 	}
 
 	/**
+	 * PHASE-0.99 S99-P5 — true when the notebook holds a Zalo number's captures (settings.scope_id = zalo_account:<bridge>).
+	 * Test seam: $number_notebook_reader(int $id): bool.
+	 */
+	public static $number_notebook_reader = null;
+
+	public static function is_number_notebook( int $notebook_id ): bool {
+		if ( is_callable( self::$number_notebook_reader ) ) {
+			return (bool) call_user_func( self::$number_notebook_reader, $notebook_id );
+		}
+		if ( $notebook_id <= 0 || ! class_exists( 'BizCity_KG_Notebook_Service' ) ) {
+			return false;
+		}
+		$nb = BizCity_KG_Notebook_Service::instance()->get( $notebook_id );
+		$settings = is_array( $nb ) ? (array) ( $nb['settings'] ?? array() ) : array();
+		return 0 === strpos( (string) ( $settings['scope_id'] ?? '' ), 'zalo_account:' );
+	}
+
+	/**
 	 * Extract for all pending passages of a notebook (sync; cap at $limit).
 	 *
 	 * @param int  $notebook_id
@@ -192,6 +210,13 @@ class BizCity_KG_Triplet_Extractor {
 	 * @return array{processed:int, total_triplets:int, errors:int}
 	 */
 	public function extract_notebook_pending( $notebook_id, $limit = 10, $force = false ) {
+		// [2026-10-11 09:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P5 — a Zalo number's daily notebook (scope zalo_account:*) is
+		// searched by passages, never by graph (D86-5): skip the billable triplet LLM unless a site re-opens it on purpose.
+		if ( self::is_number_notebook( (int) $notebook_id )
+			&& ! apply_filters( 'bizcity_kg_extract_zalo_number_notebooks', false, (int) $notebook_id ) ) {
+			return [ 'processed' => 0, 'total_triplets' => 0, 'errors' => 0, 'skipped' => 'zalo_number_notebook' ];
+		}
+
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
 

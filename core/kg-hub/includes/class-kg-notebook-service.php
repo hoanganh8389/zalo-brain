@@ -107,6 +107,10 @@ class BizCity_KG_Notebook_Service {
 		}
 		$params[] = max( 1, min( 500, $limit ) );
 
+		// [2026-10-11 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P18 — callers that only need ids / owner / settings (MCP delegation builds the allowed list on
+		// EVERY request) pass with_stats=false: hydrate() otherwise runs 5 COUNT(*) per notebook (~290 queries for 58 notebooks).
+		$with_stats = ! array_key_exists( 'with_stats', $args ) || ! empty( $args['with_stats'] );
+
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT id, name, description, character_id, owner_id, notebook_scope, color, settings, stats, created_at, updated_at
 			 FROM {$db->tbl_notebooks()}
@@ -116,7 +120,9 @@ class BizCity_KG_Notebook_Service {
 			...$params
 		), ARRAY_A );
 
-		return array_map( [ $this, 'hydrate' ], $rows ?: [] );
+		return array_map( function ( $row ) use ( $with_stats ) {
+			return $this->hydrate( $row, $with_stats );
+		}, $rows ?: [] );
 	}
 
 	public function get( $id ) {
@@ -297,7 +303,7 @@ class BizCity_KG_Notebook_Service {
 		return $stats;
 	}
 
-	private function hydrate( array $row ) {
+	private function hydrate( array $row, $with_stats = true ) {
 		$row['id']           = (int) $row['id'];
 		$row['owner_id']     = (int) $row['owner_id'];
 		$row['character_id'] = isset( $row['character_id'] ) ? (int) $row['character_id'] : null;
@@ -306,7 +312,8 @@ class BizCity_KG_Notebook_Service {
 			? (string) $row['notebook_scope']
 			: 'personal';
 		$row['settings']     = json_decode( $row['settings'] ?? '{}', true ) ?: new stdClass();
-		$row['stats']        = $this->compute_stats( $row['id'] );
+		// PHASE-0.99 S99-P18 — with_stats=false ⇒ empty stats (callers that never read counts)
+		$row['stats']        = $with_stats ? $this->compute_stats( $row['id'] ) : [];
 		return $row;
 	}
 }

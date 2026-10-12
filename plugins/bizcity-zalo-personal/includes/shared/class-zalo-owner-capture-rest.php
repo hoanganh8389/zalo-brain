@@ -25,6 +25,8 @@ if ( class_exists( 'BizCity_Zalo_Owner_Capture_REST', false ) ) {
 final class BizCity_Zalo_Owner_Capture_REST {
 
 	const NS       = 'bizcity-channel/v1';
+	// [2026-10-12 12:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — "owner-capture@1" also matches
+	// "owner-capture@1.2.0" (R-JOURNAL I-3: card block + role:guest + the "card" patch event).
 	const CONTRACT_PREFIX = 'owner-capture@1';
 
 	private static $initialized = false;
@@ -67,12 +69,22 @@ final class BizCity_Zalo_Owner_Capture_REST {
 		$kind            = sanitize_key( (string) ( $body['kind'] ?? '' ) );
 		$idempotency_key = sanitize_text_field( (string) ( $body['idempotency_key'] ?? '' ) );
 		$items           = is_array( $body['items'] ?? null ) ? $body['items'] : array();
-		if ( ! in_array( $kind, array( 'file', 'remember' ), true ) || '' === $idempotency_key || empty( $items ) ) {
+		// [2026-10-12 12:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (owner-capture@1.2.0, I-3) — the
+		// follow-up "card" event patches an already-captured file's journal index row by the SAME idempotency_key
+		// the original file event used (no new file, no new $items url/text validation).
+		if ( ! in_array( $kind, array( 'file', 'remember', 'card' ), true ) || '' === $idempotency_key || empty( $items ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param' ), 400 );
 		}
 
 		if ( ! class_exists( 'BizCity_Zalo_Personal_Knowledge_Capture' ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'capture_unsupported' ), 503 );
+		}
+		if ( 'card' === $kind ) {
+			$res = BizCity_Zalo_Personal_Knowledge_Capture::from_owner_capture_card( $bridge_id, $idempotency_key, $items );
+			if ( empty( $res['ok'] ) ) {
+				return new WP_REST_Response( array( 'ok' => false, 'code' => (string) ( $res['code'] ?? 'rejected' ) ), 400 );
+			}
+			return new WP_REST_Response( array( 'ok' => true, 'patched' => (int) ( $res['patched'] ?? 0 ) ), 200 );
 		}
 		$ts  = strtotime( (string) ( $body['sent_at'] ?? '' ) );
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-4 — owner-capture@1.1 `role` + `user_hash` pick the recipient (doc 50 §5.4);

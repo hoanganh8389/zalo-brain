@@ -91,6 +91,37 @@ class BizCity_Admin_Menu {
 		// [2026-09-30 Claude Sonnet 5] Owner directive — Twin CRM sits directly above Twin
 		// Setting. Runs after cleanup so it sees the final menu, not a slot a removed legacy item still holds.
 		add_action( 'admin_menu', [ __CLASS__, 'place_twin_crm_above_setting' ], 999999 );
+		// [2026-10-12 10:00 AM Johnny Chu - Chu Hoàng Anh] Owner: "Link chỗ zalo brain => admin.php?page=bizchat-gateway-spa và bỏ toàn bộ menu" — runs last.
+		add_action( 'admin_menu', [ __CLASS__, 'collapse_zalo_brain_to_gateway_link' ], 1000001 );
+	}
+
+	/**
+	 * [2026-10-12 10:00 AM Johnny Chu - Chu Hoàng Anh] "Zalo Brain" becomes ONE sidebar link to the Channel Gateway SPA
+	 * (admin.php?page=bizchat-gateway-spa, Bot Studio first); its submenu and the "Twin CRM" root leave the sidebar.
+	 * Nothing is unregistered: every admin.php?page=… link (control panel, CRM inbox, settings…) still opens. The link is shown only to
+	 * users who may open the SPA, so nobody gets a dead entry. Restore both with
+	 * add_filter( 'zalo_brain_single_link_menu', '__return_false' ).
+	 */
+	public static function collapse_zalo_brain_to_gateway_link(): void {
+		global $menu;
+		if ( ! is_array( $menu ) || ! apply_filters( 'zalo_brain_single_link_menu', true ) ) {
+			return;
+		}
+		$target = 'admin.php?page=bizchat-gateway-spa';
+		foreach ( $menu as $index => $item ) {
+			if ( isset( $item[2] ) && self::SLUG_CONTROL_PANEL === $item[2] ) {
+				// WordPress builds the submenu from $submenu[ $item[2] ]; a URL slug has none, so the flyout disappears.
+				// $submenu[ SLUG_CONTROL_PANEL ] itself stays, which keeps page=bizcity-twin-control-panel reachable.
+				$menu[ $index ][1] = self::menu_cap();
+				$menu[ $index ][2] = $target;
+				break;
+			}
+		}
+		remove_menu_page( 'bizcity-twin-brain' );
+		// Highlight the link while the SPA is open (its registered parent is the hidden Workspace menu).
+		add_filter( 'parent_file', static function ( $parent_file ) use ( $target ) {
+			return 'bizchat-gateway-spa' === ( $_GET['page'] ?? '' ) ? $target : $parent_file; // phpcs:ignore WordPress.Security.NonceVerification
+		} );
 	}
 
 	/**

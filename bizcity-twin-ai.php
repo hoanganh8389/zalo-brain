@@ -799,6 +799,11 @@ unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
     require_once __DIR__ . '/core/skills/bootstrap.php';
 }
+// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L3 — brain profiles (profile.json packages ⇒ Guru +
+// knowledge + skills + schedule + policy). Same load profile as core/skills/core/mcp: admin/REST/cron context only.
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/channel-gateway/includes/profile/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/channel-gateway/includes/profile/bootstrap.php';
+}
 // Phase 1 — Unified cron registry & observability (see core/cron/PHASE-CRON.md).
 // [2026-06-09 Johnny Chu] PERF-2 — cron registry only needed on admin/REST/cron context.
 // Always-load modules (twinchat, knowledge) use wp_schedule_event() directly without BizCity_Cron_Manager.

@@ -170,7 +170,7 @@ unset( $_bizcity_twinbrain_verticals );
 require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-policy.php';
 
 // [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — Workflow-Driven Brain Pipeline (/skill)
-// and Builtin_Skills archived with the PHP intent layer; `#workflow` commands (Automation_Command_Resolver) are unaffected.
+// and Builtin_Skills archived with the PHP intent layer. [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L6 — `#workflow` commands are removed too (Q102-6).
 
 // Phase 0.36-UNIFIED TBR.W11 (2026-05-21) — Guru `allow_web_fallback` flag:
 // schema migration + filter `bizcity_twinbrain_web_mode_effective` gate +

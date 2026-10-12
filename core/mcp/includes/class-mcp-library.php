@@ -112,6 +112,29 @@ final class BizCity_MCP_Library {
 		if ( isset( $t['handler'] ) ) {
 			return 'handler is code, not data: pass it to register()';
 		}
+		// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L1 — bizcity-mcp-library@1.1 optional keys
+		// (doc 30 §3, LANE-CL S100-L1): when declared, `need` must sum to 100 (hard error, same rule as brain-policy
+		// packs) and `audience` is restricted to owner/staff/guest, guest only for a read tool or an automation.* tool.
+		if ( isset( $t['when_to_use'] ) && mb_strlen( (string) $t['when_to_use'] ) > 200 ) {
+			return 'when_to_use must be <= 200 chars';
+		}
+		if ( isset( $t['need'] ) ) {
+			if ( ! is_array( $t['need'] ) || ! $t['need'] ) {
+				return 'need must be a non-empty object of int weights';
+			}
+			$sum = array_sum( array_map( 'floatval', $t['need'] ) );
+			if ( abs( $sum - 100 ) > 1e-6 ) {
+				return 'need weights must sum to 100';
+			}
+		}
+		if ( isset( $t['audience'] ) ) {
+			if ( ! is_array( $t['audience'] ) || array_diff( $t['audience'], array( 'owner', 'staff', 'guest' ) ) ) {
+				return 'audience must be a subset of owner/staff/guest';
+			}
+			if ( in_array( 'guest', $t['audience'], true ) && $write && 0 !== strpos( $name, 'automation.' ) ) {
+				return 'guest_write_tool: audience=guest is only allowed for a read tool or an automation.* tool';
+			}
+		}
 		return null;
 	}
 

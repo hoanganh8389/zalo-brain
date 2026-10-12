@@ -48,6 +48,111 @@ class BizCity_KG_Skeleton_Adapter {
 	const MODE_COMPACT = 'compact';
 	const MODE_OUTLINE = 'outline';
 
+	/** [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P30 — notebook card caps (doc 70 §3.3). */
+	const CARD_TAGS_MAX     = 12;
+	const CARD_TAG_MAX_CHARS = 40;
+	const CARD_TOPIC_MAX_CHARS   = 80;
+	const CARD_SUMMARY_MAX_CHARS = 240;
+
+	/**
+	 * Test seam (S99-P30): fn(int[] ids): array<int id, array{skeleton_status,skeleton_built_at,skeleton_json}>.
+	 *
+	 * @var callable|null
+	 */
+	public static $cards_reader = null;
+
+	/**
+	 * [2026-10-11 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P30 (doc 70 §3.3, Q99-9 = project from JSON first) — the
+	 * "notebook card" the cell scores notebooks with: topic (nucleus.title), summary (nucleus.thesis, else first node summary),
+	 * tags (entities, then top-level labels, ≤ 12) and the skeleton lifecycle. A projection of the skeleton already built after
+	 * every ingest — no new table, no column, no model call. One grouped read; a site whose notebooks table lacks the
+	 * skeleton columns (migration not run) gets no cards, never an error.
+	 *
+	 * @param int[] $ids
+	 * @return array<int,array{topic:string,summary:string,tags:string[],skeleton_status:string,skeleton_built_at:string}>
+	 */
+	public static function cards( array $ids ): array {
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+		if ( ! $ids ) {
+			return [];
+		}
+		$rows = [];
+		if ( is_callable( self::$cards_reader ) ) {
+			$rows = (array) call_user_func( self::$cards_reader, $ids );
+		} else {
+			global $wpdb;
+			if ( ! isset( $wpdb ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+				return [];
+			}
+			$tbl  = BizCity_KG_Database::instance()->tbl_notebooks();
+			$in   = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+			$prev = $wpdb->suppress_errors( true );
+			$res  = $wpdb->get_results( $wpdb->prepare( "SELECT id, skeleton_status, skeleton_built_at, skeleton_json FROM {$tbl} WHERE id IN ({$in})", $ids ), ARRAY_A );
+			$wpdb->suppress_errors( $prev );
+			foreach ( (array) $res as $r ) {
+				$rows[ (int) $r['id'] ] = $r;
+			}
+		}
+		$out = [];
+		foreach ( $rows as $id => $r ) {
+			$out[ (int) $id ] = self::card_from_row( (array) $r );
+		}
+		return $out;
+	}
+
+	/** One card from a notebooks row (skeleton_status, skeleton_built_at, skeleton_json). Pure. */
+	public static function card_from_row( array $row ): array {
+		$status = strtolower( trim( (string) ( $row['skeleton_status'] ?? '' ) ) );
+		$card   = [
+			'topic'             => '',
+			'summary'           => '',
+			'tags'              => [],
+			'skeleton_status'   => '' === $status ? 'none' : $status,
+			'skeleton_built_at' => '',
+		];
+		$built = (string) ( $row['skeleton_built_at'] ?? '' );
+		if ( '' !== $built && '0000-00-00 00:00:00' !== $built ) {
+			$ts = strtotime( $built . ' UTC' );
+			$card['skeleton_built_at'] = $ts ? gmdate( 'Y-m-d\TH:i:s\Z', $ts ) : '';
+		}
+		$sk = json_decode( (string) ( $row['skeleton_json'] ?? '' ), true );
+		if ( ! is_array( $sk ) ) {
+			return $card;
+		}
+		$clip = static function ( $s, int $max ): string {
+			$s = trim( (string) preg_replace( '/\s+/u', ' ', strip_tags( (string) $s ) ) );
+			return function_exists( 'mb_substr' ) ? mb_substr( $s, 0, $max ) : substr( $s, 0, $max );
+		};
+		$nucleus         = isset( $sk['nucleus'] ) && is_array( $sk['nucleus'] ) ? $sk['nucleus'] : [];
+		$nodes           = isset( $sk['skeleton'] ) && is_array( $sk['skeleton'] ) ? $sk['skeleton'] : [];
+		$card['topic']   = $clip( $nucleus['title'] ?? '', self::CARD_TOPIC_MAX_CHARS );
+		$summary         = (string) ( $nucleus['thesis'] ?? '' );
+		if ( '' === trim( $summary ) && isset( $nodes[0] ) && is_array( $nodes[0] ) ) {
+			$summary = (string) ( $nodes[0]['summary'] ?? '' );
+		}
+		$card['summary'] = $clip( $summary, self::CARD_SUMMARY_MAX_CHARS );
+		$tags = [];
+		$seen = [];
+		$push = static function ( $t ) use ( &$tags, &$seen, $clip ) {
+			$t = $clip( $t, self::CARD_TAG_MAX_CHARS );
+			$k = function_exists( 'mb_strtolower' ) ? mb_strtolower( $t ) : strtolower( $t );
+			if ( '' !== $t && ! isset( $seen[ $k ] ) && count( $tags ) < self::CARD_TAGS_MAX ) {
+				$seen[ $k ] = true;
+				$tags[]     = $t;
+			}
+		};
+		foreach ( (array) ( $sk['entities'] ?? [] ) as $e ) {
+			$push( $e );
+		}
+		foreach ( $nodes as $n ) {
+			if ( is_array( $n ) ) {
+				$push( $n['label'] ?? '' );
+			}
+		}
+		$card['tags'] = $tags;
+		return $card;
+	}
+
 	/* ──────────────────────────────────────────────────────────────────
 	 *  PUBLIC API — RULE-1
 	 * ──────────────────────────────────────────────────────────────── */

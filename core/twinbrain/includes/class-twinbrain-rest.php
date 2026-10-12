@@ -19,7 +19,8 @@ defined( 'ABSPATH' ) or die( 'OOPS...' );
 // PHASE-0.41 L3 — trait is required for the `use` below; load defensively so
 // this file works even if core/diagnostics bootstrap hasn't fired yet.
 if ( ! trait_exists( 'BizCity_REST_Error' ) ) {
-	$__trait = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'core/helper/includes/trait-rest-error.php';
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+	$__trait = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'core/helper/includes/trait-rest-error.php';
 	if ( file_exists( $__trait ) ) {
 		require_once $__trait;
 	}
@@ -245,10 +246,6 @@ class BizCity_TwinBrain_REST {
 		}
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — `skill` no longer pins the turn to PHP: the
 		// /skill Workflow Pipeline is archived, so such requests follow the normal cell / PHP decision.
-		if ( class_exists( 'BizCity_Automation_Command_Resolver' ) && BizCity_Automation_Command_Resolver::extract( $prompt ) ) {
-			$this->legacy_reason = 'workflow_command';
-			return 'php';
-		}
 		if ( class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) && is_array( BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $prompt ) ) ) {
 			$this->legacy_reason = 'vertical_slug';
 			return 'php';
@@ -510,13 +507,7 @@ class BizCity_TwinBrain_REST {
 			$sse->emit( 'twin_event', BizCity_Twin_Web_Turn::path_event( 'legacy', $this->legacy_reason, BizCity_Twin_Web_Turn::flag( 'brain' ), '', 'cell_fallback' === $this->legacy_reason ? BizCity_Twin_Web_Turn::fallback_detail() : '' ) );
 		}
 
-		// [2026-08-16 Johnny Chu] CCG-5 — exact #workflow_slug bypasses MPR/skill routing and reuses Automation Runner.
-		if ( class_exists( 'BizCity_Automation_Command_Resolver' )
-			&& BizCity_Automation_Command_Resolver::extract( $prompt ) ) {
-			$this->handle_explicit_workflow_command( $prompt, $opts, $sse );
-			$sse->close( array( 'surface' => 'twinchat_workflow_command' ) );
-			exit;
-		}
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L6 — #workflow_slug interception removed (owner Q102-6).
 
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — confirm prompt + /skill Workflow Pipeline removed; a request with a `skill` param now runs the normal turn.
 
@@ -626,55 +617,6 @@ class BizCity_TwinBrain_REST {
 		// to serialize a JSON response over the closed event-stream.
 		exit;
 	}
-
-	private function handle_explicit_workflow_command( $prompt, array $opts, BizCity_Twin_SSE_Writer $sse ): void {
-		// [2026-08-16 Johnny Chu] CCG-5 — resolve, authorize, run and expose explicit workflow command state.
-		$user_id = (int) ( $opts['user_id'] ?? 0 );
-		$resolved = BizCity_Automation_Command_Resolver::resolve(
-			$prompt,
-			array( 'user_id' => $user_id, 'is_admin' => current_user_can( 'manage_options' ), 'zone' => 'admin' ),
-			array( 'zone' => 'admin' )
-		);
-		$trace_id = 'tb_' . wp_generate_uuid4();
-		$sse->emit( 'started', array( 'trace_id' => $trace_id, 'session_id' => (string) ( $opts['session_id'] ?? '' ), 'surface' => 'twinchat_workflow_command' ) );
-		if ( empty( $resolved['matched'] ) ) {
-			$sse->emit( 'error', array(
-				'code'      => (string) ( $resolved['reason'] ?? 'workflow_command_denied' ),
-				'message'   => 'Workflow command không được phép chạy.',
-				'hint'      => 'Chọn workflow được cấp quyền trong danh sách # rồi thử lại.',
-				'help_code' => 'automation_run_failed',
-			) );
-			return;
-		}
-		$workflow = (array) ( $resolved['workflow'] ?? array() );
-		$workflow_id = (int) ( $workflow['id'] ?? 0 );
-		$chat_id = 'twinchat_prompt_' . $user_id . '_' . sanitize_key( (string) ( $opts['session_id'] ?? 'default' ) );
-		$run_payload = array(
-			'platform' => 'TWINCHAT', 'event_subtype' => 'twinchat_prompt', 'origin_surface' => 'twinchat_prompt',
-			'text' => (string) $prompt, 'raw_text' => (string) $prompt, 'wp_user_id' => $user_id,
-			'_owner_user_id' => $user_id, 'user_id' => (string) $user_id, 'chat_id' => $chat_id,
-			'conversation_chat_id' => $chat_id, '_trigger' => 'prompt_command',
-			'command_slug' => (string) ( $resolved['slug'] ?? '' ), 'command_args' => (string) ( $resolved['args'] ?? '' ), 'zone' => 'admin',
-		);
-		$sse->emit( 'automation_run_started', array(
-			'trace_id' => $trace_id, 'workflow_id' => $workflow_id,
-			'workflow' => (string) ( $workflow['name'] ?? $workflow['slug'] ?? '' ), 'slug' => (string) ( $resolved['slug'] ?? '' ),
-		) );
-		if ( ! class_exists( 'BizCity_Automation_Runner' ) ) {
-			$sse->emit( 'error', array( 'code' => 'automation_runtime_unavailable', 'message' => 'Automation runtime chưa sẵn sàng.', 'hint' => 'Kiểm tra module Automation rồi thử lại.', 'help_code' => 'automation_run_failed' ) );
-			return;
-		}
-		$result = BizCity_Automation_Runner::instance()->run_now( $workflow_id, $run_payload );
-		if ( is_wp_error( $result ) ) {
-			$sse->emit( 'error', array( 'code' => (string) $result->get_error_code(), 'message' => 'Workflow không chạy được.', 'hint' => 'Kiểm tra lại kịch bản Automation và thử lại.', 'help_code' => 'automation_run_failed' ) );
-			return;
-		}
-		$sse->emit( 'automation_run_done', array(
-			'trace_id' => $trace_id, 'workflow_id' => $workflow_id,
-			'run_id' => is_scalar( $result ) ? (string) $result : '', 'slug' => (string) ( $resolved['slug'] ?? '' ),
-		) );
-	}
-
 	private function validate_focus_notebook( $prompt, $user_id, $notebook_id ) {
 		// [2026-08-16 Johnny Chu] P2 — focused notebook must belong to the resolved Guru attachment set.
 		if ( ! class_exists( 'BizCity_Guru_Token_Parser' ) || ! class_exists( 'BizCity_KG_Database' ) ) {

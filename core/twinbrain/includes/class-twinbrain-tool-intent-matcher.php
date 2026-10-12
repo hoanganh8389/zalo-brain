@@ -135,7 +135,8 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		if ( ! class_exists( 'BizCity_TwinWeb_Agent_Tool_Catalog' ) ) {
 			$catalog_file = defined( 'BIZCITY_TWIN_AI_DIR' )
 				? BIZCITY_TWIN_AI_DIR . 'modules/twinweb/includes/class-twinweb-agent-tool-catalog.php'
-				: ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'modules/twinweb/includes/class-twinweb-agent-tool-catalog.php';
+				// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+				: ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 3 ) . '/' ) . 'modules/twinweb/includes/class-twinweb-agent-tool-catalog.php';
 			if ( is_readable( $catalog_file ) ) {
 				require_once $catalog_file;
 			}

@@ -151,8 +151,127 @@ final class BizCity_MCP_Delegation {
 			'user_hash'            => strtolower( (string) ( $principal['user_hash'] ?? '' ) ),
 			'account_id'           => (string) $account_id,
 			'turn_id'              => (string) $turn_id,
-			'allowed_notebook_ids' => in_array( 'notebook', $modes, true ) ? self::owned_notebook_ids( $user_id ) : array(),
+			// [2026-10-11 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P1 — a turn of ONE number reads that number's notebooks (L1) + the
+			// person's own notebooks (L2), never another number's; staff get L2 only when the admin opened it (Q99-1).
+			'allowed_notebook_ids' => in_array( 'notebook', $modes, true )
+				? self::layered_notebook_ids( $user_id, (string) $account_id, (string) ( $principal['role'] ?? '' ) )
+				: array(),
 		);
+	}
+
+	/** PHASE-0.99 S99-P1 — scope prefix the KG capture writes for a Zalo number's daily notebooks (same as the pack exporter). */
+	const NUMBER_SCOPE_PREFIX = 'zalo_account:';
+
+	/** Option: 'off' ⇒ back to every owned notebook (pre-0.99). */
+	const LAYER_SCOPE_OPTION = 'bizcity_mcp_delegation_layer_scope';
+
+	/** Option: array<account_id, 1> — numbers whose staff may also read their OWN personal notebooks (L2). Default: none. */
+	const STAFF_PERSONAL_OPTION = 'bizcity_zalo_staff_personal_notebooks';
+
+	/**
+	 * [2026-10-11 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P1 — owned notebooks split by layer for a turn of `$account_id`:
+	 *   L1 = owned AND settings.scope_id = zalo_account:<account_id> (exactly the set the owner pack exporter copies to the cell);
+	 *   L2 = owned AND scope_id not starting with zalo_account: (the person's own notebooks; another number's never).
+	 * owner ⇒ L1 ∪ L2; staff ⇒ L1 (+ L2 when STAFF_PERSONAL_OPTION[account] is on). No account id or option 'off' ⇒ every
+	 * owned notebook, as before.
+	 *
+	 * @return int[]
+	 */
+	public static function layered_notebook_ids( $user_id, string $account_id, string $role ): array {
+		$split = self::notebook_layers( $user_id, $account_id );
+		if ( null === $split ) {
+			return self::owned_notebook_ids( $user_id );
+		}
+		$ids = $split['l1'];
+		if ( 'staff' !== $role || self::staff_personal_allowed( $account_id ) ) {
+			$ids = array_merge( $ids, $split['l2'] );
+		}
+		return array_values( array_unique( $ids ) );
+	}
+
+	/**
+	 * PHASE-0.99 S99-P1/P13 — `{l1: int[], l2: int[]}` of the user's OWNED notebooks for one number, newest first (rows come
+	 * ordered by updated_at), or null when layering does not apply (no account, option 'off').
+	 *
+	 * @return array{l1:int[],l2:int[]}|null
+	 */
+	public static function notebook_layers( $user_id, string $account_id ) {
+		$user_id    = (int) $user_id;
+		$account_id = trim( $account_id );
+		if ( $user_id <= 0 || '' === $account_id || 'off' === self::option( self::LAYER_SCOPE_OPTION, '' ) ) {
+			return null;
+		}
+		$want = self::NUMBER_SCOPE_PREFIX . $account_id;
+		$out  = array( 'l1' => array(), 'l2' => array() );
+		foreach ( self::notebook_rows( $user_id ) as $row ) {
+			$row = (array) $row;
+			$id  = (int) ( $row['id'] ?? 0 );
+			if ( $id <= 0 || (int) ( $row['owner_id'] ?? 0 ) !== $user_id ) {
+				continue; // AMA-4: owned only, never a notebook the user can merely read
+			}
+			$settings = $row['settings'] ?? array();
+			if ( is_string( $settings ) ) {
+				$settings = json_decode( $settings, true );
+			}
+			$scope = (string) ( ( (array) $settings )['scope_id'] ?? '' );
+			if ( $scope === $want ) {
+				$out['l1'][] = $id;
+			} elseif ( 0 !== strpos( $scope, self::NUMBER_SCOPE_PREFIX ) ) {
+				$out['l2'][] = $id;
+			}
+		}
+		$out['l1'] = array_values( array_unique( $out['l1'] ) );
+		$out['l2'] = array_values( array_unique( $out['l2'] ) );
+		return $out;
+	}
+
+	/**
+	 * PHASE-0.99 S99-P3 — `$ids` reordered newest first by the notebook rows' updated_at (ids without a row keep their order
+	 * at the end).
+	 *
+	 * @param int[] $ids
+	 * @return int[]
+	 */
+	public static function newest_first( array $ids, $user_id ): array {
+		$ts = array();
+		foreach ( self::notebook_rows( (int) $user_id ) as $row ) {
+			$row = (array) $row;
+			$ts[ (int) ( $row['id'] ?? 0 ) ] = (int) strtotime( (string) ( $row['updated_at'] ?? '' ) );
+		}
+		$pos = array_flip( array_values( $ids ) );
+		usort( $ids, static function ( $a, $b ) use ( $ts, $pos ) {
+			$ta = $ts[ $a ] ?? -1;
+			$tb = $ts[ $b ] ?? -1;
+			return $ta !== $tb ? $tb <=> $ta : $pos[ $a ] <=> $pos[ $b ];
+		} );
+		return array_values( $ids );
+	}
+
+	private static function staff_personal_allowed( string $account_id ): bool {
+		$on = self::option( self::STAFF_PERSONAL_OPTION, array() );
+		return is_array( $on ) && ! empty( $on[ $account_id ] );
+	}
+
+	/** @return mixed */
+	private static function option( string $name, $default ) {
+		if ( isset( self::$readers['option'] ) ) {
+			return call_user_func( self::$readers['option'], $name, $default );
+		}
+		return function_exists( 'get_option' ) ? get_option( $name, $default ) : $default;
+	}
+
+	/** Rows of the user's readable notebooks (test seam `notebooks`), memoised per request. @return array[] */
+	private static function notebook_rows( int $user_id ): array {
+		static $memo = array();
+		if ( isset( self::$readers['notebooks'] ) ) {
+			return (array) call_user_func( self::$readers['notebooks'], $user_id );
+		}
+		if ( ! isset( $memo[ $user_id ] ) ) {
+			$memo[ $user_id ] = class_exists( 'BizCity_KG_Notebook_Service' )
+				? (array) BizCity_KG_Notebook_Service::instance()->list_for_user( $user_id, array( 'limit' => 500, 'with_stats' => false ) ) // S99-P18: ids / owner / settings only
+				: array();
+		}
+		return $memo[ $user_id ];
 	}
 
 	/** PHASE-0.91 R-AGENT-PRINCIPALS R-AP-6 — principal kind of a CUSTOMER turn (the Guru of the channel, no WP user). */
@@ -321,13 +440,7 @@ final class BizCity_MCP_Delegation {
 		if ( $user_id <= 0 ) {
 			return array();
 		}
-		if ( isset( self::$readers['notebooks'] ) ) {
-			$rows = (array) call_user_func( self::$readers['notebooks'], $user_id );
-		} elseif ( class_exists( 'BizCity_KG_Notebook_Service' ) ) {
-			$rows = (array) BizCity_KG_Notebook_Service::instance()->list_for_user( $user_id, array( 'limit' => 500 ) );
-		} else {
-			$rows = array();
-		}
+		$rows = self::notebook_rows( $user_id ); // [2026-10-11 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P1 — one read per request
 		$ids = array();
 		foreach ( $rows as $row ) {
 			$row   = (array) $row; // rows may be arrays or stdClass

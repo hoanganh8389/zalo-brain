@@ -146,6 +146,29 @@ final class BizCity_MCP_Tool_Policy {
 		return $map;
 	}
 
+	/**
+	 * [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L8 — installing a brain profile may only ADD to
+	 * this allowlist (doc 30 §3.2 step 4: "chỉ thêm, không bớt"), never flip an admin-enabled tool back off. Unlike
+	 * `save()` (full replace from a checkbox screen), this merges: tools already `true` or already explicitly `false`
+	 * by an admin stay as they are; only tools absent from the stored map are added as `true`.
+	 *
+	 * @param string[] $tool_names Tool names a profile's tool_packs resolve to.
+	 * @return array<string,bool> The saved map.
+	 */
+	public static function enable( array $tool_names ) {
+		$stored = get_option( self::OPTION, array() );
+		$map    = is_array( $stored ) ? $stored : array();
+		foreach ( $tool_names as $name ) {
+			$normalized = self::normalize_name( $name );
+			if ( '' === $normalized || array_key_exists( $normalized, $map ) ) {
+				continue; // never override an existing explicit choice (on or off)
+			}
+			$map[ $normalized ] = true;
+		}
+		update_option( self::OPTION, $map, false );
+		return $map;
+	}
+
 	/* ================================================================
 	 *  [2026-10-01 Claude Opus 5.5] PHASE-0.88 R-MCP-OAUTH-ID §0b.5 — role groups.
 	 *

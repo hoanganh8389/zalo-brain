@@ -559,12 +559,19 @@ final class BizCity_Guru_Context_Resolver {
 	 * @return array Contract envelope without `prompt` (GURU-CONTEXT-CONTRACT-v1 §3). Empty `instruction.text` only when no
 	 *               Guru could be resolved at all (engine falls back to its default instruction).
 	 */
-	public static function profile( int $character_id ): array {
-		if ( isset( self::$memo[ $character_id ] ) ) { return self::$memo[ $character_id ]; }
-		return self::$memo[ $character_id ] = self::build_profile( $character_id );
+	/**
+	 * @param string $account_id Optional — when given, `policy` folds in this number's override
+	 *               (`bizcity_brain_policy_override_<account_id>`, PHASE-0.100 S100-L4) and the
+	 *               Guru's `etag` moves when that override changes, even though persona/scope didn't.
+	 *               Memoized per (character_id, account_id) pair so the common no-account call stays O(1).
+	 */
+	public static function profile( int $character_id, string $account_id = '' ): array {
+		$memo_key = $character_id . ( '' !== $account_id ? '|' . $account_id : '' );
+		if ( isset( self::$memo[ $memo_key ] ) ) { return self::$memo[ $memo_key ]; }
+		return self::$memo[ $memo_key ] = self::build_profile( $character_id, $account_id );
 	}
 
-	private static function build_profile( int $character_id ): array {
+	private static function build_profile( int $character_id, string $account_id = '' ): array {
 		$g     = self::resolve_guru( $character_id );
 		$c     = $g['character'];
 		$cid   = (int) $g['character_id'];
@@ -575,10 +582,14 @@ final class BizCity_Guru_Context_Resolver {
 		$faq   = $cid > 0 ? self::faq( $cid ) : array();
 		$scope = $cid > 0 ? self::scope( $cid ) : array_merge( self::SCOPE_DEFAULTS, array( 'providers' => self::registered_guru_providers() ) );
 		$bot   = $cid > 0 ? self::bot_settings( $cid ) : array();
+		// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L4 (INTERFACES I-1) — `policy` block next to `consult`;
+		// built from the Guru's own policy.json (brain profile store, I-7) + an optional per-number override. Deploy AFTER cell
+		// S100-B2 (cell already ignores unknown keys, but this stays off a beat behind the cell to leave a clean rollout trail.
+		$policy = $cid > 0 ? self::policy_block( $cid, $account_id, (int) ( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ) ) : null;
 		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 S-1 (peer review) — engine_rules_version must be in the hash: a code deploy that
 		// changes ENGINE_RULES is not a Guru edit, so without this the etag never moves and a cell that cached the old profile gets
 		// 304 forever, never receiving the new C-8 rules until the Guru itself is edited or the cell restarts.
-		$hash  = md5( (string) wp_json_encode( array( $text, $faq, $scope, self::engine_rules_version() ) ) );
+		$hash  = md5( (string) wp_json_encode( array( $text, $faq, $scope, self::engine_rules_version(), $policy ) ) );
 		$ver   = self::version_of( $c, $hash );
 		return array(
 			'contract'    => self::CONTRACT,
@@ -606,6 +617,9 @@ final class BizCity_Guru_Context_Resolver {
 				'enabled'   => self::clean_consult_enabled( $scope['consult_enabled'] ?? true ),
 				'min_score' => self::clean_consult_min_score( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ),
 			),
+			// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L4 (INTERFACES I-1) — null when this Guru has no
+			// policy.json yet (a turn runs exactly as before: threshold from `consult`, no per-pack ask gate).
+			'policy'      => $policy,
 			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C2.1 (C-8) — the cell puts these rules before the Guru instruction, the same
 			// order compose_system() uses here, so both engines answer under one rule set.
 			'compose'     => array( 'prefer' => $scope['compose_prefer'], 'engine_rules' => 'always', 'engine_rules_text' => self::ENGINE_RULES, 'engine_rules_version' => self::engine_rules_version() ),
@@ -618,6 +632,60 @@ final class BizCity_Guru_Context_Resolver {
 	/** `er-<8 hex>` — moves only when ENGINE_RULES changes (PHASE-0.81 C-8). */
 	public static function engine_rules_version(): string {
 		return 'er-' . substr( md5( self::ENGINE_RULES ), 0, 8 );
+	}
+
+	/**
+	 * PHASE-0.100 S100-L4 (INTERFACES I-1, `brain-policy@1.0.0`). Reads the Guru's own `policy.json`
+	 * (`BizCity_Brain_Profile_Store`, I-7) and folds in the per-number override option (ask_threshold only).
+	 * `match.threshold` mirrors `consult_min_score` so there is one number both the resolver's own `consult`
+	 * block and this `policy` block agree on (R-AF-15). Truncates `packs` from the end if the wire shape would
+	 * exceed 1 KB — never rejects the bundle. Returns null when the Guru has no policy.json (old behavior).
+	 *
+	 * @return array|null
+	 */
+	private static function policy_block( int $character_id, string $account_id, int $consult_min_score ): ?array {
+		if ( ! class_exists( 'BizCity_Brain_Profile_Store' ) ) {
+			return null;
+		}
+		$pol = BizCity_Brain_Profile_Store::read_json( BizCity_Brain_Profile_Store::guru_dir( $character_id ) . 'policy.json' );
+		if ( ! is_array( $pol ) ) {
+			return null;
+		}
+		$ask_threshold = isset( $pol['ask']['threshold'] ) ? (int) $pol['ask']['threshold'] : $consult_min_score;
+		if ( '' !== $account_id ) {
+			$override = get_option( 'bizcity_brain_policy_override_' . sanitize_key( $account_id ), null );
+			if ( is_array( $override ) && isset( $override['ask_threshold'] ) ) {
+				$ask_threshold = (int) $override['ask_threshold'];
+			}
+		}
+		$clamp = static function ( $v, $lo, $hi, $dflt ) { return is_numeric( $v ) ? max( $lo, min( $hi, (int) round( (float) $v ) ) ) : $dflt; };
+		$out   = array(
+			'contract' => preg_match( '/^brain-policy@1\.\d+\.\d+$/', (string) ( $pol['contract'] ?? '' ) ) ? (string) $pol['contract'] : 'brain-policy@1.0.0',
+			'version'  => 'p-' . substr( md5( (string) wp_json_encode( $pol ) . $ask_threshold ), 0, 8 ),
+			'ask'      => array(
+				'threshold'   => $clamp( $ask_threshold, 40, 90, $consult_min_score ),
+				'max_rounds'  => $clamp( $pol['ask']['max_rounds'] ?? null, 0, 2, 2 ),
+				'max_points'  => $clamp( $pol['ask']['max_points'] ?? null, 1, 3, 3 ),
+				'explain'     => false !== ( $pol['ask']['explain'] ?? true ),
+			),
+			'match'    => array( 'threshold' => $clamp( $pol['match']['threshold'] ?? $consult_min_score, 40, 90, $consult_min_score ) ),
+			'packs'    => array(),
+			'guru_tools_off' => array_values( array_slice( array_filter( (array) ( $pol['guru_tools_off'] ?? array() ), 'is_string' ), 0, 40 ) ),
+		);
+		foreach ( (array) ( $pol['packs'] ?? array() ) as $pack_id => $v ) {
+			if ( count( $out['packs'] ) >= 24 ) {
+				break;
+			}
+			if ( is_array( $v ) && isset( $v['need'] ) && is_array( $v['need'] ) ) {
+				$out['packs'][ $pack_id ] = array( 'need' => $v['need'] );
+			}
+		}
+		// ≤ 1 KB wire cap (I-1): drop packs from the end until it fits, never reject the bundle.
+		$keys = array_keys( $out['packs'] );
+		while ( $keys && strlen( (string) wp_json_encode( $out ) ) > 1024 ) {
+			unset( $out['packs'][ array_pop( $keys ) ] );
+		}
+		return $out;
 	}
 
 	/** Instruction as ONE text for an engine composer: Guru system prompt + quick FAQ block. */

@@ -15,7 +15,8 @@
 defined( 'ABSPATH' ) or die( 'OOPS...' );
 
 if ( ! interface_exists( 'BizCity_Twin_Tool' ) ) {
-	require_once ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : WP_PLUGIN_DIR . '/bizcity-twin-ai/' ) . 'core/twin-core/includes/interface-twin-tool.php';
+	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 S102-L32 — plugin root from this file's location, not the folder name (fork / renamed folder safe).
+	require_once ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 4 ) . '/' ) . 'core/twin-core/includes/interface-twin-tool.php';
 }
 
 final class BizCity_TwinBrain_Memory_Tool_Remember implements BizCity_Twin_Tool, BizCity_Tool_Interface {

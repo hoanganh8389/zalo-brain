@@ -204,7 +204,7 @@ final class BizCity_Bot_Vision {
 				array( 'type' => 'image_url', 'image_url' => array( 'url' => 'data:' . $img['mime'] . ';base64,' . base64_encode( $img['data'] ) ) ),
 			),
 		) );
-		$opts = array( 'purpose' => 'vision', 'temperature' => 0.1, 'max_tokens' => 1024, 'timeout' => 30 );
+		$opts = array( 'purpose' => 'vision', 'caller' => 'bot.vision', 'temperature' => 0.1, 'max_tokens' => 1024, 'timeout' => 30 );
 		try {
 			if ( is_callable( self::$llm ) ) {
 				$res = call_user_func( self::$llm, $messages, $opts );

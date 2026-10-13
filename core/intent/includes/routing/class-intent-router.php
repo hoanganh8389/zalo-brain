@@ -304,7 +304,7 @@ final class BizCity_Intent_Router {
                 [ 'role' => 'system', 'content' => 'Message mode classifier. Respond ONLY with valid JSON.' ],
                 [ 'role' => 'user',   'content' => $prompt ],
             ],
-            [ 'purpose' => 'router', 'temperature' => 0.05, 'max_tokens' => 60, 'no_fallback' => false ]
+            [ 'purpose' => 'router', 'caller' => 'intent.router', 'temperature' => 0.05, 'max_tokens' => 60, 'no_fallback' => false ]
         );
         if ( ! is_array( $reply ) || empty( $reply['success'] ) || empty( $reply['message'] ) ) {
             return null;

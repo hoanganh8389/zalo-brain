@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: cell_output_created",
+  "description": "PHASE-0.106 (cell-output@1) - one file a cell turn made (Cell Chat or an owner/staff Zalo turn). Envelope session_id = the TwinChat session. No bytes, no URL, no UID: the file is pulled later by media_id through the Hub.",
+  "type": "object",
+  "required": ["output_id", "kind", "name", "mime", "media_id"],
+  "properties": {
+    "output_id": { "type": "string", "pattern": "^co_[a-f0-9]{24}$" },
+    "kind": { "enum": ["spreadsheet", "document", "presentation", "pdf", "image", "audio", "video", "text"] },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "mime": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "media_id": { "type": "string", "pattern": "^cm_[a-f0-9]{24}$" },
+    "expires_at": { "type": "string" },
+    "account_id": { "type": "string" },
+    "via": { "enum": ["cell_chat", "zalo"] },
+    "state": { "enum": ["pending", "stored", "expired", "evicted"] }
+  },
+  "additionalProperties": true
+}

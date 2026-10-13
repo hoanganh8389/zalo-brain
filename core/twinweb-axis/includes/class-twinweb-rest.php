@@ -4163,12 +4163,18 @@ class BizCity_TwinWeb_REST {
 		);
 	}
 
-	private function mychannels_zalo_personal_account( WP_REST_Request $request, array $identity ) {
+	private function mychannels_zalo_personal_account( WP_REST_Request $request, array $identity, bool $allow_claim = false ) {
 		// [2026-08-21 Johnny Chu] PHASE-0.39B — resolve only the current user's Personal account.
 		$account_id = sanitize_text_field( (string) $request->get_param( 'id' ) );
-		$account = class_exists( 'BizCity_Zalo_Mapping_Repo' )
-			? BizCity_Zalo_Mapping_Repo::find_personal_account_for_owner( (int) $identity['user_id'], $account_id )
-			: null;
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — QR start/reset/status also see a number this user typed and is
+		// taking over by QR (pending claim); every other route (delete, bot, inbox) still sees only rows they own.
+		if ( $allow_claim && class_exists( 'BizCity_Zalo_Bridge_REST' ) && method_exists( 'BizCity_Zalo_Bridge_REST', 'find_account_for_owner_or_claim' ) ) {
+			$account = BizCity_Zalo_Bridge_REST::find_account_for_owner_or_claim( (int) $identity['user_id'], $account_id );
+		} else {
+			$account = class_exists( 'BizCity_Zalo_Mapping_Repo' )
+				? BizCity_Zalo_Mapping_Repo::find_personal_account_for_owner( (int) $identity['user_id'], $account_id )
+				: null;
+		}
 		if ( ! is_array( $account ) ) {
 			return $this->mychannels_error( 'permission_denied', 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'permission_denied' );
 		}
@@ -4345,7 +4351,7 @@ class BizCity_TwinWeb_REST {
 		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để tạo mã QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
 		$gate = $this->mychannels_zalo_personal_gate();
 		if ( true !== $gate ) { return $gate; }
-		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		$account = $this->mychannels_zalo_personal_account( $request, $identity, true );
 		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		return BizCity_Zalo_Bridge_REST::start_qr_for_owner( $account, (int) $identity['user_id'] );
@@ -4357,7 +4363,7 @@ class BizCity_TwinWeb_REST {
 		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để tạo lại mã QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
 		$gate = $this->mychannels_zalo_personal_gate();
 		if ( true !== $gate ) { return $gate; }
-		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		$account = $this->mychannels_zalo_personal_account( $request, $identity, true );
 		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		return BizCity_Zalo_Bridge_REST::reset_qr_for_owner( $account, (int) $identity['user_id'] );
@@ -4369,7 +4375,7 @@ class BizCity_TwinWeb_REST {
 		if ( is_wp_error( $identity ) ) { return $this->mychannels_error( 'auth_required', 'Bạn cần đăng nhập để xem trạng thái QR.', 'Đăng nhập vào Twin GPT rồi thử lại.', 'auth_required' ); }
 		$gate = $this->mychannels_zalo_personal_gate();
 		if ( true !== $gate ) { return $gate; }
-		$account = $this->mychannels_zalo_personal_account( $request, $identity );
+		$account = $this->mychannels_zalo_personal_account( $request, $identity, true );
 		if ( is_wp_error( $account ) || $account instanceof WP_REST_Response ) { return $account; }
 		if ( ! is_array( $account ) || ! class_exists( 'BizCity_Zalo_Bridge_REST' ) ) { return $this->mychannels_error( 'module_not_loaded', 'Tài khoản Zalo Personal chưa sẵn sàng.', 'Tải lại Kênh của tôi rồi thử lại.', 'module_not_loaded' ); }
 		return BizCity_Zalo_Bridge_REST::qr_status_for_owner( $account, (int) $identity['user_id'] );

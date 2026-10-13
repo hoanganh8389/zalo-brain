@@ -1,0 +1,1511 @@
+{
+    "contract": "bizcity-mcp-standard@1.0.0",
+    "phase": "PHASE-0.88",
+    "doc": "core\/channel-gateway\/docs\/PHASE-0.88-MCP-ONE-STANDARD\/01-MASTER-PLAN.md",
+    "notes": "Machine form of the one MCP standard (L1 tools, L2 resources, L3 mapping). The site core\/mcp registry must register every tool below with the same name, mode, scopes and confirm; bin\/validate-mcp-standard.mjs checks code markers `@mcp bizcity-mcp-standard@1 tool <name>` against this file. `llm_alias` = the key the cell exposes to the model (Q88-5: existing cell keys are kept). `fallback_pack` = projection pack the cell reads when the MCP call times out or fails (owner\/staff turns) and the only source on customer turns. `wave` = PHASE-0.88 wave that ships it. EXTENSION ARM (2026-10-05, R-VA-10..14 \/ R-BCB-8, contract automation-scenario@1): business capability the cell has no builtin tool for is declared as a SCENARIO at the client, reached through ONE tool family (automation.list_scenarios \/ automation.run_scenario, PHASE-0.91 AX-1). Rule for this file: a write tool that does a BACKGROUND job and has a default scenario must carry `system: true` (one door per job); reads and in-turn writes (order.create, booking.create) keep their own model-visible tools. STANDING AUTHORISATION (2026-10-05, D91-31, exception to Q88-1\/L1-7 'the wrapper owns the token, handlers never do'): a write whose authorisation is already STORED AS DATA by the site owner - who authorised it and when - counts as confirmed, so confirm_gate() honours `auto_confirm` returned by preview() and runs straight away while still writing the audit row (confirm: standing, authorized_by). Today the only holder of such data is an automation scenario with `cell.confirm: 'never'` + `cell.standing_auth {by, at, label}`, settable only with manage_options and revocable at any time; no other tool may return auto_confirm.",
+    "modes": {
+        "notebook": {
+            "scopes": [
+                "brain.read",
+                "memory.read",
+                "memory.write"
+            ]
+        },
+        "sales": {
+            "scopes": [
+                "business.read",
+                "report.read"
+            ]
+        },
+        "orders": {
+            "scopes": [
+                "order.read",
+                "commerce.read",
+                "order.write",
+                "inventory.write"
+            ]
+        },
+        "customers": {
+            "scopes": [
+                "crm.read",
+                "commerce.read",
+                "crm.write",
+                "staff.write"
+            ]
+        },
+        "stock": {
+            "scopes": [
+                "business.read",
+                "commerce.read"
+            ]
+        },
+        "astro_self": {
+            "scopes": [
+                "brain.read"
+            ],
+            "notes": "CORE-REDUCTION WP-20 Q-W20-12 (2026-10-09): bizcoach-pro read-only astro.*\/coach.* tools need brain.read."
+        },
+        "deep_analysis": {
+            "scopes": [
+                "analysis.run"
+            ],
+            "new_in": "0.92",
+            "notes": "TWINBRAIN-SPLIT-CORE-ADDON Q-4 (2026-10-07): owner queues TwinBrain vertical \/ deep analysis over MCP (analysis.request)."
+        },
+        "booking": {
+            "scopes": [
+                "booking.read",
+                "booking.write"
+            ],
+            "new_in": "0.88",
+            "default_grant": "administrator"
+        },
+        "automation": {
+            "scopes": [
+                "automation.run"
+            ],
+            "new_in": "0.88",
+            "default_grant": "administrator"
+        },
+        "channel": {
+            "scopes": [
+                "channel.reply",
+                "channel.post",
+                "channel.mail"
+            ],
+            "new_in": "0.90",
+            "default_grant": "administrator",
+            "notes": "PHASE-0.93 gap B (2026-10-07): channel.mail = gmail.send. The mode already exists in the cell (KNOWN_AGENT_MODES), so the cell offers gmail.send from the principal tools\/list with no cell change."
+        }
+    },
+    "role_groups": {
+        "rule": "R-MCP-OAUTH-ID §0b.5 (2026-10-01): every WP role has two MCP groups; applies to every client (OAuth, API key, delegated cell). Store: BizCity_MCP_Tool_Policy option bizcity_mcp_role_groups (absent = auto). Tool descriptors carry _meta.bizcity.group. Refusal code MCP_ROLE_GROUP_DENIED. The cell never falls back to a pack after a policy refusal, and the site pack route disables kinds of a denied group (reason role_group_denied).",
+        "groups": {
+            "knowledge": "tools named knowledge.* or brain.* (except brain.order.summary) or mode notebook; resources notebook\/*, guru\/*; prompts; packs owner_knowledge, notebook_meta",
+            "action": "every other offered tool (business read + write); resources customer\/*, product\/*, pack\/{other kinds}"
+        },
+        "auto_defaults": {
+            "administrator": [
+                "knowledge",
+                "action"
+            ],
+            "editor": [
+                "knowledge"
+            ],
+            "subscriber": []
+        },
+        "custom_role_inference": "manage_options => administrator profile; edit_others_posts => editor profile; else subscriber profile; multiple roles => union",
+        "knowledge_scope": "user id first: non-administrator profiles read only their own notebooks"
+    },
+    "any_business_mode_scopes": [
+        "staff.notify"
+    ],
+    "business_modes": [
+        "sales",
+        "orders",
+        "customers",
+        "stock",
+        "booking",
+        "automation"
+    ],
+    "tools": [
+        {
+            "name": "sales.summary",
+            "kind": "read",
+            "mode": "sales",
+            "scopes": [
+                "business.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "biz_sales",
+            "fallback_pack": "sales",
+            "aliases": [
+                "business.get_sales_metrics"
+            ],
+            "wave": 1,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.sales.summary"
+        },
+        {
+            "name": "knowledge.search",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "notebook_search",
+            "fallback_pack": "owner_knowledge",
+            "aliases": [
+                "brain.search"
+            ],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff",
+                "customer"
+            ],
+            "scope": "thread",
+            "capability": "mcp.knowledge.search"
+        },
+        {
+            "name": "knowledge.get_passage",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "knowledge_get_passage",
+            "fallback_pack": null,
+            "aliases": [
+                "brain.get_passage"
+            ],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff",
+                "customer"
+            ],
+            "scope": "thread",
+            "capability": "mcp.knowledge.get_passage"
+        },
+        {
+            "name": "knowledge.list_notebooks",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "knowledge_list_notebooks",
+            "fallback_pack": "notebook_meta",
+            "aliases": [
+                "brain.list_notebooks"
+            ],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff",
+                "customer"
+            ],
+            "scope": "thread",
+            "capability": "mcp.knowledge.list_notebooks"
+        },
+        {
+            "name": "knowledge.stats",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "knowledge_stats",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "system": true,
+            "notes": "PHASE-0.91 R-MEMORY-5-95 M-8a (2026-10-05): notebooks \/ passages \/ bytes the site holds, so the cell estimates its 5\/95 allocation (Q91-26). System call only (CELL_SYSTEM_MCP_TOOLS), numbers only, cached 1 h.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.knowledge.stats"
+        },
+        {
+            "name": "memory.save",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "memory_save",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 6,
+            "system": true,
+            "notes": "PHASE-0.94 MEM-H1 (2026-10-08, Q-MEM-1): long-term memory about ONE person lives on the client in BizCity_User_Memory (Context Bank, Identity Hub identity_uuid) — the store Bot Studio already uses. Only explicit asks + corrections arrive (kind explicit|correction, replaces). contact.zalo must be the number of the call (ctx account_id); wp = caller only; absent = caller. Group memory refused (memory_scope_unsupported). System call only (CELL_SYSTEM_MCP_TOOLS).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.memory.save"
+        },
+        {
+            "name": "memory.recall",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "memory.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "memory_recall",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "system": true,
+            "notes": "PHASE-0.94 MEM-H1 (2026-10-08, Q-MEM-1): long-term memory about ONE person lives on the client in BizCity_User_Memory (Context Bank, Identity Hub identity_uuid) — the store Bot Studio already uses. Only explicit asks + corrections arrive (kind explicit|correction, replaces). contact.zalo must be the number of the call (ctx account_id); wp = caller only; absent = caller. Group memory refused (memory_scope_unsupported). System call only (CELL_SYSTEM_MCP_TOOLS).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.memory.recall"
+        },
+        {
+            "name": "memory.forget",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "memory_forget",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 6,
+            "system": true,
+            "notes": "PHASE-0.94 MEM-H1 (2026-10-08, Q-MEM-1): long-term memory about ONE person lives on the client in BizCity_User_Memory (Context Bank, Identity Hub identity_uuid) — the store Bot Studio already uses. Only explicit asks + corrections arrive (kind explicit|correction, replaces). contact.zalo must be the number of the call (ctx account_id); wp = caller only; absent = caller. Group memory refused (memory_scope_unsupported). System call only (CELL_SYSTEM_MCP_TOOLS).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.memory.forget"
+        },
+        {
+            "name": "order.status",
+            "kind": "read",
+            "mode": "orders",
+            "scopes": [
+                "order.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "biz_orders",
+            "fallback_pack": "orders",
+            "aliases": [],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.order.status"
+        },
+        {
+            "name": "crm.customer.lookup",
+            "kind": "read",
+            "mode": "customers",
+            "scopes": [
+                "crm.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "biz_customer_find",
+            "fallback_pack": "customers",
+            "aliases": [],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.customer.lookup"
+        },
+        {
+            "name": "inventory.check",
+            "kind": "read",
+            "mode": "stock",
+            "scopes": [
+                "business.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "biz_stock",
+            "fallback_pack": "stock",
+            "aliases": [
+                "business.get_inventory_metrics"
+            ],
+            "wave": 2,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.inventory.check"
+        },
+        {
+            "name": "crm.customer.update",
+            "kind": "write",
+            "mode": "customers",
+            "scopes": [
+                "crm.write"
+            ],
+            "required_cap": "bizcity_crm_handle_inbox",
+            "confirm": "never",
+            "llm_alias": "crm_customer_update",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.customer.update"
+        },
+        {
+            "name": "staff.notify",
+            "kind": "write",
+            "mode": "*business",
+            "scopes": [
+                "staff.notify"
+            ],
+            "confirm": "never",
+            "llm_alias": "staff_notify",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.staff.notify"
+        },
+        {
+            "name": "staff.assign",
+            "kind": "write",
+            "mode": "customers",
+            "scopes": [
+                "staff.write"
+            ],
+            "required_cap": "bizcity_crm_handle_inbox",
+            "confirm": "always",
+            "llm_alias": "staff_assign",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.staff.assign"
+        },
+        {
+            "name": "order.create",
+            "kind": "write",
+            "mode": "orders",
+            "scopes": [
+                "order.write"
+            ],
+            "required_cap": "edit_shop_orders",
+            "confirm": "always",
+            "llm_alias": "order_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.order.create"
+        },
+        {
+            "name": "inventory.reserve",
+            "kind": "write",
+            "mode": "orders",
+            "scopes": [
+                "inventory.write"
+            ],
+            "required_cap": "manage_woocommerce",
+            "confirm": "always",
+            "llm_alias": "inventory_reserve",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.inventory.reserve"
+        },
+        {
+            "name": "inventory.release",
+            "kind": "write",
+            "mode": "orders",
+            "scopes": [
+                "inventory.write"
+            ],
+            "required_cap": "manage_woocommerce",
+            "confirm": "never",
+            "llm_alias": "inventory_release",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 3,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.inventory.release"
+        },
+        {
+            "name": "booking.available_slots",
+            "kind": "read",
+            "mode": "booking",
+            "scopes": [
+                "booking.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "booking_available_slots",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 4,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.booking.available_slots"
+        },
+        {
+            "name": "booking.create",
+            "kind": "write",
+            "mode": "booking",
+            "scopes": [
+                "booking.write"
+            ],
+            "confirm": "always",
+            "llm_alias": "booking_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 4,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.booking.create"
+        },
+        {
+            "name": "booking.cancel",
+            "kind": "write",
+            "mode": "booking",
+            "scopes": [
+                "booking.write"
+            ],
+            "confirm": "always",
+            "llm_alias": "booking_cancel",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 4,
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.booking.cancel"
+        },
+        {
+            "name": "booking.sync_job",
+            "kind": "write",
+            "mode": "booking",
+            "scopes": [
+                "booking.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "booking_sync_job",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 6,
+            "system": true,
+            "notes": "D-SCH-CELL-1 (2026-10-03): the cell mirrors its own schedule_task jobs into the site calendar (event_type cell_job). System sync only - the cell never offers it to the model (CELL_SYSTEM_MCP_TOOLS); the cell fires the job, the site never re-sends. PHASE-0.92 S92-SC-7 (2026-10-06): optional site_event_id = a row the site handed over (channel-inbound@1.2 job_upsert) — that row is updated in place (event_type\/source kept, metadata merged, start_at = next fire + reminder_min), found later by the cell_job_id column.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.booking.sync_job"
+        },
+        {
+            "name": "automation.run",
+            "kind": "write",
+            "mode": "automation",
+            "scopes": [
+                "automation.run"
+            ],
+            "confirm": "always",
+            "llm_alias": "automation_run",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 4,
+            "system": true,
+            "notes": "Admin path by workflow_id - NOT a model tool. PHASE-0.91 AX-1.6 (2026-10-05 Johnny Chu - Chu Hoàng Anh): system:true + CELL_SYSTEM_MCP_TOOLS, so the model sees exactly one door to the extension arm, automation.run_scenario by slug (R-VA-11, automation-scenario@1). AX-0 (2026-10-05): the MCP service loads Automation lazily at its seam (boot_addon), Automation lives in the own sibling plugin bizcity-automation (outside bizcity-twin-ai, CANON v1.138); this door stays in core\/mcp.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.automation.run"
+        },
+        {
+            "name": "automation.run_scenario",
+            "kind": "write",
+            "mode": "automation",
+            "scopes": [
+                "automation.run"
+            ],
+            "confirm": "always",
+            "no_standard_cap": true,
+            "llm_alias": "automation_run_scenario",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.91 AX-1.4 (2026-10-05 Johnny Chu - Chu Hoàng Anh, contract automation-scenario@1 §4): the ONE model door to the extension arm, by cell.slug. Refusals in contract order; scenario codes travel as error.details.reason (scenario_not_found|scenario_disabled|scenario_needs_hil|scenario_is_read_only|scenario_not_configured|scenario_role_denied|scenario_rate_limited|scenario_input_missing) under catalogued MCP codes. Commit = one Lịch row automation_run (report_back) + Repo_Runs::enqueue + async loopback; never runs in the request. Answer {status:queued, run_id, scenario, workflow_id, eta_seconds, report_back:true, event_id}. Only tool whose preview may return auto_confirm (D91-31 standing authorisation). runsInScheduledTurn false.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.automation.run_scenario"
+        },
+        {
+            "name": "site.content.search",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "site_content_search",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.98 S98-M7 (2026-10-11 Johnny Chu - Chu Hoàng Anh, media-out@1): published posts \/ pages \/ public CPTs \/ media library (type=media), rows {ref,type,title,link,excerpt,date,image_url https}; the cell collects image_url into the turn allowlist and shows pictures with send_site_media. Read-only, published only. Woo products stay on commerce.search_products. Q98-M2 (2026-10-11, owner): open to customers through the Guru (customer_tools, default on).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff",
+                "customer"
+            ],
+            "scope": "thread",
+            "capability": "mcp.site.content.search"
+        },
+        {
+            "name": "commerce.search_products",
+            "kind": "read",
+            "mode": "stock",
+            "scopes": [
+                "commerce.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "biz_product_search",
+            "fallback_pack": "catalog",
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.95 S95-F3\/G1 (2026-10-09 Johnny Chu - Chu Hoàng Anh): consult search, output consult-result@1 (≤ 5 items, D95-16 score, ≤ 3 KB). Public catalog data only, so a customer turn (guru_public) runs it without a WordPress user when the Guru opens it (customer_tools) - limited to the Guru product categories (ctx allowed_product_cat_ids, descendants included, S95-F14). Role group knowledge.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff",
+                "customer"
+            ],
+            "scope": "thread",
+            "capability": "mcp.commerce.search_products"
+        },
+        {
+            "name": "registry.proposal.submit",
+            "kind": "write",
+            "mode": "automation",
+            "scopes": [
+                "automation.run"
+            ],
+            "confirm": "never",
+            "llm_alias": "registry_proposal_submit",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "system": true,
+            "notes": "PHASE-0.95 S95-G8 (2026-10-09 Johnny Chu - Chu Hoàng Anh, Q95-13 CPT): the cell proposes a product-advice \/ category-ask \/ scenario-from-template draft it learnt from repeated consults; the site queues it as a bizcity_proposal post (pending) for the owner to approve or reject in Automation. Delegated owner\/staff principal only, never a customer turn; a target rejected in the last 30 days answers status blocked. System call only (CELL_SYSTEM_MCP_TOOLS).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.registry.proposal.submit"
+        },
+        {
+            "name": "automation.list_scenarios",
+            "kind": "read",
+            "mode": "automation",
+            "scopes": [
+                "automation.run"
+            ],
+            "confirm": "never",
+            "llm_alias": "automation_list_scenarios",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.91 AX-1.5 (2026-10-05 Johnny Chu - Chu Hoàng Anh): scenarios the caller may run (role-filtered, on + configured + not HIL\/read-only), ≤ 20 rows {slug,name,one_line,keywords,inputs[],eta_seconds,reply,workflow_id}; input {q?}. Never graph, prompt or internal links. runsInScheduledTurn false.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.automation.list_scenarios"
+        },
+        {
+            "name": "analysis.request",
+            "kind": "write",
+            "mode": "deep_analysis",
+            "scopes": [
+                "analysis.run"
+            ],
+            "confirm": "never",
+            "llm_alias": "analysis_request",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "system": true,
+            "notes": "TWINBRAIN-SPLIT-CORE-ADDON Q-4 (2026-10-07 Johnny Chu - Chu Hoàng Anh, owner: cell calls verticals over MCP): queues deep-analysis-job@1 on the site (BizCity_Zalo_Deep_Analysis::enqueue) for vertical notebooks|crm_customer|astro|woo_bizops|products|quick|deep|social|company|med|scholar|nutri|law|tax|gov; never runs in the request (R-PF-11: the TwinBrain engines call an LLM, so they run in WP-cron). Owner only (R-TAA-9). Answer {status:queued|duplicate, job_id, vertical, eta_seconds}; the result comes back through the existing \/zalo-hub\/deep-analysis\/result post. system:true — the cell model reaches it only through its native request_deep_analysis tool (CELL_SYSTEM_MCP_TOOLS). | PHASE-0.99 S99-P29 (2026-10-12): optional notebook_ids (int[], <= 5) = notebooks the cell narrowed by the doctor rule; intersected with allowed_notebook_ids of the turn, forwarded to the TwinBrain selector as force_notebooks; absent = the selector chooses (unchanged).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.analysis.request"
+        },
+        {
+            "name": "fb.post.create",
+            "kind": "write",
+            "mode": "channel",
+            "scopes": [
+                "channel.post"
+            ],
+            "required_cap": "publish_posts",
+            "confirm": "always",
+            "llm_alias": "fb_post_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "system": true,
+            "default_scenario": "fb_post",
+            "notes": "PHASE-0.90 S90-T3 channel tool, catalogued in PHASE-0.91 B2-2 (2026-10-05 Johnny Chu - Chu Hoàng Anh, D91-29): ships system:true (CELL_SYSTEM_MCP_TOOLS) because its job has the default scenario fb_post (R18 one door) - the model posts through automation.run_scenario. run_at (scheduled-action@1): commit writes ONE fb_post Lịch row (report_back, notify false); BizCity_FB_Publisher posts it now (single event bizcity_scheduler_run_event) or at run_at; the page is the site decision (turn, default page, only page), never the model.",
+            "tier": "channel",
+            "platform": [
+                "fb"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "channel",
+            "capability": "channel.fb.post"
+        },
+        {
+            "name": "gmail.send",
+            "kind": "write",
+            "mode": "channel",
+            "scopes": [
+                "channel.mail"
+            ],
+            "confirm": "always",
+            "llm_alias": "gmail_send",
+            "fallback_pack": null,
+            "aliases": [],
+            "no_standard_cap": true,
+            "wave": 6,
+            "notes": "PHASE-0.93 gap B (2026-10-07 Johnny Chu - Chu Hoàng Anh): sends ONE mail from the account the caller connected at Kết nối → Google (BZGoogle), owner\/staff only, confirm always, 50\/day\/user, no cc\/bcc. In-turn write with no background job and no default scenario, so it keeps its own model-visible tool (R18 applies to background jobs only). Calendar has no tool of its own: booking.create writes the Lịch and the Scheduler pushes it to Google Calendar.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "google.gmail.send"
+        },
+        {
+            "name": "skills.list",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "skills_list",
+            "fallback_pack": "skills",
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L6 (2026-10-11 Johnny Chu - Chu Hoàng Anh, D101-16 v2): the site's SKILL.md library (core\/skills, uploads\/bizcity-skills\/{blog}); skills are client knowledge the brain reads through pack `skills` (approved, labels only) and skills.get (body). propose = draft only (the cell after a harness job, never overwrites approved); save\/set_status = owner, confirm always + preview, one previous copy kept. No model on the site.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.list"
+        },
+        {
+            "name": "skills.get",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "skills_get",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L6 (2026-10-11 Johnny Chu - Chu Hoàng Anh, D101-16 v2): the site's SKILL.md library (core\/skills, uploads\/bizcity-skills\/{blog}); skills are client knowledge the brain reads through pack `skills` (approved, labels only) and skills.get (body). propose = draft only (the cell after a harness job, never overwrites approved); save\/set_status = owner, confirm always + preview, one previous copy kept. No model on the site.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.get"
+        },
+        {
+            "name": "skills.propose",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "skills_propose",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L6 (2026-10-11 Johnny Chu - Chu Hoàng Anh, D101-16 v2): the site's SKILL.md library (core\/skills, uploads\/bizcity-skills\/{blog}); skills are client knowledge the brain reads through pack `skills` (approved, labels only) and skills.get (body). propose = draft only (the cell after a harness job, never overwrites approved); save\/set_status = owner, confirm always + preview, one previous copy kept. No model on the site.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.propose"
+        },
+        {
+            "name": "skills.save",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "always",
+            "llm_alias": "skills_save",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L6 (2026-10-11 Johnny Chu - Chu Hoàng Anh, D101-16 v2): the site's SKILL.md library (core\/skills, uploads\/bizcity-skills\/{blog}); skills are client knowledge the brain reads through pack `skills` (approved, labels only) and skills.get (body). propose = draft only (the cell after a harness job, never overwrites approved); save\/set_status = owner, confirm always + preview, one previous copy kept. No model on the site.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.save"
+        },
+        {
+            "name": "skills.set_status",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "always",
+            "llm_alias": "skills_set_status",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L6 (2026-10-11 Johnny Chu - Chu Hoàng Anh, D101-16 v2): the site's SKILL.md library (core\/skills, uploads\/bizcity-skills\/{blog}); skills are client knowledge the brain reads through pack `skills` (approved, labels only) and skills.get (body). propose = draft only (the cell after a harness job, never overwrites approved); save\/set_status = owner, confirm always + preview, one previous copy kept. No model on the site.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.set_status"
+        },
+        {
+            "name": "crm.task.create",
+            "kind": "write",
+            "mode": "customers",
+            "scopes": [
+                "crm.write"
+            ],
+            "required_cap": "bizcity_crm_handle_inbox",
+            "confirm": "always",
+            "llm_alias": "crm_task_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L13 (2026-10-11 Johnny Chu - Chu Hoàng Anh, doc 30 §5, doc 80 HT-C2\/C4\/A3): the follow-up tool the CRM manifest had declared as a ghost. core\/mcp class-crm-tasks-mcp-service.php over BizCity_CRM_Task_Handoff::create() of the CRM plugin (its Staff_Policy decides who may assign whom; default assignee = the caller). Registered only when the CRM plugin is loaded.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.task.create"
+        },
+        {
+            "name": "crm.followup.list",
+            "kind": "read",
+            "mode": "customers",
+            "scopes": [
+                "crm.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "crm_followup_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L13 (2026-10-11 Johnny Chu - Chu Hoàng Anh): open follow-ups of the caller from the core table bizcity_crm_tasks (leaders: all=true \/ assignee_user_id), overdue first.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.followup.list"
+        },
+        {
+            "name": "crm.staff.metrics",
+            "kind": "read",
+            "mode": "customers",
+            "scopes": [
+                "crm.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "crm_staff_metrics",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L13 (2026-10-11 Johnny Chu - Chu Hoàng Anh, doc 80 HT-T1…T4): per-staff conversations \/ replies \/ first-response \/ resolution \/ CSAT \/ SLA via BizCity_Business_MCP_Service::get_customer_metrics grouped by agent_id (CRM report builder). Admin \/ supervisor only.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.staff.metrics"
+        },
+        {
+            "name": "crm.pipeline.stage",
+            "kind": "read",
+            "mode": "customers",
+            "scopes": [
+                "crm.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "crm_pipeline_stage",
+            "fallback_pack": "customers",
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L5 (2026-10-11 Johnny Chu - Chu Hoàng Anh, doc 30 §3, D101-8): first ADAPTER tool — core\/mcp\/adapters\/bizcity-twin-crm.json wraps BizCity_CRM_Customer_Pipeline::detail() (guard crm_contact:contact_ref). Exists only while the CRM plugin is active; yields to the plugin's own mcp\/tools.json.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.crm.pipeline.stage"
+        },
+        {
+            "name": "supplier.search",
+            "kind": "read",
+            "mode": "stock",
+            "scopes": [
+                "commerce.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "supplier_search",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.101 S101-L13 (2026-10-11 Johnny Chu - Chu Hoàng Anh, doc 50 §2 step 2, doc 80 HT-W6\/P3): adapter core\/mcp\/adapters\/supplier-search.json over the filter bizcity_mcp_supplier_search — a stock\/MRO plugin answers { suppliers[] }; no provider ⇒ the tool is absent (never a fake answer).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.supplier.search"
+        },
+        {
+            "name": "profile.list",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "profile_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "capability": "mcp.profile.list",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant"
+        },
+        {
+            "name": "profile.get",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "profile_get",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "capability": "mcp.profile.get",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant"
+        },
+        {
+            "name": "profile.propose",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "profile_propose",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner"
+            ],
+            "capability": "mcp.profile.propose",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant",
+            "required_cap": "edit_posts"
+        },
+        {
+            "name": "profile.set_policy",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "always",
+            "llm_alias": "profile_set_policy",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner"
+            ],
+            "capability": "mcp.profile.set_policy",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant",
+            "required_cap": "edit_posts"
+        },
+        {
+            "name": "profile.export",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "always",
+            "llm_alias": "profile_export",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner"
+            ],
+            "capability": "mcp.profile.export",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant",
+            "required_cap": "edit_posts"
+        },
+        {
+            "name": "program.next",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "program_next",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner"
+            ],
+            "capability": "mcp.program.next",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant"
+        },
+        {
+            "name": "program.propose",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "program_propose",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 100,
+            "notes": "PHASE-0.100 S100-L5\/L11 (2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh): profile.* \/ program.* — brain profile install surface + program.next (track.point via BizCity_Journal_Index when loaded). confirm\/preview per INTERFACES I-5.",
+            "roles": [
+                "owner"
+            ],
+            "capability": "mcp.program.propose",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "scope": "tenant",
+            "required_cap": "edit_posts"
+        },
+        {
+            "name": "journal.find",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "journal_find",
+            "fallback_pack": "doc_index",
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.journal.find"
+        },
+        {
+            "name": "journal.get",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "journal_get",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.journal.get"
+        },
+        {
+            "name": "journal.file",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "journal_file",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.journal.file"
+        },
+        {
+            "name": "journal.summarize",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "journal_summarize",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.journal.summarize"
+        },
+        {
+            "name": "journal.derive",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "always",
+            "llm_alias": "journal_derive",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.journal.derive"
+        },
+        {
+            "name": "track.get",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "track_get",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.track.get"
+        },
+        {
+            "name": "track.set",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "track_set",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.100 S100-L19 (2026-10-12 12:40 PM Johnny Chu - Chu Hoàng Anh): journal.*\/track.* read\/write the journal index (bizcity_journal_entries + kind\/subject_hash\/doc_date\/tags, doc 92 §6, lanes\/INTERFACES.md I-5). journal.summarize is deterministic (sum\/avg\/count over a numeric card field, no model). journal.derive always needs confirm + preview and stamps derived_from on the new kind:'*.output' row — never overwrites the source. track.set is an idempotent upsert keyed (subject_hash, unit_id, day); track.get reads up to 90 days. No model call on the site (R-JOURNAL R-JN-3).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.track.set"
+        }
+    ],
+    "existing_tool_modes": {
+        "notes": "Modes for tools registered before 0.88 so a delegated (cell) principal can reach them by mode. Tools not listed here (document.*, page.*, content.*, brain.context.*) are not offered to delegated principals in 0.88.",
+        "brain.order.summary": "orders",
+        "business.get_customer_metrics": "sales",
+        "report.list_templates": "sales",
+        "report.build_dataset": "sales",
+        "pipeline.get_metrics": "sales",
+        "commerce.list_products": "stock",
+        "commerce.get_product": "stock",
+        "commerce.list_orders": "orders",
+        "commerce.get_order": "orders",
+        "commerce.list_customers": "customers",
+        "commerce.get_customer": "customers",
+        "brain.get_citation_pack": "notebook"
+    },
+    "resources": {
+        "wave": 5,
+        "scheme": "bizcity",
+        "templates": [
+            {
+                "uriTemplate": "bizcity:\/\/guru\/{ref}",
+                "mimeType": "application\/json",
+                "mode": null
+            },
+            {
+                "uriTemplate": "bizcity:\/\/guru\/{ref}\/notebook\/{id}",
+                "mimeType": "text\/markdown",
+                "mode": null
+            },
+            {
+                "uriTemplate": "bizcity:\/\/notebook\/{id}",
+                "mimeType": "application\/json",
+                "mode": "notebook"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/notebook\/{id}\/passage\/{pid}",
+                "mimeType": "text\/markdown",
+                "mode": "notebook"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/customer\/{contact_id}\/context",
+                "mimeType": "application\/json",
+                "mode": "customers"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/product\/catalog",
+                "mimeType": "application\/json",
+                "mode": "stock"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/product\/{id}",
+                "mimeType": "application\/json",
+                "mode": "stock"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/product\/group\/{id}",
+                "mimeType": "application\/json",
+                "mode": "stock"
+            },
+            {
+                "uriTemplate": "bizcity:\/\/pack\/{kind}",
+                "mimeType": "application\/json",
+                "mode": "*pack"
+            }
+        ]
+    },
+    "bridge": {
+        "contract": "bizcity-mcp-bridge@1.0.0",
+        "cell_to_hub": "POST \/wp-json\/bizcity\/v1\/zalo-hub\/mcp?key_id=&account_id=",
+        "hub_to_site": "POST \/wp-json\/bizcity-channel\/v1\/zalo-bridge\/mcp?account_id=",
+        "timeouts_ms": {
+            "read": 5000,
+            "write": 8000
+        },
+        "principal_header": "X-BizCity-Principal",
+        "turn_header": "X-BizCity-Turn-Id",
+        "timeout_header": "X-BizCity-Timeout-Ms"
+    }
+}

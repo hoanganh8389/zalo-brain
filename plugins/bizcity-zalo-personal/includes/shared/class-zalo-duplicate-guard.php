@@ -161,18 +161,109 @@ class BizCity_Zalo_Duplicate_Guard {
 		return $label !== '' ? sprintf( '«%s» (#%s)', $label, $id ) : sprintf( '#%s', $id );
 	}
 
-	/** R-ERROR-UX envelope for a blocked create. */
-	public static function create_blocked_payload( array $row ): array {
+	/** Vietnamese words for a local account status, for messages. */
+	public static function status_text( string $status ): string {
+		$map = array(
+			'connected'  => 'đang kết nối',
+			'logged_out' => 'đã đăng xuất',
+			'expired'    => 'phiên đã hết hạn',
+			'pending_qr' => 'chưa quét QR xong',
+		);
+		return $map[ $status ] ?? ( $status !== '' ? $status : 'chưa rõ trạng thái' );
+	}
+
+	/**
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — who holds the duplicate, seen by the person adding the phone.
+	 *
+	 * @return string same_owner | other_member | unowned
+	 */
+	public static function cause( array $row, int $viewer_id ): string {
+		$owner = (int) ( $row['owner_user_id'] ?? 0 );
+		if ( $owner <= 0 ) {
+			return 'unowned';
+		}
+		return $owner === $viewer_id ? 'same_owner' : 'other_member';
+	}
+
+	/** One sentence naming WHERE the phone already is: this website, which row, which status, whose. */
+	public static function cause_message( array $row, int $viewer_id, string $owner_name = '' ): string {
+		$where = 'SĐT này đã có trên website này: ' . self::describe( $row ) . ', ' . self::status_text( (string) ( $row['status'] ?? '' ) );
+		switch ( self::cause( $row, $viewer_id ) ) {
+			case 'same_owner':
+				return $where . ' — do chính bạn thêm trước đó.';
+			case 'other_member':
+				$name = $owner_name !== '' ? $owner_name : 'thành viên #' . (int) ( $row['owner_user_id'] ?? 0 );
+				return $where . ' — đang thuộc «' . $name . '».';
+			default:
+				return $where . ' — chưa gắn người phụ trách.';
+		}
+	}
+
+	/**
+	 * R-ZP-DUP v2 — may $viewer take this number over by scanning a QR on the SAME row (CRM history kept)?
+	 * Scanning needs the phone in hand, so it proves the right to the number; the only line drawn is that a
+	 * non-admin cannot knock another member's LIVE session off (starting a QR stops the running listener).
+	 */
+	public static function claim_allowed( array $row, int $viewer_id, bool $is_admin ): bool {
+		if ( $is_admin || self::cause( $row, $viewer_id ) !== 'other_member' ) {
+			return true;
+		}
+		return (string) ( $row['status'] ?? '' ) !== 'connected';
+	}
+
+	/** Hint shown above the QR when an existing row is reused instead of creating a second one. */
+	public static function claim_hint( array $row, int $viewer_id, string $to_name = '' ): string {
+		$hint = 'Mã QR bên dưới đăng nhập lại chính số đó, lịch sử CRM giữ nguyên.';
+		if ( self::cause( $row, $viewer_id ) !== 'same_owner' ) {
+			$hint .= ' Quét thành công thì số chuyển sang ' . ( $to_name !== '' ? '«' . $to_name . '»' : 'bạn' ) . '.';
+		}
+		if ( (string) ( $row['status'] ?? '' ) === 'connected' ) {
+			$hint .= ' Lưu ý: tạo mã sẽ tạm ngắt phiên đang chạy cho tới khi quét xong.';
+		}
+		return $hint;
+	}
+
+	/** Success envelope for a create that reuses the existing row — the UI goes straight on to the QR. */
+	public static function claim_payload( array $row, int $viewer_id, string $owner_name = '', string $to_name = '' ): array {
+		return array(
+			'ok'           => true,
+			'success'      => true,
+			'id'           => (string) ( $row['bridge_account_id'] ?? '' ),
+			'reused'       => true,
+			'crm_inbox_id' => (int) ( $row['crm_inbox_id'] ?? 0 ),
+			'claim'        => array(
+				'cause'         => self::cause( $row, $viewer_id ),
+				'status'        => (string) ( $row['status'] ?? '' ),
+				'from_user_id'  => (int) ( $row['owner_user_id'] ?? 0 ),
+				'message'       => self::cause_message( $row, $viewer_id, $owner_name ),
+				'hint'          => self::claim_hint( $row, $viewer_id, $to_name ),
+			),
+		);
+	}
+
+	/**
+	 * R-ERROR-UX envelope for a blocked create.
+	 *
+	 * @param int    $viewer_id  [2026-10-13] R-ZP-DUP v2 — who is adding the phone; 0 keeps the old wording.
+	 * @param string $owner_name Display name of the row's owner, for "đang thuộc «…»".
+	 */
+	public static function create_blocked_payload( array $row, int $viewer_id = 0, string $owner_name = '' ): array {
 		$status = (string) ( $row['status'] ?? '' );
 		$hint   = $status === 'connected'
 			? 'Tài khoản đó đang kết nối — dùng luôn, không cần tạo thêm.'
 			: 'Mở tài khoản đó và bấm "Đăng nhập lại" để quét QR, thay vì tạo tài khoản mới.';
+		if ( $viewer_id > 0 && self::cause( $row, $viewer_id ) === 'other_member' && $status === 'connected' ) {
+			$hint = 'Nhờ quản trị viên website quét QR để chuyển số này cho bạn, hoặc nhờ người đang giữ số gỡ số trước.';
+		}
 		return array(
 			'ok'            => false,
 			'success'       => false,
 			'code'          => 'duplicate_phone',
 			'reason_bucket' => 'duplicate_phone',
-			'message'       => 'SĐT này đã có tài khoản Zalo Cá nhân trên website: ' . self::describe( $row ) . '.',
+			'cause'         => $viewer_id > 0 ? self::cause( $row, $viewer_id ) : '',
+			'message'       => $viewer_id > 0
+				? self::cause_message( $row, $viewer_id, $owner_name )
+				: 'SĐT này đã có tài khoản Zalo Cá nhân trên website: ' . self::describe( $row ) . '.',
 			'hint'          => $hint,
 			'help_code'     => 'zalo_duplicate_account',
 			'duplicate_of'  => array(

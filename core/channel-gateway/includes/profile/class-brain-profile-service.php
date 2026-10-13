@@ -7,7 +7,7 @@
  *
  * `validate()` is a PHP port of the essential rules the Node validator (`bin/validate-brain-profile.mjs`) already
  * enforces on sample packs and fixtures — kept intentionally smaller (no shell-out, R-BC-3): contract/shape,
- * `tool_packs` vocabulary + guest restriction, `policy.json` weight sums + threshold range, schedule cron density
+ * `tool_packs` vocabulary + owner-only audience (D100-25), `policy.json` weight sums + threshold range, schedule cron density
  * (minute-stepper, same rule as the JS port), safety.md required for sensitive families. A package that already
  * passed the Node validator (sample packs, CI) will always pass this port too.
  *
@@ -35,7 +35,7 @@ final class BizCity_Brain_Profile_Service {
 	);
 	const SENSITIVE_FAMILIES = array( 'astro', 'nutrition', 'nanny' );
 	const FAMILIES           = array( 'education', 'commerce', 'astro', 'nutrition', 'nanny', 'tasks' );
-	/** doc 30 §3.3 — tool_pack id ⇒ agent-mode-access mode id a grant unlocks (owner/staff only) */
+	/** doc 30 §3.3 — tool_pack id ⇒ agent-mode-access mode id a grant unlocks (owner only, D100-25) */
 	const PACK_MODE_MAP      = array(
 		'knowledge.notebook' => 'notebook',
 		'knowledge.skills'   => 'notebook',
@@ -103,16 +103,36 @@ final class BizCity_Brain_Profile_Service {
 				$add( 'profile_invalid', array( 'field' => 'safety_md', 'why' => 'required for sensitive family ' . $family ) );
 			}
 		}
-		// tool_packs vocabulary + guest restriction (R-AUTOMATION-PERMISSION)
+		// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
+		// A profile serves exactly one audience: the number's owner (owner 1-1 sender UID).
+		if ( is_array( $p['audience'] ?? null ) ) {
+			foreach ( $p['audience'] as $aud_key => $aud_val ) {
+				if ( 'owner' !== $aud_key && null !== $aud_val && '' !== $aud_val ) {
+					$add( 'audience_not_owner', array( 'field' => 'audience.' . $aud_key ) );
+				}
+			}
+		}
+		// tool_packs vocabulary; staff/guest keys must be empty.
 		$tp = (array) ( $p['tool_packs'] ?? array() );
-		foreach ( array( 'owner', 'staff', 'guest' ) as $role ) {
-			foreach ( (array) ( $tp[ $role ] ?? array() ) as $id ) {
+		foreach ( $tp as $role => $packs ) {
+			$packs = is_array( $packs ) ? $packs : array();
+			if ( 'owner' !== $role ) {
+				if ( $packs ) {
+					$add( 'tool_pack_audience_forbidden', array( 'role' => (string) $role, 'packs' => array_values( $packs ) ) );
+				}
+				continue;
+			}
+			foreach ( $packs as $id ) {
 				if ( ! in_array( $id, self::TOOL_PACK_IDS, true ) ) {
-					$add( 'unknown_tool_pack', array( 'role' => $role, 'pack' => $id ) );
+					$add( 'unknown_tool_pack', array( 'role' => 'owner', 'pack' => $id ) );
 				}
-				if ( 'guest' === $role && 0 !== strpos( (string) $id, 'knowledge.' ) && 'action.automation' !== $id ) {
-					$add( 'guest_action_pack_forbidden', array( 'pack' => $id ) );
-				}
+			}
+		}
+		// coach.roles ⊆ {owner, coach}
+		if ( is_array( $p['coach']['roles'] ?? null ) ) {
+			$bad_roles = array_values( array_diff( $p['coach']['roles'], array( 'owner', 'coach' ) ) );
+			if ( $bad_roles ) {
+				$add( 'coach_role_not_owner', array( 'field' => 'coach.roles', 'bad' => $bad_roles ) );
 			}
 		}
 		// policy.json
@@ -143,6 +163,10 @@ final class BizCity_Brain_Profile_Service {
 			$sch = json_decode( self::read_file( $dir, $scheduleRel ), true );
 			if ( is_array( $sch ) ) {
 				foreach ( (array) ( $sch['items'] ?? array() ) as $it ) {
+					// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
+					if ( isset( $it['to'] ) && 'owner' !== $it['to'] ) {
+						$add( 'schedule_to_not_owner', array( 'id' => $it['id'] ?? '', 'value' => $it['to'] ) );
+					}
 					$cron = (string) ( $it['cron'] ?? '' );
 					if ( '' === $cron ) {
 						continue;

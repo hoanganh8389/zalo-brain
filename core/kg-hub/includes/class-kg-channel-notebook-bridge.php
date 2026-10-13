@@ -45,6 +45,17 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	const ASYNC_CAPTURE_AUTO_RESUME_MAX = 1; // [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — prevent infinite automatic retries.
 
 	/**
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41 — the pinned half of a
+	 * capture notebook's identity. The title slug is pinned in every grouping mode except
+	 * `off` (that is what stops LLM-invented titles from splitting notebooks). The day key
+	 * `main` is used only by `single` mode, where it sits in the slot the Ymd key occupies
+	 * so nothing downstream had to learn a new shape.
+	 */
+	const MAIN_NOTEBOOK_DAY_KEY    = 'main';
+	const MAIN_NOTEBOOK_TITLE_SLUG = 'so-ghi-chu';
+	const MAIN_NOTEBOOK_TITLE      = 'Sổ ghi chú';
+
+	/**
 	 * [2026-07-26 Johnny Chu] PHASE-0.46 W5 R4 — pending inbox/session TTL was
 	 * a hard 600s (10 min), too short for a staff member busy uploading a
 	 * voice memo + several photos/documents before typing the trigger. Bumped
@@ -647,7 +658,8 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$title_slug    = (string) $title_meta['title_slug'];
 		$scope         = $this->resolve_capture_scope( $base_envelope, $user_id );
 
-		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $day_key, $title_slug, $title_hint, $scope );
+		$nb_ident = $this->capture_notebook_identity( $day_key, $title_slug, $title_hint );
+		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $nb_ident['day_key'], $nb_ident['title_slug'], $nb_ident['title_hint'], $scope );
 		if ( is_wp_error( $nb ) ) {
 			return 0;
 		}
@@ -845,7 +857,8 @@ class BizCity_KG_Channel_Notebook_Bridge {
 			return $ingest_payload;
 		}
 
-		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $day_key, $title_slug, $title_hint, $scope );
+		$nb_ident = $this->capture_notebook_identity( $day_key, $title_slug, $title_hint );
+		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $nb_ident['day_key'], $nb_ident['title_slug'], $nb_ident['title_hint'], $scope );
 		if ( is_wp_error( $nb ) ) {
 			$this->bridge_log( 'notebook_resolved', array_merge( $capture_ctx, array(
 				'status' => 'failed',
@@ -1072,7 +1085,8 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		);
 		$this->bridge_log( 'capture_received', $batch_ctx );
 
-		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $day_key, $title_slug, $title_hint, $scope );
+		$nb_ident = $this->capture_notebook_identity( $day_key, $title_slug, $title_hint );
+		$nb = $this->find_or_create_daily_notebook( $user_id, $channel, $nb_ident['day_key'], $nb_ident['title_slug'], $nb_ident['title_hint'], $scope );
 		if ( is_wp_error( $nb ) ) {
 			$this->bridge_log( 'notebook_resolved', array_merge( $batch_ctx, array(
 				'status' => 'failed',
@@ -1951,20 +1965,78 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$svc  = BizCity_KG_Notebook_Service::instance();
 		$rows = $svc->list_for_user( $user_id, array( 'limit' => 200 ) );
 		$ids  = array();
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41 — with capture pinned to
+		// one notebook, "the notebook of day X" is no longer a notebook: it is the set of
+		// NOTES written that day, which live in the main notebook. Legacy day notebooks keep
+		// matching exactly as before (owner decision: old notebooks stay untouched), and the
+		// main notebook joins them only when it really holds a note of that day — so
+		// "chưa có ghi chú nào hôm nay" still answers truthfully.
+		$single  = self::single_notebook_mode();
+		$main_id = 0;
 		foreach ( (array) $rows as $row ) {
 			$settings = (array) ( $row['settings'] ?? array() );
 			if ( empty( $settings['auto_created'] ) ) {
 				continue;
 			}
-			if ( ( $settings['day_key'] ?? '' ) !== $day_key ) {
+			if ( $channel !== '' && ( $settings['channel'] ?? '' ) !== $channel ) {
 				continue;
 			}
-			if ( $channel !== '' && ( $settings['channel'] ?? '' ) !== $channel ) {
+			$row_day = (string) ( $settings['day_key'] ?? '' );
+			if ( $single && $main_id <= 0 && $row_day === self::MAIN_NOTEBOOK_DAY_KEY ) {
+				$main_id = (int) ( $row['id'] ?? 0 );
+				continue;
+			}
+			if ( $row_day !== $day_key ) {
 				continue;
 			}
 			$ids[] = (int) ( $row['id'] ?? 0 );
 		}
-		return array_values( array_filter( $ids ) );
+		if ( $main_id > 0 && self::notebook_has_note_of_day( $main_id, $day_key ) ) {
+			array_unshift( $ids, $main_id );
+		}
+		return array_values( array_unique( array_filter( $ids ) ) );
+	}
+
+	/**
+	 * Does this notebook hold at least one note captured on `$day_key`?
+	 *
+	 * Reads the day off the SOURCE, where the bridge has always written it
+	 * (`metadata.day_key`, same `current_time('Ymd')` basis as the lookup), so there is
+	 * no timezone conversion to get wrong and no new column. Returns false whenever the
+	 * sources table is unavailable — a missing answer must not invent notes.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41.
+	 */
+	/**
+	 * `20261013` → `13/10/2026`. An empty key means today, matching the default the
+	 * day lookup itself applies.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41.
+	 */
+	public static function format_day_label( string $day_key ): string {
+		$key = $day_key !== '' ? sanitize_key( $day_key ) : current_time( 'Ymd' );
+		if ( ! preg_match( '/^(\d{4})(\d{2})(\d{2})$/', $key, $m ) ) {
+			return $key;
+		}
+		return $m[3] . '/' . $m[2] . '/' . $m[1];
+	}
+
+	public static function notebook_has_note_of_day( int $notebook_id, string $day_key ): bool {
+		if ( $notebook_id <= 0 || $day_key === '' || ! class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			return false;
+		}
+		global $wpdb;
+		$table = BizCity_TwinChat_Sources_Database::instance()->table_sources();
+		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+			return false;
+		}
+		$needle = '%' . $wpdb->esc_like( '"day_key":"' . $day_key . '"' ) . '%';
+		$found  = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM `{$table}` WHERE project_id = %s AND metadata LIKE %s LIMIT 1",
+			(string) $notebook_id,
+			$needle
+		) );
+		return (int) $found > 0;
 	}
 
 	/**
@@ -2014,7 +2086,15 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		// "Báo cáo" nudges bzdoc's own guess_template() heuristic toward the
 		// 'report' template (see class-notebook-bridge.php::guess_template())
 		// instead of always falling back to 'blank'.
-		$title = sprintf( 'Báo cáo tóm tắt %s', $notebook_name !== '' ? $notebook_name : 'ghi chú hôm nay' );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41 — when the export comes
+		// from the pinned main notebook, that notebook holds EVERY note, not just this
+		// day's. Name the day in both the title and the instruction so the document is
+		// what the user asked for ("ghi chú hôm nay") instead of a dump of the whole book.
+		$day_label   = self::format_day_label( $day_key );
+		$is_main     = (string) ( ( (array) ( $notebook['settings'] ?? array() ) )['day_key'] ?? '' ) === self::MAIN_NOTEBOOK_DAY_KEY;
+		$title = $is_main
+			? sprintf( 'Báo cáo tóm tắt ghi chú ngày %s', $day_label )
+			: sprintf( 'Báo cáo tóm tắt %s', $notebook_name !== '' ? $notebook_name : 'ghi chú hôm nay' );
 
 		$skeleton = array(
 			'nucleus'    => array(
@@ -2023,10 +2103,16 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				'domain' => '',
 			),
 			'project_id' => 'tc_' . $notebook_id,
-			'_raw_text'  => sprintf(
-				'Tóm tắt nội dung đã ghi chú/học được trong notebook "%s" thành một tài liệu Word mạch lạc: nêu các điểm chính, quyết định và việc cần làm (nếu có).',
-				$notebook_name
-			),
+			'_raw_text'  => $is_main
+				? sprintf(
+					'Trong sổ "%s" chỉ lấy các ghi chú của NGÀY %s (bỏ qua ghi chú của ngày khác), tóm tắt thành một tài liệu Word mạch lạc: nêu các điểm chính, quyết định và việc cần làm (nếu có). Nếu không có ghi chú nào của ngày đó thì nói rõ.',
+					$notebook_name,
+					$day_label
+				)
+				: sprintf(
+					'Tóm tắt nội dung đã ghi chú/học được trong notebook "%s" thành một tài liệu Word mạch lạc: nêu các điểm chính, quyết định và việc cần làm (nếu có).',
+					$notebook_name
+				),
 			'_kickstart' => true,
 			'doc_opts'   => array(
 				'template'         => 'report',
@@ -2265,6 +2351,84 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 *
 	 * @return array|WP_Error hydrated notebook row + `_created` bool.
 	 */
+	/**
+	 * How many notebooks one owner's captures are spread across.
+	 *
+	 * A notebook used to be identified by channel + day + an **LLM-chosen title**, so the
+	 * same owner writing three unrelated notes on one day ended up with three notebooks
+	 * nobody named on purpose. That machine-made sprawl is what forced the 5-notebook cap
+	 * and the "which notebook?" question on every lookup (doc 60) — the owner asked for
+	 * one place to put notes and one place to read them back (doc 80 §6).
+	 *
+	 *   `day`    (DEFAULT) one notebook per day per scope — the title stops splitting
+	 *            notebooks, while `settings.day_key` stays a real date, so everything that
+	 *            reads a notebook's day (the cell's "ghi chú hôm qua" path, the owner pack
+	 *            window, the Word export) keeps working untouched. Each note keeps its own
+	 *            LLM title INSIDE the notebook, which is what makes it findable.
+	 *   `single` one notebook, full stop. The end state the owner wants, but a notebook
+	 *            then has no single day, and the cell currently reads the date off the
+	 *            NOTEBOOK (`notebook-search-tool.ts` matches `notebook_meta.day_key`), so
+	 *            turning this on before the cell learns to filter by the note's own day
+	 *            would answer "chưa có ghi chú ngày đó" over notes that exist. Gated on
+	 *            S99-P43 + a cell deploy.
+	 *   `off`    the old day × LLM title behaviour.
+	 *
+	 * No migration either way: notebooks already created keep working and stay searchable.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41.
+	 */
+	public static function capture_notebook_grouping(): string {
+		$mode = sanitize_key( (string) get_option( 'bizcity_kg_capture_notebook_grouping', 'day' ) );
+		if ( ! in_array( $mode, array( 'day', 'single', 'off' ), true ) ) {
+			$mode = 'day';
+		}
+		$mode = (string) apply_filters( 'bizcity_kg_capture_notebook_grouping', $mode );
+		return in_array( $mode, array( 'day', 'single', 'off' ), true ) ? $mode : 'day';
+	}
+
+	/** True only in the end-state mode where every capture shares one notebook. */
+	public static function single_notebook_mode(): bool {
+		return 'single' === self::capture_notebook_grouping();
+	}
+
+	/**
+	 * The (day_key, title_slug, title_hint) triple that IDENTIFIES the notebook a
+	 * capture lands in — deliberately separate from the note's own day and title,
+	 * which keep flowing into the source metadata untouched.
+	 *
+	 * @param string $day_key    real capture day (Ymd)
+	 * @param string $title_slug the note's LLM-derived slug — used only in `off` mode
+	 * @param string $title_hint the note's human title — likewise
+	 * @return array{day_key:string,title_slug:string,title_hint:string}
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41.
+	 */
+	private function capture_notebook_identity( string $day_key, string $title_slug, string $title_hint ): array {
+		$mode = self::capture_notebook_grouping();
+
+		if ( 'single' === $mode ) {
+			return array(
+				'day_key'    => self::MAIN_NOTEBOOK_DAY_KEY,
+				'title_slug' => self::MAIN_NOTEBOOK_TITLE_SLUG,
+				'title_hint' => self::MAIN_NOTEBOOK_TITLE,
+			);
+		}
+
+		if ( 'day' === $mode ) {
+			return array(
+				'day_key'    => $day_key,
+				'title_slug' => self::MAIN_NOTEBOOK_TITLE_SLUG,
+				'title_hint' => sprintf( 'Ghi chú ngày %s', self::format_day_label( $day_key ) ),
+			);
+		}
+
+		return array(
+			'day_key'    => $day_key,
+			'title_slug' => $title_slug,
+			'title_hint' => $title_hint,
+		);
+	}
+
 	private function find_or_create_daily_notebook( int $user_id, string $channel, string $day_key, string $title_slug, string $title_hint, array $scope = array() ) {
 		// [2026-07-27 Johnny Chu] PHASE-0.51 W4 — unlinked channel identities must link before capture can create a notebook.
 		if ( $user_id <= 0 ) {
@@ -2348,7 +2512,11 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$slug         = $this->build_capture_slug( $day_key, $title_slug, $user_id );
 		$name         = $this->build_capture_display_name( $title_hint, $title_slug );
 
-		$description = $title_hint !== '' ? sprintf( '[%s] %s (%s)', $channel, $title_hint, $day_key ) : $name;
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P41 — the pinned notebook has
+		// no day to show; say what it is instead of printing the internal key "(main)".
+		$description = $day_key === self::MAIN_NOTEBOOK_DAY_KEY
+			? sprintf( '[%s] %s — mọi ghi chú được gom về đây, mỗi ghi chú vẫn giữ ngày riêng.', $channel, self::MAIN_NOTEBOOK_TITLE )
+			: ( $title_hint !== '' ? sprintf( '[%s] %s (%s)', $channel, $title_hint, $day_key ) : $name );
 		$created     = $svc->create( array(
 			'name'        => $name,
 			'description' => $description,

@@ -65,7 +65,9 @@
         "payload_json":       { "type": "LONGTEXT NOT NULL",                        "since": "1.0.0" },
         "schema_version":     { "type": "SMALLINT UNSIGNED NOT NULL DEFAULT 1",     "since": "1.2.0" },
         "created_at":         { "type": "DATETIME(3) NOT NULL",                     "since": "1.0.0" },
-        "created_epoch_ms":   { "type": "BIGINT UNSIGNED NOT NULL",                  "since": "1.2.0" }
+        "created_epoch_ms":   { "type": "BIGINT UNSIGNED NOT NULL",                  "since": "1.2.0" },
+        "account_id":         { "type": "VARCHAR(64) NULL",                         "since": "1.5.0", "note": "PHASE-0.107 S107-L11 — number axis (bridge_account_id / web-<key>); written by turn-complete only; old rows NULL (no backfill)." },
+        "actor_role":         { "type": "VARCHAR(16) NULL",                         "since": "1.5.0", "note": "PHASE-0.107 S107-L11 — owner | staff | customer; written by turn-complete only." }
       },
       "indexes": {
         "PRIMARY":          { "cols": ["id"],                                  "since": "1.0.0", "unique": true },
@@ -75,7 +77,8 @@
         "idx_type_time":    { "cols": ["event_type", "created_epoch_ms"],       "since": "1.0.0" },
         "idx_session":      { "cols": ["session_id", "created_epoch_ms"],       "since": "1.2.0" },
         "idx_parent":       { "cols": ["parent_event_id"],                     "since": "1.2.0" },
-        "idx_blog_time":    { "cols": ["blog_id", "created_epoch_ms"],          "since": "1.2.0" }
+        "idx_blog_time":    { "cols": ["blog_id", "created_epoch_ms"],          "since": "1.2.0" },
+        "idx_account_time": { "cols": ["account_id", "created_epoch_ms"],       "since": "1.5.0" }
       }
     }
   },
@@ -154,6 +157,11 @@
       "version": "1.5.0",
       "date": "2026-10-07",
       "change": "[2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-3 (owner approval 2026-10-07) — retire and DROP bizcity_twin_goal_contracts: its writer BizCity_TwinBrain_Goal_Contract_Store was archived with the Goal Loop (core/_archived/twinbrain-goal-loop-20261006/). Rows are a rebuildable projection of bizcity_twin_event_stream, so they are purged then the table is dropped through BizCity_Legacy_Table_Policy."
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-10-13",
+      "change": "[2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L11 — bizcity_twin_event_stream gains account_id VARCHAR(64) NULL, actor_role VARCHAR(16) NULL and KEY idx_account_time (account_id, created_epoch_ms). Additive DDL through BizCity_Twin_Event_Stream_Schema::ensure_table() (DB_VERSION 0.12.2 → 0.12.3, option bizcity_twin_event_stream_db_ver); the twinbrain installer version is not bumped. Only turn-complete writes the two columns; old rows stay NULL (no backfill)."
     }
   ]
 }

@@ -1,6 +1,6 @@
 <?php
 /**
- * BizCity_Journal_Kinds — reads `journal-kinds@1.0.0` (docs/contracts/JOURNAL-KINDS-v1.json) and the
+ * BizCity_Journal_Kinds — reads `journal-kinds@1.0.0` (core/kg-hub/contracts/JOURNAL-KINDS-v1.json) and the
  * `bizcity_journal_kinds` filter (profiles / plugins add kinds by declaration, never by code — R-JOURNAL R-JN-6).
  *
  * Biz Central Brain — Johnny Chu (Chu Hoàng Anh).
@@ -79,7 +79,7 @@ final class BizCity_Journal_Kinds {
 		return $map[ strtolower( $fallback_hint ) ] ?? self::FALLBACK_KIND;
 	}
 
-	/** `''|health|child|finance` — never leaves to the cell / evidence / guest packs (R-JN-11). */
+	/** `''|health|child|finance` — never leaves to the cell / evidence (R-JN-11). */
 	public static function sensitive( string $kind ): string {
 		$k = self::get( $kind );
 		return $k ? (string) ( $k['sensitive'] ?? '' ) : '';
@@ -100,14 +100,18 @@ final class BizCity_Journal_Kinds {
 		return $parts[0] ?? '';
 	}
 
-	/** R-JN-7: education/nutrition/nanny default ON; everything else OFF unless the profile turns it on. */
+	/** R-JN-7: nutrition/nanny default ON; everything else OFF unless the profile turns it on. // [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only: education is OFF (owner-only, no per-student notebooks). */
 	public static function per_subject_notebook_default( string $family ): bool {
 		$all = self::all();
 		$f   = $all['families'][ $family ] ?? null;
 		return is_array( $f ) ? ! empty( $f['per_subject_notebook_default'] ) : false;
 	}
 
+	/**
+	 * [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-L3 — the machine form lives in core/kg-hub/contracts/ (ships). It used to be read from
+	 * docs/contracts/, which R-PROD-REPO never uploads: production silently had NO built-in kinds (only filter-added ones).
+	 */
 	private static function contract_path(): string {
-		return dirname( BIZCITY_KG_HUB_DIR ) . '/../docs/contracts/JOURNAL-KINDS-v1.json';
+		return rtrim( BIZCITY_KG_HUB_DIR, '/\\' ) . '/contracts/JOURNAL-KINDS-v1.json';
 	}
 }

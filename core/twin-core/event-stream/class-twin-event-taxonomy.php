@@ -58,7 +58,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-08-24 Johnny Chu] TBR-EVIDENCE-FALLBACK — added canonical deterministic Notebook fallback notice event.
 	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — register memory_recall so Layer 0.5 audit emit stops throwing.
 	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — register the Context Bank phase boundary pair.
-	const TAXONOMY_VERSION = 14;
+	// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5/C9 — added cell_output_created (one file a cell turn made) + cell_turn_failed (a Cell Chat turn the cell could not answer).
+	const TAXONOMY_VERSION = 15;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -169,6 +170,13 @@ class BizCity_Twin_Event_Taxonomy {
 	const TWIN_HIL_PROGRESSED = 'twin_hil_progressed';
 	const TWIN_HIL_CLOSED     = 'twin_hil_closed';
 
+	// ---- PHASE-0.106 (2026-10-13) — Cell Chat sessions + outputs -------------------------------
+	// Schemas: event-stream/schemas/events/cell_{output_created,turn_failed}.json. Both carry the envelope `session_id` of the TwinChat
+	// session (brain_sess_*). No file bytes, URL, UID, phone or hash: a file is named by its cell `media_id` (pulled through the Hub).
+	const CELL_OUTPUT_CREATED = 'cell_output_created';
+	const CELL_TURN_FAILED    = 'cell_turn_failed';
+	const CELL_OUTPUT_STORED  = 'cell_output_stored'; // child of cell_output_created: the file now lives in the media library (R2)
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -263,6 +271,11 @@ class BizCity_Twin_Event_Taxonomy {
 			self::TWIN_HIL_OPENED     => [ 'hil_id', 'spec_id', 'trigger_id', 'session_id', 'status', 'state' ],
 			self::TWIN_HIL_PROGRESSED => [ 'hil_id', 'session_id', 'status', 'state' ],
 			self::TWIN_HIL_CLOSED     => [ 'hil_id', 'session_id', 'status', 'closure_reason', 'state' ],
+
+			// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 — Cell Chat outputs + failed turns.
+			self::CELL_OUTPUT_CREATED => [ 'output_id', 'kind', 'name', 'mime', 'media_id' ],
+			self::CELL_TURN_FAILED    => [ 'trace_id', 'code' ],
+			self::CELL_OUTPUT_STORED  => [ 'output_id', 'attachment_id' ],
 		];
 	}
 

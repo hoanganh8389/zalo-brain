@@ -87,8 +87,21 @@ class BizCity_Twin_Event_Store {
 			'created_at'        => $event['created_at'],
 			'created_epoch_ms'  => (int) $event['created_epoch_ms'],
 		];
+		// [2026-10-13 01:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L11 — number axis columns, written ONLY when the event carries
+		// them (turn-complete today), so every other dispatch keeps the old 14-column INSERT.
+		$axis = array();
+		if ( isset( $event['account_id'] ) && '' !== (string) $event['account_id'] ) {
+			$axis['account_id'] = substr( (string) $event['account_id'], 0, 64 );
+		}
+		if ( isset( $event['actor_role'] ) && '' !== (string) $event['actor_role'] ) {
+			$axis['actor_role'] = substr( (string) $event['actor_role'], 0, 16 );
+		}
 
-		$ok = $wpdb->insert( $table, $row );
+		$ok = $wpdb->insert( $table, $row + $axis );
+		if ( $ok === false && ! empty( $axis ) && self::id_for_uuid( (string) $event['event_uuid'] ) <= 0 ) {
+			// PHASE-0.107 S107-L11: a tenant whose table has not been repaired yet still stores the event (axis lives in payload_json too).
+			$ok = $wpdb->insert( $table, $row );
+		}
 		if ( $ok === false ) {
 			// Duplicate UUID (idempotency for ingest_remote) — return existing id silently.
 			$existing = self::id_for_uuid( $event['event_uuid'] );

@@ -139,6 +139,7 @@ class BizCity_TwinBrain_Perspective_Runner {
 					'Content-Type: application/json',
 					'Authorization: Bearer ' . $api_key,
 					'X-Site-URL: ' . $site_url,
+					'X-BizCity-Caller: ' . BizCity_LLM_Client::resolve_caller( [ 'caller' => 'twinbrain.perspective' ], 'chat' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 						$client_site_host !== '' ? 'X-BizCity-Client-Site: ' . $client_site_host : '',
 					'X-Twin-Trace-Id: ' . $trace_id,
 					] ),

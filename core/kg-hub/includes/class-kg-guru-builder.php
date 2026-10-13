@@ -127,7 +127,8 @@ class BizCity_KG_Guru_Builder {
 			'visibility'   => 'private',
 			'version'      => '1.0.0',
 			'license'      => 'proprietary',
-			'embed_model'  => 'text-embedding-3-small',
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P42 — one index, one model name, one place.
+			'embed_model'  => class_exists( 'BizCity_Knowledge_Embedding' ) ? BizCity_Knowledge_Embedding::model() : 'text-embedding-3-small',
 			'bin_path'     => $bin_rel,
 			'origin_user'  => $user_id,
 		] );

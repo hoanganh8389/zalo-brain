@@ -55,6 +55,11 @@ final class BizCity_Twin_Web_Turn {
 	const CONTRACT_STAFF = 'twin-agent-turn@1.3.0'; // role `staff` exists from 1.3 (owner/customer turns stay 1.2 for older cells)
 	// [2026-10-03 Claude Opus 5.5] PHASE-0.90 S90-W2 (R-CONTACT-ID): `contact` + optional account_id — a site with no Zalo number answers through its web home.
 	const CONTRACT_CONTACT = 'twin-agent-turn@1.4.0';
+	// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — Cell Chat (mirror the owner's Zalo 1-1 thread from the web): twin-agent-turn@1.5 = 1.4 + `mirror` + `mirror_opts`.
+	const CONTRACT_MIRROR   = 'twin-agent-turn@1.5.0';
+	const CELL_CHAT_PATH    = '/zalo-hub/cell-chat';
+	const CELL_CHAT_CAPS_KEY = 'bizcity_cell_chat_caps';
+	const CELL_CHAT_CAPS_TTL = 60;
 	const AXIS           = 'twin-agent-axis@1';
 	const SURFACES       = array( 'twinchat', 'gpt' );
 	const FLAGS          = array( 'auto', 'node', 'php' );
@@ -91,6 +96,8 @@ final class BizCity_Twin_Web_Turn {
 		'session_forbidden'  => array( 403, 'Phiên chat này không thuộc tài khoản của bạn.', 'Mở một cuộc trò chuyện mới rồi hỏi lại.' ),
 		'empty_message'      => array( 400, 'Tin nhắn không được để trống.', 'Nhập câu hỏi rồi gửi lại.' ),
 		'stream_interrupted' => array( 502, 'Luồng trả lời bị ngắt trước khi hoàn tất.', 'Gửi lại câu hỏi.' ),
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — Cell Chat errors (the same codes the cell answers in its `error` frame).
+		'not_owner'          => array( 403, 'Bạn không phải chủ hoặc nhân viên của số này.', 'Chọn số bạn là chủ hoặc nhân viên, hoặc nhờ chủ số thêm bạn ở Bot Studio.' ),
 		'focus_needs_notebook_mode' => array( 403, 'Tài khoản của bạn chưa được bật quyền "Sổ ghi chú" trên Agent.', 'Nhờ chủ tài khoản bật quyền Sổ ghi chú cho bạn ở Bot Studio, hoặc bỏ chọn sổ rồi hỏi lại.' ),
 	);
 
@@ -283,6 +290,654 @@ final class BizCity_Twin_Web_Turn {
 		return self::as_role( 'none', self::default_account( $accounts ), 'customer', 'default_customer', array() );
 	}
 
+	/* ── Cell Chat (PHASE-0.105, doc 70) ──────────────────────────── */
+
+	/**
+	 * [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C1 — every zalo-hub number where the user is the verified
+	 * owner (principal userHash set) or an active staff member with ≥ 1 mode. Internal rows keep the hash/modes the envelope needs;
+	 * the browser only ever gets owned_numbers(). principal() (Brain Chat) is untouched: it still picks ONE number.
+	 *
+	 * @return list<array{account_id:string,label:string,role:string,linked:bool,user_hash:string,modes:string[]}>
+	 */
+	public static function owned_rows( int $user_id ): array {
+		$out = array();
+		if ( $user_id <= 0 ) {
+			return $out;
+		}
+		foreach ( self::accounts() as $bridge ) {
+			foreach ( self::principals( (string) $bridge ) as $p ) {
+				$role = (string) ( $p['role'] ?? '' );
+				if ( empty( $p['active'] ) || (int) ( $p['user_id'] ?? 0 ) !== $user_id || '' === (string) ( $p['user_hash'] ?? '' ) || ! in_array( $role, array( 'owner', 'staff' ), true ) ) {
+					continue;
+				}
+				if ( 'staff' === $role && empty( $p['modes'] ) ) {
+					continue; // no mode ⇒ customer on the cell, nothing to mirror
+				}
+				$out[] = array(
+					'account_id' => (string) $bridge,
+					'label'      => self::number_label( (string) $bridge ),
+					'role'       => $role,
+					'linked'     => 'owner' === $role || '' !== trim( (string) ( $p['uid'] ?? '' ) ),
+					'user_hash'  => strtolower( (string) $p['user_hash'] ),
+					'modes'      => array_values( array_map( 'strval', (array) ( $p['modes'] ?? array() ) ) ),
+				);
+				break; // one row per number (owner first)
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Browser-safe list: {account_id, label "…8899", role, linked, cell_chat}. `cell_chat` = the cell answers Cell Chat (capabilities
+	 * through the Hub, cached 60 s; false on any failure).
+	 *
+	 * @return list<array{account_id:string,label:string,role:string,linked:bool,cell_chat:bool}>
+	 */
+	public static function owned_numbers( int $user_id ): array {
+		$rows = self::owned_rows( $user_id );
+		$caps = $rows ? self::cell_chat_capable() : false;
+		$out  = array();
+		foreach ( $rows as $r ) {
+			$out[] = array( 'account_id' => $r['account_id'], 'label' => $r['label'], 'role' => $r['role'], 'linked' => $r['linked'], 'cell_chat' => $caps, 'builtins' => $caps ? self::cell_chat_builtins( $r['account_id'] ) : array() );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-B5/U4 — the quick-create buttons THIS number can run (cell `capabilities.builtins`
+	 * through the Hub, cached 60 s per number; [] on any failure or an older cell, so TwinChat simply shows no button).
+	 *
+	 * @return string[]
+	 */
+	public static function cell_chat_builtins( string $account_id ): array {
+		$account_id = (string) preg_replace( '/[^0-9]/', '', $account_id );
+		if ( '' === $account_id ) {
+			return array();
+		}
+		$key = self::CELL_CHAT_CAPS_KEY . '_b_' . $account_id;
+		if ( function_exists( 'get_transient' ) ) {
+			$c = get_transient( $key );
+			if ( is_array( $c ) ) {
+				return $c;
+			}
+		}
+		$r   = self::hub_get( self::CELL_CHAT_PATH . '/capabilities?account_id=' . rawurlencode( $account_id ) );
+		$out = array();
+		foreach ( (array) ( $r['builtins'] ?? array() ) as $k ) {
+			if ( is_string( $k ) && 1 === preg_match( '/^[a-z0-9_.]{1,64}$/', $k ) ) {
+				$out[] = $k;
+			}
+		}
+		$out = array_slice( array_values( array_unique( $out ) ), 0, 12 );
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $key, $out, self::CELL_CHAT_CAPS_TTL );
+		}
+		return $out;
+	}
+
+	/** "…8899" - the last 4 digits of the number's label, else of its bridge id. Never the full phone. */
+	private static function number_label( string $bridge ): string {
+		if ( isset( self::$readers['label'] ) ) {
+			return (string) call_user_func( self::$readers['label'], $bridge );
+		}
+		$label = '';
+		if ( class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ) {
+			foreach ( (array) BizCity_Zalo_Hub_Config_Sync::accounts() as $a ) {
+				if ( (string) ( $a['bridge_id'] ?? '' ) === $bridge ) {
+					$label = (string) ( $a['label'] ?? '' );
+					break;
+				}
+			}
+		}
+		$digits = preg_replace( '/\D/', '', $label );
+		$digits = strlen( (string) $digits ) >= 4 ? $digits : preg_replace( '/\D/', '', $bridge );
+		return '…' . substr( (string) $digits, -4 );
+	}
+
+	/** GET a Hub path as the site (test seam `hub_get`). @return array decoded body, or array() on any failure */
+	public static function hub_get( string $path ): array {
+		if ( isset( self::$readers['hub_get'] ) ) {
+			return (array) call_user_func( self::$readers['hub_get'], $path );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) || ! BizCity_Zalo_Personal_Hub_Client::instance()->is_ready_fast() ) {
+			return array();
+		}
+		return (array) BizCity_Zalo_Personal_Hub_Client::instance()->get_managed_path( $path );
+	}
+
+	/** Cell capabilities `cell_chat:1` via the Hub, cached 60 s (a failure is cached too - the picker must not hammer a dead Hub). */
+	public static function cell_chat_capable(): bool {
+		$key = self::CELL_CHAT_CAPS_KEY . '_' . ( function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1 );
+		if ( function_exists( 'get_transient' ) ) {
+			$c = get_transient( $key );
+			if ( 'yes' === $c || 'no' === $c ) {
+				return 'yes' === $c;
+			}
+		}
+		$r  = self::hub_get( self::CELL_CHAT_PATH . '/capabilities' );
+		$ok = ! empty( $r ) && false !== ( $r['ok'] ?? true ) && 1 === (int) ( $r['cell_chat'] ?? 0 );
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( $key, $ok ? 'yes' : 'no', self::CELL_CHAT_CAPS_TTL );
+		}
+		return $ok;
+	}
+
+	/** `web-<key_id>` when the site answers through its web home (no number needed), else ''. */
+	public static function web_account_id(): string {
+		$key_id = self::key_id();
+		return $key_id > 0 && class_exists( 'BizCity_Twin_Web_Home' ) && BizCity_Twin_Web_Home::enabled() ? 'web-' . $key_id : '';
+	}
+
+	/**
+	 * R-SETUP-4 four steps as server facts: ① BizCity key present ② the Hub knows this site (key id learnt) ③ a Zalo Hub number
+	 * exists ④ the default Agent Guru exists. Test seam `setup`.
+	 *
+	 * @return array{step1:bool,step2:bool,step3:bool,step4:bool}
+	 */
+	public static function setup_flags(): array {
+		if ( isset( self::$readers['setup'] ) ) {
+			return (array) call_user_func( self::$readers['setup'] );
+		}
+		$key = false;
+		if ( class_exists( 'BizCity_LLM_Gateway_Panel_REST' ) && method_exists( 'BizCity_LLM_Gateway_Panel_REST', 'projection' ) ) {
+			$p   = (array) BizCity_LLM_Gateway_Panel_REST::projection();
+			$key = ! empty( $p['key']['configured'] );
+		}
+		return array(
+			'step1' => $key,
+			'step2' => $key && self::key_id() > 0,
+			'step3' => (bool) self::accounts(),
+			'step4' => class_exists( 'BizCity_Guru_Context_Resolver' ) && method_exists( 'BizCity_Guru_Context_Resolver', 'default_character_id' ) && (int) BizCity_Guru_Context_Resolver::default_character_id( false ) > 0,
+		);
+	}
+
+	/**
+	 * One Cell Chat turn - NEVER the MPR path. `$turn` = {user_id, session_id, text, account_id?, mirror_simulate?}. Streams the cell's SSE
+	 * through pipe() with the `node` flag (no php fallback) and turns every failure into an SSE `error` frame + `end`.
+	 * `account_id` must be one of owned_rows(); absent ⇒ the site's web home (plain web turn, `contact`, no `account_id`).
+	 *
+	 * @return string 'done' (the stream is closed; the caller must exit)
+	 */
+	public static function cell_chat_run( array $turn ): string {
+		$user_id = (int) ( $turn['user_id'] ?? 0 );
+		if ( '' === trim( (string) ( $turn['text'] ?? '' ) ) ) {
+			return self::stream_error( 'empty_message' );
+		}
+		// [2026-10-13 03:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-B3 — ONE conversation id per person: without a session id, `session_id()` mints a fresh one from the trace id on EVERY turn, and a web-home
+		// Cell Chat then opens a new cell thread (`web:twinchat:<new>`) for every message - no history, no summary, a Sessions page full of one-message chats. A real number shares the Zalo 1-1 thread anyway.
+		// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C4 — the fallback is now the person's MAIN session `brain_sess_0_<uid>_cc00`
+		// (a real Ask Brain session id, so the turn shows in Sessions); the cell maps it to the main thread exactly like the old `cc_u<uid>`.
+		if ( '' === trim( (string) ( $turn['session_id'] ?? '' ) ) && $user_id > 0 ) {
+			$turn['session_id'] = self::main_session_id( $user_id );
+		}
+		$key_id = self::key_id();
+		if ( $key_id <= 0 || null === self::target() ) {
+			return self::stream_error( 'hub_key_unknown' );
+		}
+		$account = trim( (string) ( $turn['account_id'] ?? '' ) );
+		if ( '' !== $account ) {
+			$principal = null;
+			foreach ( self::owned_rows( $user_id ) as $r ) {
+				if ( $r['account_id'] === $account ) {
+					$principal = self::as_role( $r['role'], $account, $r['role'], 'wp_principal', array( 'modes' => $r['modes'], 'user_hash' => $r['user_hash'] ) );
+					break;
+				}
+			}
+		} else {
+			$principal = self::web_home_member( $user_id );
+		}
+		if ( null === $principal ) {
+			return self::stream_error( 'not_owner' );
+		}
+		$turn['mirror'] = true;
+		unset( $turn['history'] );
+		$env = self::envelope( 'twinchat', $turn, $principal, $key_id );
+		// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C9 (D106-3, owner 2026-10-13) — the message goes THROUGH the event stream:
+		// the question is written into its TwinChat session first, then sent to the cell in this same request (SSE unchanged, never a queue).
+		// The answer comes back as the cell's turn-complete (`assistant_message`, same session + trace). One writer per event type.
+		self::record_cell_chat_question( $env, $user_id, (string) $turn['text'] );
+		$res = self::pipe( $env, 'node', null, array(
+			'on_error' => static function ( array $d ) use ( $env, $user_id ): void {
+				self::record_cell_chat_failure( $env, $user_id, (string) ( $d['code'] ?? 'turn_failed' ), (string) ( $d['message'] ?? '' ) );
+			},
+		) );
+		if ( $res instanceof WP_REST_Response ) {
+			$d    = (array) $res->get_data();
+			$hint = (string) ( $d['hint'] ?? '' );
+			// [2026-10-13 00:50 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — say WHY the Hub answer was not a stream (HTTP status / code / curl errno only, no body): "Hub unreachable" alone hides a 4xx/5xx or an old cell
+			if ( 'hub_unreachable' === (string) ( $d['code'] ?? 'hub_unreachable' ) && '' !== self::fallback_detail() ) {
+				$hint = trim( $hint . ' Chi tiết kỹ thuật: ' . self::fallback_detail() );
+			}
+			self::record_cell_chat_failure( $env, $user_id, (string) ( $d['code'] ?? 'hub_unreachable' ), (string) ( $d['message'] ?? '' ) );
+			return self::stream_error( (string) ( $d['code'] ?? 'hub_unreachable' ), (string) ( $d['message'] ?? '' ), $hint, (string) ( $d['help_code'] ?? '' ) );
+		}
+		return 'done';
+	}
+
+	/** [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C4 — the person's MAIN Cell Chat session (= their Zalo 1-1 thread on the cell). */
+	public static function main_session_id( int $user_id ): string {
+		return 'brain_sess_0_' . max( 0, $user_id ) . '_cc00';
+	}
+
+	/** Test seam: replaces `BizCity_Twin_Event_Bus::ingest_remote` for the Cell Chat records (PHASE-0.106). @var callable|null */
+	public static $record_seam = null;
+
+	/**
+	 * [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C9 — `user_message` of a Cell Chat turn, written BEFORE the cell answers.
+	 * uuid from the trace id (a retried request with the same trace never doubles it). A storage failure never blocks the turn.
+	 */
+	public static function record_cell_chat_question( array $env, int $user_id, string $text ): void {
+		$session = (string) ( $env['session']['session_id'] ?? '' );
+		$trace   = (string) ( $env['trace_id'] ?? '' );
+		if ( '' === $session || '' === $trace || $user_id <= 0 ) {
+			return;
+		}
+		$content = self::clip( $text );
+		self::record_event( array(
+			'event_uuid'       => self::record_uuid( $trace . ':u' ),
+			'event_type'       => 'user_message',
+			'event_source'     => 'twinchat',
+			'trace_id'         => $trace,
+			'session_id'       => $session,
+			'user_id'          => $user_id,
+			'blog_id'          => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : null,
+			'created_epoch_ms' => (int) ( microtime( true ) * 1000 ),
+			'payload'          => array(
+				'content'    => $content,
+				'text'       => $content,
+				'via'        => 'cell_chat',
+				'account_id' => (string) ( $env['account_id'] ?? '' ),
+				'surface'    => 'twinchat',
+			),
+		) );
+	}
+
+	/** [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C9 — the Hub / cell could not take the turn: the question stays in its session, marked failed. */
+	public static function record_cell_chat_failure( array $env, int $user_id, string $code, string $message ): void {
+		$session = (string) ( $env['session']['session_id'] ?? '' );
+		$trace   = (string) ( $env['trace_id'] ?? '' );
+		if ( '' === $session || '' === $trace || $user_id <= 0 ) {
+			return;
+		}
+		self::record_event( array(
+			'event_uuid'       => self::record_uuid( $trace . ':e' ),
+			'event_type'       => 'cell_turn_failed',
+			'event_source'     => 'twinchat',
+			'trace_id'         => $trace,
+			'session_id'       => $session,
+			'user_id'          => $user_id,
+			'blog_id'          => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : null,
+			'created_epoch_ms' => (int) ( microtime( true ) * 1000 ),
+			'payload'          => array(
+				'trace_id' => $trace,
+				'code'     => substr( sanitize_key( $code ), 0, 64 ),
+				'message'  => mb_substr( trim( strip_tags( $message ) ), 0, 300 ),
+				'via'      => 'cell_chat',
+			),
+		) );
+	}
+
+	/** Version-5-shaped uuid of a Cell Chat record (same shape the turn-complete route uses). */
+	private static function record_uuid( string $key ): string {
+		if ( class_exists( 'BizCity_Twin_Agent_Turn_Complete_REST' ) ) {
+			return BizCity_Twin_Agent_Turn_Complete_REST::uuid_from_key( 'cell-chat|' . $key );
+		}
+		$h = sha1( 'cell-chat|' . $key );
+		return sprintf( '%s-%s-5%s-%s%s-%s', substr( $h, 0, 8 ), substr( $h, 8, 4 ), substr( $h, 13, 3 ), dechex( ( hexdec( $h[16] ) & 0x3 ) | 0x8 ), substr( $h, 17, 3 ), substr( $h, 20, 12 ) );
+	}
+
+	private static function record_event( array $event ): void {
+		try {
+			if ( null !== self::$record_seam ) {
+				call_user_func( self::$record_seam, $event );
+				return;
+			}
+			if ( class_exists( 'BizCity_Twin_Event_Bus' ) && method_exists( 'BizCity_Twin_Event_Bus', 'ingest_remote' ) ) {
+				BizCity_Twin_Event_Bus::ingest_remote( $event );
+			}
+		} catch ( \Throwable $e ) {
+			if ( function_exists( 'error_log' ) ) {
+				error_log( '[CellChat] event record failed: ' . substr( $e->getMessage(), 0, 200 ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			}
+		}
+	}
+
+	/** The user's web-home principal when the site has a web home and the user is its verified owner/staff, else null. */
+	public static function web_home_member( int $user_id ): ?array {
+		if ( $user_id <= 0 || ! class_exists( 'BizCity_Twin_Web_Home' ) || ! BizCity_Twin_Web_Home::enabled() ) {
+			return null;
+		}
+		$p = self::web_home_principal( $user_id );
+		return in_array( $p['role'], array( 'owner', 'staff' ), true ) && '' !== $p['user_hash'] ? $p : null;
+	}
+
+	/**
+	 * [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C9 - the shared thread of the caller: Hub `cell-chat/history` with the
+	 * caller's OWN user_hash (never taken from the browser). `$account_id` '' = web home.
+	 *
+	 * @return array{status:int,body:array}
+	 */
+	public static function cell_chat_history( int $user_id, string $account_id, int $limit, string $session_id = '' ): array {
+		$account_id = trim( $account_id );
+		$hash       = '';
+		$target     = $account_id;
+		if ( '' !== $account_id ) {
+			foreach ( self::owned_rows( $user_id ) as $r ) {
+				if ( $r['account_id'] === $account_id ) {
+					$hash = $r['user_hash'];
+				}
+			}
+		} else {
+			$p      = self::web_home_member( $user_id );
+			$hash   = $p ? $p['user_hash'] : '';
+			$target = self::web_account_id();
+		}
+		if ( '' === $hash || '' === $target ) {
+			return array( 'status' => 403, 'body' => array( 'ok' => false, 'code' => 'not_owner', 'message' => self::ERRORS['not_owner'][1], 'hint' => self::ERRORS['not_owner'][2], 'help_code' => 'S105-CC-SITE-NOT-OWNER' ) );
+		}
+		$limit = max( 1, min( 100, $limit ) );
+		// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-U2 — a TwinChat session other than the main one reads its own cell thread
+		$session_q = 1 === preg_match( '/^[A-Za-z0-9._:-]{1,64}$/', $session_id ) ? '&session_id=' . rawurlencode( $session_id ) : '';
+		$b     = self::hub_get( self::CELL_CHAT_PATH . '/history?account_id=' . rawurlencode( $target ) . '&user_hash=' . rawurlencode( $hash ) . '&limit=' . $limit . $session_q );
+		if ( ! $b || false === ( $b['ok'] ?? true ) || isset( $b['_degraded'] ) ) {
+			$code = (string) ( $b['code'] ?? 'hub_unreachable' );
+			$e    = self::ERRORS[ $code ] ?? self::ERRORS['hub_unreachable'];
+			return array( 'status' => 'not_owner' === $code ? 403 : 502, 'body' => array( 'ok' => false, 'code' => $code, 'message' => (string) ( $b['message'] ?? $e[1] ), 'hint' => (string) ( $b['hint'] ?? $e[2] ), 'help_code' => (string) ( $b['help_code'] ?? 'S105-CC-SITE-HISTORY' ) ) );
+		}
+		$items = array();
+		foreach ( array_slice( (array) ( $b['items'] ?? array() ), 0, 100 ) as $it ) {
+			if ( is_array( $it ) ) {
+				$row   = array( 'role' => 'assistant' === ( $it['role'] ?? '' ) ? 'assistant' : 'user', 'text' => (string) ( $it['text'] ?? '' ), 'via' => 'zalo' === ( $it['via'] ?? '' ) ? 'zalo' : 'cell_chat', 'at' => (string) ( $it['at'] ?? '' ) );
+				// [2026-10-13 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 v2 S105-M2 — files the cell remembered for this row (links only; bytes come from the media route).
+				$files = self::clean_files( $it['files'] ?? array() );
+				if ( $files ) {
+					$row['files'] = $files;
+				}
+				$items[] = $row;
+			}
+		}
+		return array( 'status' => 200, 'body' => array( 'ok' => true, 'items' => $items, 'thread' => 'zalo_1_1' === ( $b['thread'] ?? '' ) ? 'zalo_1_1' : 'cellchat', 'linked' => ! empty( $b['linked'] ) ) );
+	}
+
+	/**
+	 * [2026-10-13 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 v2 S105-M2 — keep only {media_id,name,mime,bytes,kind,expired}; drop malformed entries; max 10.
+	 *
+	 * @param mixed $raw
+	 * @return list<array{media_id:string,name:string,mime:string,bytes:int,kind:string,expired:bool}>
+	 */
+	public static function clean_files( $raw ): array {
+		$out = array();
+		if ( ! is_array( $raw ) ) {
+			return $out;
+		}
+		foreach ( $raw as $f ) {
+			if ( count( $out ) >= 10 ) {
+				break;
+			}
+			if ( ! is_array( $f ) || ! is_string( $f['media_id'] ?? null ) || ! preg_match( '/^cm_[a-f0-9]{24}$/', $f['media_id'] ) ) {
+				continue;
+			}
+			$mime = is_string( $f['mime'] ?? null ) ? trim( $f['mime'] ) : '';
+			if ( strlen( $mime ) > 100 || ! preg_match( '#^[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!\#$&^_.+-]*(\s*;.*)?$#', $mime ) ) {
+				continue;
+			}
+			$name = is_string( $f['name'] ?? null ) ? $f['name'] : '';
+			$name = trim( (string) preg_replace( '/[\x00-\x1F\x7F\/\\\\]+/', '', $name ) );
+			$name = function_exists( 'mb_substr' ) ? mb_substr( $name, 0, 160, 'UTF-8' ) : substr( $name, 0, 160 );
+			$kind = (string) ( $f['kind'] ?? '' );
+			if ( ! is_numeric( $f['bytes'] ?? null ) || (float) $f['bytes'] < 0 || ! in_array( $kind, array( 'image', 'audio', 'video', 'file' ), true ) ) {
+				continue;
+			}
+			$out[] = array( 'media_id' => $f['media_id'], 'name' => $name, 'mime' => $mime, 'bytes' => (int) $f['bytes'], 'kind' => $kind, 'expired' => ! empty( $f['expired'] ) );
+		}
+		return $out;
+	}
+
+	/** Single byte range only; anything else is dropped (the cell then answers the whole file). */
+	public static function clean_range( string $raw ): string {
+		$raw = trim( $raw );
+		return preg_match( '/^bytes=(\d{1,15}-\d{0,15}|-\d{1,15})$/', $raw ) ? $raw : '';
+	}
+
+	/** Whitelisted response header lines from the Hub => lower-case name => value (control chars stripped). */
+	public static function media_headers( array $lines ): array {
+		$allow = array( 'content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition', 'x-content-type-options' );
+		$out   = array();
+		foreach ( $lines as $line ) {
+			$p = strpos( (string) $line, ':' );
+			if ( false === $p ) {
+				continue;
+			}
+			$name = strtolower( trim( substr( (string) $line, 0, $p ) ) );
+			if ( in_array( $name, $allow, true ) ) {
+				$out[ $name ] = trim( (string) preg_replace( '/[\x00-\x1F\x7F]/', '', substr( (string) $line, $p + 1 ) ) );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-13 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 v2 S105-M3 - stream one cell file to the browser. The caller's OWN user_hash
+	 * (owned_rows / web home) is resolved here, never taken from the browser; not owner/staff ⇒ 403 `not_owner` WITHOUT calling the Hub.
+	 * Success returns {status,streamed:true} after the bytes were written (the REST handler then exits); failures return {status,body}.
+	 *
+	 * @return array{status:int,body?:array,streamed?:bool}
+	 */
+	public static function cell_chat_media( int $user_id, string $account_id, string $media_id, string $range = '' ): array {
+		$account_id = trim( $account_id );
+		$hash       = '';
+		$target     = $account_id;
+		if ( ! preg_match( '/^cm_[a-f0-9]{24}$/', $media_id ) ) {
+			return array( 'status' => 400, 'body' => array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Mã tệp không hợp lệ.', 'hint' => 'Mở lại cuộc trò chuyện rồi thử lại.', 'help_code' => 'S105-CC-SITE-MEDIA-ID' ) );
+		}
+		if ( '' !== $account_id ) {
+			foreach ( self::owned_rows( $user_id ) as $r ) {
+				if ( $r['account_id'] === $account_id ) {
+					$hash = $r['user_hash'];
+				}
+			}
+		} else {
+			$p      = self::web_home_member( $user_id );
+			$hash   = $p ? $p['user_hash'] : '';
+			$target = self::web_account_id();
+		}
+		if ( '' === $hash || '' === $target ) {
+			return array( 'status' => 403, 'body' => array( 'ok' => false, 'code' => 'not_owner', 'message' => self::ERRORS['not_owner'][1], 'hint' => self::ERRORS['not_owner'][2], 'help_code' => 'S105-CC-SITE-NOT-OWNER' ) );
+		}
+		$path = self::CELL_CHAT_PATH . '/media/' . $media_id . '?account_id=' . rawurlencode( $target ) . '&user_hash=' . rawurlencode( $hash );
+		$r    = self::hub_stream_get( $path, self::clean_range( $range ) );
+		if ( empty( $r['streamed'] ) ) {
+			$e = self::ERRORS['hub_unreachable'];
+			return array( 'status' => 502, 'body' => array( 'ok' => false, 'code' => 'hub_unreachable', 'message' => $e[1], 'hint' => $e[2], 'help_code' => 'S105-CC-SITE-MEDIA' ) );
+		}
+		return array( 'status' => (int) $r['status'], 'streamed' => true );
+	}
+
+	/**
+	 * [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — the same owner-checked fetch as cell_chat_media(), into a local FILE (the cron copy
+	 * of an image/audio/video to the media library). Never writes more than `$max` bytes; a non-200 leaves the file empty.
+	 *
+	 * @return array{status:int,bytes:int}
+	 */
+	public static function cell_chat_media_to_file( int $user_id, string $account_id, string $media_id, string $dest, int $max ): array {
+		$account_id = trim( $account_id );
+		$hash       = '';
+		$target     = $account_id;
+		if ( ! preg_match( '/^cm_[a-f0-9]{24}$/', $media_id ) || '' === $dest ) {
+			return array( 'status' => 400, 'bytes' => 0 );
+		}
+		if ( '' !== $account_id ) {
+			foreach ( self::owned_rows( $user_id ) as $r ) {
+				if ( $r['account_id'] === $account_id ) {
+					$hash = $r['user_hash'];
+				}
+			}
+		} else {
+			$p      = self::web_home_member( $user_id );
+			$hash   = $p ? $p['user_hash'] : '';
+			$target = self::web_account_id();
+		}
+		if ( '' === $hash || '' === $target ) {
+			return array( 'status' => 403, 'bytes' => 0 );
+		}
+		$path = self::CELL_CHAT_PATH . '/media/' . $media_id . '?account_id=' . rawurlencode( $target ) . '&user_hash=' . rawurlencode( $hash );
+		return self::hub_download( $path, $dest, $max );
+	}
+
+	/**
+	 * GET a Hub path as the site into a file (test seam `hub_download`).
+	 *
+	 * @return array{status:int,bytes:int}
+	 */
+	public static function hub_download( string $path, string $dest, int $max ): array {
+		if ( isset( self::$readers['hub_download'] ) ) {
+			return (array) call_user_func( self::$readers['hub_download'], $path, $dest, $max );
+		}
+		if ( ! function_exists( 'curl_init' ) || ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			return array( 'status' => 0, 'bytes' => 0 );
+		}
+		$target = BizCity_Zalo_Personal_Hub_Client::instance()->stream_target( $path );
+		$fh     = $target ? @fopen( $dest, 'wb' ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors,WordPress.WP.AlternativeFunctions
+		if ( ! $target || ! $fh ) {
+			return array( 'status' => 0, 'bytes' => 0 );
+		}
+		$headers = array( 'Authorization: Bearer ' . (string) $target['key'], 'X-Site-URL: ' . ( function_exists( 'home_url' ) ? home_url() : '' ) );
+		foreach ( (array) ( $target['headers'] ?? array() ) as $k => $v ) {
+			$headers[] = $k . ': ' . $v;
+		}
+		$status = 0;
+		$bytes  = 0;
+		$ch     = curl_init( (string) $target['url'] );
+		curl_setopt_array( $ch, array(
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 110,
+			CURLOPT_CONNECTTIMEOUT => 5,
+			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_HEADERFUNCTION => static function ( $ch, $line ) use ( &$status ) {
+				if ( preg_match( '#^HTTP/\S+\s+(\d{3})#', $line, $m ) ) {
+					$status = (int) $m[1];
+				}
+				return strlen( $line );
+			},
+			CURLOPT_WRITEFUNCTION  => static function ( $ch, $chunk ) use ( &$status, &$bytes, $fh, $max ) {
+				if ( 200 !== $status ) {
+					return strlen( $chunk ); // an error body is not the file
+				}
+				$bytes += strlen( $chunk );
+				if ( $bytes > $max ) {
+					return 0; // over the cap ⇒ abort
+				}
+				return (int) fwrite( $fh, $chunk ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+			},
+		) );
+		curl_exec( $ch );
+		curl_close( $ch );
+		fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		if ( 200 !== $status || $bytes > $max ) {
+			return array( 'status' => 200 === $status ? 413 : $status, 'bytes' => 0 );
+		}
+		return array( 'status' => $status, 'bytes' => $bytes );
+	}
+
+	/**
+	 * GET a Hub path as the site and PIPE the body to the browser (cURL WRITEFUNCTION; never buffered whole). Headers are sent on the first
+	 * body chunk BEFORE draining stray output buffers (ob_end_clean, never flush - S105-H4 lesson). Test seam `hub_stream`.
+	 *
+	 * @return array{streamed:bool,status:int}  streamed=false ⇒ nothing was sent (Hub unreachable)
+	 */
+	public static function hub_stream_get( string $path, string $range = '' ): array {
+		if ( isset( self::$readers['hub_stream'] ) ) {
+			return (array) call_user_func( self::$readers['hub_stream'], $path, $range );
+		}
+		if ( ! function_exists( 'curl_init' ) || ! class_exists( 'BizCity_Zalo_Personal_Hub_Client' ) ) {
+			return array( 'streamed' => false, 'status' => 0 );
+		}
+		$target = BizCity_Zalo_Personal_Hub_Client::instance()->stream_target( $path );
+		if ( ! $target ) {
+			return array( 'streamed' => false, 'status' => 0 );
+		}
+		ignore_user_abort( false );
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 130 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+		}
+		$status  = 0;
+		$lines   = array();
+		$started = false;
+		$begin   = static function () use ( &$status, &$lines, &$started ): void {
+			$started = true;
+			if ( ! headers_sent() ) {
+				header_remove( 'Content-Type' );
+				header_remove( 'Content-Length' );
+				header_remove( 'Expires' );
+				header_remove( 'Pragma' );
+				http_response_code( $status );
+				foreach ( self::media_headers( $lines ) as $n => $v ) {
+					header( $n . ': ' . $v, true );
+				}
+				header( $status >= 200 && $status < 300 ? 'Cache-Control: private, max-age=3600' : 'Cache-Control: no-store', true );
+			}
+			while ( ob_get_level() > 0 ) {
+				@ob_end_clean(); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+			}
+		};
+		$headers = array( 'Authorization: Bearer ' . (string) $target['key'], 'X-Site-URL: ' . ( function_exists( 'home_url' ) ? home_url() : '' ) );
+		foreach ( (array) ( $target['headers'] ?? array() ) as $k => $v ) {
+			$headers[] = $k . ': ' . $v;
+		}
+		if ( '' !== $range ) {
+			$headers[] = 'Range: ' . $range;
+		}
+		$ch = curl_init( (string) $target['url'] );
+		curl_setopt_array( $ch, array(
+			CURLOPT_HTTPHEADER     => $headers,
+			CURLOPT_TIMEOUT        => 125,
+			CURLOPT_CONNECTTIMEOUT => 5,
+			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_HEADERFUNCTION => static function ( $ch, $line ) use ( &$status, &$lines ) {
+				if ( preg_match( '#^HTTP/\S+\s+(\d{3})#', $line, $m ) ) {
+					$status = (int) $m[1];
+					$lines  = array();
+				} else {
+					$lines[] = $line;
+				}
+				return strlen( $line );
+			},
+			CURLOPT_WRITEFUNCTION  => static function ( $ch, $chunk ) use ( &$started, $begin ) {
+				if ( ! $started ) {
+					$begin();
+				}
+				echo $chunk; // phpcs:ignore WordPress.Security.EscapeOutput -- file bytes from the Hub, passed through unchanged
+				flush();
+				return connection_aborted() ? 0 : strlen( $chunk );
+			},
+		) );
+		curl_exec( $ch );
+		curl_close( $ch );
+		if ( ! $started ) {
+			if ( $status <= 0 || $status >= 600 ) {
+				return array( 'streamed' => false, 'status' => 0 );
+			}
+			$begin(); // empty body (416, 304, 0-byte file): still relay status + headers
+		}
+		return array( 'streamed' => true, 'status' => $status );
+	}
+
+	/** Open the SSE and write one `error` + `end` frame (R-ERROR-UX fields). Site codes come from ERRORS; a Hub/cell code keeps its own text. */
+	public static function stream_error( string $code, string $message = '', string $hint = '', string $help_code = '' ): string {
+		$e = self::ERRORS[ $code ] ?? null;
+		self::open();
+		self::out( self::frame( 'error', array(
+			'trace_id'  => self::trace_id(),
+			'code'      => $code,
+			'message'   => '' !== $message ? $message : ( $e ? $e[1] : self::ERRORS['hub_unreachable'][1] ),
+			'hint'      => '' !== $hint ? $hint : ( $e ? $e[2] : self::ERRORS['hub_unreachable'][2] ),
+			'help_code' => '' !== $help_code ? $help_code : 'S105-CC-SITE-' . strtoupper( str_replace( '_', '-', $code ) ),
+			'retryable' => false,
+		) ) );
+		self::out( self::frame( 'end', array() ) );
+		return 'done';
+	}
+
 	/* ── envelope (A1 + A2) ───────────────────────────────────────── */
 
 	/**
@@ -300,7 +955,7 @@ final class BizCity_Twin_Web_Turn {
 			$session['thread_key'] = substr( (string) $turn['thread_key'], 0, 200 );
 		}
 		$env = array(
-			'contract'      => ( '' === (string) $principal['account_id'] || ! empty( $turn['vertical'] ) ) ? self::CONTRACT_CONTACT : ( 'staff' === $principal['role'] ? self::CONTRACT_STAFF : self::CONTRACT ),
+			'contract'      => ! empty( $turn['mirror'] ) ? self::CONTRACT_MIRROR : ( ( '' === (string) $principal['account_id'] || ! empty( $turn['vertical'] ) ) ? self::CONTRACT_CONTACT : ( 'staff' === $principal['role'] ? self::CONTRACT_STAFF : self::CONTRACT ) ),
 			'axis'          => self::AXIS,
 			'trace_id'      => self::trace_id(),
 			'surface'       => $surface,
@@ -343,6 +998,22 @@ final class BizCity_Twin_Web_Turn {
 				'platform_uid' => (string) $user_id,
 			);
 			$env = array_slice( $env, 0, (int) $at, true ) + array( 'contact' => $contact ) + array_slice( $env, (int) $at + 1, null, true );
+		}
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — Cell Chat (additive, doc 70 §1): the cell owns the shared
+		// thread, so NO `history` goes out; `mirror` turns the mirror on and `mirror_opts.simulate_actions` labels action tools as dry-run.
+		if ( ! empty( $turn['mirror'] ) ) {
+			unset( $env['history'] );
+			$env['mirror']      = 'zalo_owner';
+			$env['mirror_opts'] = array( 'simulate_actions' => ! empty( $turn['mirror_simulate'] ) );
+			// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-B6 — the quick-create button pressed (a soft hint the cell names only when the turn has that tool)
+			$prefer = (string) ( $turn['prefer_tool'] ?? '' );
+			if ( 1 === preg_match( '/^[a-z0-9_.]{1,64}$/', $prefer ) ) {
+				$env['mirror_opts']['prefer_tool'] = $prefer;
+				$label = trim( strip_tags( (string) ( $turn['prefer_label'] ?? '' ) ) );
+				if ( '' !== $label ) {
+					$env['mirror_opts']['prefer_label'] = mb_substr( $label, 0, 40 );
+				}
+			}
 		}
 		$env['sent_at'] = gmdate( 'Y-m-d\TH:i:s\Z', self::now() );
 		return $env;
@@ -574,6 +1245,15 @@ final class BizCity_Twin_Web_Turn {
 				}
 				if ( $id > 0 ) {
 					self::out( self::frame( 'assistant_persisted', array( 'message_id' => $id ) ) ); // lets TwinChat pin the row
+				}
+			}
+			// [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C9 — an `error` frame the CELL sends mid-stream (llm_not_configured, turn_failed, busy…):
+			// the surface may record it (Cell Chat writes `cell_turn_failed` into the session). A recording failure never touches the stream.
+			if ( 'error' === $f['event'] && ! empty( $st->shape['on_error'] ) ) {
+				try {
+					call_user_func( $st->shape['on_error'], (array) $f['data'] );
+				} catch ( \Throwable $e ) {
+					// ignore
 				}
 			}
 			if ( 'final_done' === $f['event'] ) {

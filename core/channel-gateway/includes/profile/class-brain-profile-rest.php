@@ -272,7 +272,7 @@ final class BizCity_Brain_Profile_REST {
 				'platform'     => (string) ( $row['platform'] ?? '' ),
 				'label_masked' => self::mask_account_label( $account_id ),
 				'mode'         => (string) ( $row['mode'] ?? '' ),
-				// [2026-10-12 10:31 AM] owner_name / per-number settings diff / schedule running-vs-awaiting counts
+				// [2026-10-12 10:31 AM] owner_name / per-number settings diff / schedule counts
 				// are NOT wired (no verified source for them this pass — see class comment above); the UI lane's
 				// own report already treats an absent/empty `suggested`/`diff`/`schedule` as "no suggestion yet".
 			);

@@ -403,6 +403,7 @@ class BizCity_KG_Skeleton_Service {
 		for ( $attempt = 1; $attempt <= 2; $attempt++ ) {
 			$resp = bizcity_llm_chat( $messages, [
 				'purpose'          => self::LLM_PURPOSE,
+				'caller'          => 'kg.skeleton', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 				'temperature'      => 0.2,
 				'response_format'  => [ 'type' => 'json_object' ],
 			] );
@@ -453,6 +454,7 @@ class BizCity_KG_Skeleton_Service {
 			// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — json_object mode for map step.
 			$resp = bizcity_llm_chat( $messages, [
 				'purpose'         => self::LLM_PURPOSE,
+				'caller'         => 'kg.skeleton', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 				'temperature'     => 0.2,
 				'response_format' => [ 'type' => 'json_object' ],
 			] );
@@ -493,6 +495,7 @@ class BizCity_KG_Skeleton_Service {
 		// [2026-06-05 Johnny Chu] SKEL-PARSE-ROBUST — json_object mode for reduce step.
 		$resp = bizcity_llm_chat( $messages, [
 			'purpose'         => self::LLM_PURPOSE,
+			'caller'         => 'kg.skeleton', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 			'temperature'     => 0.2,
 			'response_format' => [ 'type' => 'json_object' ],
 		] );

@@ -203,9 +203,8 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool track.get
 		$R::register( 'track.get', array(
 			'title'          => 'Đọc chuỗi theo dõi',
-			'description'    => 'Đọc chuỗi theo dõi (track.point) của một người được chăm trong tối đa 90 ngày — dùng cho bước Tổng kết của chương trình coach (doc 90 §5).',
-			'input_schema'   => array( 'type' => 'object', 'required' => array( 'subject_hash' ), 'properties' => array(
-				'subject_hash' => array( 'type' => 'string', 'maxLength' => 18 ),
+			'description'    => 'Đọc chuỗi theo dõi (track.point) của chính chủ trong tối đa 90 ngày — dùng cho bước Tổng kết của chương trình coach (doc 90 §5). Chỉ có một tiến độ của chủ, không theo từng người.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'unit_id'      => array( 'type' => 'string', 'maxLength' => 40 ),
 				'days'         => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 90 ),
 			) ),
@@ -226,9 +225,8 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool track.set
 		$R::register( 'track.set', array(
 			'title'          => 'Ghi điểm theo dõi',
-			'description'    => 'Ghi (hoặc gộp thêm) các chỉ số theo dõi của một ngày cho một người được chăm — idempotent theo (subject, unit_id, ngày), gọi lại cùng ngày sẽ gộp thêm chỉ số, không tạo dòng mới.',
-			'input_schema'   => array( 'type' => 'object', 'required' => array( 'subject_hash', 'metrics' ), 'properties' => array(
-				'subject_hash' => array( 'type' => 'string', 'maxLength' => 18 ),
+			'description'    => 'Ghi (hoặc gộp thêm) các chỉ số theo dõi của một ngày cho chính chủ — idempotent theo (unit_id, ngày), gọi lại cùng ngày sẽ gộp thêm chỉ số, không tạo dòng mới.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'metrics' ), 'properties' => array(
 				'unit_id'      => array( 'type' => 'string', 'maxLength' => 40 ),
 				'metrics'      => array( 'type' => 'object' ),
 				'doc_date'     => array( 'type' => 'string', 'maxLength' => 10 ),
@@ -322,12 +320,17 @@ final class BizCity_Journal_MCP_Tools {
 
 	/* ── track.* handlers (I-4: kind=track.point on the same index) ─── */
 
+	/** [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — the one owner-level progress subject (replaces per-student subject_hash / progress:<thread_hash>). */
+	private static function owner_subject(): string {
+		return BizCity_Journal_Database::subject_hash( 'self', '' );
+	}
+
 	public static function track_get( array $args, array $ctx ) {
 		$days = min( 90, max( 1, (int) ( $args['days'] ?? 90 ) ) );
 		$filter = array(
 			'owner_user_id' => self::owner( $ctx ),
 			'kind'          => 'track.point',
-			'subject_hash'  => (string) ( $args['subject_hash'] ?? '' ),
+			'subject_hash'  => self::owner_subject(),
 			'from'          => gmdate( 'Y-m-d', time() - $days * DAY_IN_SECONDS ),
 			'limit'         => 50,
 		);
@@ -344,10 +347,7 @@ final class BizCity_Journal_MCP_Tools {
 
 	public static function track_set( array $args, array $ctx ) {
 		$owner        = self::owner( $ctx );
-		$subject_hash = BizCity_Journal_Database::sanitize_subject_hash( (string) ( $args['subject_hash'] ?? '' ) );
-		if ( '' === $subject_hash ) {
-			return self::err( new WP_Error( 'journal_invalid_entry', 'subject_hash không hợp lệ.' ) );
-		}
+		$subject_hash = self::owner_subject();
 		$unit_id  = (string) ( $args['unit_id'] ?? '' );
 		$doc_date = BizCity_Journal_Database::sanitize_doc_date( $args['doc_date'] ?? '' ) ?: gmdate( 'Y-m-d' );
 		$key      = 'track:' . get_current_blog_id() . ':' . $subject_hash . ':' . ( '' !== $unit_id ? $unit_id : '-' ) . ':' . $doc_date;

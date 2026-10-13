@@ -4,7 +4,7 @@
  *
  * | Tool | Kind | Who | Confirm |
  * |---|---|---|---|
- * | profile.list / profile.get | read | owner, staff | never |
+ * | profile.list / profile.get | read | owner | never |
  * | profile.propose | write (draft only, `_incoming/<id>/`) | owner | never |
  * | profile.set_policy | write (ask.threshold 40–90) | owner | always + preview |
  * | profile.export | write (creates a file) | owner | always |
@@ -12,7 +12,7 @@
  * | program.propose | write (draft only) | owner | never |
  *
  * Mode `notebook`. `program.next` reads the serving Guru's `program.json` + the latest `track.point` journal
- * entry for `subject_hash` via `BizCity_Journal_Index::find()` (I-4) guarded by `class_exists` — the journal
+ * entry for the owner subject via `BizCity_Journal_Index::find()` (I-4) guarded by `class_exists` — the journal
  * lane builds that class in parallel; absent ⇒ first unit + `track_unavailable` note (never a hard error).
  *
  * Biz Central Brain — Johnny Chu (Chu Hoàng Anh).
@@ -61,7 +61,7 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'required_scope' => 'brain.read',
 			'handler'        => array( __CLASS__, 'list_installed' ),
 			'mode'           => 'notebook',
-			'roles'          => array( 'owner', 'staff' ),
+			'roles'          => array( 'owner' ), // [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'profile_list',
@@ -80,7 +80,7 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'required_scope' => 'brain.read',
 			'handler'        => array( __CLASS__, 'get' ),
 			'mode'           => 'notebook',
-			'roles'          => array( 'owner', 'staff' ),
+			'roles'          => array( 'owner' ), // [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'profile_get',
@@ -95,7 +95,6 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'family', 'name', 'persona_text' ), 'properties' => array(
 				'family'         => array( 'type' => 'string', 'enum' => array( 'education', 'commerce', 'astro', 'nutrition', 'nanny', 'tasks' ) ),
 				'name'           => array( 'type' => 'string', 'maxLength' => 80 ),
-				'audience_guest' => array( 'type' => array( 'string', 'null' ), 'maxLength' => 200 ),
 				'persona_text'   => array( 'type' => 'string', 'maxLength' => 8000 ),
 				'skills'         => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => array( 'title' => array( 'type' => 'string' ), 'body_md' => array( 'type' => 'string' ) ) ), 'maxItems' => 30 ),
 				'schedule'       => array( 'type' => 'array', 'maxItems' => 40 ),
@@ -171,10 +170,9 @@ final class BizCity_Brain_Profile_MCP_Tools {
 		$R::register( 'program.next', array(
 			'title'          => 'Bài/bước kế tiếp của chương trình',
 			'description'    => 'Trả đơn vị kế tiếp của program.json (giáo trình/thực đơn/lịch trình...) theo tiến độ đã ghi trong sổ tay.',
-			'input_schema'   => array( 'type' => 'object', 'required' => array( 'subject_hash' ), 'properties' => array(
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'guru_id'      => array( 'type' => 'integer', 'minimum' => 1 ),
 				'account_id'   => array( 'type' => 'string', 'maxLength' => 80 ),
-				'subject_hash' => array( 'type' => 'string', 'maxLength' => 80 ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array( 'unit' => array( 'type' => array( 'object', 'null' ) ), 'note' => array( 'type' => 'string' ) ), array() ),
 			'read_only'      => true,
@@ -251,9 +249,9 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'family'   => (string) ( $args['family'] ?? 'tasks' ),
 			'version'  => '0.1.0',
 			'summary'  => mb_substr( (string) ( $args['persona_text'] ?? '' ), 0, 200 ),
-			'audience' => array( 'owner' => 'chủ số', 'guest' => $args['audience_guest'] ?? null ),
+			'audience' => array( 'owner' => 'chủ số' ), // [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
 			'persona'  => array( 'file' => 'persona.md' ),
-			'tool_packs' => array( 'owner' => array(), 'staff' => array(), 'guest' => array() ),
+			'tool_packs' => array( 'owner' => array() ),
 		);
 		BizCity_Brain_Profile_Store::write_json( $dir . 'profile.json', $profile );
 		BizCity_Brain_Profile_Store::write_text( $dir . 'persona.md', "---\nname: " . (string) ( $args['name'] ?? '' ) . "\n---\n" . (string) ( $args['persona_text'] ?? '' ) . "\n" );
@@ -302,10 +300,8 @@ final class BizCity_Brain_Profile_MCP_Tools {
 
 	public static function program_next( array $args, array $ctx = array() ) {
 		$guru_id      = (int) ( $args['guru_id'] ?? 0 );
-		$subject_hash = (string) ( $args['subject_hash'] ?? '' );
-		if ( '' === $subject_hash ) {
-			return new WP_Error( 'invalid_param', 'subject_hash required', array( 'hint' => '', 'help_code' => 'invalid_param' ) );
-		}
+		// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — one owner-level progress note: the subject is always the owner (no per-student subject_hash).
+		$subject_hash = class_exists( 'BizCity_Journal_Database' ) ? BizCity_Journal_Database::subject_hash( 'self', '' ) : '';
 		if ( $guru_id <= 0 && class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
 			$guru_id = (int) BizCity_Guru_Context_Resolver::answering_character_id( 0 );
 		}

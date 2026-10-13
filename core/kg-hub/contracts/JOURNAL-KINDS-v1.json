@@ -1,0 +1,57 @@
+{
+  "$schema": "https://bizcity.vn/schema/journal-kinds-v1.json",
+  "contract": "journal-kinds@1.0.0",
+  "_stamp": "[2026-10-12 10:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L16 — new file (doc 92 §3, R-JOURNAL R-JN-6/R-JN-7).",
+  "_stamp_d100_25": "[2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — education = the owner's own study: no per-subject (per-student) notebook, no child-sensitive stamp. nutrition/nanny keep theirs (the person cared for is a subject, not an audience).",
+  "families": {
+    "common": { "label": "Chung", "per_subject_notebook_default": false, "sensitive": "" },
+    "education": { "label": "Học tập", "per_subject_notebook_default": false, "sensitive": "" },
+    "nutrition": { "label": "Dinh dưỡng", "per_subject_notebook_default": true, "sensitive": "health" },
+    "nanny": { "label": "Bảo mẫu", "per_subject_notebook_default": true, "sensitive": "child" },
+    "astro": { "label": "Chiêm tinh", "per_subject_notebook_default": false, "sensitive": "" },
+    "commerce": { "label": "Thương mại", "per_subject_notebook_default": false, "sensitive": "finance" },
+    "tasks": { "label": "Nhắc việc", "per_subject_notebook_default": false, "sensitive": "" }
+  },
+  "kinds": {
+    "common.note":       { "family": "common", "label": "Ghi chú", "icon": "note", "sensitive": "", "card_fields": ["title", "doc_date", "summary"] },
+    "common.receipt":     { "family": "common", "label": "Chứng từ", "icon": "receipt", "sensitive": "finance", "card_fields": ["title", "doc_date", "summary"] },
+    "common.document":    { "family": "common", "label": "Tài liệu", "icon": "document", "sensitive": "", "card_fields": ["title", "doc_date", "summary"] },
+    "common.photo":       { "family": "common", "label": "Ảnh", "icon": "photo", "sensitive": "", "card_fields": ["title", "doc_date", "summary"] },
+    "common.voice_note":  { "family": "common", "label": "Ghi âm", "icon": "voice", "sensitive": "", "card_fields": ["title", "doc_date", "summary"] },
+
+    "edu.homework":      { "family": "education", "label": "Bài tập", "icon": "homework", "sensitive": "", "card_fields": ["subject_name", "unit_id", "question", "answer", "correct", "score"] },
+    "edu.result":        { "family": "education", "label": "Kết quả", "icon": "result", "sensitive": "", "card_fields": ["subject_name", "score", "doc_date"] },
+    "edu.vocab":         { "family": "education", "label": "Từ vựng", "icon": "vocab", "sensitive": "", "card_fields": ["words"] },
+    "edu.speaking":      { "family": "education", "label": "Giao tiếp", "icon": "speaking", "sensitive": "", "card_fields": ["topic", "note"] },
+    "edu.pronunciation": { "family": "education", "label": "Phát âm", "icon": "pronunciation", "sensitive": "", "card_fields": ["word", "note"] },
+    "edu.algebra":       { "family": "education", "label": "Đại số", "icon": "algebra", "sensitive": "", "card_fields": ["question", "answer", "correct"] },
+    "edu.geometry":       { "family": "education", "label": "Hình học", "icon": "geometry", "sensitive": "", "card_fields": ["question", "answer", "correct"] },
+    "edu.essay":         { "family": "education", "label": "Văn mẫu", "icon": "essay", "sensitive": "", "card_fields": ["title", "note"] },
+
+    "nutri.meal":  { "family": "nutrition", "label": "Bữa ăn", "icon": "meal", "sensitive": "health", "card_fields": ["items", "total_kcal", "note"] },
+    "nutri.dish":  { "family": "nutrition", "label": "Món", "icon": "dish", "sensitive": "health", "card_fields": ["name", "kcal", "protein_g", "carb_g", "fat_g"] },
+    "nutri.menu":  { "family": "nutrition", "label": "Thực đơn", "icon": "menu", "sensitive": "health", "card_fields": ["days"] },
+    "nutri.body":  { "family": "nutrition", "label": "Chỉ số", "icon": "body", "sensitive": "health", "card_fields": ["weight_kg", "waist_cm"] },
+
+    "nanny.day":       { "family": "nanny", "label": "Nhật ký ngày", "icon": "day", "sensitive": "child", "card_fields": ["sleep_hours", "meals", "note"] },
+    "nanny.health":    { "family": "nanny", "label": "Sức khoẻ", "icon": "health", "sensitive": "child", "card_fields": ["temperature_c", "symptom"] },
+    "nanny.milestone": { "family": "nanny", "label": "Mốc phát triển", "icon": "milestone", "sensitive": "child", "card_fields": ["milestone", "doc_date"] },
+
+    "astro.chart":      { "family": "astro", "label": "Lá số", "icon": "chart", "sensitive": "", "card_fields": ["chart_type", "positions", "interpretation"] },
+    "astro.tarot":      { "family": "astro", "label": "Tarot & quẻ", "icon": "tarot", "sensitive": "", "card_fields": ["cards", "interpretation"] },
+    "astro.iching":      { "family": "astro", "label": "Tarot & quẻ", "icon": "iching", "sensitive": "", "card_fields": ["hexagram", "interpretation"] },
+    "astro.phenomenon":  { "family": "astro", "label": "Hiện tượng", "icon": "phenomenon", "sensitive": "", "card_fields": ["phenomenon", "note"] },
+
+    "biz.order":      { "family": "commerce", "label": "Đơn hàng", "icon": "order", "sensitive": "finance", "card_fields": ["parties", "lines", "total"] },
+    "biz.contract":   { "family": "commerce", "label": "Hợp đồng", "icon": "contract", "sensitive": "finance", "card_fields": ["parties", "ref", "date", "total"] },
+    "biz.statement":  { "family": "commerce", "label": "Bảng kê", "icon": "statement", "sensitive": "finance", "card_fields": ["lines", "total"] },
+    "biz.pnl":        { "family": "commerce", "label": "Lãi lỗ", "icon": "pnl", "sensitive": "finance", "card_fields": ["revenue", "cost", "profit"] },
+    "biz.quote":      { "family": "commerce", "label": "Báo giá", "icon": "quote", "sensitive": "finance", "card_fields": ["parties", "lines", "total"] },
+    "biz.invoice":    { "family": "commerce", "label": "Hoá đơn", "icon": "invoice", "sensitive": "finance", "card_fields": ["parties", "lines", "total", "due_date"] },
+
+    "task.item":    { "family": "tasks", "label": "Việc", "icon": "task", "sensitive": "", "card_fields": ["title", "assignee", "due_date", "status"] },
+    "task.minutes": { "family": "tasks", "label": "Biên bản", "icon": "minutes", "sensitive": "", "card_fields": ["title", "note"] },
+
+    "track.point": { "family": "common", "label": "Theo dõi", "icon": "track", "sensitive": "", "card_fields": ["unit_id", "metrics"] }
+  }
+}

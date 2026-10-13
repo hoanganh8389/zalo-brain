@@ -23,6 +23,7 @@
 !/plugins/
 !/includes/
 !/languages/
+# [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 Q103-8 — ONE door: the developer kit is docs/developer/ (exception below); the root developer/ kit of PHASE-0.104 was folded into it.
 # plugins/: chỉ các kênh đi kèm (CRM = repo riêng zalo-brain-crm)
 /plugins/*
 !/plugins/bizcity-zalo-personal/
@@ -34,6 +35,13 @@
 **/_library/
 **/app/
 **/docs/
+# [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 Q103-8 — chủ chốt: MỘT repo (zalo-brain). Chỉ `docs/developer/` đi kèm; mọi `docs/` khác (gốc và lồng nhau) vẫn KHÔNG.
+# Không đổi `**/docs/` thành `/docs/*`: làm vậy sẽ bỏ ignore MỌI thư mục docs lồng nhau (core/*/docs, plugins/*/docs …). Giữ `**/docs/`, chỉ mở lại đúng một nhánh ở gốc.
+!/docs/
+/docs/*
+!/docs/developer/
+# overview.md là sơ đồ cũ (đã có banner 'không còn đúng') — không công khai
+/docs/developer/overview.md
 **/node_modules/
 **/src/
 **/tests/

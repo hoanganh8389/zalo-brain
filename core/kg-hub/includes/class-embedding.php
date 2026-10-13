@@ -35,11 +35,58 @@ class BizCity_Knowledge_Embedding {
      * Embedding model to use
      */
     const MODEL = 'text-embedding-3-small';
-    
+
     /**
      * Dimensions for the embedding vector
      */
     const DIMENSIONS = 1536;
+
+    /**
+     * The ONE model every stored vector in this site's index belongs to.
+     *
+     * A vector is a coordinate in the space of one specific model. Two models give two
+     * different spaces: the same sentence lands somewhere else in each, and comparing
+     * across them still returns a number — a meaningless one. Nothing throws, nothing
+     * logs, the answers are just wrong. That is why the name lives in exactly one place
+     * and why `vector_matches_index()` refuses anything else into the store.
+     *
+     * Owner decision 2026-10-13 (doc 80 §5, D99-E1…E5): one space, owned by the site.
+     * The cell embeds for its own in-RAM search and never ships vectors back here.
+     * Changing the model means changing it HERE and re-embedding everything, with the
+     * filter as the single lever.
+     *
+     * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P42.
+     */
+    public static function model() {
+        return (string) apply_filters( 'bizcity_kg_embedding_model', self::MODEL );
+    }
+
+    /** Dimension count of the one index model. */
+    public static function dimensions() {
+        return (int) apply_filters( 'bizcity_kg_embedding_dimensions', self::DIMENSIONS );
+    }
+
+    /**
+     * Does this vector belong in the site's index?
+     *
+     * @param array|null  $vector the embedding, or null when there is none
+     * @param string|null $model  the model that produced it ('' / null = assume the index model)
+     * @return bool false ⇒ caller must NOT store the vector (the text still gets stored,
+     *               so the chunk stays findable by keyword instead of silently lying).
+     *
+     * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P42.
+     */
+    public static function vector_matches_index( $vector, $model = null ) {
+        if ( ! is_array( $vector ) || empty( $vector ) ) {
+            return false;
+        }
+        $model = is_string( $model ) ? trim( $model ) : '';
+        if ( $model !== '' && $model !== self::model() ) {
+            return false;
+        }
+        $expected = self::dimensions();
+        return $expected <= 0 || count( $vector ) === $expected;
+    }
     
     /**
      * Max tokens per chunk
@@ -97,6 +144,7 @@ class BizCity_Knowledge_Embedding {
             $this->throttle_embed_request();
             $resp = $client->embeddings( $input, [
                 'model'   => self::MODEL,
+                'caller'  => 'kg.embed', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'timeout' => (int) $timeout,
             ] );
             $last = $resp;

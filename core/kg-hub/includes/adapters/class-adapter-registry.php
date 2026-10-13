@@ -105,15 +105,32 @@ class BizCity_KG_Adapter_Registry {
 
 		$dir = __DIR__;
 
-		// Phase 0.42 — LiteParse (Tier-2) layout-preserving adapter. Registered
-		// FIRST so it wins resolve() for Pro users; its supports() returns false
-		// for Free / cron / anonymous contexts so Tier-1 PDF/Office still works.
-		if ( file_exists( $dir . '/class-liteparse-adapter.php' ) ) {
-			require_once $dir . '/class-liteparse-adapter.php';
-			if ( class_exists( 'BizCity_KG_LiteParse_Adapter' ) ) {
-				$this->register( new BizCity_KG_LiteParse_Adapter() );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P38 — cell extract adapter, registered FIRST so it
+		// wins resolve() whenever a zalo_hub number of this key is reachable (its own supports() returns false
+		// otherwise, so every adapter below still runs unchanged on a site with no number / engine=php).
+		if ( file_exists( $dir . '/class-cell-extract-adapter.php' ) ) {
+			require_once $dir . '/class-cell-extract-adapter.php';
+			if ( class_exists( 'BizCity_KG_Cell_Extract_Adapter' ) ) {
+				$this->register( new BizCity_KG_Cell_Extract_Adapter() );
 			}
 		}
+
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P39 — LiteParse (Phase 0.42, Tier-2
+		// layout-preserving adapter) retired from the registry. Not a tracked file to begin with
+		// (`class-liteparse-adapter.php`/`liteparse-sidecar.py` are in .gitignore as a "private/optional
+		// addon" — never shipped to production, so this line never actually ran there); on a machine
+		// where the private file still sits on disk, all 3 of its paths were already dead weight:
+		// its native sidecar (Path A) was hand-disabled (missing python-docx/libreoffice), its pure-PHP
+		// Office fallback (Path A.5) duplicates class-office-adapter.php's ZipArchive read, and its
+		// Gemini vision fallback (Path B) duplicates class-pdf-adapter.php's own OCR Tier-2 (kept — it
+		// is the only OCR path cell-extract doesn't cover, cell's imageDescribeAllowed=false there, S99-P36).
+		// The old registration line is below, commented, for anyone restoring it rather than re-deriving it:
+		// if ( file_exists( $dir . '/class-liteparse-adapter.php' ) ) {
+		// 	require_once $dir . '/class-liteparse-adapter.php';
+		// 	if ( class_exists( 'BizCity_KG_LiteParse_Adapter' ) ) {
+		// 		$this->register( new BizCity_KG_LiteParse_Adapter() );
+		// 	}
+		// }
 
 		if ( file_exists( $dir . '/class-pdf-adapter.php' ) ) {
 			require_once $dir . '/class-pdf-adapter.php';

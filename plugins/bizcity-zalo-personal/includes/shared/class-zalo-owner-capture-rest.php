@@ -26,7 +26,7 @@ final class BizCity_Zalo_Owner_Capture_REST {
 
 	const NS       = 'bizcity-channel/v1';
 	// [2026-10-12 12:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — "owner-capture@1" also matches
-	// "owner-capture@1.2.0" (R-JOURNAL I-3: card block + role:guest + the "card" patch event).
+	// "owner-capture@1.2.0" (R-JOURNAL I-3: card block + the "card" patch event; the role:guest part was dropped by D100-25 owner-only).
 	const CONTRACT_PREFIX = 'owner-capture@1';
 
 	private static $initialized = false;

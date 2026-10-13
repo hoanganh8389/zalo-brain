@@ -590,6 +590,7 @@ class BizCity_TwinChat_Stream_Handler {
 
 		$llm_options = [
 			'purpose'     => 'chat',
+			'caller'      => 'twinchat.stream', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 			'temperature' => 0.5,
 			// [2026-07-18 Johnny Chu] PHASE-TWINWEB-C-ENDUSER — direct TwinChat answers should be long enough for C-facing usage; agent path remains filterable at 4096.
 			'max_tokens'  => 2400,
@@ -1012,6 +1013,7 @@ class BizCity_TwinChat_Stream_Handler {
 					'temperature' => 0.1,
 					'max_tokens'  => 1500,
 					'purpose'     => 'citation_repair',
+					'caller'      => 'twinchat.citation_repair', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 					'no_fallback' => true, // single retry; don't escalate to fallback model
 				]
 			);

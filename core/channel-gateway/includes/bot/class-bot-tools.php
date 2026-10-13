@@ -147,7 +147,7 @@ final class BizCity_Bot_Tools {
 		// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — a poll / group-creation JSON (question + options, uid list) does not fit
 		// 120 tokens and a truncated JSON silently means "no tool" (SIDECAR-OUTBOUND-ACTIONS-PHASE-PLAN, first finding).
 		$long_args  = array_intersect( array_column( $tools, 'id' ), array( 'create_poll', 'create_group', 'add_group_members', 'pin_group_note', 'create_document', 'create_music', 'create_video', 'schedule_task' ) );
-		$opts = array( 'purpose' => 'bot_tool_plan', 'temperature' => 0, 'max_tokens' => empty( $long_args ) ? 120 : 260, 'timeout' => 20 );
+		$opts = array( 'purpose' => 'bot_tool_plan', 'caller' => 'bot.tool_plan', 'temperature' => 0, 'max_tokens' => empty( $long_args ) ? 120 : 260, 'timeout' => 20 );
 		if ( is_object( $character ) && ! empty( $character->model_id ) ) {
 			$opts['model'] = (string) $character->model_id;
 		}
@@ -512,7 +512,7 @@ final class BizCity_Bot_Tools {
 			return array( 'ok' => false, 'content' => '', 'error' => 'llm_missing' );
 		}
 		try {
-			$result = BizCity_LLM_Client::instance()->generate_image( mb_substr( $prompt, 0, 800 ) );
+			$result = BizCity_LLM_Client::instance()->generate_image( mb_substr( $prompt, 0, 800 ), array( 'caller' => 'bot.image' ) );
 		} catch ( \Throwable $e ) {
 			return array( 'ok' => false, 'content' => '', 'error' => 'image_generation_exception' );
 		}

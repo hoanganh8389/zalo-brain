@@ -263,7 +263,7 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 			try {
 				$client = BizCity_LLM_Client::instance();
 				if ( ! $client->is_ready() ) return $cache;
-				$res = $client->embeddings( $missing, [ 'purpose' => 'twinbrain_tool_intent' ] );
+				$res = $client->embeddings( $missing, [ 'purpose' => 'twinbrain_tool_intent', 'caller' => 'twinbrain.tool_intent' ] );
 			} catch ( \Throwable $e ) {
 				error_log( '[TwinBrain][tool] embed throw: ' . $e->getMessage() );
 				return $cache;
@@ -286,7 +286,7 @@ class BizCity_TwinBrain_Tool_Intent_Matcher {
 		try {
 			$client = BizCity_LLM_Client::instance();
 			if ( ! $client->is_ready() ) return [];
-			$res = $client->embeddings( $prompt, [ 'purpose' => 'twinbrain_tool_intent_q' ] );
+			$res = $client->embeddings( $prompt, [ 'purpose' => 'twinbrain_tool_intent_q', 'caller' => 'twinbrain.tool_intent' ] );
 		} catch ( \Throwable $e ) { return []; }
 		if ( empty( $res['success'] ) || empty( $res['embeddings'][0] ) ) return [];
 		return (array) $res['embeddings'][0];

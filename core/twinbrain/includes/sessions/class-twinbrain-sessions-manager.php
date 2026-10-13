@@ -279,6 +279,7 @@ class BizCity_TwinBrain_Sessions_Manager {
 		);
 		$rows = $wpdb->get_results( $rows_sql, ARRAY_A ) ?: [];
 		$wpdb->suppress_errors( $prev );
+		$cell_turns = $this->cell_turn_counts( array_map( static function ( $r ) { return (string) $r['session_id']; }, $rows ) );
 
 		$items = [];
 		foreach ( $rows as $r ) {
@@ -297,10 +298,54 @@ class BizCity_TwinBrain_Sessions_Manager {
 				'renamed'           => (bool) (int) $r['has_renamed'],
 				'has_mood'          => (bool) (int) $r['has_mood'],
 				'has_carry_forward' => (bool) (int) $r['has_carry_forward'],
+				// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C2 — Cell Chat turns of the session (⚡ badge) + the main-session mark
+				'cell_turns'        => (int) ( $cell_turns[ $sid ] ?? 0 ),
+				'main'              => self::is_main_session_id( $sid ),
 			];
 		}
 
 		return [ 'items' => $items, 'total' => $total ];
+	}
+
+	/**
+	 * [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C2 — the person's MAIN Cell Chat session (the owner's Zalo 1-1 thread on the cell):
+	 * `brain_sess_0_<uid>_cc00` — shaped like every session id (timestamp 0 is the mark), so the validator and the VIEW take it unchanged.
+	 */
+	public static function main_session_id( int $user_id ): string {
+		return self::SESSION_ID_PREFIX . '0_' . max( 0, $user_id ) . '_cc00';
+	}
+
+	public static function is_main_session_id( string $id ): bool {
+		return (bool) preg_match( '/^brain_sess_0_[0-9]+_cc00$/', $id );
+	}
+
+	/**
+	 * Cell Chat questions per session (one query for the page of sessions; `via` is in the payload, the site's own user_message of a Cell Chat turn).
+	 *
+	 * @param string[] $session_ids
+	 * @return array<string,int>
+	 */
+	private function cell_turn_counts( array $session_ids ): array {
+		$session_ids = array_values( array_filter( array_unique( $session_ids ), 'strlen' ) );
+		if ( empty( $session_ids ) ) {
+			return [];
+		}
+		global $wpdb;
+		$tbl   = $this->event_stream_table();
+		$marks = implode( ',', array_fill( 0, count( $session_ids ), '%s' ) );
+		$prev  = $wpdb->suppress_errors( true );
+		$rows  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT session_id, COUNT(*) AS n FROM {$tbl}
+			 WHERE session_id IN ({$marks}) AND event_type = 'user_message' AND payload_json LIKE %s
+			 GROUP BY session_id",
+			array_merge( $session_ids, [ '%' . $wpdb->esc_like( '"via":"cell_chat"' ) . '%' ] )
+		), ARRAY_A );
+		$wpdb->suppress_errors( $prev );
+		$out = [];
+		foreach ( is_array( $rows ) ? $rows : [] as $r ) {
+			$out[ (string) $r['session_id'] ] = (int) $r['n'];
+		}
+		return $out;
 	}
 
 	/**
@@ -668,7 +713,7 @@ class BizCity_TwinBrain_Sessions_Manager {
 			"SELECT id, trace_id, event_type, payload_json, created_at, created_epoch_ms
 			 FROM {$tbl}
 			 WHERE session_id = %s AND user_id = %d
-			   AND event_type IN ('user_message','assistant_message')
+			   AND event_type IN ('user_message','assistant_message','cell_turn_failed')
 			 ORDER BY id ASC LIMIT %d",
 			$session_id, $user_id, $limit
 		), ARRAY_A );
@@ -690,7 +735,10 @@ class BizCity_TwinBrain_Sessions_Manager {
 				$pending = [
 					'id'         => 'turn_' . (int) $r['id'],
 					'trace_id'   => (string) ( $r['trace_id'] ?? '' ),
-					'prompt'     => (string) ( $payload['text'] ?? '' ),
+					'prompt'     => (string) ( $payload['text'] ?? ( $payload['content'] ?? '' ) ),
+					// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C3 — which door the turn came through ('cell_chat' | 'ask_brain')
+					'via'        => 'cell_chat' === ( $payload['via'] ?? '' ) ? 'cell_chat' : 'ask_brain',
+					'files'      => [],
 					'guru_id'    => (string) ( $payload['guru_id'] ?? '' ),
 					'started_at' => (int) ( $r['created_epoch_ms'] ?? 0 ),
 					'started_at_iso' => (string) $r['created_at'],
@@ -701,7 +749,11 @@ class BizCity_TwinBrain_Sessions_Manager {
 					'model'      => '',
 				];
 			} elseif ( $type === 'assistant_message' && $pending !== null ) {
-				$pending['answer']    = (string) ( $payload['text'] ?? '' );
+				// PHASE-0.106 S106-C3: a cell turn-complete record (before 0.106) carried the answer in `content` only
+				$pending['answer']    = (string) ( $payload['text'] ?? ( $payload['content'] ?? '' ) );
+				if ( isset( $payload['files'] ) && is_array( $payload['files'] ) ) {
+					$pending['files'] = array_values( $payload['files'] );
+				}
 				$pending['answer_at'] = (string) $r['created_at'];
 				$pending['status']    = 'done';
 				$meta = isset( $payload['synthesis_metadata'] ) && is_array( $payload['synthesis_metadata'] )
@@ -717,6 +769,12 @@ class BizCity_TwinBrain_Sessions_Manager {
 				}
 				$items[]          = $pending;
 				$pending          = null;
+			} elseif ( $type === 'cell_turn_failed' && $pending !== null ) {
+				// PHASE-0.106 S106-C9: the question stays in its session, marked failed
+				$pending['status']     = 'error';
+				$pending['error_code'] = (string) ( $payload['code'] ?? '' );
+				$items[]               = $pending;
+				$pending               = null;
 			}
 		}
 		if ( $pending !== null ) {
@@ -724,6 +782,93 @@ class BizCity_TwinBrain_Sessions_Manager {
 		}
 
 		return [ 'items' => $items, 'total' => count( $items ) ];
+	}
+
+	/**
+	 * [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C6 (D106-8) — "Tệp đã tạo": the files cell turns made for this user,
+	 * newest first, from `cell_output_created` events (optionally one session / one kind). `state` is computed: `pending` while the cell still
+	 * keeps the file (7 days), `expired` after. The R2 copy (`cell_output_stored`) is a later wave (Q106-4) — no URL is built here, the
+	 * browser downloads through the owner-checked `cell-chat/media` proxy with the returned account_id + media_id.
+	 *
+	 * @return array{items: array<int,array<string,mixed>>, total: int}
+	 */
+	public function list_cell_outputs( int $user_id, string $session_id = '', string $kind = '', int $page = 1, int $per_page = 50 ): array {
+		if ( $user_id <= 0 ) {
+			return [ 'items' => [], 'total' => 0 ];
+		}
+		$per_page = max( 1, min( 100, $per_page ) );
+		$page     = max( 1, $page );
+		global $wpdb;
+		$tbl    = $this->event_stream_table();
+		$where  = "event_type = 'cell_output_created' AND user_id = %d";
+		$params = [ $user_id ];
+		if ( '' !== $session_id && self::is_valid_session_id( $session_id ) ) {
+			$where   .= ' AND session_id = %s';
+			$params[] = $session_id;
+		}
+		$kinds = [ 'spreadsheet', 'document', 'presentation', 'pdf', 'image', 'audio', 'video', 'text' ];
+		if ( in_array( $kind, $kinds, true ) ) {
+			$where   .= ' AND payload_json LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"kind":"' . $kind . '"' ) . '%';
+		}
+		$prev  = $wpdb->suppress_errors( true );
+		$total = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl} WHERE {$where}", ...$params ) );
+		$rows  = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, event_uuid, session_id, trace_id, payload_json, created_at FROM {$tbl} WHERE {$where} ORDER BY id DESC LIMIT %d OFFSET %d",
+			...array_merge( $params, [ $per_page, ( $page - 1 ) * $per_page ] )
+		), ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : [];
+		// `cell_output_stored` children (PHASE-0.106 S106-C5): the file was copied to the media library ⇒ state `stored`, link = the attachment URL (the CDN's once offloaded)
+		$stored = [];
+		$uuids  = array_values( array_filter( array_map( static function ( $r ) { return (string) ( $r['event_uuid'] ?? '' ); }, $rows ), 'strlen' ) );
+		if ( $uuids ) {
+			$marks = implode( ',', array_fill( 0, count( $uuids ), '%s' ) );
+			$kids  = $wpdb->get_results( $wpdb->prepare(
+				"SELECT parent_event_uuid, payload_json FROM {$tbl} WHERE event_type = 'cell_output_stored' AND user_id = %d AND parent_event_uuid IN ({$marks})",
+				...array_merge( [ $user_id ], $uuids )
+			), ARRAY_A );
+			foreach ( is_array( $kids ) ? $kids : [] as $k ) {
+				$kp  = json_decode( (string) $k['payload_json'], true );
+				$att = is_array( $kp ) ? (int) ( $kp['attachment_id'] ?? 0 ) : 0;
+				if ( $att > 0 ) {
+					$url = class_exists( 'BizCity_Twin_Cell_Output_Store' ) ? BizCity_Twin_Cell_Output_Store::url_of( $att ) : '';
+					$stored[ (string) $k['parent_event_uuid'] ] = [ 'attachment_id' => $att, 'url' => $url ];
+				}
+			}
+		}
+		$wpdb->suppress_errors( $prev );
+		$items = [];
+		foreach ( $rows as $r ) {
+			$items[] = self::cell_output_item( $r, time(), $stored[ (string) ( $r['event_uuid'] ?? '' ) ] ?? null );
+		}
+		return [ 'items' => $items, 'total' => $total ];
+	}
+
+	/** One `cell_output_created` row ⇒ the browser-safe item (pure; exported for tests). */
+	public static function cell_output_item( array $row, int $now, ?array $stored = null ): array {
+		$p       = json_decode( (string) ( $row['payload_json'] ?? '' ), true );
+		$p       = is_array( $p ) ? $p : [];
+		$expires = strtotime( (string) ( $p['expires_at'] ?? '' ) );
+		$url     = $stored ? (string) ( $stored['url'] ?? '' ) : '';
+		// stored with a usable link ⇒ it no longer expires; otherwise the cell's 7-day copy is the only one
+		$state   = ( '' !== $url ) ? 'stored' : ( ( false !== $expires && $expires > 0 && $expires < $now ) ? 'expired' : 'pending' );
+		return [
+			'event_uuid' => (string) ( $row['event_uuid'] ?? '' ),
+			'output_id'  => (string) ( $p['output_id'] ?? '' ),
+			'name'       => (string) ( $p['name'] ?? '' ),
+			'kind'       => (string) ( $p['kind'] ?? '' ),
+			'mime'       => (string) ( $p['mime'] ?? '' ),
+			'bytes'      => (int) ( $p['bytes'] ?? 0 ),
+			'media_id'   => (string) ( $p['media_id'] ?? '' ),
+			'account_id' => (string) ( $p['account_id'] ?? '' ),
+			'via'        => (string) ( $p['via'] ?? 'cell_chat' ),
+			'session_id' => (string) ( $row['session_id'] ?? '' ),
+			'trace_id'   => (string) ( $row['trace_id'] ?? '' ),
+			'created_at' => (string) ( $row['created_at'] ?? '' ),
+			'expires_at' => (string) ( $p['expires_at'] ?? '' ),
+			'state'      => $state,
+			'url'        => $url,
+		];
 	}
 
 	/**

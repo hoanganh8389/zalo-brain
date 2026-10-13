@@ -476,6 +476,14 @@ class BizCity_Zalo_Mapping_Repo {
 		$wpdb->update( $table, $set, array( 'id' => $id ) );
 		self::flush_owner_cache();
 		self::flush_cache();
+		// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L17 — a number just became connected: the client plan trial clock
+		// (66 §8.2) starts at the FIRST login. The listener checks status + zalo_uid itself and is idempotent.
+		if ( 'connected' === $status ) {
+			$bridge_id = (string) $wpdb->get_var( $wpdb->prepare( "SELECT bridge_account_id FROM `{$table}` WHERE id = %d AND kind = 'personal'", $id ) );
+			if ( '' !== $bridge_id ) {
+				do_action( 'bizcity_zalo_account_connected', $bridge_id );
+			}
+		}
 	}
 
 	/**
@@ -503,17 +511,25 @@ class BizCity_Zalo_Mapping_Repo {
 		}
 		$table = $wpdb->prefix . 'bizcity_zalo_accounts';
 		$updated = 0;
+		$became_connected = array();
 		foreach ( self::list_personal_accounts( array( 'limit' => 200 ) ) as $row ) {
 			$bridge_id = (string) ( $row['bridge_account_id'] ?? '' );
 			if ( isset( $remote[ $bridge_id ] ) && (string) ( $row['zalo_uid'] ?? '' ) !== $remote[ $bridge_id ] ) {
 				if ( false !== $wpdb->update( $table, array( 'zalo_uid' => $remote[ $bridge_id ] ), array( 'id' => (int) $row['id'] ) ) ) {
 					$updated++;
+					if ( 'connected' === (string) ( $row['status'] ?? '' ) ) {
+						$became_connected[] = $bridge_id;
+					}
 				}
 			}
 		}
 		if ( $updated > 0 ) {
 			self::flush_owner_cache();
 			self::flush_cache();
+		}
+		// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L17 — the uid of a connected number just arrived (first login).
+		foreach ( $became_connected as $bid ) {
+			do_action( 'bizcity_zalo_account_connected', $bid );
 		}
 		return $updated;
 	}

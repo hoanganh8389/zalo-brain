@@ -211,6 +211,9 @@ final class BizCity_Gateway_Admin_SPA {
 			'siteUrl'      => '/',
 			'blogId'       => (int) get_current_blog_id(),
 			'blogName'     => (string) get_bloginfo( 'name' ),
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-U3 — "Hồ sơ người nuôi" needs the viewer's own
+			// WP user_id to call owner/{id}/profile for "my profile" without a separate whoami round-trip.
+			'userId'       => (int) get_current_user_id(),
 			'version'      => defined( 'BIZCITY_TWIN_CORE_VERSION' ) ? BIZCITY_TWIN_CORE_VERSION : '1.0',
 			'caps'         => [
 				// Mirror the same manage_network fallback used to gate this menu's own
@@ -224,6 +227,11 @@ final class BizCity_Gateway_Admin_SPA {
 					|| ( class_exists( 'BizCity_Network_Admin_Capability' )
 						? BizCity_Network_Admin_Capability::can_manage()
 						: current_user_can( 'manage_options' ) ),
+				// [2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-U1 — menu "Sử dụng": managers, number owners, and staff with own rows (62 §5.4).
+				'usage'  => ( class_exists( 'BizCity_Network_Admin_Capability' )
+						? BizCity_Network_Admin_Capability::can_manage()
+						: current_user_can( 'manage_options' ) )
+					|| ( class_exists( 'BizCity_Usage_View_REST' ) && BizCity_Usage_View_REST::viewer_has_usage( (int) get_current_user_id() ) ),
 			],
 			'i18n'         => [
 				'plugin_title' => __( 'BizChat Channels', 'bizcity-twin-ai' ),

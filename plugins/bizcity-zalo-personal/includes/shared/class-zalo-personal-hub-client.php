@@ -428,6 +428,30 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		) );
 	}
 
+	/**
+	 * PHASE-0.99 S99-P37/P38 (doc 80 §4) — ask the Hub to relay a file's own public URL to the zalo-hub cell
+	 * hosting `$bridge_account_id` and read its text back SYNCHRONOUSLY (the KG ingest tick that calls this
+	 * blocks on the answer). The number chosen has nothing to do with the file's origin — any active zalo_hub
+	 * number of this key works, since the cell reads a stateless public URL, not that number's own data.
+	 * 35s timeout: longer than every other call on this client (that extraction can take real seconds), but
+	 * still bounded so one slow file never hangs a background ingest tick indefinitely.
+	 *
+	 * @return array{ok?:bool,text?:string,code?:string}
+	 */
+	public function doc_extract( string $bridge_account_id, string $url, string $ext, string $job_id = '' ): array {
+		if ( ! $this->is_ready_fast() || '' === $bridge_account_id ) {
+			return $this->degraded( 'api_key_missing' );
+		}
+		$result = BizCity_LLM_Client::instance()->gateway_post( '/zalo-hub/doc-extract', array(
+			'contract'   => 'doc-extract@1',
+			'account_id' => $bridge_account_id,
+			'url'        => $url,
+			'ext'        => $ext,
+			'job_id'     => $job_id,
+		), 35, false );
+		return is_array( $result ) ? $result : $this->degraded( 'managed_bridge_invalid_response' );
+	}
+
 	/** Internal delegation for the shared bridge client. */
 	public function get_managed_path( string $path ): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — preserve one wrapper boundary for managed reads.

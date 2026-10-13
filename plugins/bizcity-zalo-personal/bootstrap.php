@@ -65,6 +65,7 @@ $_bizcity_zp_files = array(
 	$_shared . 'class-zalo-owner-uid-claim.php', // [2026-10-07 02:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-21 — learn the owner's UID from one code message (owner-uid-claim@1)
 	$_shared . 'class-zalo-deep-analysis.php', // [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-8 — deep-analysis-job@1 (SEAM-6): 202 + TwinBrain MPR in cron
 	$_shared . 'class-zalo-deep-analysis-mcp.php', // [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-4 — MCP analysis.request (cell → verticals)
+	$_shared . 'class-zalo-personal-notebook-learned.php', // [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P46 — capture học xong ⇒ Hub zalo-hub/notebook-learned (SEAM-8)
 	// [2026-09-18] PHASE-0.48F U10 — one phone / one Zalo login = one Personal account per site (R-ZP-DUP).
 	$_shared . 'class-zalo-duplicate-guard.php',
 	// [2026-09-18] R-ZP-ERR — canonical session-state + error catalog (contract zalo-personal-session-errors@1).
@@ -136,6 +137,7 @@ BizCity_Zalo_Uid_Verify::init(); // [2026-10-01] PHASE-0.87 CL-14 — POST bot/p
 BizCity_Zalo_Owner_Uid_Claim::init(); // [2026-10-07 02:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-21 — zalo-personal/{bridge}/owner-uid[/claim]
 BizCity_Zalo_Deep_Analysis::init(); // [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-8 — POST zalo-bridge/deep-analysis + cron worker → Hub zalo-hub/deep-analysis/result
 BizCity_Zalo_Deep_Analysis_MCP::init(); // [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-4 — bizcity_mcp_register_tools → analysis.request
+BizCity_Zalo_Personal_Notebook_Learned::init(); // [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P46 — bizcity_kg_notebook_learned → Hub zalo-hub/notebook-learned
 
 // Register channel integrations with Gateway Bridge + Integration Registry.
 add_action( 'bizcity_register_integrations', static function ( $registry ) {

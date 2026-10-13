@@ -1,0 +1,53 @@
+{
+  "contract": "zalo-brain-developer-kit@1",
+  "note": "Mirrored files are copies of sources that do not ship (docs/, bin/). Edit the source, then run `node bin/build-developer-kit.mjs`. README.md, AGENTS.md, STANDARD.md and starter/ are authored in docs/developer/.",
+  "authored": [
+    "README.md",
+    "AGENTS.md",
+    "STANDARD.md"
+  ],
+  "mirrored": [
+    {
+      "path": "contracts/BIZCITY-MCP-STANDARD-v1.json",
+      "source": "docs/contracts/BIZCITY-MCP-STANDARD-v1.json",
+      "sha256": "93ba98bc190228d243fcb5f0771ff9c4df19311880350a2e72af99b8ff655e83",
+      "bytes": 60342
+    },
+    {
+      "path": "contracts/BIZCITY-MCP-TOOL-CONTRACT-v1.md",
+      "source": "docs/contracts/BIZCITY-MCP-TOOL-CONTRACT-v1.md",
+      "sha256": "546381cb403ed1a70886500fe9e81172cd9a342c8a527a3902197de2ac4a2f25",
+      "bytes": 3799
+    },
+    {
+      "path": "contracts/JOURNAL-KINDS-v1.json",
+      "source": "core/kg-hub/contracts/JOURNAL-KINDS-v1.json",
+      "sha256": "9d82db94bdb68eb8190b94181593f234b8e8d3e6dbb44ce6f79fdb3d54cd2d31",
+      "bytes": 6437
+    },
+    {
+      "path": "contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.json",
+      "source": "docs/contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.json",
+      "sha256": "174c55b4d2e5f304e3d94521531fd0aa39f69a8c64c5a68befb7c226dad0c93d",
+      "bytes": 3966
+    },
+    {
+      "path": "contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.md",
+      "source": "docs/contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.md",
+      "sha256": "95dfee05dfeb9d65f861e9ed90599f60b255e7ddc218189e541cf42b2854a362",
+      "bytes": 11898
+    },
+    {
+      "path": "contracts/ZALO-BRAIN-HOOKS-v1.json",
+      "source": "docs/contracts/ZALO-BRAIN-HOOKS-v1.json",
+      "sha256": "6c2505c506555f780b412760fe5825027aaa999c0463a2669b0c65bced992f62",
+      "bytes": 148715
+    },
+    {
+      "path": "tools/validate-extension.mjs",
+      "source": "bin/validate-zalo-brain-extension.mjs",
+      "sha256": "f75e06cfdd3d1fcc8e96a50c70062fedb459b7e78fae79cc58a49065a44f3604",
+      "bytes": 16760
+    }
+  ]
+}

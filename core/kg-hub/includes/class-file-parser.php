@@ -543,6 +543,7 @@ class BizCity_Knowledge_FileParser {
                     ],
                     [
                         'model'      => 'google/gemini-flash-1.5-8b',
+                        'caller'     => 'kg.ocr', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                         'max_tokens' => 4096,
                     ]
                 );

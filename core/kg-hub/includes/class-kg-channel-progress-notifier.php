@@ -18,6 +18,12 @@
  *            (total > 0 AND every row is done|skipped), which is the real,
  *            already-existing signal.
  *
+ * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P46 (doc 90 §3) — step 3 also fires a generic, channel-agnostic
+ * action `bizcity_kg_notebook_learned` (array{notebook_id,inbound,item_count,idempotency_key}) right next to
+ * `send_channel_reply()`. This class never decides what "notify:false" means beyond staying silent itself — a channel
+ * plugin (e.g. bizcity-zalo-personal) listens and, for its own numbers, relays the finished text through the Hub to
+ * the cell instead (D-H7: the site must never message a zalo-hub thread directly).
+ *
  * Only fires for sources that carry `metadata.inbound{}` (i.e. were created
  * through the channel capture bridge) AND have not already been notified for
  * that step — idempotency flags (`progress_step2_sent`, `progress_step3_sent`)
@@ -271,6 +277,15 @@ class BizCity_KG_Channel_Progress_Notifier {
 
 			// [2026-07-24 Johnny Chu] PHASE-0.46 W4 S4.5 — modality-aware step 3 copy.
 			self::send_channel_reply( (array) $meta['inbound'], self::step3_text( (string) ( $meta['kind'] ?? '' ) ) );
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P46 (doc 90 §3) — generic hook, channel-agnostic:
+			// a listener (bizcity-zalo-personal) decides whether `inbound.notify === false` means "deliver through Hub
+			// instead" (D-H7). Core never imports a channel plugin's Hub client directly.
+			do_action( 'bizcity_kg_notebook_learned', array(
+				'notebook_id'      => $notebook_id,
+				'inbound'          => (array) $meta['inbound'],
+				'item_count'       => 1,
+				'idempotency_key'  => 'kg_' . $kg_source_id,
+			) );
 
 			$meta['progress_step3_sent']    = true;
 			$meta['progress_step3_sent_at'] = current_time( 'mysql', true );
@@ -357,6 +372,14 @@ class BizCity_KG_Channel_Progress_Notifier {
 		self::send_channel_reply( $inbound, sprintf(
 			'✅ Đã học xong đồ thị tri thức cho %d mục vừa gửi. Bạn có thể hỏi Twin GPT tóm tắt hoặc tạo văn bản từ ghi chú này.',
 			count( $decoded )
+		) );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P46 — cùng hook, nhánh gộp theo batch (đúng R-AF-12/13:
+		// MỘT tin cho cả batch, không phải mỗi file một tin).
+		do_action( 'bizcity_kg_notebook_learned', array(
+			'notebook_id'      => $notebook_id,
+			'inbound'          => $inbound,
+			'item_count'       => count( $decoded ),
+			'idempotency_key'  => 'batch_' . $batch_id,
 		) );
 		foreach ( $decoded as $id => $d ) {
 			$d['progress_step3_sent']    = true;

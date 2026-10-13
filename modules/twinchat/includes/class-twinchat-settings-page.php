@@ -2166,6 +2166,10 @@ class BizCity_TwinChat_Settings_Page {
 		$plugin_dir = plugin_dir_path( dirname( dirname( dirname( __FILE__ ) ) ) );
 		$guide_rel  = 'docs/INSTALL-USER-GUIDE-VI.md';
 		$guide_url  = plugins_url( $guide_rel, $plugin_dir . 'bizcity-twin-ai.php' );
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-L4 — docs/ never ships (R-PROD-REPO): link the full guide only when the file is really there
+		// (developer machines); the developer link goes to docs/developer/README.md, which ships (one door, PHASE-0.103 Q103-8).
+		$has_guide  = file_exists( $plugin_dir . $guide_rel );
+		$dev_url    = plugins_url( 'docs/developer/README.md', $plugin_dir . 'bizcity-twin-ai.php' );
 		$has_key    = self::get_api_key() !== '';
 		$base       = self::get_gateway_url();
 		?>
@@ -2181,10 +2185,13 @@ class BizCity_TwinChat_Settings_Page {
 			<div style="padding:4px 22px 18px;font-size:13px;line-height:1.7;color:#1d2327;">
 
 				<p style="margin:6px 0 14px;color:#646970;">
-					<?php esc_html_e( 'Lần đầu cài plugin? Theo đúng 6 bước dưới đây — tổng ~30 phút. Tài liệu chi tiết đầy đủ:', 'bizcity-twin-ai' ); ?>
+					<?php esc_html_e( 'Lần đầu cài plugin? Theo đúng 6 bước dưới đây — tổng ~30 phút.', 'bizcity-twin-ai' ); ?>
+					<?php if ( $has_guide ) : ?>
+					<?php esc_html_e( 'Tài liệu chi tiết đầy đủ:', 'bizcity-twin-ai' ); ?>
 					<a href="<?php echo esc_url( $guide_url ); ?>" target="_blank" rel="noopener">
 						📄 docs/INSTALL-USER-GUIDE-VI.md
 					</a>
+					<?php endif; ?>
 				</p>
 
 				<ol style="margin:0 0 14px 22px;padding:0;">
@@ -2253,10 +2260,12 @@ class BizCity_TwinChat_Settings_Page {
 
 				<p style="margin:14px 0 0;font-size:12px;color:#646970;">
 					📖 <?php esc_html_e( 'Đọc đầy đủ:', 'bizcity-twin-ai' ); ?>
+					<?php if ( $has_guide ) : ?>
 					<a href="<?php echo esc_url( $guide_url ); ?>" target="_blank" rel="noopener">docs/INSTALL-USER-GUIDE-VI.md</a>
 					&nbsp;·&nbsp;
-					<a href="<?php echo esc_url( plugins_url( 'docs/getting-started.md', $plugin_dir . 'bizcity-twin-ai.php' ) ); ?>" target="_blank" rel="noopener">
-						getting-started.md <?php esc_html_e( '(cho developer)', 'bizcity-twin-ai' ); ?>
+					<?php endif; ?>
+					<a href="<?php echo esc_url( $dev_url ); ?>" target="_blank" rel="noopener">
+						docs/developer/README.md <?php esc_html_e( '(cho developer)', 'bizcity-twin-ai' ); ?>
 					</a>
 					&nbsp;·&nbsp;
 					<a href="mailto:support@bizcity.vn">support@bizcity.vn</a>

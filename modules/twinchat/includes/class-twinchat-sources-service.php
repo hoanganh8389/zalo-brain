@@ -231,6 +231,15 @@ class BizCity_TwinChat_Sources_Service {
 
 		// Hash dedup: if same notebook already has a source with same hash, return it.
 		$dup_id = $db->find_by_hash( $scope_id, $hash );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — a resumed upload
+		// re-ingests the SAME bytes/text into its OWN placeholder row, which already
+		// carries that content_hash from the attempt that failed later (content_text is
+		// written before chunk+embed, :257). Without this guard the resume dedups
+		// against itself, returns duplicate:true and the source stays half-learned
+		// forever. A dup row that is NOT this placeholder is still a real duplicate.
+		if ( $dup_id > 0 && $async_placeholder_source_id > 0 && $dup_id === (int) $async_placeholder_source_id ) {
+			$dup_id = 0;
+		}
 		if ( $dup_id > 0 ) {
 			if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 				BizCity_Twin_Debug::trace( 'kg', 'ingest_duplicate', [
@@ -261,7 +270,15 @@ class BizCity_TwinChat_Sources_Service {
 			'metadata'         => $metadata,
 		];
 		// [2026-07-23 Johnny Chu] PHASE-0.43 — async uploads create a visible placeholder first; worker fills that row after parsing.
-		if ( $async_placeholder_source_id > 0 && $db->get_source( $async_placeholder_source_id ) ) {
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P40 — read the OLD hash before
+		// update_source() overwrites it; it is the only signal that tells a resume whether the
+		// chunks a previous attempt left behind describe THIS SAME content (see resume_from_chunk_index()).
+		$prior_hash = '';
+		$prior_row  = $async_placeholder_source_id > 0 ? $db->get_source( $async_placeholder_source_id ) : null;
+		if ( is_array( $prior_row ) ) {
+			$prior_hash = (string) ( $prior_row['content_hash'] ?? '' );
+		}
+		if ( $async_placeholder_source_id > 0 && $prior_row ) {
 			$source_id = $async_placeholder_source_id;
 			if ( ! $db->update_source( $source_id, $source_row ) ) {
 				$this->cleanup_failed_ingest( $source_id, (int) ( $payload['metadata']['async_placeholder_kg_source_id'] ?? 0 ), $scope_id, $source_id, 'Source body filestore write failed.' );
@@ -287,6 +304,23 @@ class BizCity_TwinChat_Sources_Service {
 			return $this->err_server( 'kg_source_persist_failed', 'Không khởi tạo được nguồn Knowledge Graph.', [ 'scope_id' => $scope_id ] );
 		}
 		$passage_source_id = $kg_source_id > 0 ? $kg_source_id : $source_id;
+
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 → S99-P40 — an attempt that died
+		// AFTER writing some chunks (PHP timeout mid chunk+embed) leaves them behind. SW-1 always
+		// wiped them so a resume couldn't stack a second set on top; S99-P40 instead KEEPS them when
+		// they provably describe this same content (same content_hash — the chunker is pure, so the
+		// same text always re-chunks to the same list in the same order) and skips straight past
+		// them in the embed+persist loop below — the whole point of a checkpoint is to not redo
+		// work that already landed. Any other case (fresh source, content changed, no chunks yet)
+		// still gets the original wipe-and-restart-from-0 behaviour.
+		$resume_from_index = -1;
+		if ( $async_placeholder_source_id > 0 && $source_id === (int) $async_placeholder_source_id ) {
+			$max_persisted_index = $db->max_chunk_index_for_source( $source_id );
+			$resume_from_index   = self::resume_from_chunk_index( true, $prior_hash, $hash, $max_persisted_index );
+			if ( $resume_from_index < 0 ) {
+				$this->purge_source_chunk_rows( $scope_id, [ $source_id, $kg_source_id ] );
+			}
+		}
 
 		// Chunk + embed.
 		// Sprint 4.8c+d (Nexus port) — heading-aware chunker + Jaccard 5-gram dedup.
@@ -347,110 +381,129 @@ class BizCity_TwinChat_Sources_Service {
 				'elapsed_ms' => (int) round( ( microtime( true ) - $t_chunk ) * 1000 ),
 			] );
 		}
-		$t_embed = microtime( true );
-		$embed_result = $this->embed_batch( $chunks, $scope_id, $source_id );
-		if ( is_wp_error( $embed_result ) ) {
-			if ( class_exists( 'BizCity_Twin_Debug' ) ) {
-				BizCity_Twin_Debug::trace( 'kg', 'ingest_embed_error', [
-					'scope_id' => $scope_id,
-					'source_id'=> $source_id,
-					'error'    => $embed_result->get_error_message(),
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P40 — embed+persist in SLICES
+		// (same size as embed_batch()'s own internal batching) instead of embedding every chunk
+		// of the whole document before persisting any of them. A PHP timeout/fatal that kills the
+		// process between two slices leaves the earlier slices' chunk/passage rows durably written
+		// — that is the entire checkpoint: nothing catches the timeout, the already-committed DB
+		// rows are simply still there for resume_from_chunk_index() to find on the next attempt.
+		// $resume_from_index (set above) skips re-embedding/re-persisting a prior attempt's slices.
+		$slice_size  = (int) apply_filters( 'bizcity_kg_embed_batch_size', 96 );
+		if ( $slice_size < 1 ) { $slice_size = 1; }
+		$start_index = max( 0, $resume_from_index + 1 );
+		$chunk_ids   = [];
+		$passage_ids = [];
+		$t_embed     = microtime( true );
+		for ( $slice_start = $start_index; $slice_start < count( $chunks ); $slice_start += $slice_size ) {
+			$slice_len   = min( $slice_size, count( $chunks ) - $slice_start );
+			$slice_texts = array_slice( $chunks, $slice_start, $slice_len );
+			$vectors     = $this->embed_batch( $slice_texts, $scope_id, $source_id );
+			if ( is_wp_error( $vectors ) ) {
+				if ( class_exists( 'BizCity_Twin_Debug' ) ) {
+					BizCity_Twin_Debug::trace( 'kg', 'ingest_embed_error', [
+						'scope_id' => $scope_id,
+						'source_id'=> $source_id,
+						'error'    => $vectors->get_error_message(),
+					] );
+				}
+				// [S99-P40] Slices already persisted before this one stay — the row's own
+				// chunk_count (kept up to date below) already reflects exactly how far it got.
+				$db->update_source( $source_id, [
+					'embedding_status' => 'error',
+					'error_message'    => $vectors->get_error_message(),
 				] );
+				return $vectors;
 			}
-			$db->update_source( $source_id, [
-				'embedding_status' => 'error',
-				'error_message'    => $embed_result->get_error_message(),
-			] );
-			return $embed_result;
-		}
-		$vectors = $embed_result;
-		if ( count( $vectors ) !== count( $chunks ) ) {
-			$message = 'Embedding count does not match chunk count.';
-			$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
-			return $this->err_server( 'embed_count_mismatch', 'Không tạo đủ vector cho toàn bộ nội dung.', [ 'scope_id' => $scope_id ] );
+			if ( count( $vectors ) !== count( $slice_texts ) ) {
+				$message = 'Embedding count does not match chunk count for slice starting at ' . (int) $slice_start . '.';
+				$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+				return $this->err_server( 'embed_count_mismatch', 'Không tạo đủ vector cho toàn bộ nội dung.', [ 'scope_id' => $scope_id ] );
+			}
+
+			foreach ( $slice_texts as $local_idx => $chunk_text ) {
+				$idx  = $slice_start + $local_idx;
+				$vec  = $vectors[ $local_idx ] ?? null;
+				$tcnt = (int) ceil( mb_strlen( $chunk_text ) / 4 );
+				$heading_path = isset( $chunk_records[ $idx ]['heading_path'] ) && is_array( $chunk_records[ $idx ]['heading_path'] )
+					? $chunk_records[ $idx ]['heading_path'] : [];
+				$heading      = isset( $chunk_records[ $idx ]['heading'] ) ? (string) $chunk_records[ $idx ]['heading'] : '';
+				$av_meta      = isset( $chunk_records[ $idx ]['av'] ) && is_array( $chunk_records[ $idx ]['av'] )
+					? $chunk_records[ $idx ]['av'] : null;
+
+				$chunk_id = $db->insert_chunk( [
+					'source_id'       => $source_id,
+					'kg_source_id'    => $kg_source_id, // Wave 0.21.2 — link unified chunks to kg_sources.id
+					'notebook_id'     => $scope_id,
+					'chunk_index'     => $idx,
+					'content'         => $chunk_text,
+					'token_count'     => $tcnt,
+					'embedding'       => is_array( $vec ) ? $vec : null,
+					'embedding_model' => self::EMBED_MODEL,
+				] );
+				if ( $chunk_id > 0 ) {
+					$chunk_ids[] = $chunk_id;
+				} else {
+					$message = 'Chunk persistence failed at index ' . (int) $idx . '.';
+					$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+					return $this->err_server( 'chunk_persist_failed', 'Không lưu đủ các đoạn nội dung.', [ 'scope_id' => $scope_id ] );
+				}
+
+				// Promote into kg_passages.
+				$passage_id = $this->promote_chunk_to_passage( [
+					'notebook_id'     => $scope_id,
+					'scope_type'      => 'notebook',
+					'scope_id'        => (string) $scope_id,
+					'source_table'    => ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) ? BizCity_KG_Database::instance()->tbl_sources() : $db->table_sources(),
+					'source_id'       => $passage_source_id,
+					'chunk_id'        => $chunk_id,
+					'origin'          => $type . ':' . ( $title ?: $source_url ?: ('source-' . $source_id) ),
+					'content'         => $chunk_text,
+					'embedding'       => $vec,
+					'token_count'     => $tcnt,
+					'metadata'        => [
+						'plugin'       => 'twinchat',
+						'scope_type'   => 'notebook',
+						'scope_id'     => $scope_id,
+						'source_table' => ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) ? BizCity_KG_Database::instance()->tbl_sources() : $db->table_sources(),
+						'source_id'    => $passage_source_id,
+						'chunk_index'  => $idx,
+						'heading_path' => $heading_path,
+						'heading'      => $heading,
+					] + ( $av_meta ? [
+						'start_ts' => (int) $av_meta['start_ts'],
+						'end_ts'   => (int) $av_meta['end_ts'],
+						'speaker'  => $av_meta['speaker'],
+						'is_scene' => (bool) $av_meta['is_scene'],
+						'chunker'  => 'av_temporal_v1',
+					] : [] ),
+				] );
+				if ( $passage_id > 0 ) {
+					$passage_ids[] = $passage_id;
+				} else {
+					$message = 'Passage persistence failed at index ' . (int) $idx . '.';
+					$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
+					return $this->err_server( 'passage_persist_failed', 'Không lưu đủ dữ liệu tìm kiếm.', [ 'scope_id' => $scope_id ] );
+				}
+			}
+			// [S99-P40] Checkpoint: the row now honestly reflects how far this source has gotten,
+			// in case the NEXT slice is where a timeout/fatal kills the process.
+			$db->update_source( $source_id, [ 'chunk_count' => $start_index + count( $chunk_ids ) ] );
 		}
 		if ( class_exists( 'BizCity_Twin_Debug' ) ) {
 			BizCity_Twin_Debug::trace( 'kg', 'ingest_embedded', [
 				'scope_id'   => $scope_id,
 				'source_id'  => $source_id,
-				'vectors'    => count( $vectors ),
+				'vectors'    => count( $chunk_ids ),
 				'elapsed_ms' => (int) round( ( microtime( true ) - $t_embed ) * 1000 ),
 			] );
 		}
-
-		$chunk_ids   = [];
-		$passage_ids = [];
-		foreach ( $chunks as $idx => $chunk_text ) {
-			$vec  = $vectors[ $idx ] ?? null;
-			$tcnt = (int) ceil( mb_strlen( $chunk_text ) / 4 );
-			$heading_path = isset( $chunk_records[ $idx ]['heading_path'] ) && is_array( $chunk_records[ $idx ]['heading_path'] )
-				? $chunk_records[ $idx ]['heading_path'] : [];
-			$heading      = isset( $chunk_records[ $idx ]['heading'] ) ? (string) $chunk_records[ $idx ]['heading'] : '';
-			$av_meta      = isset( $chunk_records[ $idx ]['av'] ) && is_array( $chunk_records[ $idx ]['av'] )
-				? $chunk_records[ $idx ]['av'] : null;
-
-			$chunk_id = $db->insert_chunk( [
-				'source_id'       => $source_id,
-				'kg_source_id'    => $kg_source_id, // Wave 0.21.2 — link unified chunks to kg_sources.id
-				'notebook_id'     => $scope_id,
-				'chunk_index'     => $idx,
-				'content'         => $chunk_text,
-				'token_count'     => $tcnt,
-				'embedding'       => is_array( $vec ) ? $vec : null,
-				'embedding_model' => self::EMBED_MODEL,
-			] );
-			if ( $chunk_id > 0 ) {
-				$chunk_ids[] = $chunk_id;
-			} else {
-				$message = 'Chunk persistence failed at index ' . (int) $idx . '.';
-				$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
-				return $this->err_server( 'chunk_persist_failed', 'Không lưu đủ các đoạn nội dung.', [ 'scope_id' => $scope_id ] );
-			}
-
-			// Promote into kg_passages.
-			$passage_id = $this->promote_chunk_to_passage( [
-				'notebook_id'     => $scope_id,
-				'scope_type'      => 'notebook',
-				'scope_id'        => (string) $scope_id,
-				'source_table'    => ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) ? BizCity_KG_Database::instance()->tbl_sources() : $db->table_sources(),
-				'source_id'       => $passage_source_id,
-				'chunk_id'        => $chunk_id,
-				'origin'          => $type . ':' . ( $title ?: $source_url ?: ('source-' . $source_id) ),
-				'content'         => $chunk_text,
-				'embedding'       => $vec,
-				'token_count'     => $tcnt,
-				'metadata'        => [
-					'plugin'       => 'twinchat',
-					'scope_type'   => 'notebook',
-					'scope_id'     => $scope_id,
-					'source_table' => ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) ? BizCity_KG_Database::instance()->tbl_sources() : $db->table_sources(),
-					'source_id'    => $passage_source_id,
-					'chunk_index'  => $idx,
-					'heading_path' => $heading_path,
-					'heading'      => $heading,
-				] + ( $av_meta ? [
-					'start_ts' => (int) $av_meta['start_ts'],
-					'end_ts'   => (int) $av_meta['end_ts'],
-					'speaker'  => $av_meta['speaker'],
-					'is_scene' => (bool) $av_meta['is_scene'],
-					'chunker'  => 'av_temporal_v1',
-				] : [] ),
-			] );
-			if ( $passage_id > 0 ) {
-				$passage_ids[] = $passage_id;
-			} else {
-				$message = 'Passage persistence failed at index ' . (int) $idx . '.';
-				$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message );
-				return $this->err_server( 'passage_persist_failed', 'Không lưu đủ dữ liệu tìm kiếm.', [ 'scope_id' => $scope_id ] );
-			}
-		}
-		if ( count( $chunk_ids ) !== count( $chunks ) || count( $passage_ids ) !== count( $chunks ) ) {
+		if ( count( $chunk_ids ) !== count( $chunks ) - $start_index || count( $passage_ids ) !== count( $chunks ) - $start_index ) {
 			$this->cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, 'Persisted row count mismatch.' );
 			return $this->err_server( 'ingest_count_mismatch', 'Dữ liệu nguồn chưa được lưu đầy đủ.', [ 'scope_id' => $scope_id ] );
 		}
 
 		$db->update_source( $source_id, [
-			'chunk_count'      => count( $chunk_ids ),
+			'chunk_count'      => count( $chunks ),
 			'embedding_status' => 'ready',
 		] );
 		// [2026-07-24 Johnny Chu] PHASE-0.46 W5 PREP — emit a canonical hook when
@@ -500,7 +553,11 @@ class BizCity_TwinChat_Sources_Service {
 		$result = [
 			'source_id'    => $source_id,
 			'kg_source_id' => $kg_source_id,
-			'chunk_count'  => count( $chunk_ids ),
+			// [S99-P40] the TRUE total (matches the `chunk_count` just written to the row) — on a
+			// resumed source this is bigger than count($chunk_ids), which only counts the tail this
+			// attempt itself wrote; passage_ids below stays tail-only (nothing currently reads it
+			// across a resume boundary, and re-querying every earlier passage id isn't worth it here).
+			'chunk_count'  => count( $chunks ),
 			'passage_ids'  => $passage_ids,
 			'duplicate'    => false,
 			// [2026-08-02 Johnny Chu] R-GW-INGEST-PREVIEW — expose a bounded
@@ -524,8 +581,59 @@ class BizCity_TwinChat_Sources_Service {
 		return $result;
 	}
 
-	private function cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message ) {
-		// [2026-07-24 Johnny Chu] PHASE-0.46-INGEST-ROLLBACK — remove only rows belonging to this source and synchronize both status surfaces.
+	/**
+	 * Delete the chunk/passage rows (and their filestore bodies) that belong to the
+	 * given source ids. Used by rollback and — since PHASE-0.99 SW-1 — by a resumed
+	 * ingest, which must not stack a second set of chunks on the survivors of the
+	 * attempt that died mid-way.
+	 *
+	 * @param int   $scope_id         notebook id (filestore root)
+	 * @param array $ids              [twinchat source_id, kg_source_id]
+	 * @param bool  $drop_source_body true only for rollback; a resume has ALREADY
+	 *                                rewritten the source body and must keep it.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — extracted verbatim
+	 * from cleanup_failed_ingest(); behaviour unchanged for the rollback caller.
+	 */
+	/**
+	 * PHASE-0.99 S99-P40 — decide where a resumed ingest should pick back up instead of
+	 * re-embedding/re-persisting chunks a PREVIOUS attempt already made durable. Pure
+	 * (no DB/IO): every edge case here is a plain assertion, not an integration test.
+	 *
+	 * Returns the chunk INDEX to resume FROM (0-based) — everything before it is already
+	 * safely written. -1 means "wipe and start at chunk 0": a fresh source, a previous
+	 * attempt that made no durable progress, or (the one real guard here) content that
+	 * CHANGED since the chunks on disk were written — in that case those old chunks
+	 * belong to different text, under indices that would now mean something else, and
+	 * must be purged rather than kept. The chunker is pure given the same content_text,
+	 * so a matching hash is enough to trust the old indices without re-reading the chunks.
+	 *
+	 * @param bool   $is_resume           true only when reusing an existing async placeholder
+	 *                                    source_id (never for a brand-new source).
+	 * @param string $prior_content_hash  content_hash already stored on that row before this
+	 *                                    attempt overwrote it; '' if none/unreadable.
+	 * @param string $new_content_hash    content_hash of what THIS attempt just materialized.
+	 * @param int    $max_persisted_index highest chunk_index already durably written for that
+	 *                                    source_id, or -1 if none.
+	 * @return int
+	 */
+	public static function resume_from_chunk_index( $is_resume, $prior_content_hash, $new_content_hash, $max_persisted_index ) {
+		if ( ! $is_resume ) {
+			return -1;
+		}
+		$prior_content_hash = (string) $prior_content_hash;
+		$new_content_hash   = (string) $new_content_hash;
+		if ( '' === $prior_content_hash || $prior_content_hash !== $new_content_hash ) {
+			return -1;
+		}
+		$max_persisted_index = (int) $max_persisted_index;
+		if ( $max_persisted_index < 0 ) {
+			return -1;
+		}
+		return $max_persisted_index + 1;
+	}
+
+	private function purge_source_chunk_rows( $scope_id, array $ids, $drop_source_body = false ) {
 		global $wpdb;
 		$db = BizCity_TwinChat_Sources_Database::instance();
 		// [2026-08-04 Johnny Chu] HOTFIX — avoid querying missing optional tables
@@ -539,8 +647,8 @@ class BizCity_TwinChat_Sources_Service {
 			}
 			return false;
 		};
-		$ids = array_unique( array_filter( array_map( 'intval', [ $source_id, $kg_source_id ] ) ) );
-		if ( class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
+		$ids = array_unique( array_filter( array_map( 'intval', $ids ) ) );
+		if ( $drop_source_body && class_exists( 'BizCity_KG_Source_Body_File_Store' ) ) {
 			foreach ( $ids as $id ) {
 				BizCity_KG_Source_Body_File_Store::delete_source( (int) $scope_id, $id );
 			}
@@ -568,6 +676,13 @@ class BizCity_TwinChat_Sources_Service {
 				}
 			}
 		}
+	}
+
+	private function cleanup_failed_ingest( $source_id, $kg_source_id, $scope_id, $passage_source_id, $message ) {
+		// [2026-07-24 Johnny Chu] PHASE-0.46-INGEST-ROLLBACK — remove only rows belonging to this source and synchronize both status surfaces.
+		global $wpdb;
+		$db = BizCity_TwinChat_Sources_Database::instance();
+		$this->purge_source_chunk_rows( $scope_id, [ $source_id, $kg_source_id ], true );
 		if ( (int) $source_id > 0 ) {
 			$db->update_source( (int) $source_id, [
 				'chunk_count'      => 0,

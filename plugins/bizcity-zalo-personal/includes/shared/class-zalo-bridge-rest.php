@@ -167,6 +167,12 @@ class BizCity_Zalo_Bridge_REST {
 			'callback'            => array( __CLASS__, 'handle_list_members' ),
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
 		) );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W1 (R-NB-11) — step ③ default "tạo tài khoản tự động": get-or-create the number's powerless WP user.
+		register_rest_route( self::NS, '/' . self::PREFIX . '/members/auto-user', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'handle_member_auto_user' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
 		register_rest_route( self::NS, '/' . self::PREFIX . '/members/(?P<user_id>\d+)/accounts', array(
 			'methods'             => 'POST',
 			'callback'            => array( __CLASS__, 'handle_member_create_account' ),
@@ -721,11 +727,14 @@ class BizCity_Zalo_Bridge_REST {
 		if ( $personal_only ) {
 			$kind = 'personal';
 		}
-		if ( 'personal' === $kind && class_exists( 'BizCity_Zalo_Duplicate_Guard' ) && class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
-			$duplicate = BizCity_Zalo_Duplicate_Guard::find_phone_duplicate( $label, BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) );
-			if ( $duplicate ) {
-				return new WP_REST_Response( self::with_error_contract( BizCity_Zalo_Duplicate_Guard::create_blocked_payload( $duplicate ) ), 200 );
+		$duplicate = 'personal' === $kind ? self::find_phone_duplicate_row( $label ) : null;
+		if ( $duplicate ) {
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — a duplicate the caller may take over by QR is not a block:
+			// the create reuses that row (no new number, so no quota check either). Only a non-claimable one is refused.
+			if ( BizCity_Zalo_Duplicate_Guard::claim_allowed( $duplicate, $owner_user_id, self::can_manage() ) ) {
+				return null;
 			}
+			return new WP_REST_Response( self::with_error_contract( BizCity_Zalo_Duplicate_Guard::create_blocked_payload( $duplicate, $owner_user_id, self::user_display_name( (int) ( $duplicate['owner_user_id'] ?? 0 ) ) ) ), 200 );
 		}
 		if ( 'personal' === $kind && class_exists( 'BizCity_Channel_User_Grant' ) && method_exists( 'BizCity_Channel_User_Grant', 'personal_quota_status' ) ) {
 			$quota_status = BizCity_Channel_User_Grant::personal_quota_status( $owner_user_id );
@@ -734,6 +743,208 @@ class BizCity_Zalo_Bridge_REST {
 			}
 		}
 		return null;
+	}
+
+	// ── R-ZP-DUP v2: take an existing number over by QR ──────────────────
+	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] Typing a phone that already has a row on this website used to stop at
+	// "SĐT này đã có…". Now the same row is reused: its QR is shown, and only a SUCCESSFUL scan (the phone in hand)
+	// moves the number to the person who typed it. A pending claim lives in a transient until then; the old owner
+	// keeps the number if nobody scans. Other websites / other API keys need nothing here: the cell already lets
+	// the last real scan win (zalo-hub zalo-uid-claim.ts) and the old site is told via supersede_notify.
+
+	/** How long a typed-but-not-yet-scanned takeover stays valid (QR sessions are 3 minutes; room for a few retries). */
+	const CLAIM_TTL = 1800;
+
+	private static function claim_key( string $bridge_id ): string {
+		return 'bizcity_zp_claim_' . md5( $bridge_id );
+	}
+
+	/** Live local row whose label carries the same phone as $label, or null. */
+	private static function find_phone_duplicate_row( string $label ): ?array {
+		if ( ! class_exists( 'BizCity_Zalo_Duplicate_Guard' ) || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			return null;
+		}
+		return BizCity_Zalo_Duplicate_Guard::find_phone_duplicate( $label, BizCity_Zalo_Mapping_Repo::list_personal_accounts( array( 'limit' => 200 ) ) );
+	}
+
+	private static function user_display_name( int $user_id ): string {
+		$user = $user_id > 0 ? get_userdata( $user_id ) : false;
+		return $user ? (string) $user->display_name : '';
+	}
+
+	/**
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — the reused row must still exist on the Zalo server under THIS
+	 * site's API key; otherwise its QR fails with `account_not_owned` (deleted on the server, key changed, …). In that
+	 * case the account is re-created on the server adopting the SAME CRM inbox (`recover_account_for_owner`), so the
+	 * person still just scans one QR. Fail-open: when the server list cannot be read, the row is used as-is.
+	 *
+	 * @return array|WP_REST_Response|null Row to claim (maybe new), an error, or null = old row retired, create fresh.
+	 */
+	private static function rehome_if_not_owned( array $row, int $actor_user_id ) {
+		$bridge_id = (string) ( $row['bridge_account_id'] ?? '' );
+		try {
+			$list = BizCity_Zalo_Bridge_Client::instance()->list_accounts();
+		} catch ( \Throwable $e ) {
+			return $row;
+		}
+		if ( ! empty( $list['_degraded'] ) || ( empty( $list['success'] ) && empty( $list['ok'] ) ) || ! isset( $list['accounts'] ) || ! is_array( $list['accounts'] ) ) {
+			return $row;
+		}
+		foreach ( $list['accounts'] as $acc ) {
+			if ( is_array( $acc ) && (string) ( $acc['id'] ?? '' ) === $bridge_id ) {
+				return $row;
+			}
+		}
+		$full = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		if ( ! is_array( $full ) ) {
+			return $row;
+		}
+		self::trace_create_step( 'claim_row_not_on_server', array( 'bridge_id_hash' => substr( hash( 'sha256', $bridge_id ), 0, 12 ), 'has_inbox' => (int) ( $full['crm_inbox_id'] ?? 0 ) > 0 ) );
+		if ( (int) ( $full['crm_inbox_id'] ?? 0 ) <= 0 ) {
+			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $full['id'], 'orphaned' );
+			return null;
+		}
+		$recovered = self::recover_account_for_owner( $full, (int) $full['crm_inbox_id'], $actor_user_id );
+		$data      = $recovered->get_data();
+		if ( empty( $data['ok'] ) || empty( $data['id'] ) ) {
+			return $recovered;
+		}
+		return array_merge( $full, array(
+			'bridge_account_id' => (string) $data['id'],
+			'status'            => 'pending_qr',
+			'zalo_uid'          => '',
+			'rehomed_from'      => $bridge_id,
+		) );
+	}
+
+	/** Reuse $row for $to_user_id: remember the pending takeover (when the owner changes) and answer like a create. */
+	private static function claim_existing_row( array $row, int $to_user_id, int $actor_user_id ): WP_REST_Response {
+		$bridge_id = (string) ( $row['bridge_account_id'] ?? '' );
+		$from_id   = (int) ( $row['owner_user_id'] ?? 0 );
+		if ( $from_id !== $to_user_id && $bridge_id !== '' ) {
+			set_transient( self::claim_key( $bridge_id ), array(
+				'to_user_id'   => $to_user_id,
+				'from_user_id' => $from_id,
+				'actor_id'     => $actor_user_id,
+				'created'      => time(),
+			), self::CLAIM_TTL );
+		}
+		self::trace_create_step( 'create_reused_duplicate', array(
+			'cause'          => BizCity_Zalo_Duplicate_Guard::cause( $row, $to_user_id ),
+			'status'         => sanitize_key( (string) ( $row['status'] ?? '' ) ),
+			'bridge_id_hash' => substr( hash( 'sha256', $bridge_id ), 0, 12 ),
+		) );
+		$to_name = $actor_user_id === $to_user_id ? '' : self::user_display_name( $to_user_id );
+		$payload = BizCity_Zalo_Duplicate_Guard::claim_payload( $row, $to_user_id, self::user_display_name( $from_id ), $to_name );
+		if ( ! empty( $row['rehomed_from'] ) ) {
+			$payload['claim']['rehomed'] = true;
+			$payload['claim']['message'] = sprintf(
+				'SĐT này đã có trên website này (#%s) nhưng máy chủ Zalo không còn giữ tài khoản đó cho API key hiện tại (đã bị xoá ở máy chủ hoặc đổi khoá). Đã tạo lại tài khoản #%s, vẫn dùng hộp thư CRM cũ.',
+				sanitize_text_field( (string) $row['rehomed_from'] ),
+				sanitize_text_field( $bridge_id )
+			);
+		}
+		return new WP_REST_Response( $payload, 200 );
+	}
+
+	/** Pending takeover for a bridge account, or null. */
+	public static function pending_claim( string $bridge_id ): ?array {
+		$claim = $bridge_id !== '' ? get_transient( self::claim_key( $bridge_id ) ) : false;
+		return is_array( $claim ) && (int) ( $claim['to_user_id'] ?? 0 ) > 0 ? $claim : null;
+	}
+
+	/** True when $user_id typed this number and may drive its QR before owning it. */
+	public static function claim_allows( array $account, int $user_id ): bool {
+		$claim = self::pending_claim( (string) ( $account['bridge_account_id'] ?? '' ) );
+		return $user_id > 0 && $claim && (int) $claim['to_user_id'] === $user_id;
+	}
+
+	/**
+	 * Personal row a member may act on: their own, or one they are taking over by QR (pending claim).
+	 * Used by the owner-scoped /gpt/ routes, which otherwise only see rows they already own.
+	 */
+	public static function find_account_for_owner_or_claim( int $user_id, string $bridge_id ): ?array {
+		if ( ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			return null;
+		}
+		$account = BizCity_Zalo_Mapping_Repo::find_personal_account_for_owner( $user_id, $bridge_id );
+		if ( is_array( $account ) ) {
+			return $account;
+		}
+		$account = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		return is_array( $account ) && self::claim_allows( $account, $user_id ) ? $account : null;
+	}
+
+	/**
+	 * A QR was requested for $bridge_id. By anyone other than the claimer (the old owner re-logging in): the takeover
+	 * is dropped. By the claimer, or through an admin/staff route ($caller_id 0), and the QR really started (the cell
+	 * has stopped the old session by then): the claim is armed, so the NEXT "connected" is that scan.
+	 */
+	private static function with_claim_mark( WP_REST_Response $response, string $bridge_id, int $caller_id ): WP_REST_Response {
+		$claim = self::pending_claim( $bridge_id );
+		if ( ! $claim ) {
+			return $response;
+		}
+		if ( $caller_id > 0 && $caller_id !== (int) $claim['to_user_id'] ) {
+			delete_transient( self::claim_key( $bridge_id ) );
+			return $response;
+		}
+		$data = $response->get_data();
+		if ( ! empty( $data['ok'] ) ) {
+			$claim['qr_started'] = time();
+			set_transient( self::claim_key( $bridge_id ), $claim, self::CLAIM_TTL );
+		}
+		return $response;
+	}
+
+	/** The scan succeeded: move the number to whoever typed it, once. */
+	private static function finalize_claim( string $bridge_id ): void {
+		$claim = self::pending_claim( $bridge_id );
+		// Never on a "connected" that is just the old owner's session still running (reconciler, early poll).
+		if ( ! $claim || empty( $claim['qr_started'] ) || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			return;
+		}
+		delete_transient( self::claim_key( $bridge_id ) );
+		$account = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		$to_id   = (int) $claim['to_user_id'];
+		if ( ! is_array( $account ) || (int) ( $account['owner_user_id'] ?? 0 ) === $to_id ) {
+			return;
+		}
+		$result = self::reassign_personal_owner( $account, $to_id, (int) ( $claim['actor_id'] ?? $to_id ), 'qr_takeover' );
+		self::trace_create_step( empty( $result['ok'] ) ? 'qr_takeover_failed' : 'qr_takeover_done', array(
+			'bridge_id_hash' => substr( hash( 'sha256', $bridge_id ), 0, 12 ),
+			'reason'         => sanitize_key( (string) ( $result['reason'] ?? '' ) ),
+		) );
+	}
+
+	/**
+	 * Hand a Personal number to another user: grant first, mapping second (same order as CRM `transfer_phone_owner`),
+	 * so the mapping never says "owned by B" while the grant layer used by /gpt/ and Context Bank still says "A".
+	 *
+	 * @return array{ok:bool,reason?:string,quota?:int}
+	 */
+	private static function reassign_personal_owner( array $account, int $to_id, int $actor_id, string $source ): array {
+		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
+			return array( 'ok' => false, 'reason' => 'module_not_loaded' );
+		}
+		$grant = BizCity_Channel_User_Grant::reassign_owner(
+			'zalo_personal', (string) ( $account['bridge_account_id'] ?? '' ), $to_id, $actor_id, true,
+			array( 'source' => $source )
+		);
+		if ( empty( $grant['ok'] ) ) {
+			return array( 'ok' => false, 'reason' => sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) ), 'quota' => (int) ( $grant['quota'] ?? 0 ) );
+		}
+		BizCity_Zalo_Mapping_Repo::save_account( array(
+			'kind'              => 'personal',
+			'owner_user_id'     => $to_id,
+			'label'             => (string) ( $account['label'] ?? '' ),
+			'bridge_account_id' => (string) ( $account['bridge_account_id'] ?? '' ),
+			'zalo_uid'          => (string) ( $account['zalo_uid'] ?? '' ),
+			'zalo_oa_id'        => (string) ( $account['zalo_oa_id'] ?? '' ),
+			'crm_inbox_id'      => (int) ( $account['crm_inbox_id'] ?? 0 ),
+			'status'            => (string) ( $account['status'] ?? 'pending_qr' ),
+		) );
+		return array( 'ok' => true );
 	}
 
 	/**
@@ -766,6 +977,21 @@ class BizCity_Zalo_Bridge_REST {
 				'hint'      => 'Đăng nhập WordPress rồi thử lại.',
 				'help_code' => 'auth_required',
 			), 401 );
+		}
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — the phone already has a row here: hand back THAT row so the
+		// UI shows its QR (one CRM inbox, no second Hub account); a successful scan moves it to $owner_user_id.
+		$duplicate = 'personal' === $kind ? self::find_phone_duplicate_row( $label ) : null;
+		// Site admins only: a CRM supervisor acting for someone else keeps CRM's own rank-checked claim (D-CRM-CLAIM).
+		if ( $duplicate && BizCity_Zalo_Duplicate_Guard::claim_allowed( $duplicate, $owner_user_id, self::can_manage() ) ) {
+			$actor    = $actor_user_id > 0 ? $actor_user_id : $owner_user_id;
+			$rehomed  = self::rehome_if_not_owned( $duplicate, $actor );
+			if ( $rehomed instanceof WP_REST_Response ) {
+				return $rehomed;
+			}
+			if ( is_array( $rehomed ) ) {
+				return self::claim_existing_row( $rehomed, $owner_user_id, $actor );
+			}
+			// null: the old row had no CRM inbox to keep — it is retired, so a plain create follows.
 		}
 		$preflight = self::preflight_create_account_for_owner( $request, $owner_user_id, $personal_only );
 		if ( $preflight instanceof WP_REST_Response ) {
@@ -1390,6 +1616,24 @@ class BizCity_Zalo_Bridge_REST {
 		), 200 );
 	}
 
+	/**
+	 * POST /zalo-bridge/members/auto-user {label} — [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W1 (R-NB-11): the number's work user,
+	 * created when the administrator chose "tạo tài khoản tự động" (the default of step ③). Idempotent per phone; the new user holds the
+	 * minimal role only, so the Brain of this number can do nothing beyond reminders until an administrator raises the role (R-NB-13).
+	 */
+	public static function handle_member_auto_user( WP_REST_Request $request ) {
+		if ( ! class_exists( 'BizCity_Number_Work_User' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Channel Gateway chưa sẵn sàng.', 'hint' => 'Tải lại trang rồi thử lại.', 'help_code' => 'module_not_loaded' ), 503 );
+		}
+		$body   = $request->get_json_params();
+		$label  = trim( sanitize_text_field( (string) ( is_array( $body ) ? ( $body['label'] ?? '' ) : '' ) ) );
+		$result = BizCity_Number_Work_User::ensure( $label );
+		if ( is_wp_error( $result ) ) {
+			return self::member_error( (string) $result->get_error_code(), $result->get_error_message(), 'Chọn một tài khoản trong danh sách thay vì tạo tự động.' );
+		}
+		return new WP_REST_Response( array_merge( array( 'ok' => true ), $result ), 200 );
+	}
+
 	/** POST /zalo-bridge/members/{user_id}/accounts — add a Zalo Personal number owned by that member (QR follows in the UI). */
 	public static function handle_member_create_account( WP_REST_Request $request ) {
 		$owner_id = (int) $request->get_param( 'user_id' );
@@ -1482,29 +1726,14 @@ class BizCity_Zalo_Bridge_REST {
 		if ( ! class_exists( 'BizCity_Channel_User_Grant' ) ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'module_not_loaded', 'message' => 'Channel Gateway chưa sẵn sàng.', 'hint' => 'Tải lại trang rồi thử lại.', 'help_code' => 'module_not_loaded' ), 503 );
 		}
-		// Grant first, mapping second (same order as CRM `transfer_phone_owner`): the mapping must never say
-		// "owned by B" while the grant layer used by /gpt/ and Context Bank still says "A".
-		$grant = BizCity_Channel_User_Grant::reassign_owner(
-			'zalo_personal', (string) ( $account['bridge_account_id'] ?? '' ), $to_id, (int) get_current_user_id(), true,
-			array( 'source' => 'gateway_member_transfer' )
-		);
-		if ( empty( $grant['ok'] ) ) {
-			$reason = sanitize_key( (string) ( $grant['reason'] ?? 'grant_write_failed' ) );
+		$moved = self::reassign_personal_owner( $account, $to_id, (int) get_current_user_id(), 'gateway_member_transfer' );
+		if ( empty( $moved['ok'] ) ) {
+			$reason = (string) ( $moved['reason'] ?? 'grant_write_failed' );
 			if ( 'personal_account_quota_reached' === $reason ) {
-				return new WP_REST_Response( self::personal_quota_payload( (int) ( $grant['quota'] ?? 0 ) ), 200 );
+				return new WP_REST_Response( self::personal_quota_payload( (int) ( $moved['quota'] ?? 0 ) ), 200 );
 			}
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'transfer_failed', 'message' => 'Không chuyển được quyền sở hữu SĐT.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'transfer_failed', 'reason' => $reason ), 200 );
 		}
-		BizCity_Zalo_Mapping_Repo::save_account( array(
-			'kind'              => 'personal',
-			'owner_user_id'     => $to_id,
-			'label'             => (string) ( $account['label'] ?? '' ),
-			'bridge_account_id' => (string) ( $account['bridge_account_id'] ?? '' ),
-			'zalo_uid'          => (string) ( $account['zalo_uid'] ?? '' ),
-			'zalo_oa_id'        => (string) ( $account['zalo_oa_id'] ?? '' ),
-			'crm_inbox_id'      => (int) ( $account['crm_inbox_id'] ?? 0 ),
-			'status'            => (string) ( $account['status'] ?? 'pending_qr' ),
-		) );
 		return new WP_REST_Response( array( 'ok' => true, 'id' => (string) ( $account['bridge_account_id'] ?? '' ), 'from_user_id' => $resolved['owner_id'], 'to_user_id' => $to_id ), 200 );
 	}
 
@@ -1650,14 +1879,14 @@ class BizCity_Zalo_Bridge_REST {
 
 	public static function handle_start_qr( WP_REST_Request $request ): WP_REST_Response {
 		$id = (string) $request->get_param( 'id' );
-		return self::start_qr_response( $id );
+		return self::with_claim_mark( self::start_qr_response( $id ), $id, 0 );
 	}
 
 	/** Reset the sidecar session and start QR again without deleting the account. */
 	public static function handle_reset_qr( WP_REST_Request $request ): WP_REST_Response {
 		// [2026-09-03 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.39E-D1C — keep the account ID, mapping and CRM history while resetting only the bridge session.
 		$id = (string) $request->get_param( 'id' );
-		return self::reset_qr_response( $id );
+		return self::with_claim_mark( self::reset_qr_response( $id ), $id, 0 );
 	}
 
 	/**
@@ -1677,12 +1906,12 @@ class BizCity_Zalo_Bridge_REST {
 	public static function start_qr_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1 — QR control receives the resolved owner row, not an ambient admin permission check.
 		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
-			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+			|| ( ! $authorized_by_caller && ! self::claim_allows( $account, $owner_user_id ) && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
 		) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
-		return self::start_qr_response( $id );
+		return self::with_claim_mark( self::start_qr_response( $id ), $id, $authorized_by_caller ? 0 : $owner_user_id );
 	}
 
 	/**
@@ -1695,12 +1924,12 @@ class BizCity_Zalo_Bridge_REST {
 	 */
 	public static function reset_qr_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
-			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+			|| ( ! $authorized_by_caller && ! self::claim_allows( $account, $owner_user_id ) && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
 		) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
 		$id = (string) ( $account['bridge_account_id'] ?? '' );
-		return self::reset_qr_response( $id );
+		return self::with_claim_mark( self::reset_qr_response( $id ), $id, $authorized_by_caller ? 0 : $owner_user_id );
 	}
 
 	/** Start QR through one normalized operation/result boundary. */
@@ -2002,6 +2231,7 @@ class BizCity_Zalo_Bridge_REST {
 				BizCity_Zalo_Mapping_Repo::update_account_status( (int) $local['id'], $status );
 				if ( 'connected' === $status ) {
 					self::sync_uids_on_connect( $local );
+					self::finalize_claim( $id ); // R-ZP-DUP v2
 				}
 			}
 		}
@@ -2135,7 +2365,7 @@ class BizCity_Zalo_Bridge_REST {
 	public static function qr_status_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] R-TWEB-1 — status polling keeps the resolved owner row through local state mirroring.
 		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
-			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+			|| ( ! $authorized_by_caller && ! self::claim_allows( $account, $owner_user_id ) && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
 		) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản Zalo này không thuộc tài khoản của bạn.', 'hint' => 'Chọn tài khoản Zalo Personal trong Kênh của tôi.', 'help_code' => 'permission_denied' ), 200 );
 		}
@@ -2160,6 +2390,7 @@ class BizCity_Zalo_Bridge_REST {
 			BizCity_Zalo_Mapping_Repo::update_account_status( (int) $account['id'], $status );
 			if ( 'connected' === $status ) {
 				self::sync_uids_on_connect( $account );
+				self::finalize_claim( $id ); // R-ZP-DUP v2
 			}
 		}
 		return new WP_REST_Response( array( 'ok' => true, 'status' => $status, 'success' => true, 'qr_status' => $status, 'can_relogin' => in_array( $status, array( 'expired', 'logged_out', 'revoked' ), true ), 'readiness' => self::readiness_envelope( $account, $result, $client ) ), 200 );

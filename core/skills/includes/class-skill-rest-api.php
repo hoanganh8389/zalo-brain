@@ -44,6 +44,15 @@ final class BizCity_Skill_REST_API {
 	public static $hub = null;
 	/** @var callable|null test seam: fn(): string[] (bridge account ids của site) */
 	public static $accounts = null;
+	// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K1 — trạng thái đồng bộ skill với cell (doc 20): 4 bậc + failed + not_applicable.
+	const HUB_CC_SKILLS = '/zalo-hub/cell-chat/skills';
+	const NOTIFY_OPTION = 'bizcity_zalo_pack_invalidate_state';
+	const SYNC_STATES    = array( 'saved', 'notified', 'received', 'understood', 'failed', 'not_applicable' );
+	const SYNC_MAX_CELLS = 3;
+	/** @var callable|null test seam: fn(): string (web-home account id `web-<key_id>` hoặc '') */
+	public static $web = null;
+	/** @var callable|null test seam: fn(): ?array (option bizcity_zalo_pack_invalidate_state) */
+	public static $notified = null;
 
 	public static function init(): void {
 		if ( self::$hooked ) {
@@ -74,6 +83,8 @@ final class BizCity_Skill_REST_API {
 			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'understand' ), 'permission_callback' => $write ),
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'understood' ), 'permission_callback' => $read ),
 		) );
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K1 — GET ?name= ⇒ saved|notified|received|understood|failed|not_applicable
+		register_rest_route( self::API_NAMESPACE, '/sync-status', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'sync_status' ), 'permission_callback' => $read ) );
 		register_rest_route( self::API_NAMESPACE, '/import-md',array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'import_md' ), 'permission_callback' => $write ) );
 	}
 
@@ -230,6 +241,149 @@ final class BizCity_Skill_REST_API {
 		), 200 );
 	}
 
+	/**
+	 * [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K1 — GET /sync-status?name= (doc 20 §2). Read-only. Hub unreachable never
+	 * errors: the state just stops at what the site knows (saved / notified) and the cell rows carry `error`.
+	 * ① saved (the file) → ② notified (invalidate option) → ③ received (cell pack version = site pack version) → ④ understood (plan hash = file hash).
+	 */
+	public static function sync_status( WP_REST_Request $req ): WP_REST_Response {
+		$name = class_exists( 'BizCity_Skills_Service', false ) ? self::resolve_sync_name( (string) $req->get_param( 'name' ) ) : ''; // [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K1 - accepts a skill name OR a file path
+		if ( '' === $name ) {
+			return self::error( new WP_Error( 'skill_invalid', 'Thiếu tên skill.' ), 400 );
+		}
+		$skill = BizCity_Skills_Service::get( $name );
+		if ( ! $skill ) {
+			return self::error( new WP_Error( 'not_found', 'Không thấy skill này.' ), 404 );
+		}
+		$site_version = class_exists( 'BizCity_Skills_Pack_Exporter', false ) ? (string) ( BizCity_Skills_Pack_Exporter::stats()['version'] ?? '' ) : '';
+		$in_pack      = 'approved' === (string) $skill['status'];
+		$notified     = is_callable( self::$notified ) ? call_user_func( self::$notified ) : get_option( self::NOTIFY_OPTION, null );
+		$notified     = is_array( $notified ) ? array( 'at' => (int) ( $notified['at'] ?? 0 ), 'ok' => ! empty( $notified['ok'] ), 'code' => sanitize_key( (string) ( $notified['code'] ?? '' ) ) ) : null;
+		$cells        = array();
+		$targets      = self::sync_targets();
+		foreach ( $targets as $account ) {
+			$r  = self::hub( 'GET', self::HUB_CC_SKILLS . '?account_id=' . rawurlencode( $account ) . '&names=' . rawurlencode( $name ) );
+			$b  = $r['body'];
+			$pk = is_array( $b['pack'] ?? null ) ? $b['pack'] : null;
+			$row = null;
+			foreach ( (array) ( $b['plans'] ?? array() ) as $p ) {
+				if ( is_array( $p ) && (string) ( $p['name'] ?? '' ) === $name ) {
+					$row = $p;
+					break;
+				}
+			}
+			$cell = array(
+				'account'      => self::mask_account( $account ),
+				'pack_version' => $pk ? (string) ( $pk['version'] ?? '' ) : null,
+				'synced_at'    => $pk ? (string) ( $pk['synced_at'] ?? '' ) : null,
+				'stale'        => $pk ? ! empty( $pk['stale'] ) : null,
+				'plan'         => $row ? array(
+					'body_hash'   => (string) ( $row['body_hash'] ?? '' ),
+					'compiled_at' => $row['compiled_at'] ?? null,
+					'status'      => (string) ( $row['status'] ?? '' ),
+					'matches'     => '' !== (string) ( $row['body_hash'] ?? '' ) && hash_equals( (string) $skill['hash'], (string) $row['body_hash'] ) && ! in_array( (string) ( $row['status'] ?? '' ), array( 'failed', 'error' ), true ),
+				) : null,
+			);
+			if ( ! $r['ok'] ) {
+				$cell['error'] = (string) $r['code'];
+			}
+			$cells[] = $cell;
+		}
+		return new WP_REST_Response( array(
+			'ok'               => true,
+			'name'             => $name,
+			'saved_at'         => (string) $skill['updated_at'],
+			'site_pack_version' => $site_version,
+			'item_hash'        => (string) $skill['hash'],
+			'in_pack'          => $in_pack,
+			'notified'         => $notified ? array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z', $notified['at'] ), 'ok' => $notified['ok'], 'code' => $notified['code'] ) : null,
+			'cells'            => $cells,
+			'state'            => self::sync_state( $in_pack, $site_version, $notified, (string) $skill['updated_at'], $targets ? $cells : null ),
+		), 200 );
+	}
+
+	/** A value ending in .md or containing "/" is a file path (SPA: "skills/x.md"): frontmatter `name`, else the basename; otherwise it is the skill name. */
+	public static function resolve_sync_name( string $value ): string {
+		$value = trim( $value );
+		if ( '' === $value ) {
+			return '';
+		}
+		if ( ! preg_match( '/\.md$/i', $value ) && false === strpos( $value, '/' ) ) {
+			return BizCity_Skills_Service::clean_name( $value );
+		}
+		$path = '/' . ltrim( sanitize_text_field( $value ), '/' );
+		$data = BizCity_Skill_Manager::instance()->read_file( $path );
+		if ( ! is_wp_error( $data ) ) {
+			$sk = BizCity_Skills_Service::from_raw( (string) $data['raw'], $path );
+			if ( $sk ) {
+				return (string) $sk['name'];
+			}
+		}
+		return BizCity_Skills_Service::clean_name( basename( $value, '.md' ) );
+	}
+
+	/**
+	 * Pure state machine. understood > received > failed > notified > saved; no cell target at all ⇒ not_applicable (the caller passes
+	 * `$cells` = null for "site has no number and no web home"). A skill that is not approved is not in the pack, so it stops at
+	 * notified/saved. A notice older than the file is not "this save" (still saved).
+	 *
+	 * @param array|null $notified {at:int, ok:bool, code}
+	 * @param array|null $cells    rows of sync_status(); null = no target
+	 */
+	public static function sync_state( bool $in_pack, string $site_version, ?array $notified, string $saved_at, ?array $cells ): string {
+		if ( null === $cells ) {
+			return 'not_applicable';
+		}
+		if ( $in_pack && '' !== $site_version ) {
+			$received = false;
+			foreach ( $cells as $c ) {
+				if ( isset( $c['pack_version'] ) && (string) $c['pack_version'] === $site_version ) {
+					$received = true;
+					if ( ! empty( $c['plan']['matches'] ) ) {
+						return 'understood';
+					}
+				}
+			}
+			if ( $received ) {
+				return 'received';
+			}
+		}
+		$saved_ts = '' !== $saved_at ? (int) strtotime( $saved_at ) : 0;
+		if ( $notified && $notified['at'] >= $saved_ts ) {
+			return $notified['ok'] ? 'notified' : 'failed';
+		}
+		return 'saved';
+	}
+
+	/** @return string[] ≤ SYNC_MAX_CELLS account ids to ask: the site's numbers, then its web home `web-<key_id>`. */
+	private static function sync_targets(): array {
+		$ids = array();
+		if ( is_callable( self::$accounts ) ) {
+			$ids = array_map( 'strval', (array) call_user_func( self::$accounts ) );
+		} elseif ( class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) && method_exists( 'BizCity_Zalo_Hub_Config_Sync', 'accounts' ) ) {
+			foreach ( (array) BizCity_Zalo_Hub_Config_Sync::accounts() as $a ) {
+				$id = preg_replace( '/[^0-9]/', '', (string) ( $a['bridge_id'] ?? '' ) );
+				if ( '' !== $id ) {
+					$ids[] = $id;
+				}
+			}
+		}
+		$web = is_callable( self::$web ) ? (string) call_user_func( self::$web ) : ( class_exists( 'BizCity_Twin_Web_Turn', false ) && method_exists( 'BizCity_Twin_Web_Turn', 'web_account_id' ) ? BizCity_Twin_Web_Turn::web_account_id() : '' );
+		if ( '' !== $web ) {
+			$ids[] = $web;
+		}
+		return array_slice( array_values( array_unique( $ids ) ), 0, self::SYNC_MAX_CELLS );
+	}
+
+	/** "…8899" for a number, "web" for the web home - never a full id. */
+	private static function mask_account( string $account ): string {
+		if ( 0 === strpos( $account, 'web-' ) ) {
+			return 'web';
+		}
+		$d = preg_replace( '/\D/', '', $account );
+		return '…' . substr( (string) $d, -4 );
+	}
+
 	/** Số Zalo đầu tiên của site (kế hoạch dịch theo tenant, số nào cũng dẫn tới cùng cell/tenant). */
 	private static function account_id(): string {
 		if ( is_callable( self::$accounts ) ) {
@@ -299,6 +453,9 @@ final class BizCity_Skill_REST_API {
 	private static function changed(): void {
 		if ( class_exists( 'BizCity_Skills_Pack_Exporter', false ) ) {
 			BizCity_Skills_Pack_Exporter::flush();
+			// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K4 — rebuild the pack transient NOW: the cell's 10-minute reconcile
+			// (or its pull after the notice) must never read an empty/old cache and see the previous version (doc 20 G4).
+			BizCity_Skills_Pack_Exporter::stats();
 		}
 		if ( class_exists( 'BizCity_Zalo_Pack_Invalidate', false ) && method_exists( 'BizCity_Zalo_Pack_Invalidate', 'on_packs_changed' ) ) {
 			BizCity_Zalo_Pack_Invalidate::on_packs_changed( array( 'skills' ) );

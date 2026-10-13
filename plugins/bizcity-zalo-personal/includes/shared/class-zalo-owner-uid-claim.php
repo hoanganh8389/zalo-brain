@@ -13,7 +13,9 @@
  * policy.owner_uid + owner_uid_verified; staff ⇒ staff_principals[].zalo_uid + verified_at).
  *
  * Owner rules: D92-SC-12 — a code opens only for the person in charge themself (owner_user_id of the number, or a staff member for
- * their own row). An admin never claims for somebody else; for that case the state carries `invite_url` (their own setup page).
+ * their own row). [2026-10-14 Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-H37 — an admin CAN issue the code FOR the person in charge (state.proxy): the admin copies the
+ * `BIZ ######` message and hands it to them, who sends it 1-1 from their personal Zalo; the UID is written for the number's owner, never for the admin.
+ * The old `invite_url` (the /gpt/ page of the archived TwinWeb) is gone: one way only — the code.
  * D92-SC-11 — the cell's confirmation names only the website (`site_name`). D92-SC-13 — the UID lives in the number's binding, which
  * exists once step ④ picked an Agent Guru, so the claim comes right after ④. The code is kept only here (transient); the Hub and
  * the cell see its sha256. No LLM, no table.
@@ -54,7 +56,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 		'claim_role_not_allowed' => array( 'Vai trò WordPress của bạn chưa được tự kết nối Zalo với số này.', 'Nhờ chủ số mở vai trò của bạn trong Bot Studio → Nhân sự & quyền, hoặc nhờ họ thêm bạn vào danh sách nhân sự của số.' ),
 		'claim_already'         => array( 'Số này đã có Zalo của chủ đã xác minh.', 'Bấm "Đổi Zalo chủ" nếu bạn muốn nhận một Zalo khác.' ),
 		'claim_none'            => array( 'Chưa có mã nào đang chờ.', 'Bấm "Lấy mã" để tạo mã mới.' ),
-		'claim_uid_taken'       => array( 'Zalo vừa nhắn đã là của một người khác trên số này.', 'Nhắn mã từ đúng Zalo cá nhân của bạn.' ),
+		'claim_uid_taken'       => array( 'Zalo vừa nhắn đã được gắn cho một người khác trên số này (chủ số hoặc một nhân sự khác).', 'Nhắn mã từ đúng Zalo cá nhân của bạn. Nếu Zalo đó thật sự là của bạn, nhờ chủ số gỡ nó khỏi mục Nhân sự & quyền rồi lấy mã mới.' ),
 		'claim_unsupported'     => array( 'Máy chủ Zalo Hub chưa hỗ trợ nhận Zalo bằng mã.', 'Báo quản trị nền tảng cập nhật Hub và máy chủ Zalo Hub.' ),
 		'claim_send_failed'     => array( 'Chưa tạo được mã.', 'Thử lại sau ít giây; nếu vẫn lỗi, xem trạng thái kết nối Zalo Hub.' ),
 		'claim_save_failed'     => array( 'Đã nhận Zalo nhưng chưa lưu được.', 'Bấm Kiểm tra lại sau ít giây.' ),
@@ -134,7 +136,8 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			'uid_masked'  => '',
 			'can_claim'   => false,
 			'reason'      => '',
-			'invite_url'  => '',
+			'invite_url'  => '', // kept empty for old clients: the /gpt/ page is gone (S107-H37)
+			'proxy'       => false,
 			'pending'     => null,
 		);
 		if ( null === $b ) {
@@ -159,15 +162,15 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			$out['verified']   = null !== self::owner_verified_at( $policy );
 			$out['uid_masked'] = self::mask( $uid );
 		}
-		if ( null === $who['role'] ) {
-			// S97-L2: a member whose role is closed for self-connect gets the actionable reason; an admin keeps D92-SC-12 (invite link)
+		$proxy = self::proxy_owner( $who, $owner_user, $user_id );
+		if ( null === $who['role'] && $proxy <= 0 ) {
+			// S97-L2: a member whose role is closed for self-connect gets the actionable reason
 			$member = class_exists( 'BizCity_Zalo_Agent_Principals' ) && null !== BizCity_Zalo_Agent_Principals::user( $user_id );
 			$out['reason'] = $member && ! self::can_manage() ? 'claim_role_not_allowed' : 'claim_not_yours';
-			// D92-SC-12: an admin sends the person in charge the way in; they claim it themself.
-			if ( self::can_manage() && $owner_user > 0 && $owner_user !== $user_id && ! $out['verified'] ) {
-				$out['invite_url'] = self::invite_url();
-			}
 			return $out;
+		}
+		if ( $proxy > 0 ) {
+			$out['proxy'] = true; // S107-H37: the admin issues the code for the person in charge; the UID/verified/masked above are the OWNER's
 		}
 		$out['can_claim'] = ! $out['verified'];
 		$out['reason']    = $out['verified'] ? 'claim_already' : '';
@@ -185,7 +188,14 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 		if ( null === $b ) {
 			return self::error( 'claim_binding_missing', 409 );
 		}
-		$who = self::role_of( $b, self::owner_user_id( $bridge ), $user_id );
+		$owner_user = self::owner_user_id( $bridge );
+		$who  = self::role_of( $b, $owner_user, $user_id );
+		$for_user = $user_id; // whose UID the claim writes
+		$proxy = self::proxy_owner( $who, $owner_user, $user_id );
+		if ( $proxy > 0 ) {
+			$who = array( 'role' => 'owner', 'row' => null ); // S107-H37: an admin issues the code FOR the person in charge
+			$for_user = $proxy;
+		}
 		if ( null === $who['role'] ) {
 			return self::error( 'claim_not_yours', 403 );
 		}
@@ -210,7 +220,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			'role'        => $who['role'],
 			'code_sha256' => hash( 'sha256', $code ),
 			'site_name'   => self::site_name(),
-			'greeting'    => self::greeting( (string) $who['role'], $user_id ), // 1.1.0 (S97-B5): the cell says this on claim; older cells ignore it
+			'greeting'    => self::greeting( (string) $who['role'], $for_user ), // 1.1.0 (S97-B5): the cell says this on claim; older cells ignore it
 			'expires_at'  => gmdate( 'Y-m-d\TH:i:s\Z', $exp ),
 		);
 		if ( 'staff' === $who['role'] ) {
@@ -220,7 +230,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 		if ( ! self::ok( $res ) ) {
 			return self::error( self::failure_code( $res, 'claim_send_failed' ), 502 );
 		}
-		self::remember( $bridge, $user_id, array( 'claim_id' => $claim_id, 'code' => $code, 'role' => $who['role'], 'exp' => $exp, 'binding_id' => (int) $b['binding_id'] ) );
+		self::remember( $bridge, $user_id, array( 'claim_id' => $claim_id, 'code' => $code, 'role' => $who['role'], 'exp' => $exp, 'binding_id' => (int) $b['binding_id'], 'for_user' => $for_user ) );
 		return new WP_REST_Response( array( 'ok' => true, 'code' => self::display_code( $code ), 'expires_at' => $body['expires_at'], 'number' => $bridge ), 200 );
 	}
 
@@ -248,7 +258,7 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			self::forget( $bridge, $user_id );
 			return self::error( 'claim_send_failed', 502 );
 		}
-		$saved = self::apply( (int) $p['binding_id'], $bridge, (string) $p['role'], $user_id, $uid );
+		$saved = self::apply( (int) $p['binding_id'], $bridge, (string) $p['role'], isset( $p['for_user'] ) ? (int) $p['for_user'] : $user_id, $uid ); // S107-H37: a proxy code writes the OWNER's UID
 		if ( true !== $saved ) {
 			if ( 'claim_uid_taken' === $saved ) {
 				self::forget( $bridge, $user_id );
@@ -290,6 +300,9 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			}
 			foreach ( $staff as $row ) {
 				if ( hash_equals( (string) $row['zalo_uid'], $uid ) ) {
+					if ( (int) $row['user_id'] === $user_id ) {
+						continue; // S107-H37: the person in charge is also on the staff list with the SAME Zalo — one person, not a clash
+					}
 					return 'claim_uid_taken';
 				}
 			}
@@ -384,6 +397,14 @@ final class BizCity_Zalo_Owner_Uid_Claim {
 			return false;
 		}
 		return count( array_intersect( self::user_roles( $user_id ), self::self_connect_roles( $policy ) ) ) > 0;
+	}
+
+	/** S107-H37 — the person in charge's user id when an ADMIN (not that person, no role of their own on the number) may issue the code for them; else 0. */
+	private static function proxy_owner( array $who, int $owner_user, int $user_id ): int {
+		if ( null !== $who['role'] || $owner_user <= 0 || $owner_user === $user_id || ! self::can_manage() ) {
+			return 0;
+		}
+		return $owner_user;
 	}
 
 	/** WP role slugs of a user (seam `user_roles`). */

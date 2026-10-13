@@ -120,6 +120,7 @@ class BizCity_LLM_Usage_File_Log {
             'flow'              => $flow,
             'surface'           => $surface,
             'channel'           => $channel,
+            'caller'            => class_exists( 'BizCity_LLM_Client', false ) ? BizCity_LLM_Client::sanitize_caller( (string) ( $data['caller'] ?? '' ) ) : sanitize_key( (string) ( $data['caller'] ?? '' ) ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
             'service'           => $service,
             'mode'              => sanitize_text_field( (string) ( $data['mode'] ?? 'gateway' ) ),
             'purpose'           => sanitize_text_field( (string) ( $data['purpose'] ?? 'chat' ) ),
@@ -634,6 +635,7 @@ class BizCity_LLM_Usage_File_Log {
             'flow'              => sanitize_key( (string) ( $row['flow'] ?? 'unknown' ) ),
             'surface'           => sanitize_key( (string) ( $row['surface'] ?? 'unknown' ) ),
             'channel'           => sanitize_key( (string) ( $row['channel'] ?? 'unknown' ) ),
+            'caller'            => sanitize_text_field( (string) ( $row['caller'] ?? '' ) ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40
             'service'           => sanitize_text_field( (string) ( $row['service'] ?? 'llm' ) ),
             'mode'              => sanitize_text_field( (string) ( $row['mode'] ?? 'gateway' ) ),
             'purpose'           => sanitize_text_field( (string) ( $row['purpose'] ?? 'chat' ) ),

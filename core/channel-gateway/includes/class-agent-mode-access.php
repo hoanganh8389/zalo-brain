@@ -36,6 +36,9 @@ final class BizCity_Agent_Mode_Access {
 	/** Roles that use TwinChat / Twin GPT get the own-data modes by default (contract §3). */
 	const OWN_DATA_ROLES = array( 'editor', 'author', 'contributor' );
 
+	/** `default_roles` entry meaning "every role of the site" (S97-W4). Per-mode `access.seed` replaces SIGNATURE for that mode's seed marker. */
+	const ALL_ROLES = '*';
+
 	private static $registered = false;
 	/** @var array<string,array>|null */
 	private static $modes = null;
@@ -68,7 +71,7 @@ final class BizCity_Agent_Mode_Access {
 			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 Q88-3 — MCP-only modes (booking.*, automation.run in core/mcp): administrators by default, others must be granted.
 			'booking'       => array( 'label' => 'Lịch hẹn', 'packs' => array(), 'tools' => array(), 'scope' => 'site', 'access' => array( 'mode' => 'grantable', 'default_roles' => array() ), 'available' => class_exists( 'BizCity_Scheduler_Tools' ) ),
 			// [2026-10-06 09:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92 S92-CL-5 — mode `automation` serves the `automation` pack (R2 recognition); its tools stay MCP-only.
-			'automation'    => array( 'label' => 'Tự động hoá', 'packs' => array( 'automation' ), 'tools' => array(), 'scope' => 'site', 'access' => array( 'mode' => 'grantable', 'default_roles' => array() ), 'available' => self::automation_installed() ),
+			'automation'    => array( 'label' => 'Tự động hoá', 'packs' => array( 'automation' ), 'tools' => array(), 'scope' => 'site', /* [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W4 (D97-R4-5) — chủ chốt: mọi role đăng nhập được dùng chế độ automation mặc định, vì mỗi khối action đã có required_cap + thông báo thiếu quyền cụ thể (R-NB-10/13). `seed` riêng ⇒ chỉ chế độ này được gieo lại trên site đã gieo trước đó. */ 'access' => array( 'mode' => 'grantable', 'default_roles' => array( self::ALL_ROLES ), 'seed' => '0.97.4' ), 'available' => self::automation_installed() ),
 			// [PHASE-0.90 Q90-9] MCP-only mode: the cell's channel tools (messenger.send, fb.comment.reply, fb.post.create, fb.group.post). Administrators by default; staff must be granted.
 			'channel'       => array( 'label' => 'Kênh khách & Gmail (đăng bài, trả lời, gửi email)', 'packs' => array(), 'tools' => array(), 'scope' => 'site', 'access' => array( 'mode' => 'grantable', 'default_roles' => array() ), 'available' => class_exists( 'BizCity_FB_Channel_Adapter' ) || class_exists( 'BZGoogle_Google_Service' ) ),
 		);
@@ -228,18 +231,19 @@ final class BizCity_Agent_Mode_Access {
 		$seeded = is_array( $seeded ) ? $seeded : array();
 		$dirty  = false;
 		foreach ( self::modes() as $id => $m ) {
-			if ( 'grantable' !== $m['access']['mode'] || ( $seeded[ $id ] ?? '' ) === self::SIGNATURE ) {
+			$sig = (string) ( $m['access']['seed'] ?? self::SIGNATURE );
+			if ( 'grantable' !== $m['access']['mode'] || ( $seeded[ $id ] ?? '' ) === $sig ) {
 				continue;
 			}
 			$defaults = (array) ( $m['access']['default_roles'] ?? array() );
 			foreach ( wp_roles()->role_objects as $slug => $role ) {
-				$grant = 'administrator' === $slug || in_array( $slug, $defaults, true )
+				$grant = 'administrator' === $slug || in_array( $slug, $defaults, true ) || in_array( self::ALL_ROLES, $defaults, true )
 					|| ( 'own' === ( $m['scope'] ?? '' ) && ( $role->has_cap( 'bizcity_access_gpt' ) || $role->has_cap( 'bizcity_access_twinchat' ) ) );
 				if ( $grant && ! $role->has_cap( self::PRIM_PREFIX . $id ) ) {
 					$role->add_cap( self::PRIM_PREFIX . $id );
 				}
 			}
-			$seeded[ $id ] = self::SIGNATURE;
+			$seeded[ $id ] = $sig;
 			$dirty         = true;
 		}
 		if ( $dirty ) {

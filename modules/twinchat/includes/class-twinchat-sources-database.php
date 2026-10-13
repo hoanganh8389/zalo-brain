@@ -364,6 +364,32 @@ class BizCity_TwinChat_Sources_Database {
 	 *   skips webchat_source_chunks entirely. notebook_id is looked up from the
 	 *   parent webchat_sources row when not supplied.
 	 */
+	/**
+	 * PHASE-0.99 S99-P40 — highest `chunk_index` already durably written for a source, or -1
+	 * if none. Reads whichever table `insert_chunk()` actually writes to for THIS source
+	 * (`table_source_chunks_canonical()` already resolves unified-vs-legacy) — a resume must
+	 * look at the table that matches today's write target, not assume one or the other.
+	 *
+	 * @param int $source_id
+	 * @return int
+	 */
+	public function max_chunk_index_for_source( $source_id ) {
+		global $wpdb;
+		$source_id = (int) $source_id;
+		if ( $source_id <= 0 ) {
+			return -1;
+		}
+		$tbl = $this->table_source_chunks_canonical();
+		if ( ! $this->table_exists( $tbl ) ) {
+			return -1;
+		}
+		$max = $wpdb->get_var( $wpdb->prepare(
+			"SELECT MAX(chunk_index) FROM {$tbl} WHERE source_id = %d",
+			$source_id
+		) );
+		return null === $max ? -1 : (int) $max;
+	}
+
 	public function insert_chunk( array $args ) {
 		global $wpdb;
 
@@ -373,7 +399,27 @@ class BizCity_TwinChat_Sources_Database {
 		$emb_str = null;
 		$emb     = $args['embedding'] ?? null;
 		if ( is_array( $emb ) ) {
-			$emb_str = wp_json_encode( $emb );
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P42 — one index, one
+			// model (doc 80 §5). A vector from another model is a coordinate in another
+			// space: stored here it would never raise an error, it would just make
+			// similarity meaningless for this chunk. Refuse it and keep the text, so the
+			// chunk stays findable by keyword instead of quietly lying to every search.
+			$emb_model = isset( $args['embedding_model'] ) ? (string) $args['embedding_model'] : '';
+			if ( class_exists( 'BizCity_Knowledge_Embedding' )
+				&& ! BizCity_Knowledge_Embedding::vector_matches_index( $emb, $emb_model )
+			) {
+				error_log( sprintf(
+					'[BizCity][KG] vector refused: model=%s dim=%d expected model=%s dim=%d source_id=%d',
+					$emb_model !== '' ? $emb_model : '(unset)',
+					count( $emb ),
+					BizCity_Knowledge_Embedding::model(),
+					BizCity_Knowledge_Embedding::dimensions(),
+					$source_id
+				) );
+				do_action( 'bizcity_kg_embedding_model_mismatch', $emb_model, count( $emb ), $source_id );
+			} else {
+				$emb_str = wp_json_encode( $emb );
+			}
 		} elseif ( is_string( $emb ) && $emb !== '' ) {
 			$emb_str = $emb;
 		}

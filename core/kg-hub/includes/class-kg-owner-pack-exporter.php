@@ -33,7 +33,7 @@ final class BizCity_KG_Owner_Pack_Exporter {
 	 * Test seams: notebooks(owner_user_id, account_id): rows{id,name,settings(array),updated_at} ·
 	 * stats(int[] notebook_ids): {count,max_id,sum_len,max_updated,bytes,sources:{nb:int}} ·
 	 * passages(int[] ids, after_id, limit): rows{id,notebook_id,source_id,content,updated_at} · source_titles(int[]): id => title ·
-	 * now(): int.
+	 * source_days(int[]): id => Ymd (PHASE-0.99 S99-P43) · now(): int.
 	 *
 	 * @var array<string,callable>
 	 */
@@ -72,6 +72,8 @@ final class BizCity_KG_Owner_Pack_Exporter {
 		$rows = array_slice( $rows, 0, $limit );
 		$sids = array_values( array_unique( array_filter( array_map( static function ( $r ) { return (int) ( $r['source_id'] ?? 0 ); }, $rows ) ) ) );
 		$titles = self::source_titles( $sids );
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — each note carries its own day.
+		$days  = self::source_days( $sids );
 		$items = array();
 		$last  = $after_id;
 		foreach ( $rows as $r ) {
@@ -86,7 +88,7 @@ final class BizCity_KG_Owner_Pack_Exporter {
 			}
 			$nb  = (int) $r['notebook_id'];
 			$sid = (int) ( $r['source_id'] ?? 0 );
-			$items[] = array(
+			$item = array(
 				'chunk_id'     => $nb . ':' . $id,
 				'notebook_id'  => $nb,
 				'source_id'    => $sid > 0 ? $sid : null,
@@ -95,6 +97,21 @@ final class BizCity_KG_Owner_Pack_Exporter {
 				'hash'         => 'sha1:' . sha1( $text ),
 				'updated_at'   => self::iso( (string) ( $r['updated_at'] ?? '' ) ),
 			);
+			// Only when the source really has one — an absent day must stay absent, so the
+			// cell can tell "no day recorded" from "a different day".
+			if ( isset( $days[ $sid ] ) ) {
+				$item['day_key'] = (string) $days[ $sid ];
+				// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — the 90-day copy
+				// window used to be enforced per NOTEBOOK (a daily notebook aged out whole).
+				// With captures pinned to one notebook (S99-P41) that notebook never ages, so
+				// the window has to be applied to the note's own day or the copy would grow
+				// without bound until it hit the tenant byte cap. A note with no day (web
+				// upload, URL import) is not a daily note and keeps the old behaviour.
+				if ( self::day_is_outside_window( $item['day_key'] ) ) {
+					continue;
+				}
+			}
+			$items[] = $item;
 		}
 		return array( 'items' => $items, 'last_id' => $last, 'more' => $more );
 	}
@@ -215,6 +232,19 @@ final class BizCity_KG_Owner_Pack_Exporter {
 		return $now - $days * 86400;
 	}
 
+	/**
+	 * Is this note's day older than the copy window? Unknown or malformed ⇒ kept.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43.
+	 */
+	private static function day_is_outside_window( string $day_key ): bool {
+		$since = self::window_start();
+		if ( $since <= 0 || ! preg_match( '/^(\d{4})(\d{2})(\d{2})$/', $day_key, $m ) ) {
+			return false;
+		}
+		return (int) gmmktime( 23, 59, 59, (int) $m[2], (int) $m[3], (int) $m[1] ) < $since;
+	}
+
 	/** The day a daily notebook belongs to: `settings.day_key` (Ymd), else its last update. 0 = unknown (kept). */
 	private static function notebook_day( array $row, array $st ): int {
 		$key = (string) ( $st['day_key'] ?? '' );
@@ -301,6 +331,49 @@ final class BizCity_KG_Owner_Pack_Exporter {
 		$out = array();
 		foreach ( (array) $wpdb->get_results( $wpdb->prepare( "SELECT id, title FROM {$tbl} WHERE id IN ({$in})", $ids ), ARRAY_A ) as $r ) {
 			$out[ (int) $r['id'] ] = (string) $r['title'];
+		}
+		return $out;
+	}
+
+	/**
+	 * The capture day (Ymd) of each source, read where the bridge wrote it: the legacy
+	 * source row's `metadata.day_key`.
+	 *
+	 * The cell used to learn a note's day from its NOTEBOOK. Once captures share one
+	 * notebook (S99-P41), that stops being possible, so the day has to travel with the
+	 * note itself — which is also where it belonged all along. A source with no day
+	 * (web upload, URL import) is simply absent from the map and the item carries no day.
+	 *
+	 * @param int[] $ids kg_sources ids
+	 * @return array<int,string>
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43.
+	 */
+	private static function source_days( array $ids ): array {
+		if ( ! $ids ) {
+			return array();
+		}
+		if ( isset( self::$readers['source_days'] ) ) {
+			return (array) call_user_func( self::$readers['source_days'], $ids );
+		}
+		global $wpdb;
+		if ( ! isset( $wpdb ) || ! class_exists( 'BizCity_KG_Database' ) || ! class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			return array();
+		}
+		$kg     = BizCity_KG_Database::instance()->tbl_sources();
+		$legacy = BizCity_TwinChat_Sources_Database::instance()->table_sources();
+		$in     = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$out    = array();
+		$rows   = $wpdb->get_results( $wpdb->prepare(
+			"SELECT ks.id, s.metadata FROM `{$kg}` ks INNER JOIN `{$legacy}` s ON s.id = ks.origin_id WHERE ks.id IN ({$in})",
+			$ids
+		), ARRAY_A );
+		foreach ( (array) $rows as $r ) {
+			$meta = ! empty( $r['metadata'] ) ? json_decode( (string) $r['metadata'], true ) : array();
+			$day  = is_array( $meta ) ? (string) ( $meta['day_key'] ?? '' ) : '';
+			if ( preg_match( '/^\d{8}$/', $day ) ) {
+				$out[ (int) $r['id'] ] = $day;
+			}
 		}
 		return $out;
 	}

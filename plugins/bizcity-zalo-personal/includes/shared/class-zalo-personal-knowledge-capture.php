@@ -300,30 +300,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 			return array( 'user_id' => (int) $p['user_id'], 'role' => 'staff' );
 		}
-		if ( 'guest' === $role ) {
-			// [2026-10-12 01:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 (R-JOURNAL R-JN-9) — a guest's
-			// own photo/file (e.g. a student's homework photo) is captured ONLY when the thread is already
-			// labeled for this profile AND the profile has `journal.guest_capture` on (Q100-12). Neither the
-			// thread-label store nor the brain-profile flag exist yet (site-profile lane, PHASE-0.100 S100-L3+ /
-			// doc 90 §3 `journal.json`) — this filter is the single, fail-closed gate until that lane wires it:
-			// default false refuses every guest capture, exactly like "luồng chưa gắn nhãn: không lưu" (doc 92 §7).
-			if ( '' === $hash ) {
-				return null;
-			}
-			/**
-			 * @param bool   $allowed  default false (fail-closed).
-			 * @param string $bridge_id the number.
-			 * @param string $hash      the guest's user_hash (R-CID-11 — never a raw UID here).
-			 */
-			$allowed = (bool) apply_filters( 'bizcity_zalo_personal_capture_guest_allowed', false, $bridge_id, $hash );
-			if ( ! $allowed ) {
-				return null;
-			}
-			// The guest has no WP user in this system: the item is filed under the NUMBER's owner (so it lands
-			// in that number's journal index/notebooks, per-subject if the profile wants it — doc 92 §4 rule 3),
-			// with `by.role = guest` kept on the journal row (R-JN-11 provenance, never promoted to "owner").
-			return $owner_user_id > 0 ? array( 'user_id' => $owner_user_id, 'role' => 'guest' ) : null;
-		}
+		// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only: the PHASE-0.100 S100-L15 guest branch (filter bizcity_zalo_personal_capture_guest_allowed) is removed —
+		// a guest/student is not an audience, so any role other than owner/staff is refused (fail-closed, as before).
 		return null;
 	}
 

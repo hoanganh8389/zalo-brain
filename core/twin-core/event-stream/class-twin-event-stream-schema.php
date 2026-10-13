@@ -28,7 +28,9 @@ class BizCity_Twin_Event_Stream_Schema {
 	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — 0.12.1 → 0.12.2
 	// forces one repair pass on tenants whose version option was already stamped
 	// "0.12.1" by a run where dbDelta did not complete (see ensure_table()).
-	const DB_VERSION        = '0.12.2';
+	// [2026-10-13 01:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L11 — 0.12.3 adds account_id + actor_role (+ index) so
+	// Sessions / History can filter by number. Old rows stay NULL (no backfill on production).
+	const DB_VERSION        = '0.12.3';
 	const DB_VERSION_OPTION = 'bizcity_twin_event_stream_db_ver';
 
 	public static function table(): string {
@@ -84,6 +86,8 @@ class BizCity_Twin_Event_Stream_Schema {
 			schema_version SMALLINT UNSIGNED NOT NULL DEFAULT 1,
 			created_at DATETIME(3) NOT NULL,
 			created_epoch_ms BIGINT UNSIGNED NOT NULL,
+			account_id VARCHAR(64) NULL,
+			actor_role VARCHAR(16) NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY uniq_event_uuid (event_uuid),
 			KEY idx_trace (trace_id, created_epoch_ms),
@@ -91,7 +95,8 @@ class BizCity_Twin_Event_Stream_Schema {
 			KEY idx_type_time (event_type, created_epoch_ms),
 			KEY idx_session (session_id, created_epoch_ms),
 			KEY idx_parent (parent_event_id),
-			KEY idx_blog_time (blog_id, created_epoch_ms)
+			KEY idx_blog_time (blog_id, created_epoch_ms),
+			KEY idx_account_time (account_id, created_epoch_ms)
 		) {$charset};" );
 
 		// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C C13 — stamp the option
@@ -118,7 +123,8 @@ class BizCity_Twin_Event_Stream_Schema {
 			// fall through to dbDelta, which is idempotent.
 			return false;
 		}
-		$required = array( 'event_uuid', 'trace_id', 'conversation_id', 'session_id', 'user_id', 'blog_id', 'event_type', 'event_source', 'parent_event_id', 'parent_event_uuid', 'payload_json', 'schema_version', 'created_at', 'created_epoch_ms' );
+		// PHASE-0.107 S107-L11: account_id + actor_role are required too, so a stale tenant is repaired by dbDelta.
+		$required = array( 'event_uuid', 'trace_id', 'conversation_id', 'session_id', 'user_id', 'blog_id', 'event_type', 'event_source', 'parent_event_id', 'parent_event_uuid', 'payload_json', 'schema_version', 'created_at', 'created_epoch_ms', 'account_id', 'actor_role' );
 		return BizCity_Table_Metadata::columns_exist( self::table(), $required );
 	}
 }

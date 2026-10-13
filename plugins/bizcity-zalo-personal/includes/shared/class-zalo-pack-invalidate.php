@@ -225,10 +225,18 @@ final class BizCity_Zalo_Pack_Invalidate {
 		if ( isset( self::$readers['accounts'] ) ) {
 			return self::$accounts_memo = array_map( 'strval', (array) call_user_func( self::$readers['accounts'] ) );
 		}
-		if ( ! class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ) {
-			return self::$accounts_memo = array();
+		$nums = class_exists( 'BizCity_Zalo_Hub_Config_Sync' ) ? array_map( static function ( $a ) { return (string) $a['bridge_id']; }, BizCity_Zalo_Hub_Config_Sync::accounts() ) : array();
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K3 - a site with only a web home still tells its cell: `web-<key_id>` joins the list (the Hub accepts only the key's own web id).
+		$web = self::web_account();
+		return self::$accounts_memo = '' !== $web ? array_merge( $nums, array( $web ) ) : $nums;
+	}
+
+	/** `web-<key_id>` when the site answers through its web home, else '' (test seam `web_account`). */
+	private static function web_account(): string {
+		if ( isset( self::$readers['web_account'] ) ) {
+			return (string) call_user_func( self::$readers['web_account'] );
 		}
-		return self::$accounts_memo = array_map( static function ( $a ) { return (string) $a['bridge_id']; }, BizCity_Zalo_Hub_Config_Sync::accounts() );
+		return class_exists( 'BizCity_Twin_Web_Turn', false ) && method_exists( 'BizCity_Twin_Web_Turn', 'web_account_id' ) ? BizCity_Twin_Web_Turn::web_account_id() : '';
 	}
 
 	/** The number a daily notebook belongs to (`settings.scope_id = zalo_account:<id>`), '' otherwise. */

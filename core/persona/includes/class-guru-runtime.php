@@ -117,6 +117,7 @@ final class BizCity_Guru_Runtime {
         $llm_opts = array_merge( [
             'purpose'  => 'chat',
             'trace_id' => $trace_id,
+            'caller'   => 'guru.runtime', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
         ], $opts );
 
         $llm = BizCity_LLM_Client::instance();

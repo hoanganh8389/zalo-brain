@@ -129,13 +129,13 @@ final class BizCity_MCP_Tool_Registry {
 		$tool['confirm'] = 'always' === $tool['confirm'] ? 'always' : 'never';
 		if ( 'always' === $tool['confirm'] && ! is_callable( $tool['preview'] ) ) {
 			// A write that must be confirmed cannot be offered without a side-effect-free preview (Q88-1).
-			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable. — see docs/developer/README.md §4' ); // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L7 — log text only, behaviour unchanged
+			error_log( '[bizcity-mcp] tool ' . $name . ' refused: confirm=always needs a preview callable. — see docs/developer/README.md (ships with Zalo Brain)' ); // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L7 — log text only, behaviour unchanged
 			return false;
 		}
 		// [2026-10-12 08:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.103 RK-15 — a SECOND registration of the same name with a DIFFERENT handler replaces the first silently (core owns
 		// booking.create / booking.cancel …). Behaviour is unchanged (last wins); the log is what a plugin author needs to find the clash. Same handler again = a re-boot, no log.
 		if ( isset( self::$tools[ $name ] ) && ! self::same_handler( self::$tools[ $name ]['handler'] ?? null, $tool['handler'] ?? null ) ) {
-			error_log( '[bizcity-mcp] tool ' . $name . ' re-registered with a different handler (' . self::handler_label( self::$tools[ $name ]['handler'] ?? null ) . ' → ' . self::handler_label( $tool['handler'] ?? null ) . '); the last registration wins. Pick a unique <plugin>.<verb> name — see docs/developer/README.md §4' );
+			error_log( '[bizcity-mcp] tool ' . $name . ' re-registered with a different handler (' . self::handler_label( self::$tools[ $name ]['handler'] ?? null ) . ' → ' . self::handler_label( $tool['handler'] ?? null ) . '); the last registration wins. Pick a unique <plugin>.<verb> name — see docs/developer/README.md (ships with Zalo Brain)' );
 		}
 		self::$tools[ $name ] = $tool;
 		return true;
@@ -750,6 +750,9 @@ final class BizCity_MCP_Tool_Registry {
 			'properties' => array(
 				'query'              => array( 'type' => 'string', 'minLength' => 1 ),
 				'notebook_ids'       => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
+				// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — ngày của GHI CHÚ (Ymd),
+				// không phải ngày của sổ: hỏi "ghi chú hôm qua" vẫn đúng khi mọi ghi chú nằm chung một sổ.
+				'day_key'            => array( 'type' => 'string', 'pattern' => '^\\d{8}$' ),
 				'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
 				'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
 				'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),

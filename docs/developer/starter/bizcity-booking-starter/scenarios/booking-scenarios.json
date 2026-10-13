@@ -1,0 +1,188 @@
+[
+  {
+    "slug": "tpl_booking_starter_free_slots_v1",
+    "name": "[mẫu] Hỏi giờ trống — Booking Starter",
+    "description": "Khách nhắn hỏi còn chỗ/giờ trống ⇒ trả lời các khung giờ còn trống của ngày mai. Chỉ đọc nên chạy được cho khách (guest_safe). Đặt/đổi lịch đi qua tool MCP appointment.create / appointment.reschedule có xác nhận.",
+    "category": "booking",
+    "source": "extension",
+    "trigger_type": "zalo_inbound",
+    "tags": "zalo,booking,starter",
+    "plan": "free",
+    "trigger_config": {
+      "instance_id": "",
+      "filter": "còn chỗ|giờ trống|còn giờ|lịch trống|rảnh giờ nào",
+      "exclusive": false,
+      "priority": 50,
+      "chat_kind": "any"
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_booking_starter_free_slots_v1",
+        "template_version": "0.1.0"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 200
+          },
+          "data": {
+            "blockId": "trigger.zalo_inbound",
+            "label": "Zalo · hỏi giờ trống",
+            "instance_id": "",
+            "filter": "còn chỗ|giờ trống|còn giờ|lịch trống|rảnh giờ nào",
+            "exclusive": false
+          }
+        },
+        {
+          "id": "n1",
+          "type": "action",
+          "position": {
+            "x": 280,
+            "y": 200
+          },
+          "data": {
+            "blockId": "appointment.check_slots",
+            "label": "Xem giờ trống",
+            "date": ""
+          }
+        },
+        {
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 560,
+            "y": 200
+          },
+          "data": {
+            "blockId": "action.reply_zalo",
+            "label": "Trả lời khách",
+            "chat_id": "{{trigger.chat_id}}",
+            "instance_id": "{{trigger.instance_id}}",
+            "text": "{{n1.text}}"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_n1",
+          "source": "t1",
+          "target": "n1"
+        },
+        {
+          "id": "e_n1_r1",
+          "source": "n1",
+          "target": "r1"
+        }
+      ]
+    }
+  },
+  {
+    "slug": "tpl_booking_starter_cell_free_slots_v1",
+    "name": "[mẫu] Trợ lý · Xem giờ trống — Booking Starter",
+    "description": "PHASE-0.104 S104-B6 — cùng việc nhưng đi qua TRỢ LÝ (cell): chủ/nhân viên/khách hỏi giờ trống ⇒ trợ lý gọi kịch bản ⇒ khối appointment.check_slots ⇒ trả kết quả để trợ lý trả lời. Đây là hình dạng mà nút \"⚡ Tạo kịch bản\" trong bảng khối sinh ra.",
+    "category": "booking",
+    "source": "extension",
+    "trigger_type": "cell_request",
+    "tags": "cell,booking,starter",
+    "plan": "free",
+    "trigger_config": {
+      "cell": {
+        "enabled": true,
+        "slug": "booking_free_slots",
+        "label": "Xem giờ trống",
+        "one_line": "Liệt kê các khung giờ còn trống của một ngày (mặc định ngày mai).",
+        "keywords": [
+          "con gio trong khong",
+          "mai ranh gio nao",
+          "con cho khong",
+          "lich trong"
+        ],
+        "inputs": [
+          {
+            "name": "date",
+            "label": "Ngày (YYYY-MM-DD), bỏ trống = ngày mai",
+            "type": "text",
+            "required": false,
+            "source": "user"
+          }
+        ],
+        "roles": [
+          "owner",
+          "staff",
+          "customer"
+        ],
+        "reply": "verbatim"
+      }
+    },
+    "graph": {
+      "meta": {
+        "template": "tpl_booking_starter_cell_free_slots_v1",
+        "template_version": "0.1.0"
+      },
+      "nodes": [
+        {
+          "id": "t1",
+          "type": "trigger",
+          "position": {
+            "x": 0,
+            "y": 80
+          },
+          "data": {
+            "blockId": "trigger.cell_request",
+            "label": "Trợ lý yêu cầu",
+            "slug": "booking_free_slots",
+            "roles": [
+              "owner",
+              "staff",
+              "customer"
+            ],
+            "reply": "verbatim"
+          }
+        },
+        {
+          "id": "b1",
+          "type": "action",
+          "position": {
+            "x": 320,
+            "y": 80
+          },
+          "data": {
+            "blockId": "appointment.check_slots",
+            "label": "Xem giờ trống",
+            "date": "{{trigger.date}}"
+          }
+        },
+        {
+          "id": "r1",
+          "type": "action",
+          "position": {
+            "x": 640,
+            "y": 80
+          },
+          "data": {
+            "blockId": "action.return_to_cell",
+            "label": "Trả kết quả",
+            "text": "{{b1.text}}",
+            "artifacts": "",
+            "status": "auto"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "e_t1_b1",
+          "source": "t1",
+          "target": "b1"
+        },
+        {
+          "id": "e_b1_r1",
+          "source": "b1",
+          "target": "r1"
+        }
+      ]
+    }
+  }
+]

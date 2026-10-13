@@ -288,7 +288,16 @@ final class BizCity_Brain_MCP_Service {
 			}
 		}
 
-		$top_k       = isset( $args['top_k'] ) ? max( 1, min( 50, (int) $args['top_k'] ) ) : 8;
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — the day of the NOTE,
+		// not of the notebook. Once captures share one notebook (S99-P41 `single`), "ghi chú
+		// hôm qua" can no longer be answered by picking a notebook, so the filter has to live
+		// where the day actually is: on the source row the bridge wrote it to.
+		$day_key = isset( $args['day_key'] ) ? preg_replace( '/\D/', '', (string) $args['day_key'] ) : '';
+		if ( strlen( (string) $day_key ) !== 8 ) {
+			$day_key = '';
+		}
+		// A day question wants the day's notes, not the 8 most similar lines of it.
+		$top_k       = isset( $args['top_k'] ) ? max( 1, min( 50, (int) $args['top_k'] ) ) : ( $day_key !== '' ? 20 : 8 );
 		$graph_depth = isset( $args['graph_depth'] ) ? max( 1, min( 3, (int) $args['graph_depth'] ) ) : 2;
 		$profile     = isset( $args['retrieval_profile'] ) ? sanitize_key( (string) $args['retrieval_profile'] ) : BizCity_MCP_Retrieval_Snapshot_Store::PROFILE_DEFAULT;
 		$ttl         = isset( $args['snapshot_ttl_seconds'] ) ? max( 60, (int) $args['snapshot_ttl_seconds'] ) : 3600;
@@ -300,7 +309,8 @@ final class BizCity_Brain_MCP_Service {
 			. '|entities:' . (int) $include_entities
 			. '|relations:' . (int) $include_relations
 			. '|full:' . (int) $include_full_content
-			. '|fast:' . (int) $fast;
+			. '|fast:' . (int) $fast
+			. '|day:' . $day_key; // PHASE-0.99 S99-P43 — a day-scoped answer must never be served from the unscoped snapshot
 		$cache_key   = BizCity_MCP_Retrieval_Snapshot_Store::build_cache_key(
 			(string) $ctx['client_id'] . '|user:' . (int) $ctx['user_id'], $norm['normalized'], $notebook_ids,
 			$profile_key, $kg_revision, $top_k, $graph_depth
@@ -322,7 +332,22 @@ final class BizCity_Brain_MCP_Service {
 		$entities     = array();
 		$relations    = array();
 
-		foreach ( $notebook_ids as $nb_id ) {
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — a day-scoped question is
+		// answered by LISTING that day's notes, not by ranking the whole book against the
+		// query: the day already IS the filter, and it costs no embedding call at all.
+		// Nothing of that day ⇒ no passages ⇒ `answerability: unanswerable`, which is the
+		// honest "không có ghi chú ngày đó" instead of the nearest unrelated note.
+		$day_rows = $day_key !== '' ? self::day_passages( $notebook_ids, $day_key, $top_k ) : array();
+		if ( $day_key !== '' ) {
+			$total = count( $day_rows );
+			$rank  = 0;
+			foreach ( $day_rows as $p ) {
+				$rank++;
+				$all_passages[] = $this->map_passage( $p, (int) ( $p['notebook_id'] ?? 0 ), $rank, $total );
+			}
+		}
+
+		foreach ( $day_key !== '' ? array() : $notebook_ids as $nb_id ) {
 			$res = $retriever->ask( $nb_id, $norm['original'], array(
 				'seed_entities'  => 4,
 				'seed_relations' => $top_k * 2,
@@ -393,13 +418,19 @@ final class BizCity_Brain_MCP_Service {
 			'citation_mode'             => 'strict',
 			'evidence_options'          => array( 'include_entities' => $include_entities, 'include_relations' => $include_relations ),
 			'kg_revision'               => $kg_revision,
-			'scope'                     => array( 'notebook_ids' => $notebook_ids ),
+			// PHASE-0.99 S99-P43 — the snapshot says which day it was scoped to, so a trace
+			// can tell "no notes that day" apart from "nothing matched the query".
+			'scope'                     => $day_key !== ''
+				? array( 'notebook_ids' => $notebook_ids, 'day_key' => $day_key )
+				: array( 'notebook_ids' => $notebook_ids ),
 			'answerability'             => array(
 				'status'     => empty( $all_passages ) ? 'unanswerable' : 'answerable',
 				// TODO Wave C: replace placeholder confidence with a real score once
 				// BizCity_KG_Retriever exposes per-passage relevance (see class docblock).
 				'confidence' => empty( $all_passages ) ? 0.0 : 0.6,
-				'reason'     => empty( $all_passages ) ? 'no_passage_found' : '',
+				// PHASE-0.99 S99-P43 — "no note that day" is a different answer from "nothing
+				// matched"; the cell says them differently to the owner.
+				'reason'     => empty( $all_passages ) ? ( $day_key !== '' ? 'no_note_that_day' : 'no_passage_found' ) : '',
 			),
 			'passages'          => $all_passages,
 			'entities'          => array_values( $entities ),
@@ -612,6 +643,75 @@ final class BizCity_Brain_MCP_Service {
 	 * Reshape one BizCity_KG_Retriever::ask() passage row into the MCP
 	 * passage schema, including its canonical relevance score and citation_id.
 	 */
+	/**
+	 * The passages of ONE day, across the notebooks this turn may read.
+	 *
+	 * The day of a note lives on the source row the capture bridge wrote
+	 * (`metadata.day_key`, Ymd, same `current_time()` basis as the bridge's own lookup —
+	 * so there is no timezone conversion to get wrong). Passages point at `kg_sources`,
+	 * which points back at that row through `origin_id`, so one join chain answers it with
+	 * no new column and no new table.
+	 *
+	 * Bodies go through the content router, exactly like the retriever's own reads, so a
+	 * passage whose text was moved to the filestore still comes back with its content.
+	 *
+	 * @param int[]  $notebook_ids already intersected with what this turn may read
+	 * @param string $day_key      8 digits, validated by the caller
+	 * @param int    $limit        1…50
+	 * @return array[] rows shaped like the retriever's passages (id, source_id, content, …)
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43.
+	 */
+	private static function day_passages( array $notebook_ids, string $day_key, int $limit ): array {
+		global $wpdb;
+		$notebook_ids = array_values( array_filter( array_map( 'intval', $notebook_ids ) ) );
+		if ( ! $notebook_ids
+			|| ! isset( $wpdb )
+			|| ! class_exists( 'BizCity_KG_Database' )
+			|| ! class_exists( 'BizCity_TwinChat_Sources_Database' )
+		) {
+			return array();
+		}
+
+		$passages = BizCity_KG_Database::instance()->tbl_passages();
+		$sources  = BizCity_KG_Database::instance()->tbl_sources();
+		$legacy   = BizCity_TwinChat_Sources_Database::instance()->table_sources();
+		$ids_sql  = implode( ',', $notebook_ids );
+		$needle   = '%' . $wpdb->esc_like( '"day_key":"' . $day_key . '"' ) . '%';
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- notebook ids are intval'd above.
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT p.* FROM `{$passages}` p
+			 INNER JOIN `{$sources}` ks ON ks.id = p.source_id
+			 INNER JOIN `{$legacy}` s ON s.id = ks.origin_id
+			 WHERE p.notebook_id IN ({$ids_sql}) AND s.metadata LIKE %s
+			 ORDER BY p.id ASC LIMIT %d",
+			$needle,
+			max( 1, min( 50, $limit ) )
+		), ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : array();
+		if ( ! $rows ) {
+			return array();
+		}
+
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+
+		$out = array();
+		foreach ( $rows as $row ) {
+			if ( (string) ( $row['content'] ?? '' ) === '' ) {
+				continue;
+			}
+			// MCP must not invent a ranking score (PHASE-0.53): these were selected by day,
+			// not scored, and they say so.
+			$row['score']        = 0.0;
+			$row['score_source'] = 'day_filter';
+			$out[] = $row;
+		}
+		return $out;
+	}
+
 	private function map_passage( array $p, $notebook_id, $rank, $total_in_notebook ) {
 		$pid       = (int) $p['id'];
 		$source_id = isset( $p['source_id'] ) ? (int) $p['source_id'] : 0;

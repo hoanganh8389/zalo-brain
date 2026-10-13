@@ -201,8 +201,9 @@ class BizCity_KG_Notebook_Folder {
 			'passages_shards'   => 0,
 			'entities_count'    => 0,
 			'relations_count'   => 0,
-			'embedding_model'   => 'text-embedding-3-small',
-			'embedding_dim'     => 1536,
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P42 — one index, one model name, one place.
+			'embedding_model'   => class_exists( 'BizCity_Knowledge_Embedding' ) ? BizCity_Knowledge_Embedding::model() : 'text-embedding-3-small',
+			'embedding_dim'     => class_exists( 'BizCity_Knowledge_Embedding' ) ? BizCity_Knowledge_Embedding::dimensions() : 1536,
 			'storage_ver'       => 2,
 			'last_compacted_at' => null,
 			'created_at'        => gmdate( 'c' ),

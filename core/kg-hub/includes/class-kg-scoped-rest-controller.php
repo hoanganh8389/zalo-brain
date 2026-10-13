@@ -688,27 +688,39 @@ class BizCity_KG_Scoped_REST_Controller {
 			}
 			$attempt = (int) ( $meta['async_attempt'] ?? 0 );
 			$path    = self::async_stage_path( $meta['async_file'] );
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — a lost staging
+			// copy no longer ends the recovery: ask for the full row (it rehydrates
+			// content_text from the filestore) and resume from the attachment or the
+			// already-materialized text instead. The staged file stays the first choice,
+			// so the common path still costs exactly one file_exists().
+			$staged_ok = file_exists( $path );
+			$plan      = array( 'mode' => $staged_ok ? 'file' : 'none', 'path' => $path, 'attachment_id' => 0, 'content' => '' );
+			if ( ! $staged_ok ) {
+				$full = $db->get_source( (int) $row['id'] );
+				$plan = self::async_source_resume_plan( is_array( $full ) ? $full : $row, $meta );
+			}
+			$recoverable = $plan['mode'] !== 'none';
 			$auto_resume = false;
 			if ( $state === 'error' ) {
 				$auto_resume_count = (int) ( $meta['async_auto_resume_count'] ?? 0 );
-				if ( ! file_exists( $path ) || $auto_resume_count >= self::ASYNC_AUTO_RESUME_MAX ) {
+				if ( ! $recoverable || $auto_resume_count >= self::ASYNC_AUTO_RESUME_MAX ) {
 					continue;
 				}
 				$auto_resume = true;
 			} elseif ( $beat > 0 && time() - $beat < self::ASYNC_STALE_AFTER ) {
 				continue;
 			}
-			if ( ! file_exists( $path ) || ( ! $auto_resume && $attempt >= self::ASYNC_MAX_ATTEMPTS ) ) {
+			if ( ! $recoverable || ( ! $auto_resume && $attempt >= self::ASYNC_MAX_ATTEMPTS ) ) {
 				// [2026-07-23 Johnny Chu] PHASE-0.47-ASYNC-ERROR-CODE — distinct codes so
 				// FE can tell "infra lost the staged file" apart from "genuinely exhausted
 				// retry budget", instead of both showing the same generic banner.
 				self::mark_async_placeholder_failed(
 					array( 'metadata' => $meta, 'source_id' => (int) $row['id'] ),
-					! file_exists( $path ) ? 'File xử lý nền đã thất lạc.' : 'Đã vượt quá số lần thử xử lý file.',
-					! file_exists( $path ) ? 'async_file_lost' : 'async_max_attempts_exceeded'
+					! $recoverable ? 'File xử lý nền đã thất lạc.' : 'Đã vượt quá số lần thử xử lý file.',
+					! $recoverable ? 'async_file_lost' : 'async_max_attempts_exceeded'
 				);
 				// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — keep the staged artifact for an explicit manual retry; terminal watchdog handling must not destroy the user's upload.
-				if ( file_exists( $path ) ) {
+				if ( $staged_ok ) {
 					self::async_log( 'watchdog_file_retained', array(
 						'job_id'    => isset( $meta['job_id'] ) ? (string) $meta['job_id'] : '',
 						'source_id' => (int) $row['id'],
@@ -729,17 +741,18 @@ class BizCity_KG_Scoped_REST_Controller {
 			$meta['async_state'] = 'queued';
 			$meta['async_heartbeat_at'] = time();
 			$meta['async_retry_at'] = time();
+			$meta['async_resume_mode'] = $plan['mode'];
 			$db->update_source( (int) $row['id'], array( 'metadata' => $meta, 'error_message' => null, 'embedding_status' => 'processing' ) );
 			$job = array(
 				'job_id' => isset( $meta['job_id'] ) ? (string) $meta['job_id'] : '',
 				'blog_id' => (int) get_current_blog_id(),
 				'scope' => array( 'plugin' => 'twinchat', 'scope_type' => 'notebook', 'scope_id' => (int) $row['project_id'] ),
-				'payload' => array( 'type' => 'file', 'title' => (string) $row['title'], 'metadata' => $meta, 'file' => array( 'name' => (string) ( $meta['async_original_name'] ?? $meta['async_file'] ), 'type' => (string) ( $meta['async_file_type'] ?? '' ), 'tmp_name' => $path, 'error' => 0, 'size' => (int) ( $meta['async_file_size'] ?? filesize( $path ) ) ) ),
+				'payload' => self::async_resume_payload( $row, $meta, $plan ),
 				'user_id' => (int) $row['user_id'],
 				'created_at' => time(),
 			);
 			wp_schedule_single_event( time() + ( $auto_resume ? 5 : 0 ), self::HOOK_ASYNC_INGEST, array( $job ) );
-			self::async_log( $auto_resume ? 'watchdog_auto_resume' : 'watchdog_retry', array( 'job_id' => $job['job_id'], 'source_id' => (int) $row['id'], 'attempt' => $meta['async_attempt'] ) );
+			self::async_log( $auto_resume ? 'watchdog_auto_resume' : 'watchdog_retry', array( 'job_id' => $job['job_id'], 'source_id' => (int) $row['id'], 'attempt' => $meta['async_attempt'], 'resume_mode' => $plan['mode'] ) );
 			self::instance()->spawn_cron();
 		}
 	}
@@ -754,6 +767,118 @@ class BizCity_KG_Scoped_REST_Controller {
 			return false;
 		}
 		return file_exists( self::async_stage_path( $basename ) );
+	}
+
+	/**
+	 * How a failed async upload can be learned again, best evidence first.
+	 *
+	 * The staged temp file is only ONE of three durable traces of the same upload, and
+	 * it is the most fragile: it is unlinked on success, lost when the queue moves the
+	 * job to another node, and swept by hosting cleanup. The other two survive that:
+	 *   - the WP attachment, when the upload produced one (ingest already resolves a
+	 *     file payload from `attachment_id` alone, see materialize_content() 'file');
+	 *   - `content_text`, written to the source row + filestore BEFORE chunk+embed runs
+	 *     (class-twinchat-sources-service.php:257), so every upload that got as far as
+	 *     "Materialize text" can be re-learned with no file at all.
+	 * Only when none of the three is left is the upload truly unrecoverable.
+	 *
+	 * @param array $row  twinchat source row (get_source(), body already rehydrated)
+	 * @param array $meta decoded row metadata
+	 * @return array{mode:string,path:string,attachment_id:int,content:string}
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1.
+	 */
+	public static function async_source_resume_plan( array $row, array $meta ): array {
+		$plan = array( 'mode' => 'none', 'path' => '', 'attachment_id' => 0, 'content' => '' );
+
+		$basename = isset( $meta['async_file'] ) ? (string) $meta['async_file'] : '';
+		if ( $basename !== '' ) {
+			$path = self::async_stage_path( $basename );
+			if ( self::async_source_file_exists( $basename ) && is_readable( $path ) ) {
+				$plan['mode'] = 'file';
+				$plan['path'] = $path;
+				return $plan;
+			}
+		}
+
+		$attachment_id = (int) ( $meta['evidence_attachment_id'] ?? $row['attachment_id'] ?? 0 );
+		if ( $attachment_id > 0 && function_exists( 'get_attached_file' ) ) {
+			$attached = (string) get_attached_file( $attachment_id );
+			if ( $attached !== '' && file_exists( $attached ) ) {
+				$plan['mode']          = 'attachment';
+				$plan['attachment_id'] = $attachment_id;
+				return $plan;
+			}
+		}
+
+		$content = isset( $row['content_text'] ) ? trim( (string) $row['content_text'] ) : '';
+		if ( $content !== '' ) {
+			$plan['mode']    = 'text';
+			$plan['content'] = $content;
+		}
+		return $plan;
+	}
+
+	/**
+	 * True when a failed async source can still be learned again from ANY surviving
+	 * evidence. The learning log uses this for the Retry affordance, so the button is
+	 * offered exactly when pressing it can work.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — replaces the
+	 * staged-file-only check that offered Retry on a dead end and hid it on a
+	 * perfectly recoverable source.
+	 */
+	/**
+	 * Build the ingest payload for one resume mode. 'file' keeps the original shape
+	 * byte for byte; 'attachment' hands ingest the attachment id and NO file key, so
+	 * materialize_content() resolves the local path itself; 'text' skips parsing
+	 * entirely and re-learns the text that was already extracted.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1.
+	 */
+	private static function async_resume_payload( array $row, array $meta, array $plan ): array {
+		$base = array(
+			'type'     => 'file',
+			'title'    => (string) ( $row['title'] ?? '' ),
+			'metadata' => $meta,
+		);
+
+		if ( $plan['mode'] === 'attachment' ) {
+			$base['attachment_id'] = (int) $plan['attachment_id'];
+			return $base;
+		}
+
+		if ( $plan['mode'] === 'text' ) {
+			$base['type']    = 'text';
+			$base['content'] = (string) $plan['content'];
+			return $base;
+		}
+
+		$path = (string) $plan['path'];
+		$base['file'] = array(
+			'name'     => (string) ( $meta['async_original_name'] ?? $meta['async_file'] ?? 'upload.bin' ),
+			'type'     => (string) ( $meta['async_file_type'] ?? '' ),
+			'tmp_name' => $path,
+			'error'    => 0,
+			'size'     => (int) ( $meta['async_file_size'] ?? ( $path !== '' && file_exists( $path ) ? filesize( $path ) : 0 ) ),
+		);
+		return $base;
+	}
+
+	public static function async_source_retryable( int $source_id ): bool {
+		if ( $source_id <= 0 || ! class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			return false;
+		}
+		$row = BizCity_TwinChat_Sources_Database::instance()->get_source( $source_id );
+		if ( ! is_array( $row ) ) {
+			return false;
+		}
+		$meta = ! empty( $row['metadata'] ) ? json_decode( (string) $row['metadata'], true ) : array();
+		$meta = is_array( $meta ) ? $meta : array();
+		if ( empty( $meta['async_file'] ) ) {
+			return false;
+		}
+		return self::async_source_resume_plan( $row, $meta )['mode'] !== 'none';
 	}
 
 	/**
@@ -784,12 +909,18 @@ class BizCity_KG_Scoped_REST_Controller {
 		if ( empty( $meta['async_file'] ) ) {
 			return new WP_Error( 'retry_unsupported', 'Nguồn này không phải upload xử lý nền, không thể thử lại tự động.', array( 'status' => 400 ) );
 		}
-		$path = self::async_stage_path( $meta['async_file'] );
-		if ( ! file_exists( $path ) ) {
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — the staged file is
+		// the FIRST choice, no longer the only one: an upload whose text was already
+		// materialized is learned again from that text (or from its WP attachment),
+		// so losing the staging copy stops being a dead end for the user.
+		$plan = self::async_source_resume_plan( $row, $meta );
+		$path = $plan['path'];
+		if ( $plan['mode'] === 'none' ) {
 			// [2026-07-28 Johnny Chu] HOTFIX — missing staging evidence does not prove that retry exhaustion deleted the original upload.
 			return new WP_Error( 'async_file_missing', 'Không còn bản staging cục bộ để tiếp tục xử lý. File có thể đã mất trong quá trình chuyển hàng đợi hoặc bị hệ thống lưu trữ dọn; hãy tải lại file.', array( 'status' => 410 ) );
 		}
 
+		$meta['async_resume_mode'] = $plan['mode'];
 		$meta['async_attempt']      = 0;
 		$meta['async_state']        = 'queued';
 		$meta['async_heartbeat_at'] = time();
@@ -815,24 +946,13 @@ class BizCity_KG_Scoped_REST_Controller {
 				'scope_type' => 'notebook',
 				'scope_id'   => (int) ( $row['project_id'] ?? 0 ),
 			),
-			'payload'    => array(
-				'type'     => 'file',
-				'title'    => (string) ( $row['title'] ?? '' ),
-				'metadata' => $meta,
-				'file'     => array(
-					'name'     => (string) ( $meta['async_original_name'] ?? $meta['async_file'] ),
-					'type'     => (string) ( $meta['async_file_type'] ?? '' ),
-					'tmp_name' => $path,
-					'error'    => 0,
-					'size'     => (int) ( $meta['async_file_size'] ?? filesize( $path ) ),
-				),
-			),
+			'payload'    => self::async_resume_payload( $row, $meta, $plan ),
 			'user_id'    => (int) ( $row['user_id'] ?? 0 ),
 			'created_at' => time(),
 		);
 		wp_schedule_single_event( time(), self::HOOK_ASYNC_INGEST, array( $job ) );
 		self::instance()->spawn_cron();
-		self::async_log( 'manual_retry', array( 'source_id' => $source_id, 'kg_source_id' => $kg_source_id ) );
+		self::async_log( 'manual_retry', array( 'source_id' => $source_id, 'kg_source_id' => $kg_source_id, 'resume_mode' => $plan['mode'] ) );
 		return true;
 	}
 
@@ -897,9 +1017,18 @@ class BizCity_KG_Scoped_REST_Controller {
 			// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — rebuild the physical staging path after blog switch instead of trusting a serialized path from the enqueue request.
 			$async_meta = isset( $payload['metadata'] ) && is_array( $payload['metadata'] ) ? $payload['metadata'] : array();
 			$staged_basename = isset( $async_meta['async_file'] ) ? sanitize_file_name( (string) $async_meta['async_file'] ) : '';
-			if ( $staged_basename !== '' ) {
+			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — a resume from the
+			// attachment or from already-materialized text carries NO `file` key, and the
+			// staged basename is still in metadata (kept for the log trail). Rebuilding a
+			// path into a non-existent file payload would fabricate a half-formed $file
+			// and crash materialize_content(); the staging path only matters when this
+			// job really is a staged-file job.
+			$staged_job = isset( $payload['file'] ) && is_array( $payload['file'] ) && ! empty( $payload['file'] );
+			if ( $staged_basename !== '' && $staged_job ) {
 				$path = self::async_stage_path( $staged_basename );
 				$payload['file']['tmp_name'] = $path;
+			} elseif ( ! $staged_job ) {
+				$path = '';
 			}
 			$source_id = isset( $payload['metadata']['async_placeholder_source_id'] ) ? (int) $payload['metadata']['async_placeholder_source_id'] : 0;
 			$attempt   = (int) ( $payload['metadata']['async_attempt'] ?? 0 ) + 1;
@@ -913,7 +1042,7 @@ class BizCity_KG_Scoped_REST_Controller {
 				'kg_source_id' => isset( $payload['metadata']['async_placeholder_kg_source_id'] ) ? (int) $payload['metadata']['async_placeholder_kg_source_id'] : 0,
 				'file_size'    => isset( $file['size'] ) ? (int) $file['size'] : 0,
 			) );
-			if ( $path === '' || ! is_readable( $path ) ) {
+			if ( $staged_job && ( $path === '' || ! is_readable( $path ) ) ) {
 				// [2026-07-28 Johnny Chu] AUTOMATION BE-ASYNC — persist a safe discriminator for missing versus unreadable staging without exposing the filesystem path.
 				self::async_log( 'file_check_failed', array(
 					'job_id'       => $job_id,

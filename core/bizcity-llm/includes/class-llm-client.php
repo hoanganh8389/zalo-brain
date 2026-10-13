@@ -61,9 +61,72 @@ class BizCity_LLM_Client {
     /**
      * Connection mode: 'gateway' or 'direct'.
      */
+    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L41 — direct mode only when BIZCITY_LLM_ALLOW_DIRECT === true; else gateway (metered lane) + one warning per day.
     public function get_mode(): string {
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
-        return get_option( 'bizcity_llm_mode', 'gateway' );
+        $mode = get_option( 'bizcity_llm_mode', 'gateway' );
+        if ( $mode === 'direct' && ! ( defined( 'BIZCITY_LLM_ALLOW_DIRECT' ) && BIZCITY_LLM_ALLOW_DIRECT === true ) ) {
+            $this->warn_direct_blocked_once_per_day();
+            return 'gateway';
+        }
+        return (string) $mode;
+    }
+
+    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L41 — one warning per day (transient-guarded).
+    private function warn_direct_blocked_once_per_day(): void {
+        $key = 'bizcity_llm_direct_blocked_warned';
+        if ( get_transient( $key ) ) {
+            return;
+        }
+        set_transient( $key, 1, DAY_IN_SECONDS );
+        error_log( '[BizCity LLM] bizcity_llm_mode=direct ignored: direct mode bypasses the metered gateway. Define BIZCITY_LLM_ALLOW_DIRECT as true to allow it. Using gateway.' );
+    }
+
+    /* ----------------------------------------------------------------
+     *  Caller tag (X-BizCity-Caller)
+     * ---------------------------------------------------------------- */
+
+    /** @var string Scoped default caller set by bizcity_llm_caller(). */
+    private static $scoped_caller = '';
+
+    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — set the scoped default caller; returns the previous one ('' clears).
+    public static function set_scoped_caller( string $tag ): string {
+        $prev = self::$scoped_caller;
+        self::$scoped_caller = self::sanitize_caller( $tag );
+        return $prev;
+    }
+
+    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — lowercase [a-z0-9_.:-], max 64.
+    public static function sanitize_caller( string $tag ): string {
+        $tag = strtolower( trim( $tag ) );
+        $tag = preg_replace( '/[^a-z0-9_.:-]+/', '_', $tag );
+        return substr( (string) $tag, 0, 64 );
+    }
+
+    /**
+     * Resolve the caller tag: explicit option > scoped default > purpose (non-generic) > area default.
+     */
+    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — one caller tag per gateway call.
+    public static function resolve_caller( array $options, string $area ): string {
+        $tag = '';
+        if ( isset( $options['caller'] ) && is_scalar( $options['caller'] ) ) {
+            $tag = self::sanitize_caller( (string) $options['caller'] );
+        }
+        if ( $tag === '' ) {
+            $tag = self::$scoped_caller;
+        }
+        if ( $tag === '' && isset( $options['purpose'] ) && is_scalar( $options['purpose'] ) ) {
+            $p = self::sanitize_caller( (string) $options['purpose'] );
+            if ( $p !== '' && ! in_array( $p, array( 'chat', 'stream', 'vision', 'embedding', 'embeddings', 'rerank', 'image' ), true ) ) {
+                $tag = $p;
+            }
+        }
+        if ( $tag === '' ) {
+            $tag = self::sanitize_caller( $area );
+        }
+        $filtered = apply_filters( 'bizcity_llm_caller', $tag, $options, $area );
+        $filtered = is_scalar( $filtered ) ? self::sanitize_caller( (string) $filtered ) : '';
+        return $filtered !== '' ? $filtered : $tag;
     }
 
     /**
@@ -1093,6 +1156,7 @@ class BizCity_LLM_Client {
             'headers'     => array_merge( [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, 'vision' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'X-Site-URL'    => home_url(),
             ], $this->get_client_domain_headers() ),
             'body' => wp_json_encode( $body ),
@@ -1600,6 +1664,7 @@ class BizCity_LLM_Client {
             'headers'     => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, 'chat' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'X-Site-URL'    => home_url(),
             ],
             'body' => wp_json_encode( $body ),
@@ -2037,6 +2102,7 @@ class BizCity_LLM_Client {
                 'Content-Type: application/json',
                 'Authorization: Bearer ' . $api_key,
                 'X-Site-URL: ' . home_url(),
+                'X-BizCity-Caller: ' . self::resolve_caller( $options, 'chat' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
             ],
             CURLOPT_POSTFIELDS     => wp_json_encode( $body ),
             CURLOPT_RETURNTRANSFER => false,
@@ -2735,6 +2801,7 @@ class BizCity_LLM_Client {
             'headers'     => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, 'rerank' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
             ],
             'body'        => wp_json_encode( $body ),
         ] );
@@ -2743,7 +2810,7 @@ class BizCity_LLM_Client {
             $base['error'] = $response->get_error_message();
             $base['error_code'] = $response->get_error_code();
             $base['http_status'] = 502;
-            $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+            $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank', 'caller' => $options['caller'] ?? '' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
             return $base;
         }
 
@@ -2761,14 +2828,14 @@ class BizCity_LLM_Client {
                 'cached'     => ! empty( $decoded['cached'] ),
                 'http_status'=> $http_status,
             ] );
-            $this->log_usage( $result, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+            $this->log_usage( $result, [ 'service' => 'tools', 'purpose' => 'rerank', 'caller' => $options['caller'] ?? '' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
             return $result;
         }
 
         $base['error'] = is_array( $decoded ) ? (string) ( $decoded['message'] ?? $decoded['error'] ?? 'Rerank failed.' ) : 'Rerank gateway returned invalid JSON.';
         $base['error_code'] = is_array( $decoded ) ? (string) ( $decoded['code'] ?? 'rerank_failed' ) : 'rerank_invalid_response';
         $base['http_status'] = $http_status > 0 ? $http_status : 502;
-        $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
+        $this->log_usage( $base, [ 'service' => 'tools', 'purpose' => 'rerank', 'caller' => $options['caller'] ?? '' ], 'rerank', (string) ( $options['model'] ?? '' ), intval( ( microtime( true ) - $start ) * 1000 ), $_llm_pending_id );
         return $base;
     }
 
@@ -2806,6 +2873,7 @@ class BizCity_LLM_Client {
             'headers'     => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, 'embedding' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
             ],
             'body' => wp_json_encode( [
                 'model' => $model,
@@ -2974,7 +3042,7 @@ class BizCity_LLM_Client {
         $response = wp_remote_get( $this->get_gateway_url() . '/wp-json/bizcity/v1/llm/models', [
             'timeout'     => 15,
             'redirection' => 0,
-            'headers'     => [ 'Authorization' => 'Bearer ' . $api_key ],
+            'headers'     => [ 'Authorization' => 'Bearer ' . $api_key, 'X-BizCity-Caller' => self::resolve_caller( [], 'models' ) ], // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
         ] );
 
         if ( is_wp_error( $response ) ) return [];
@@ -3033,6 +3101,7 @@ class BizCity_LLM_Client {
             'mode'            => $this->get_mode(),
             'flow'            => $options['flow'] ?? '',
             'surface'         => $options['surface'] ?? '',
+            'caller'          => self::resolve_caller( $options, $endpoint === 'stream' ? 'chat' : (string) $endpoint ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — tag per JSONL line
             'channel'         => $options['channel'] ?? '',
             'purpose'         => $options['purpose'] ?? 'chat',
             'endpoint'        => $endpoint,
@@ -3152,6 +3221,7 @@ class BizCity_LLM_Client {
             'headers'     => [
                 'Content-Type'  => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, 'image' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'X-Site-URL'    => home_url(),
             ],
             'body' => wp_json_encode( $body ),
@@ -3294,6 +3364,7 @@ class BizCity_LLM_Client {
             'headers'     => [
                 'Accept'        => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( [], 'gateway' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'X-Site-URL'    => home_url(),
             ],
         ] );
@@ -3337,6 +3408,7 @@ class BizCity_LLM_Client {
                 'Content-Type'  => 'application/json',
                 'Accept'        => 'application/json',
                 'Authorization' => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( [], 'gateway' ), // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'X-Site-URL'    => home_url(),
             ],
             'body' => wp_json_encode( $body ),
@@ -3357,5 +3429,24 @@ class BizCity_LLM_Client {
             return array_merge( [ '_degraded' => true, 'http_code' => $code ], $decoded );
         }
         return $decoded;
+    }
+}
+
+// [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — scoped default caller for a feature area.
+// bizcity_llm_caller( 'twinbrain' ) sets the default tag for every Hub call that does not pass options['caller'];
+// returns the previous tag (pass it back, or '', to restore). bizcity_llm_with_caller( $tag, $fn ) wraps a callable.
+if ( ! function_exists( 'bizcity_llm_caller' ) ) {
+    function bizcity_llm_caller( string $tag ): string {
+        return BizCity_LLM_Client::set_scoped_caller( $tag );
+    }
+}
+if ( ! function_exists( 'bizcity_llm_with_caller' ) ) {
+    function bizcity_llm_with_caller( string $tag, callable $fn ) {
+        $prev = BizCity_LLM_Client::set_scoped_caller( $tag );
+        try {
+            return $fn();
+        } finally {
+            BizCity_LLM_Client::set_scoped_caller( $prev );
+        }
     }
 }

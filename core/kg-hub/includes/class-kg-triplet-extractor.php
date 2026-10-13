@@ -481,6 +481,7 @@ class BizCity_KG_Triplet_Extractor {
 
 		$result = $client->chat( $messages, [
 			'purpose'     => 'extract',
+			'caller'      => 'kg.triplet', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 			'model'       => $model,
 			'temperature' => 0.1,
 			'max_tokens'  => 4096,

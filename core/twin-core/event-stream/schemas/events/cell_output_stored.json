@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: cell_output_stored",
+  "description": "PHASE-0.106 - child of cell_output_created (parent_event_uuid): the site copied the file (image / audio / video only) into the WordPress media library, where the R2 offload gives it a CDN URL. Carries ids only, never a URL or bytes.",
+  "type": "object",
+  "required": ["output_id", "attachment_id"],
+  "properties": {
+    "output_id": { "type": "string", "pattern": "^co_[a-f0-9]{24}$" },
+    "attachment_id": { "type": "integer", "minimum": 1 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "kind": { "enum": ["image", "audio", "video"] }
+  },
+  "additionalProperties": true
+}

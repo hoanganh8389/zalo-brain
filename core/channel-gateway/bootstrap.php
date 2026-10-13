@@ -433,6 +433,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-apify-client.php'   => 'channel.bot.apify_client',
 	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — agent-mode-access@1 (modes the Owner Agent may use for a user); before the REST that reads it.
 	$gateway_dir . 'class-agent-mode-access.php'      => 'channel.agent_mode_access',
+	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W1 (R-NB-11) — every number works as a WP user; step ③ default "tạo tài khoản tự động" lands here.
+	$gateway_dir . 'class-number-work-user.php'       => 'channel.number_work_user',
 	// [2026-10-03 Claude Opus 5.5] PHASE-0.90 S90-Z3 — R-CONTACT-ID: WP user ⇒ Identity Hub person for owner-agent-block@1.4.
 	$gateway_dir . 'class-contact-identity.php'       => 'channel.contact_identity',
 	// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-6/CL-7 — TwinChat + /gpt/ as adapters of the cell's runAgentTurn (flag auto|node|php).
@@ -441,6 +443,8 @@ $_bzc_bot_files = array(
 	// [2026-10-03 Claude Opus 5.5] PHASE-0.89 — MCP bridge of the site's own web channel (data path for a tenant with no Zalo number).
 	$gateway_dir . 'class-twin-web-bridge-rest.php'   => 'channel.twin_web_bridge',
 	$gateway_dir . 'class-twin-web-turn.php'          => 'channel.twin_web_turn',
+	// [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — copies a cell turn's image/audio/video into the media library (R2 offloads it).
+	$gateway_dir . 'class-twin-cell-output-store.php' => 'channel.twin_cell_output_store',
 	// [2026-10-01] PHASE-0.87 CL-2 — astro_self pack (the principal's own chart, read through a filter of the astrology plugin).
 	$gateway_dir . 'class-agent-astro-self-pack.php'  => 'channel.agent_astro_self_pack',
 	$gateway_dir . 'bot/class-bot-rest.php'           => 'channel.bot.rest',
@@ -513,6 +517,112 @@ if ( class_exists( 'BizCity_Guru_Notebook_Blocks' ) ) {
 	BizCity_Guru_Notebook_Blocks::boot(); // [2026-09-27] PHASE-0.81 S81-R4
 }
 
+// [2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L9/L10/L12/L2'/L13 — menu "Sử dụng": the site's copy of its own client
+// ledger (usage-ledger@1 ingest) + usage-view@1 read routes. Partial deploy degrades this module only (R-SAFE-LOADER).
+$_bzc_usage_files = array(
+	$gateway_dir . 'usage/class-usage-schema.php'    => 'channel.usage.schema',
+	$gateway_dir . 'usage/class-usage-prices.php'    => 'channel.usage.prices',
+	$gateway_dir . 'usage/class-usage-ingest.php'    => 'channel.usage.ingest',
+	$gateway_dir . 'usage/class-usage-view-rest.php' => 'channel.usage.view_rest',
+	// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 round 4 (L14–L18): wallet proxy, client plans, site-side enforcement (AI switch + owner notice), Woo Pro, REST.
+	$gateway_dir . 'usage/class-usage-wallet.php'     => 'channel.usage.wallet',
+	$gateway_dir . 'usage/class-usage-plans.php'      => 'channel.usage.plans',
+	$gateway_dir . 'usage/class-usage-plan-enforce.php' => 'channel.usage.plan_enforce',
+	$gateway_dir . 'usage/class-usage-plan-woo.php'   => 'channel.usage.plan_woo',
+	$gateway_dir . 'usage/class-usage-plans-rest.php' => 'channel.usage.plans_rest',
+	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L18.2 — revenue ledger (records a sale AFTER
+	// BizCity_Usage_Plan_Woo::apply() extends the plan; does not own the double-extend lock itself).
+	$gateway_dir . 'usage/class-usage-plan-sales.php' => 'channel.usage.plan_sales',
+	// [2026-10-13 09:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 vòng 2 (20-REVENUE-PER-NUMBER, 24-TECH-DESIGN-REVENUE): sell plans per number — expected end (L20.1),
+	// price floor from the Hub (L21), 1/3/6/12-month price list + hidden Woo products (L17), order for ONE number (L19.1), Zalo link/receipt (L22.1), their REST (L17.1/L19.2/L19.3)
+	// and the revenue report REST (L20.3-5). New files only; the 0.107 plan classes above are not edited beyond one do_action in Plan_Woo::apply().
+	$gateway_dir . 'usage/class-usage-plan-expect.php'      => 'channel.usage.plan_expect',
+	$gateway_dir . 'usage/class-usage-plan-floor.php'       => 'channel.usage.plan_floor',
+	$gateway_dir . 'usage/class-usage-plan-packages.php'    => 'channel.usage.plan_packages',
+	$gateway_dir . 'usage/class-usage-plan-orders.php'      => 'channel.usage.plan_orders',
+	$gateway_dir . 'usage/class-usage-plan-notices.php'     => 'channel.usage.plan_notices',
+	$gateway_dir . 'usage/class-usage-plan-orders-rest.php' => 'channel.usage.plan_orders_rest',
+	$gateway_dir . 'usage/class-usage-revenue-rest.php'     => 'channel.usage.revenue_rest',
+	$gateway_dir . 'usage/class-usage-myplans-endpoint.php' => 'channel.usage.myplans_endpoint', // Woo My Account "Gói Zalo của tôi" (customer screen ⑥)
+	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',         // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
+	$gateway_dir . 'usage/class-brain-standing-rules.php'   => 'channel.brain.standing_rules',   // cap20_customer_only@1 reference (shared fixture with the cell, T108-33)
+);
+foreach ( $_bzc_usage_files as $_bzc_usage_file => $_bzc_usage_label ) {
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzc_usage_file, $_bzc_usage_label );
+	} elseif ( is_file( $_bzc_usage_file ) && is_readable( $_bzc_usage_file ) ) {
+		require_once $_bzc_usage_file;
+	}
+}
+unset( $_bzc_usage_files, $_bzc_usage_file, $_bzc_usage_label );
+if ( class_exists( 'BizCity_Usage_Schema' ) ) {
+	add_action( 'admin_init', array( 'BizCity_Usage_Schema', 'maybe_install' ) );
+}
+if ( class_exists( 'BizCity_Usage_Ingest' ) && class_exists( 'BizCity_Usage_Prices' ) ) {
+	BizCity_Usage_Ingest::init();
+}
+if ( class_exists( 'BizCity_Usage_View_REST' ) && class_exists( 'BizCity_Usage_Ingest' ) ) {
+	BizCity_Usage_View_REST::init();
+}
+if ( class_exists( 'BizCity_Usage_Plans' ) && class_exists( 'BizCity_Usage_Schema' ) ) {
+	BizCity_Usage_Plans::init(); // daily cron + trial start on first login
+}
+if ( class_exists( 'BizCity_Usage_Plan_Woo' ) && class_exists( 'BizCity_Usage_Plans' ) ) {
+	add_action( 'init', array( 'BizCity_Usage_Plan_Woo', 'init' ), 5 ); // WooCommerce is loaded by then; init() is a no-op without it
+}
+if ( class_exists( 'BizCity_Usage_Plan_Sales' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
+	add_action( 'init', array( 'BizCity_Usage_Plan_Sales', 'init' ), 6 ); // after Plan_Woo's own init() (5); WooCommerce guard inside init() itself
+}
+if ( class_exists( 'BizCity_Usage_Plans_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Usage_Plans_REST::init();
+}
+// PHASE-0.108 vòng 2 — each module starts only when everything it calls is present (partial deploy degrades that module only, R-SAFE-LOADER).
+if ( class_exists( 'BizCity_Usage_Plan_Notices' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
+	BizCity_Usage_Plan_Notices::init(); // receipt on bizcity_usage_plan_applied (priority 20, after the revenue ledger)
+}
+if ( class_exists( 'BizCity_Usage_Plan_Orders_REST' ) && class_exists( 'BizCity_Usage_Plan_Orders' ) && class_exists( 'BizCity_Usage_Plan_Packages' )
+	&& class_exists( 'BizCity_Usage_Plan_Floor' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) && class_exists( 'BizCity_Usage_Plans' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Usage_Plan_Orders_REST::init();
+}
+if ( class_exists( 'BizCity_Usage_MyPlans_Endpoint' ) && class_exists( 'BizCity_Usage_Plan_Orders_REST' ) && class_exists( 'BizCity_Usage_Plan_Orders' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
+	add_action( 'init', array( 'BizCity_Usage_MyPlans_Endpoint', 'init' ), 7 ); // WooCommerce is loaded by then; init() is a no-op without it
+}
+if ( class_exists( 'BizCity_Usage_Standing' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Usage_Standing::init();
+}
+if ( class_exists( 'BizCity_Usage_Revenue_REST' ) && class_exists( 'BizCity_Usage_Plan_Sales' ) && class_exists( 'BizCity_Usage_Plan_Expect' )
+	&& class_exists( 'BizCity_Usage_Plans_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Usage_Revenue_REST::init();
+}
+
+// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L1..L6 — menu "Sử dụng" → tab Thành tích: achievements/ROI
+// built entirely from the usage-ledger copy above (D108-2, R-CELL-METER-ONLY). Partial deploy degrades this module
+// only. Q108-1..9 not yet owner-locked — code follows the master plan's suggested defaults (00-MASTER-PLAN.md §6).
+$_bzc_brain_files = array(
+	$gateway_dir . 'usage/class-brain-journey-schema.php'     => 'channel.brain.schema',
+	$gateway_dir . 'usage/class-brain-milestones-catalog.php' => 'channel.brain.milestones_catalog',
+	$gateway_dir . 'usage/class-brain-roi.php'                => 'channel.brain.roi',
+	$gateway_dir . 'usage/class-brain-journey-evaluator.php'  => 'channel.brain.evaluator',
+	$gateway_dir . 'usage/class-brain-journey-rest.php'       => 'channel.brain.journey_rest',
+);
+foreach ( $_bzc_brain_files as $_bzc_brain_file => $_bzc_brain_label ) {
+	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+		BizCity_Safe_Loader::require_file( $_bzc_brain_file, $_bzc_brain_label );
+	} elseif ( is_file( $_bzc_brain_file ) && is_readable( $_bzc_brain_file ) ) {
+		require_once $_bzc_brain_file;
+	}
+}
+unset( $_bzc_brain_files, $_bzc_brain_file, $_bzc_brain_label );
+if ( class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
+	add_action( 'admin_init', array( 'BizCity_Brain_Journey_Schema', 'maybe_install' ) );
+}
+if ( class_exists( 'BizCity_Brain_Journey_Evaluator' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
+	BizCity_Brain_Journey_Evaluator::init();
+}
+if ( class_exists( 'BizCity_Brain_Journey_REST' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
+	BizCity_Brain_Journey_REST::init();
+}
+
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
 require_once $gateway_dir . 'listener/class-listener-bus.php';
 require_once $gateway_dir . 'listener/class-listener-rest.php';
@@ -571,6 +681,8 @@ if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init
 if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
 if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
 if ( class_exists( 'BizCity_Bot_Media_Jobs' ) ) { BizCity_Bot_Media_Jobs::init(); }
+// [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — cell outputs (image/audio/video) → media library; hooks + WP-Cron action.
+if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) ) { BizCity_Twin_Cell_Output_Store::init(); }
 if ( class_exists( 'BizCity_Bot_Schedule' ) ) { BizCity_Bot_Schedule::init(); }
 if ( class_exists( 'BizCity_Bot_Group_Guard' ) ) { BizCity_Bot_Group_Guard::init(); }
 // [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — lets the CRM dispatcher carry the bot's MP3 voice reply.

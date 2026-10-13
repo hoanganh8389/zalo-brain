@@ -257,7 +257,8 @@ final class BizCity_Brain_Profile_Installer {
 		$tp    = (array) ( $p['tool_packs'] ?? array() );
 		$modes = array();
 		$tools = array();
-		foreach ( array( 'owner', 'staff' ) as $role ) {
+		// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — tool_packs.owner is the only audience; staff/guest are rejected by validate().
+		foreach ( array( 'owner' ) as $role ) {
 			foreach ( (array) ( $tp[ $role ] ?? array() ) as $pack_id ) {
 				if ( isset( BizCity_Brain_Profile_Service::PACK_MODE_MAP[ $pack_id ] ) ) {
 					$modes[] = BizCity_Brain_Profile_Service::PACK_MODE_MAP[ $pack_id ];
@@ -283,21 +284,8 @@ final class BizCity_Brain_Profile_Installer {
 			BizCity_MCP_Tool_Policy::enable( array_values( array_unique( $tools ) ) );
 			$created[] = array( 'kind' => 'tool_allowlist', 'tools' => array_values( array_unique( $tools ) ) );
 		}
-		// guest tool_packs ⇒ Guru's customer_tools (only knowledge.*/action.automation per validator).
-		$guest_tools = array();
-		foreach ( (array) ( $tp['guest'] ?? array() ) as $pack_id ) {
-			if ( isset( BizCity_Brain_Profile_Service::PACK_TOOL_MAP[ $pack_id ] ) ) {
-				$guest_tools = array_merge( $guest_tools, BizCity_Brain_Profile_Service::PACK_TOOL_MAP[ $pack_id ] );
-			}
-		}
-		if ( $guest_tools && class_exists( 'BizCity_Bot_Config_Repo' ) ) {
-			$r = BizCity_Bot_Config_Repo::save( $guru_id, array( 'scope' => array( 'customer_tools' => array_values( array_unique( $guest_tools ) ) ) ) );
-			if ( is_wp_error( $r ) ) {
-				$errors[] = array( 'kind' => 'customer_tools', 'why' => $r->get_error_message() );
-			} else {
-				$created[] = array( 'kind' => 'customer_tools', 'tools' => array_values( array_unique( $guest_tools ) ) );
-			}
-		}
+		// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only: the former tool_packs.guest ⇒ Guru customer_tools wiring is gone; a profile never
+		// configures the shopper-facing Guru scope (PHASE-0.95 scope.customer_tools stays owned by the Guru settings).
 	}
 
 	/* ── step: policy.json ⇒ Guru's consult.min_score (I-4 one source) + the per-Guru policy.json store (I-7) ── */
@@ -353,14 +341,13 @@ final class BizCity_Brain_Profile_Installer {
 		$user_id = function_exists( 'get_current_user_id' ) ? get_current_user_id() : 0;
 		$mgr     = BizCity_Scheduler_Manager::instance();
 		$ok      = 0;
-		$awaiting = 0;
 		foreach ( $items as $it ) {
-			$to           = (string) ( $it['to'] ?? 'owner' );
-			$awaiting_thread = 'guest' === $to; // doc 30 §2.3 — guest rows need a tagged thread first; never pushed blind.
+			// [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — every item goes to the owner 1-1 thread; validate() rejects any other `to`.
+			$to           = 'owner';
 			$meta         = array(
 				'profile'      => array( 'id' => (string) ( $p['id'] ?? '' ), 'version' => (string) ( $p['version'] ?? '' ), 'item_id' => (string) ( $it['id'] ?? '' ), 'to' => $to ),
 				'dispatcher'   => 'cell',
-				'cell_state'   => $awaiting_thread ? 'awaiting_thread' : 'ready',
+				'cell_state'   => 'ready',
 			);
 			$row = array(
 				'user_id'    => $user_id,
@@ -368,10 +355,6 @@ final class BizCity_Brain_Profile_Installer {
 				'event_type' => (string) ( $it['kind'] ?? 'message' ),
 				'metadata'   => wp_json_encode( $meta, JSON_UNESCAPED_UNICODE ),
 			);
-			if ( $awaiting_thread ) {
-				++$awaiting;
-				continue; // doc 30: an item with no tagged guest thread yet stays "awaiting_thread", not pushed (S100-L9).
-			}
 			try {
 				$r = $mgr->create_event( $row );
 				if ( is_wp_error( $r ) ) {
@@ -383,8 +366,8 @@ final class BizCity_Brain_Profile_Installer {
 				$errors[] = array( 'kind' => 'schedule', 'item' => $it['id'] ?? '', 'why' => $e->getMessage() );
 			}
 		}
-		if ( $ok || $awaiting ) {
-			$created[] = array( 'kind' => 'schedule', 'count' => $ok, 'awaiting_thread' => $awaiting );
+		if ( $ok ) {
+			$created[] = array( 'kind' => 'schedule', 'count' => $ok );
 		}
 	}
 
@@ -445,7 +428,7 @@ final class BizCity_Brain_Profile_Installer {
 			'audience' => array( 'owner' => 'chủ số' ),
 			'persona'  => array( 'file' => 'persona.md', 'faq' => 'faq.json' ),
 			'policy'   => array( 'file' => 'policy.json' ),
-			'tool_packs' => array( 'owner' => array(), 'staff' => array(), 'guest' => array() ),
+			'tool_packs' => array( 'owner' => array() ), // [2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only
 		);
 		$persona_md = "---\nname: " . (string) ( $g['name'] ?? '' ) . "\n---\n" . (string) ( $g['system_prompt'] ?? '' ) . "\n";
 		$faq        = array();

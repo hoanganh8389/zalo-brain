@@ -1,0 +1,29 @@
+{
+  "$comment": "[2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 — machine form of ZALO-BRAIN-EXTENSION-CONTRACT-v1.md; read by bin/validate-zalo-brain-extension.mjs.",
+  "contract": "zalo-brain-extension@1",
+  "version": "1.1.0",
+  "$changelog": "[2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L7 — 1.1.0 additive: manifest mcp_library/automation_blocks/scenarios/skills; register_from_manifest/register_block/register_scenarios; required_cap|no_standard_cap on register_tool; Automation hooks published.",
+  "$changelog_101": "[2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L2/L4/L5 (doc 30 §2.2–3) — mcp_library loader BizCity_MCP_Library (validates the library, registers through register_tool); validator compares mcp_tools ↔ mcp/tools.json ↔ @mcp markers; adapters for plugins without a manifest.",
+  "mcp_library": { "contract": "bizcity-mcp-library@1.0.0", "file": "mcp/tools.json", "loader": "BizCity_MCP_Library::register( file, handlers, owner )", "rules": ["tools[].name = manifest.mcp_tools (both directions)", "mode required", "write (read_only:false) => confirm always + preview true + required_cap|no_standard_cap", "name <group>.<verb> or <group>.<entity>.<verb>", "every tool has a code marker @mcp bizcity-mcp-standard@1 tool <name>", "handler never calls a model/provider"], "validator": "node bin/validate-zalo-brain-extension.mjs <plugin-dir>", "fixtures": "node bin/validate-zalo-brain-extension-fixtures.mjs" },
+  "adapters": { "dir": "core/mcp/adapters", "contract": "bizcity-mcp-adapter@1.0.0", "class": "BizCity_MCP_Plugin_Adapter", "sources": ["php_callable", "wp_filter", "rest_route"], "owner": "adapter:<slug>", "limits": { "tools_per_adapter": 8, "reads_only": true, "yields_to": "an extension of the same slug that ships mcp_library" } },
+  "registry_class": "BizCity_Zalo_Brain",
+  "entry": "BizCity_Zalo_Brain::register_from_manifest( __DIR__ . '/zalo-brain.json' ) on zalo_brain_register",
+  "doors": {
+    "mcp_tool": { "api": "register_tool", "requires": ["name", "handler", "mode"], "write_requires_one_of": ["required_cap", "no_standard_cap"], "marker": "@mcp bizcity-mcp-standard@1 tool <name>" },
+    "automation_block": { "api": "register_block", "meta_requires": ["effect", "guest_safe", "required_cap"], "hook": "bizcity_automation_register_blocks", "canvas": "BOOT.externalBlocks" },
+    "scenarios": { "api": "register_scenarios", "manifest_key": "scenarios", "shape": "array of {slug, graph|graph_json}", "hook": "bizcity_automation_blueprint_files" }
+  },
+  "standard_caps": ["edit_posts", "publish_posts", "upload_files", "edit_shop_orders", "manage_woocommerce", "bizcity_crm_handle_inbox", "manage_options"],
+  "rest": "GET /wp-json/bizcity/v1/zalo-brain",
+  "lifecycle": { "register_action": "zalo_brain_register@plugins_loaded:5", "extensions_boot": "plugins_loaded:6", "closed_action": "zalo_brain_loaded@plugins_loaded:20" },
+  "surfaces": ["gpt", "gateway", "crm", "twinchat", "scheduler", "flow", "setting"],
+  "manifest": {
+    "file": "zalo-brain.json",
+    "required": ["contract", "id", "name", "version", "requires.zalo-brain", "features"],
+    "optional": ["requires.spine", "surfaces", "tables_changelog", "mcp_tools", "licence", "mcp_library", "automation_blocks", "scenarios", "skills"]
+  },
+  "header": { "Zalo Brain Addon": "<part>", "Network": "false", "legacy_accepted": { "Requires Plugins": "bizcity-twin-ai" }, "note": "[2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L2 — R-ADDON-HOST v1 (PHASE-0.102): host recognised by BIZCITY_TWIN_AI_VERSION under any folder name; Requires Plugins no longer taught, still accepted by bin/validate-zalo-brain-extension.mjs." },
+  "errors": { "framework": "feature_unavailable", "crm_spine": "crm_feature_unavailable", "fields": ["code", "message", "hint", "help_code"] },
+  "hooks": "docs/contracts/ZALO-BRAIN-HOOKS-v1.json",
+  "reference_extensions": ["bizcity-twin-crm", "bizcity-automation"]
+}

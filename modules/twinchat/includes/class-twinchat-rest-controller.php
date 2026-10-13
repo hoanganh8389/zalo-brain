@@ -1691,6 +1691,28 @@ class BizCity_TwinChat_REST_Controller {
 			$status = 'materializing';
 		}
 
+		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-0 — a stale `error` flag
+		// must not outrank measurable completion. An attempt that died after its passages
+		// were written (PHP timeout, watchdog exhaustion) leaves `error` on the row while
+		// the source IS fully learned: every passage extracted, no passage in error, no
+		// triplet left pending. Read-time that showed a red "failed" badge over a 100%
+		// progress bar and offered a Retry that could only ever fail. Heal the two status
+		// surfaces so every other screen agrees too.
+		// Way back: option `bizcity_kg_status_reconcile` = 'off'.
+		$reconciled = false;
+		if ( $status === 'failed'
+			&& $total > 0
+			&& ( $done + $skipped ) >= $total
+			&& (int) $counts['error'] <= 0
+			&& (int) $counts['triplets_pending'] <= 0
+			&& 'off' !== (string) get_option( 'bizcity_kg_status_reconcile', 'auto' )
+		) {
+			$status     = 'done';
+			$progress   = 1.0;
+			$reconciled = true;
+			$this->heal_completed_source_status( $kg_source_id, $legacy_source_id > 0 ? $legacy_source_id : $source_id );
+		}
+
 		// [2026-07-25 Johnny Chu] HOTFIX async-retry — surface the real failure reason + whether a one-click retry is possible.
 		$error_message  = '';
 		// [2026-07-23 Johnny Chu] PHASE-0.47-ASYNC-ERROR-CODE — structured code so FE
@@ -1712,7 +1734,14 @@ class BizCity_TwinChat_REST_Controller {
 					$error_code = self::infer_legacy_async_error_code( $error_message );
 				}
 				if ( is_array( $legacy_meta ) && ! empty( $legacy_meta['async_file'] ) && class_exists( 'BizCity_KG_Scoped_REST_Controller' ) ) {
-					$retryable = BizCity_KG_Scoped_REST_Controller::async_source_file_exists( $legacy_meta['async_file'] );
+					// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-1 — the staged
+					// file is no longer the only way back: an upload whose text was already
+					// materialized (or whose attachment is still in the library) can be
+					// learned again without it. Ask for the full recovery verdict so the
+					// Retry button is offered exactly when pressing it can work.
+					$retryable = BizCity_KG_Scoped_REST_Controller::async_source_retryable(
+						(int) ( $legacy_row['id'] ?? 0 )
+					);
 				}
 			}
 		}
@@ -1761,6 +1790,10 @@ class BizCity_TwinChat_REST_Controller {
 				'error_message'    => $error_message,
 				'error_code'       => $error_code,
 				'retryable'        => $retryable,
+				// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-0 — true when this
+				// read repaired a stale `error` on an already-complete source; it is
+				// evidence for the learning log, not a state the FE has to handle.
+				'reconciled'       => $reconciled,
 				'counts'           => $counts,
 				'job'              => $job,
 				'phases'           => $phases,
@@ -1776,6 +1809,52 @@ class BizCity_TwinChat_REST_Controller {
 				],
 			],
 		] );
+	}
+
+	/**
+	 * Clear a stale failure flag from a source that is demonstrably learned.
+	 *
+	 * Writes exactly what a successful ingest would have written had it reached its
+	 * last line: `active` on the KG mirror, `ready` on the TwinChat row, no error
+	 * message. Scoped by a WHERE on the current value, so it can only ever move a
+	 * row OUT of `error` — never over a genuine `processing`, `duplicate` or a
+	 * failure that a later attempt recorded.
+	 *
+	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 SW-0.
+	 *
+	 * @param int $kg_source_id     bizcity_kg_sources.id (0 when absent)
+	 * @param int $legacy_source_id twinchat/webchat source id (0 when absent)
+	 */
+	private function heal_completed_source_status( $kg_source_id, $legacy_source_id ) {
+		global $wpdb;
+
+		$kg_source_id     = (int) $kg_source_id;
+		$legacy_source_id = (int) $legacy_source_id;
+
+		if ( $kg_source_id > 0 && class_exists( 'BizCity_KG_Database' ) ) {
+			$wpdb->update(
+				BizCity_KG_Database::instance()->tbl_sources(),
+				[ 'status' => 'active', 'updated_at' => current_time( 'mysql', true ) ],
+				[ 'id' => $kg_source_id, 'status' => 'error' ]
+			);
+		}
+
+		if ( $legacy_source_id > 0 && class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			$db  = BizCity_TwinChat_Sources_Database::instance();
+			$row = $db->get_source( $legacy_source_id );
+			if ( is_array( $row ) && 'error' === (string) ( $row['embedding_status'] ?? '' ) ) {
+				$meta = ! empty( $row['metadata'] ) ? json_decode( (string) $row['metadata'], true ) : [];
+				$meta = is_array( $meta ) ? $meta : [];
+				$meta['async_state']          = 'done';
+				$meta['async_reconciled_at']  = time();
+				unset( $meta['async_error'], $meta['async_error_code'] );
+				$db->update_source( $legacy_source_id, [
+					'embedding_status' => 'ready',
+					'error_message'    => null,
+					'metadata'         => $meta,
+				] );
+			}
+		}
 	}
 
 	/**

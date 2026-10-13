@@ -119,6 +119,8 @@ foreach ( array(
 	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
 	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
 	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
+	'class-context-producers.php'                 => 'kg_hub.context_producers', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 — context-producer@1 (after the journal index it writes to)
+	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
 ) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
 	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
 	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
@@ -128,6 +130,37 @@ foreach ( array(
 	}
 }
 unset( $_bizcity_journal_rel, $_bizcity_journal_label, $_bizcity_journal_path );
+// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-T2 — TẠM THỜI, chỉ đọc, chỉ admin: lần chạy live-selfcheck đầu tiên trên production
+// cho thấy feature `context_producer` và route `context-producers` vắng mặt dù 4 tệp đã đưa lên, số route bizcity-knowledge/v2 không đổi giữa
+// hai lần kiểm — tức require ở trên đã im lặng thất bại (file thiếu/không đọc được/throw) hoặc bootstrap.php chạy không tới đây. Route này nói
+// đúng cái nào mà không cần đọc error_log server. Gỡ route này sau khi chẩn đoán xong (ghi lại ở doc 40 S104-T2).
+add_action( 'rest_api_init', static function () {
+	register_rest_route( 'bizcity-knowledge/v2', '/context-producers-diag', array(
+		'methods'             => 'GET',
+		'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		'callback'            => static function () {
+			$out = array(
+				'php_version'       => PHP_VERSION,
+				'kg_hub_includes'   => BIZCITY_KG_HUB_INCLUDES,
+				'bootstrap_reached' => true, // phải thấy true — nếu route này 404 thì bootstrap.php chưa chạy tới dòng này
+			);
+			foreach ( array( 'class-context-producers.php', 'class-context-producer-sources.php' ) as $f ) {
+				$p = BIZCITY_KG_HUB_INCLUDES . $f;
+				$out['files'][ $f ] = array(
+					'exists'   => is_file( $p ),
+					'readable' => is_file( $p ) && is_readable( $p ),
+					'bytes'    => is_file( $p ) ? filesize( $p ) : null,
+					'mtime'    => is_file( $p ) ? gmdate( 'c', (int) filemtime( $p ) ) : null,
+				);
+			}
+			$out['class_BizCity_Context_Producers_loaded']        = class_exists( 'BizCity_Context_Producers', false );
+			$out['class_BizCity_Context_Producer_Sources_loaded'] = class_exists( 'BizCity_Context_Producer_Sources', false );
+			$out['zalo_brain_has_register_context_producer']      = class_exists( 'BizCity_Zalo_Brain' ) && method_exists( 'BizCity_Zalo_Brain', 'register_context_producer' );
+			$out['safe_loader_present']                            = class_exists( 'BizCity_Safe_Loader' );
+			return rest_ensure_response( $out );
+		},
+	) );
+}, 5 );
 if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
 	BizCity_Journal_Doc_Index_Pack_Exporter::register();
 }

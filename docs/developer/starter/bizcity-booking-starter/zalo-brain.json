@@ -1,0 +1,12 @@
+{
+  "contract": "zalo-brain-extension@1",
+  "id": "bizcity-booking-starter",
+  "name": "BizCity Booking Starter",
+  "version": "0.1.0",
+  "requires": { "zalo-brain": ">=1.4.0" },
+  "features": [ "booking_starter" ],
+  "mcp_library": "mcp/tools.json",
+  "mcp_tools": [ "appointment.slots", "appointment.status", "appointment.create", "appointment.reschedule" ],
+  "automation_blocks": [ "appointment.check_slots" ],
+  "scenarios": "scenarios/booking-scenarios.json"
+}

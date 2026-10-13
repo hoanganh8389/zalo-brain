@@ -1,0 +1,97 @@
+{
+  "contract": "bizcity-mcp-library@1.0.0",
+  "owner": "bizcity-booking-starter",
+  "tools": [
+    {
+      "name": "appointment.slots",
+      "title": "Giờ còn trống",
+      "description": "Liệt kê các khung giờ còn trống của một ngày (định dạng YYYY-MM-DD). Chỉ đọc.",
+      "when_to_use": "Khách hỏi còn chỗ không, mai/tuần này rảnh giờ nào.",
+      "input_schema": {
+        "type": "object",
+        "required": ["date"],
+        "properties": { "date": { "type": "string", "description": "Ngày cần xem, YYYY-MM-DD" } }
+      },
+      "mode": "booking",
+      "scopes": ["booking.read"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": true,
+      "audience": ["owner", "staff"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "appointment.status",
+      "title": "Trạng thái lịch hẹn",
+      "description": "Đọc trạng thái một lịch hẹn theo mã (ref). Chỉ đọc.",
+      "when_to_use": "Khách hỏi lịch của tôi sao rồi, đã xác nhận chưa.",
+      "input_schema": {
+        "type": "object",
+        "required": ["ref"],
+        "properties": { "ref": { "type": "string", "description": "Mã lịch hẹn, vd bk_ab12cd34" } }
+      },
+      "mode": "booking",
+      "scopes": ["booking.read"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": true,
+      "audience": ["owner", "staff"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "appointment.create",
+      "title": "Đặt lịch hẹn",
+      "description": "Đặt một lịch hẹn vào khung giờ còn trống. GHI dữ liệu: gọi lần 1 để xem trước, gọi lần 2 kèm confirm_token để thực hiện.",
+      "when_to_use": "Khách đã chọn khung giờ và đồng ý đặt lịch.",
+      "input_schema": {
+        "type": "object",
+        "required": ["slot", "name"],
+        "properties": {
+          "slot": { "type": "string", "description": "Khung giờ, YYYY-MM-DD HH:MM" },
+          "name": { "type": "string", "description": "Tên khách" },
+          "phone": { "type": "string", "description": "Số điện thoại (tuỳ chọn)" },
+          "confirm_token": { "type": "string", "description": "Chỉ điền ở lần gọi thứ hai" }
+        }
+      },
+      "mode": "booking",
+      "scopes": ["booking.write"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": false,
+      "destructive": false,
+      "idempotent": false,
+      "confirm": "always",
+      "preview": true,
+      "required_cap": "edit_posts",
+      "audience": ["owner", "staff"],
+      "since": "0.1.0"
+    },
+    {
+      "name": "appointment.reschedule",
+      "title": "Đổi lịch hẹn",
+      "description": "Dời một lịch hẹn sang khung giờ trống khác. GHI dữ liệu: xem trước rồi xác nhận bằng confirm_token.",
+      "when_to_use": "Khách muốn dời lịch đã đặt sang giờ khác.",
+      "input_schema": {
+        "type": "object",
+        "required": ["ref", "slot"],
+        "properties": {
+          "ref": { "type": "string", "description": "Mã lịch hẹn" },
+          "slot": { "type": "string", "description": "Khung giờ mới, YYYY-MM-DD HH:MM" },
+          "confirm_token": { "type": "string", "description": "Chỉ điền ở lần gọi thứ hai" }
+        }
+      },
+      "mode": "booking",
+      "scopes": ["booking.write"],
+      "roles": ["owner", "staff"],
+      "scope": "tenant",
+      "read_only": false,
+      "destructive": false,
+      "idempotent": false,
+      "confirm": "always",
+      "preview": true,
+      "required_cap": "edit_posts",
+      "audience": ["owner", "staff"],
+      "since": "0.1.0"
+    }
+  ]
+}

@@ -586,6 +586,12 @@ final class BizCity_Guru_Context_Resolver {
 		// built from the Guru's own policy.json (brain profile store, I-7) + an optional per-number override. Deploy AFTER cell
 		// S100-B2 (cell already ignores unknown keys, but this stays off a beat behind the cell to leave a clean rollout trail.
 		$policy = $cid > 0 ? self::policy_block( $cid, $account_id, (int) ( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ) ) : null;
+		// [2026-10-12 09:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 one threshold source (owner-approved 2026-10-12) —
+		// `policy.match.threshold` (policy.json) wins; the legacy scope `consult_min_score` is only the fallback for a Guru with
+		// no policy.json. `consult.min_score` is derived from the same value so the two blocks of one bundle can never disagree.
+		$match_min = is_array( $policy ) && isset( $policy['match']['threshold'] )
+			? self::clean_consult_min_score( $policy['match']['threshold'] )
+			: self::clean_consult_min_score( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] );
 		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 S-1 (peer review) — engine_rules_version must be in the hash: a code deploy that
 		// changes ENGINE_RULES is not a Guru edit, so without this the etag never moves and a cell that cached the old profile gets
 		// 304 forever, never receiving the new C-8 rules until the Guru itself is edited or the cell restarts.
@@ -615,7 +621,7 @@ final class BizCity_Guru_Context_Resolver {
 			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G4 — doctor-style consult rule: on/off + suggestion threshold (40–90).
 			'consult'     => array(
 				'enabled'   => self::clean_consult_enabled( $scope['consult_enabled'] ?? true ),
-				'min_score' => self::clean_consult_min_score( $scope['consult_min_score'] ?? self::SCOPE_DEFAULTS['consult_min_score'] ),
+				'min_score' => $match_min,
 			),
 			// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L4 (INTERFACES I-1) — null when this Guru has no
 			// policy.json yet (a turn runs exactly as before: threshold from `consult`, no per-pack ask gate).

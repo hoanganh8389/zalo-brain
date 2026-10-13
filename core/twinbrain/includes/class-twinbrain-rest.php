@@ -118,6 +118,43 @@ class BizCity_TwinBrain_REST {
 			'callback'            => [ $this, 'handle_turn_stream' ],
 		] );
 
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C1/C9 — Cell Chat: the numbers this user owns / staffs, and the shared thread.
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/cell-chat/numbers', [
+			'methods'             => 'GET',
+			'permission_callback' => [ $this, 'perm_logged_in' ],
+			'callback'            => [ $this, 'handle_cell_chat_numbers' ],
+		] );
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/cell-chat/history', [
+			'methods'             => 'GET',
+			'permission_callback' => [ $this, 'perm_logged_in' ],
+			'args'                => [
+				'account_id' => [ 'type' => 'string', 'required' => false ],
+				'limit'      => [ 'type' => 'integer', 'required' => false, 'default' => 30 ],
+			],
+			'callback'            => [ $this, 'handle_cell_chat_history' ],
+		] );
+		// [2026-10-13 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 v2 S105-M3 — file by link. Used in <img>/<audio>/<a href>: the cookie nonce rides as `_wpnonce`
+		// in the query, which WP core's rest_cookie_check_errors() reads from $_REQUEST (auth is NOT weakened: no nonce ⇒ the user is anonymous ⇒ perm_logged_in fails).
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/cell-chat/media/(?P<media_id>cm_[a-f0-9]{24})', [
+			'methods'             => 'GET',
+			'permission_callback' => [ $this, 'perm_logged_in' ],
+			'args'                => [
+				'account_id' => [ 'type' => 'string', 'required' => false ],
+			],
+			'callback'            => [ $this, 'handle_cell_chat_media' ],
+		] );
+		// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C6 — "Tệp đã tạo": files cell turns made for this user (Canvas + Files tabs)
+		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/outputs', [
+			'methods'             => 'GET',
+			'permission_callback' => [ $this, 'perm_logged_in' ],
+			'args'                => [
+				'session_id' => [ 'type' => 'string', 'required' => false ],
+				'kind'       => [ 'type' => 'string', 'required' => false ],
+				'page'       => [ 'type' => 'integer', 'required' => false, 'default' => 1 ],
+			],
+			'callback'            => [ $this, 'handle_cell_outputs' ],
+		] );
+
 		register_rest_route( BIZCITY_TWINBRAIN_REST_NS, '/tool/confirm', [
 			'methods'             => 'POST',
 			'permission_callback' => [ $this, 'perm_logged_in' ],
@@ -317,6 +354,124 @@ class BizCity_TwinBrain_REST {
 	}
 
 	/**
+	 * [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2/C10 (doc 70 §5) — `cell_chat=1`: the turn goes to the cell as a
+	 * `mirror:"zalo_owner"` envelope (twin-agent-turn@1.5.0) and NEVER to the MPR pipeline (owner decision): any failure is an SSE `error`
+	 * frame with the contract code. The cell owns the thread (memory) and sends no `history`.
+	 * [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C9 (D106-3) — the turn now goes THROUGH the event stream: `cell_chat_run`
+	 * writes the question (`user_message`, the TwinChat session) before sending it; the answer arrives as the cell's turn-complete.
+	 *
+	 * @return bool true when the request was Cell Chat (the stream is closed; the caller must exit)
+	 */
+	private function maybe_cell_chat_turn( WP_REST_Request $req ): bool {
+		$raw = $req->get_param( 'cell_chat' );
+		if ( ! ( 1 === (int) $raw || true === $raw || 'true' === $raw ) ) {
+			return false;
+		}
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) || ! method_exists( 'BizCity_Twin_Web_Turn', 'cell_chat_run' ) ) {
+			echo "event: error\ndata: " . wp_json_encode( [ 'code' => 'hub_route_missing', 'message' => 'Cell Chat chưa sẵn sàng trên website này.', 'hint' => 'Cập nhật plugin rồi thử lại.', 'help_code' => 'S105-CC-SITE-ADAPTER', 'retryable' => false ] ) . "\n\nevent: end\ndata: {}\n\n"; // phpcs:ignore WordPress.Security.EscapeOutput
+			return true;
+		}
+		$sid = trim( (string) $req->get_param( 'session_id' ) );
+		BizCity_Twin_Web_Turn::cell_chat_run( [
+			'user_id'         => get_current_user_id(), // never a body field
+			'session_id'      => $sid,
+			'text'            => trim( (string) $req->get_param( 'prompt' ) ),
+			'account_id'      => self::cell_chat_account( $req->get_param( 'account_id' ) ),
+			'mirror_simulate' => 1 === (int) $req->get_param( 'mirror_simulate' ) || true === $req->get_param( 'mirror_simulate' ),
+			// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-U4 — the quick-create button (validated again in the envelope)
+			'prefer_tool'     => (string) $req->get_param( 'prefer_tool' ),
+			'prefer_label'    => (string) $req->get_param( 'prefer_label' ),
+		] );
+		return true;
+	}
+
+	/** Digits of a number's account id; '' for the web home (`web-<key>` or empty) - the site derives its own web account. */
+	private static function cell_chat_account( $raw ): string {
+		$raw = trim( (string) $raw );
+		return 0 === strpos( $raw, 'web-' ) ? '' : (string) preg_replace( '/[^0-9]/', '', $raw );
+	}
+
+	/** GET /cell-chat/numbers → {items:[{account_id,label,role,linked,cell_chat}], web_home, setup:{step1..step4}} (no phone, hash or UID). */
+	public function handle_cell_chat_numbers( WP_REST_Request $req ) {
+		unset( $req );
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) || ! method_exists( 'BizCity_Twin_Web_Turn', 'owned_numbers' ) ) {
+			return $this->err( 'twinbrain_cell_chat_unavailable', 'Cell Chat chưa sẵn sàng trên website này.', 503, [], null, true );
+		}
+		$uid = get_current_user_id();
+		return rest_ensure_response( [
+			'items'    => BizCity_Twin_Web_Turn::owned_numbers( $uid ),
+			'web_home' => null !== BizCity_Twin_Web_Turn::web_home_member( $uid ),
+			'setup'    => BizCity_Twin_Web_Turn::setup_flags(),
+		] );
+	}
+
+	/** GET /cell-chat/history?account_id=&limit= → the caller's own shared thread via the Hub (user_hash is server-side only). */
+	public function handle_cell_chat_history( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) || ! method_exists( 'BizCity_Twin_Web_Turn', 'cell_chat_history' ) ) {
+			return $this->err( 'twinbrain_cell_chat_unavailable', 'Cell Chat chưa sẵn sàng trên website này.', 503, [], null, true );
+		}
+		$r = BizCity_Twin_Web_Turn::cell_chat_history(
+			get_current_user_id(),
+			self::cell_chat_account( $req->get_param( 'account_id' ) ),
+			(int) ( $req->get_param( 'limit' ) ?: 30 ),
+			(string) $req->get_param( 'session_id' ) // PHASE-0.106 S106-U2
+		);
+		return new WP_REST_Response( $r['body'], $r['status'] );
+	}
+
+	/** GET /outputs?session_id=&kind=&page= → {items, total, page} of the caller's own cell outputs (PHASE-0.106 S106-C6). */
+	public function handle_cell_outputs( WP_REST_Request $req ) {
+		// [2026-10-13 02:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 — say WHICH half is missing (a partial deploy is the usual cause): the sessions manager file is older than this REST file
+		if ( ! class_exists( 'BizCity_TwinBrain_Sessions_Manager' ) ) {
+			return $this->err( 'twinbrain_outputs_unavailable', 'Danh sách tệp chưa sẵn sàng trên website này (thiếu class Sessions_Manager).', 503, [], null, true );
+		}
+		if ( ! method_exists( 'BizCity_TwinBrain_Sessions_Manager', 'list_cell_outputs' ) ) {
+			return $this->err( 'twinbrain_outputs_unavailable', 'Danh sách tệp chưa sẵn sàng trên website này (class-twinbrain-sessions-manager.php trên website là bản cũ, chưa có list_cell_outputs).', 503, [], null, true );
+		}
+		$page = max( 1, (int) ( $req->get_param( 'page' ) ?: 1 ) );
+		$r    = BizCity_TwinBrain_Sessions_Manager::instance()->list_cell_outputs(
+			get_current_user_id(),
+			(string) $req->get_param( 'session_id' ),
+			(string) $req->get_param( 'kind' ),
+			$page
+		);
+		// [2026-10-13 03:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — administrators only: why a file is still `pending` (class loaded? WP-Cron off? pulls waiting? last error?)
+		// and `pull_now=1` runs the waiting pulls right away (a host without a working WP-Cron never does).
+		$extra = [];
+		// self-heal: media rows still `pending` are queued for the copy again (does not rely on the turn-complete hook having fired)
+		if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) ) {
+			BizCity_Twin_Cell_Output_Store::reconcile( (array) ( $r['items'] ?? [] ), get_current_user_id() );
+		}
+		if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) && current_user_can( 'manage_options' ) ) {
+			if ( 1 === (int) $req->get_param( 'pull_now' ) ) {
+				$extra['pulled'] = BizCity_Twin_Cell_Output_Store::run_pending();
+				$r = BizCity_TwinBrain_Sessions_Manager::instance()->list_cell_outputs( get_current_user_id(), (string) $req->get_param( 'session_id' ), (string) $req->get_param( 'kind' ), $page );
+			}
+			$extra['diag'] = BizCity_Twin_Cell_Output_Store::diagnostics();
+		} elseif ( current_user_can( 'manage_options' ) ) {
+			$extra['diag'] = [ 'loaded' => false ];
+		}
+		return rest_ensure_response( $r + [ 'page' => $page ] + $extra );
+	}
+
+	/** GET /cell-chat/media/<id>?account_id= → the bytes of one cell file (Range ok), streamed via the Hub; user_hash is server-side only. */
+	public function handle_cell_chat_media( WP_REST_Request $req ) {
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) || ! method_exists( 'BizCity_Twin_Web_Turn', 'cell_chat_media' ) ) {
+			return $this->err( 'twinbrain_cell_chat_unavailable', 'Cell Chat chưa sẵn sàng trên website này.', 503, [], null, true );
+		}
+		$r = BizCity_Twin_Web_Turn::cell_chat_media(
+			get_current_user_id(),
+			self::cell_chat_account( $req->get_param( 'account_id' ) ),
+			(string) $req->get_param( 'media_id' ),
+			(string) $req->get_header( 'range' )
+		);
+		if ( ! empty( $r['streamed'] ) ) {
+			exit; // bytes already written; WP must not append a JSON response
+		}
+		return new WP_REST_Response( $r['body'], $r['status'] );
+	}
+
+	/**
 	 * Last turns of an Ask Brain session as chat history (oldest first); [] when the session is new or unreadable. The cell keeps
 	 * its own window; this only seeds it for sessions that started on the legacy path.
 	 *
@@ -439,6 +594,10 @@ class BizCity_TwinBrain_REST {
 	 * event-stream replay (`GET /turn/{trace_id}`).
 	 */
 	public function handle_turn_stream( WP_REST_Request $req ) {
+		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2/C10 — Cell Chat never reaches the MPR code below.
+		if ( $this->maybe_cell_chat_turn( $req ) ) {
+			exit; // SSE (answer or error frame) already written
+		}
 		$prompt = trim( (string) $req->get_param( 'prompt' ) );
 		if ( $prompt === '' ) {
 			return $this->err_validation( 'twinbrain_empty_prompt', 'Prompt bắt buộc không được để trống.' );

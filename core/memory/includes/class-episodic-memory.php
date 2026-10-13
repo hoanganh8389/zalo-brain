@@ -503,6 +503,7 @@ PROMPT;
             [ [ 'role' => 'user', 'content' => $prompt ] ],
             [
                 'purpose'     => 'fast',
+                'caller'      => 'memory.episodic', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
                 'temperature' => 0.3,
                 'max_tokens'  => 400,
             ]

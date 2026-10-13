@@ -235,6 +235,7 @@ class BizCity_TwinBrain_Final_Composer {
 			$messages,
 			[
 				'purpose'     => $llm_purpose,
+				'caller'      => 'twinbrain.composer', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 				'flow'        => $usage_flow,
 				'surface'     => $req_surface,
 				'channel'     => $usage_channel,

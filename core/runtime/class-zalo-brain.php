@@ -37,7 +37,7 @@ final class BizCity_Zalo_Brain {
 	// manifest keys mcp_library / scenarios / automation_blocks read, tools_by_owner in describe(). 1.0 callers unchanged.
 	const VERSION  = '1.1.0';
 	/** Manifest keys 1.1 reads beyond 1.0 (all optional). */
-	const MANIFEST_KEYS_11 = array( 'mcp_library', 'scenarios', 'automation_blocks', 'skills' );
+	const MANIFEST_KEYS_11 = array( 'mcp_library', 'scenarios', 'automation_blocks', 'skills', 'context_producers' ); // + context_producers: PHASE-0.104 S104-C1
 
 	/** The seven surfaces of Zalo Brain (doc 50 §3). Owner = code that renders it; requires = feature or plugin. */
 	const CORE_SURFACES = array(
@@ -145,6 +145,12 @@ final class BizCity_Zalo_Brain {
 		if ( '' !== $dir && ! empty( $manifest['scenarios'] ) && is_string( $manifest['scenarios'] ) ) {
 			self::register_scenarios( $dir . '/' . ltrim( str_replace( '\\', '/', $manifest['scenarios'] ), '/' ), $id );
 		}
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 (R-ZBF-4) — manifest `context_producers[]`: {id, label, metrics, roles, kind?, icon?}.
+		foreach ( (array) ( $manifest['context_producers'] ?? array() ) as $p ) {
+			if ( is_array( $p ) && ! empty( $p['id'] ) ) {
+				self::register_context_producer( (string) $p['id'], $p + array( 'owner' => $id ) );
+			}
+		}
 		return true;
 	}
 
@@ -152,8 +158,14 @@ final class BizCity_Zalo_Brain {
 	 * [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — the one-line way in for an extension:
 	 *   add_action( 'zalo_brain_register', fn() => BizCity_Zalo_Brain::register_from_manifest( __DIR__ . '/zalo-brain.json' ) );
 	 * Reads the manifest, remembers the plugin dir (so `scenarios` resolves) and registers. Returns the decoded manifest or null.
+	 *
+	 * [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-L1 — the ONE standard hook for a new MCP plugin: pass the tool handlers and the
+	 * manifest's `mcp_library` (bizcity-mcp-library@1) is registered too, owned by the manifest id — no second BizCity_MCP_Library::register()
+	 * call. `$handlers` = tool name => callable | {handler, preview} (same shape as BizCity_MCP_Library::register). Without `$handlers` nothing
+	 * changes (1.0/1.1 callers). The names really registered come back in the manifest as `_mcp_registered`.
+	 *   add_action( 'zalo_brain_register', fn() => BizCity_Zalo_Brain::register_from_manifest( __DIR__ . '/zalo-brain.json', My_Tools::handlers() ) );
 	 */
-	public static function register_from_manifest( string $file ): ?array {
+	public static function register_from_manifest( string $file, array $handlers = array() ): ?array {
 		if ( '' === $file || ! is_readable( $file ) ) {
 			return null;
 		}
@@ -169,7 +181,15 @@ final class BizCity_Zalo_Brain {
 				error_log( '[zalo-brain] manifest id "' . (string) ( $m['id'] ?? '' ) . '" differs from folder "' . basename( $m['_dir'] ) . '"' );
 			}
 		}
-		return self::register_extension( $m ) ? $m : null;
+		if ( ! self::register_extension( $m ) ) {
+			return null;
+		}
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-L1 — one hook: the library rides on the manifest when handlers are given.
+		$lib = isset( $m['mcp_library'] ) && is_string( $m['mcp_library'] ) ? ltrim( str_replace( '\\', '/', $m['mcp_library'] ), '/' ) : '';
+		if ( array() !== $handlers && '' !== $lib && false === strpos( $lib, '..' ) && class_exists( 'BizCity_MCP_Library' ) ) {
+			$m['_mcp_registered'] = BizCity_MCP_Library::register( $m['_dir'] . '/' . $lib, $handlers, sanitize_key( (string) $m['id'] ) );
+		}
+		return $m;
 	}
 
 	/**
@@ -215,6 +235,18 @@ final class BizCity_Zalo_Brain {
 		}
 		self::$scenarios[ $file ] = $owner;
 		return true;
+	}
+
+	/**
+	 * [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 — the fourth door (R-ZBF-4, `context-producer@1`): a data source with its own
+	 * TwinChat workspace and one notebook per day. Then `do_action( 'bizcity_context_emit', $id, $record )` per event.
+	 * $def: label, metrics {key: label}, roles ['owner','staff'], kind (journal kind), icon, text_cap. False when closed or KG Hub is absent.
+	 */
+	public static function register_context_producer( string $id, array $def ): bool {
+		if ( self::closed( 'register_context_producer' ) || ! class_exists( 'BizCity_Context_Producers' ) ) {
+			return false;
+		}
+		return true === BizCity_Context_Producers::register( $id, $def );
 	}
 
 	/** @return array<string,string> block id => owner (extensions only) */

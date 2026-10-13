@@ -679,6 +679,12 @@ class BizCity_Twin_Event_Bus {
 				?: (int) ( microtime( true ) * 1000 ) ),
 		] );
 
+		// [2026-10-13 01:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L11 — carry the number axis (turn-complete) to the store columns.
+		foreach ( array( 'account_id', 'actor_role' ) as $axis_key ) {
+			if ( isset( $event[ $axis_key ] ) && '' !== (string) $event[ $axis_key ] ) {
+				$envelope[ $axis_key ] = (string) $event[ $axis_key ];
+			}
+		}
 		$id = BizCity_Twin_Event_Store::persist( $envelope );
 		if ( $id === 0 ) {
 			// Existing row was inserted between exists() check and persist() — fine.

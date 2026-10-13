@@ -329,6 +329,91 @@ final class BizCity_Automation_Action_MCP_Service {
 			'fallback_pack'  => null,
 			'since'          => '0.91.1',
 		) );
+
+		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-B5 (R-ZBF-2, owner Q104-5) — the harness and the free-form test tab SEE the
+		// action blocks (built-in + plugin, with owner and effect) so they can suggest "this is block X — make a scenario". Read-only: it runs
+		// nothing; work still runs only through an enabled scenario (automation.run_scenario, which the harness may not call).
+		// @mcp bizcity-mcp-standard@1 tool automation.list_blocks
+		self::reg( 'automation.list_blocks', array(
+			'title'          => 'Danh sách khối hành động',
+			'description'    => 'Liệt kê các khối hành động Automation (có sẵn và do plugin đăng ký): mã khối, tên, plugin sở hữu, hiệu ứng (chỉ đọc / có ghi), khách dùng được hay không. Chỉ để GỢI Ý kịch bản — không chạy khối nào.',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
+				'q'      => array( 'type' => 'string', 'maxLength' => 80 ),
+				'source' => array( 'type' => 'string', 'enum' => array( 'all', 'plugin', 'builtin' ), 'default' => 'all' ),
+			) ),
+			'output_schema'  => BizCity_MCP_Tool_Registry::envelope_schema( array(
+				'blocks' => array( 'type' => 'array' ),
+				'total'  => array( 'type' => 'integer' ),
+			) ),
+			'read_only'      => true,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'open_world'     => false,
+			'required_scope' => 'automation.run',
+			'handler'        => array( __CLASS__, 'list_blocks' ),
+			'mode'           => 'automation',
+			'scopes'         => array( 'automation.run' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'automation_list_blocks',
+			'fallback_pack'  => null,
+			'since'          => '0.104.0',
+		) );
+	}
+
+	/** Max blocks returned by automation.list_blocks. */
+	const BLOCKS_MAX = 60;
+
+	/**
+	 * [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-B5 — automation.list_blocks: action blocks of the registry, plugin ones first.
+	 * Customers see only read-only, guest-safe blocks. Nothing here can execute a block.
+	 */
+	public static function list_blocks( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Automation_Block_Registry' ) ) {
+			return array( 'blocks' => array(), 'total' => 0, 'note' => 'automation_unavailable' );
+		}
+		$registry = BizCity_Automation_Block_Registry::instance();
+		$q        = function_exists( 'mb_strtolower' ) ? mb_strtolower( trim( (string) ( $args['q'] ?? '' ) ), 'UTF-8' ) : strtolower( trim( (string) ( $args['q'] ?? '' ) ) );
+		$want     = in_array( (string) ( $args['source'] ?? 'all' ), array( 'plugin', 'builtin' ), true ) ? (string) $args['source'] : 'all';
+		$customer = 'customer' === (string) ( $ctx['role'] ?? '' );
+		$out      = array();
+		foreach ( $registry->all() as $id => $block ) {
+			if ( 'action' !== (string) $block->kind() || in_array( $id, array( 'action.return_to_cell' ), true ) ) {
+				continue;
+			}
+			$source = method_exists( $registry, 'source' ) ? $registry->source( (string) $id ) : 'builtin';
+			if ( 'all' !== $want && $want !== $source ) {
+				continue;
+			}
+			$meta = (array) $block->meta();
+			$fw   = method_exists( $block, 'block_meta' ) ? (array) $block->block_meta() : array();
+			$effect = class_exists( 'BizCity_Automation_Cell_Scenario' ) && method_exists( 'BizCity_Automation_Cell_Scenario', 'effect_of_block' )
+				? BizCity_Automation_Cell_Scenario::effect_of_block( (string) $id ) : (string) ( $fw['effect'] ?? '' );
+			$effect = '' !== $effect ? $effect : (string) ( $fw['effect'] ?? 'unknown' );
+			$guest  = ! empty( $fw['guest_safe'] );
+			if ( $customer && ( ! $guest || 'read' !== $effect ) ) {
+				continue;
+			}
+			$label = (string) ( $meta['label'] ?? $id );
+			if ( '' !== $q ) {
+				$hay = function_exists( 'mb_strtolower' ) ? mb_strtolower( $id . ' ' . $label . ' ' . (string) ( $meta['short'] ?? '' ), 'UTF-8' ) : strtolower( $id . ' ' . $label );
+				if ( false === strpos( $hay, $q ) ) {
+					continue;
+				}
+			}
+			$out[] = array(
+				'id'         => (string) $id,
+				'label'      => $label,
+				'source'     => $source,
+				'owner'      => method_exists( $registry, 'owner' ) ? $registry->owner( (string) $id ) : '',
+				'effect'     => $effect,
+				'read_only'  => 'read' === $effect,
+				'guest_safe' => $guest,
+			);
+		}
+		usort( $out, static function ( $a, $b ) {
+			return strcmp( 'plugin' === $a['source'] ? '0' : '1', 'plugin' === $b['source'] ? '0' : '1' ) ?: strcmp( $a['label'], $b['label'] );
+		} );
+		return array( 'blocks' => array_slice( $out, 0, self::BLOCKS_MAX ), 'total' => count( $out ) );
 	}
 
 	/* ── automation.run_scenario / automation.list_scenarios (PHASE-0.91 AX-1) ─────────────────────────────── */

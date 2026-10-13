@@ -46,6 +46,18 @@ export default {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
+      // Floating "still working" badge (TwinChatAddSourceDialog minimize) — a
+      // small jiggle so a corner widget with no progress bar still reads as alive.
+      keyframes: {
+        'float-jiggle': {
+          '0%, 100%': { transform: 'translateX(0) rotate(0deg)' },
+          '25%':      { transform: 'translateX(-1px) rotate(-1.5deg)' },
+          '75%':      { transform: 'translateX(1px) rotate(1.5deg)' },
+        },
+      },
+      animation: {
+        'float-jiggle': 'float-jiggle 0.6s ease-in-out infinite',
+      },
     },
   },
   plugins: [],

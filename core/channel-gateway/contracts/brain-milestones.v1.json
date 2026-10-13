@@ -1,0 +1,126 @@
+{
+  "contract": "brain-milestones@1",
+  "catalog_version": "2026-10-13.1",
+  "note": "PHASE-0.108 D108-3 — thresholds here are PROPOSALS per master plan §3.3 (Q108-1/Q108-5 not yet locked by owner). A row already written to bizcity_brain_journey keeps the catalog_version it was evaluated under even if this file changes later.",
+  "rules": {
+    "actor_role_for_value_metrics": "customer",
+    "customer_reply_daily_cap_per_contact": 20,
+    "active_window_days": 7,
+    "comment": "R-BRAIN-JOURNEY luật 3: chỉ actor_role=customer, tối đa 20 lượt/khách/ngày được cộng vào mốc khối lượng."
+  },
+  "groups": [
+    {
+      "code": "born",
+      "icon": "🌱",
+      "label": "Ra đời",
+      "metric": "born",
+      "tiers": [
+        { "tier": "bronze", "threshold": 1, "label": "Quét QR xong" },
+        { "tier": "silver", "threshold": 1, "label": "Lời chào đầu tiên cho khách thật", "event_code": "first_reply" }
+      ]
+    },
+    {
+      "code": "replies",
+      "icon": "💬",
+      "label": "Trả lời",
+      "metric": "customer_replies",
+      "tiers": [
+        { "tier": "bronze", "threshold": 100 },
+        { "tier": "silver", "threshold": 1000 },
+        { "tier": "gold", "threshold": 10000 },
+        { "tier": "diamond", "threshold": 100000 }
+      ]
+    },
+    {
+      "code": "customers",
+      "icon": "🧑‍🤝‍🧑",
+      "label": "Phục vụ",
+      "metric": "distinct_customers",
+      "tiers": [
+        { "tier": "bronze", "threshold": 10 },
+        { "tier": "silver", "threshold": 100 },
+        { "tier": "gold", "threshold": 1000 },
+        { "tier": "diamond", "threshold": 10000 }
+      ]
+    },
+    {
+      "code": "groups",
+      "icon": "👥",
+      "label": "Nhóm",
+      "metric": "distinct_groups",
+      "requires": "thread_kind",
+      "enabled": false,
+      "comment": "Chờ Q108-2 (cell gửi thread_kind). Evaluator bỏ qua nhóm này khi enabled=false.",
+      "tiers": [
+        { "tier": "bronze", "threshold": 1 },
+        { "tier": "silver", "threshold": 10 },
+        { "tier": "gold", "threshold": 50 },
+        { "tier": "diamond", "threshold": 200 }
+      ]
+    },
+    {
+      "code": "tasks",
+      "icon": "✅",
+      "label": "Giải quyết việc",
+      "metric": "tasks_done",
+      "tiers": [
+        { "tier": "bronze", "threshold": 10 },
+        { "tier": "silver", "threshold": 100 },
+        { "tier": "gold", "threshold": 1000 },
+        { "tier": "diamond", "threshold": 10000 }
+      ]
+    },
+    {
+      "code": "trained",
+      "icon": "📚",
+      "label": "Được dạy",
+      "metric": "trained_items",
+      "tiers": [
+        { "tier": "bronze", "threshold": 10 },
+        { "tier": "silver", "threshold": 50 },
+        { "tier": "gold", "threshold": 200 },
+        { "tier": "diamond", "threshold": 1000 }
+      ]
+    },
+    {
+      "code": "streak",
+      "icon": "🔥",
+      "label": "Bền bỉ",
+      "metric": "streak_days",
+      "tiers": [
+        { "tier": "bronze", "threshold": 7 },
+        { "tier": "silver", "threshold": 30 },
+        { "tier": "gold", "threshold": 100 },
+        { "tier": "diamond", "threshold": 365 }
+      ]
+    },
+    {
+      "code": "payback",
+      "icon": "💰",
+      "label": "Tự trả lương",
+      "metric": "payback_streak_months",
+      "tiers": [
+        { "tier": "bronze", "threshold": 1, "label": "Tháng đầu thu ≥ chi" },
+        { "tier": "silver", "threshold": 3, "label": "3 tháng liền" },
+        { "tier": "gold", "threshold": 12, "label": "12 tháng liền" }
+      ]
+    },
+    {
+      "code": "savings",
+      "icon": "🍃",
+      "label": "Tiết kiệm",
+      "metric": "cost_per_customer_drop_pct",
+      "tiers": [
+        { "tier": "bronze", "threshold": 30, "label": "Chi / khách giảm 30% so với tháng đầu" }
+      ]
+    }
+  ],
+  "owner_tiers": [
+    { "level": 1, "code": "sower",      "label": "Người gieo",          "condition": "brains_born >= 1" },
+    { "level": 2, "code": "nurturer",    "label": "Người nuôi",          "condition": "max_brain_replies >= 1000" },
+    { "level": 3, "code": "trainer",     "label": "Huấn luyện viên",     "condition": "brains_active >= 2 && max_brain_trained_items >= 50" },
+    { "level": 4, "code": "supervisor",  "label": "Quản đốc",            "condition": "brains_active >= 10 && total_replies >= 10000" },
+    { "level": 5, "code": "master",      "label": "Master Zalo Brain",   "condition": "brains_active >= 30 && payback_3mo_brains >= 3" },
+    { "level": 6, "code": "grandmaster", "label": "Grandmaster",         "condition": "brains_active >= 100 && diamond_tier_brains >= 10" }
+  ]
+}

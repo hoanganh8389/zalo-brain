@@ -81,6 +81,7 @@ class BizCity_KG_Reranker {
 			[ 'role' => 'user',   'content' => $prompt ],
 		], [
 			'purpose'     => 'rerank',
+			'caller'      => 'kg.rerank', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 			'model'       => $model,
 			'temperature' => 0.0,
 			'max_tokens'  => 200,

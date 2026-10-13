@@ -1405,6 +1405,12 @@ final class BizCity_Bot_Turn_Runner {
 			}
 			return array( 'success' => true, 'message' => is_object( $dto ) ? (string) $dto->text : '', 'error' => '' );
 		}
+		// [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
+		if ( function_exists( 'bizcity_llm_with_caller' ) ) {
+			return bizcity_llm_with_caller( 'bot.turn', static function () use ( $character, $messages ) {
+				return BizCity_LLM_Client::instance()->chat_with_character( $character, $messages );
+			} );
+		}
 		return BizCity_LLM_Client::instance()->chat_with_character( $character, $messages );
 	}
 

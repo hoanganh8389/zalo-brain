@@ -64,6 +64,7 @@ class BizCity_TwinBrain_Synthesizer {
 
 		$result = $client->chat( $messages, [
 			'purpose'     => self::SYNTH_PURPOSE,
+			'caller'      => 'twinbrain.synth', // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L40 — caller tag
 			'model'       => $model,
 			'temperature' => self::SYNTH_TEMPERATURE,
 			'max_tokens'  => ! empty( $opts['guru_id'] ) ? self::MAX_TOKENS_GURU : self::MAX_TOKENS,

@@ -630,11 +630,19 @@ class BizCity_Facebook_OAuth {
 			update_option( 'fb_pages_connected', $pages_clean );
 		}
 
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L29 — the owner just PROVED they can manage these pages (Facebook handed us their page tokens): the target blog adopts them on its OWN next request, not here.
+		update_option( 'bizcity_fb_adopt_pending', array_values( array_filter( array_map( static function ( $p ) { return (string) ( $p['id'] ?? '' ); }, (array) $pages_clean ) ) ), true );
+
 		restore_current_blog();
 
-		// Register all pages in global route table
+		// Register all pages in global route table.
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L29 — a successful login IS the proof of ownership: the page goes to the blog the owner just logged in from (last proven owner wins), and every move leaves a trace.
 		if ( class_exists( 'BizCity_Facebook_Central_Webhook' ) ) {
 			foreach ( $pages_clean as $page ) {
+				$before = class_exists( 'BizCity_FB_Cell_Direct' ) ? BizCity_FB_Cell_Direct::route_owner_blog( (string) $page['id'] ) : 0;
+				if ( $before > 0 && $before !== (int) $blog_id && function_exists( 'error_log' ) ) {
+					error_log( sprintf( '[BizCity FB Route] OAUTH-MOVE page=%s from_blog=%d to_blog=%d by_user=%d', $page['id'], $before, (int) $blog_id, (int) $user_id ) );
+				}
 				BizCity_Facebook_Central_Webhook::register_route(
 					$page['id'],
 					$blog_id,
@@ -643,6 +651,10 @@ class BizCity_Facebook_OAuth {
 				);
 			}
 		}
+
+		// [2026-10-14 09:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L16 — new page tokens were just saved: a page the CELL answers must get the new token (the old one is dead).
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L29: fired AFTER the route registration - before it, the route still pointed at the old blog and nothing could be adopted for this one.
+		do_action( 'bizcity_fb_pages_saved', array_values( array_filter( array_map( static function ( $p ) { return (string) ( $p['id'] ?? '' ); }, (array) $pages_clean ) ) ) );
 
 		// Redirect back to subsite with success
 		if ( $app_source === 'user' ) {

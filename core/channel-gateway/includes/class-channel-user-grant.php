@@ -22,6 +22,18 @@ final class BizCity_Channel_User_Grant {
 	const VERSION  = '1.0';
 	const META_PREFIX = '_bizcity_chgrant_v1_';
 	const MAX_USERS_PER_ACCOUNT = 4;
+	/**
+	 * [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 (doc 30 §3.3): the 4 risk levels. A grant carries its permissions as before; the level is DERIVED from them (one vocabulary for
+	 * the screen, the cell snapshot and the executors) — nothing stored twice, so an old grant needs no migration.
+	 */
+	const LEVELS = array( 'R0', 'R1', 'R2', 'R3' );
+	const LEVEL_PERMISSIONS = array(
+		'R0' => array( 'view_connection', 'view_conversations' ),
+		'R1' => array( 'view_connection', 'view_conversations', 'view_context' ),
+		'R2' => array( 'view_connection', 'view_conversations', 'view_context', 'reply', 'publish' ),
+		// transfer_primary stays with the PRIMARY: a delegate at R3 may manage grants, never hand the account over
+		'R3' => array( 'view_connection', 'view_conversations', 'view_context', 'reply', 'publish', 'manage_grants' ),
+	);
 	/** PHASE-0.50 UID-02 — site-level cap on Zalo Personal numbers one user may own (0 = unlimited). */
 	const OPTION_PERSONAL_QUOTA = 'bizcity_channel_personal_accounts_per_user';
 	const MAX_PERSONAL_QUOTA    = 50;
@@ -257,7 +269,7 @@ final class BizCity_Channel_User_Grant {
 				$active_count++;
 			}
 		}
-		if ( $active_count >= self::MAX_USERS_PER_ACCOUNT && ! self::authorize( $channel, $account_id, $delegate_user_id, 'view_connection' )['ok'] ) {
+		if ( $active_count >= self::max_users() && ! self::authorize( $channel, $account_id, $delegate_user_id, 'view_connection' )['ok'] ) {
 			return self::failure( 'delegate_limit_reached' );
 		}
 		return self::write_grant( $delegate_user_id, $channel, $account_id, 'agent', $permissions, $actor_user_id, $context );
@@ -353,6 +365,61 @@ final class BizCity_Channel_User_Grant {
 		return array( 'ok' => true, 'status' => 'revoked', 'user_id' => $user_id, 'account_key' => self::account_key( $channel, $account_id ) );
 	}
 
+	/**
+	 * [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — people per account. Default stays 4 until the owner answers Q116-4 (doc 30: proposal 20); the filter is the one switch.
+	 */
+	public static function max_users() {
+		$n = function_exists( 'apply_filters' ) ? (int) apply_filters( 'bizcity_channel_grant_max_users', self::MAX_USERS_PER_ACCOUNT ) : self::MAX_USERS_PER_ACCOUNT;
+		return max( 1, min( 50, $n ) );
+	}
+
+	/** [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — the risk level of a set of permissions: the highest one it reaches. Pure. */
+	public static function level_of( array $permissions ) {
+		$p = array_map( 'strval', $permissions );
+		if ( in_array( 'manage_grants', $p, true ) || in_array( 'transfer_primary', $p, true ) ) {
+			return 'R3';
+		}
+		if ( in_array( 'reply', $p, true ) || in_array( 'publish', $p, true ) ) {
+			return 'R2';
+		}
+		if ( in_array( 'view_context', $p, true ) ) {
+			return 'R1';
+		}
+		return 'R0';
+	}
+
+	/** [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — the permissions a level stands for (empty for an unknown level). Pure. */
+	public static function permissions_for_level( $level ) {
+		$level = strtoupper( (string) $level );
+		return isset( self::LEVEL_PERMISSIONS[ $level ] ) ? self::LEVEL_PERMISSIONS[ $level ] : array();
+	}
+
+	/** [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — give a delegate a level on an account (same checks as grant(): the actor must manage grants; never the primary). */
+	public static function grant_level( $channel, $account_id, $delegate_user_id, $level, $actor_user_id = 0, array $context = array() ) {
+		$perms = self::permissions_for_level( $level );
+		if ( empty( $perms ) ) {
+			return self::failure( 'level_unknown' );
+		}
+		$r = self::grant( $channel, $account_id, $delegate_user_id, $perms, $actor_user_id, $context );
+		if ( ! empty( $r['ok'] ) ) {
+			$r['level'] = strtoupper( (string) $level );
+		}
+		return $r;
+	}
+
+	/** [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — the level of a user on an account, or null when the user has no active grant there. */
+	public static function level_for( $channel, $account_id, $user_id ) {
+		$meta_key = self::meta_key( $channel, $account_id );
+		if ( (int) $user_id <= 0 || '' === $meta_key ) {
+			return null;
+		}
+		$grant = self::read_grant( (int) $user_id, $meta_key, array() );
+		if ( ! is_array( $grant ) || ! self::grant_matches_scope( $grant, $channel, self::account_key( $channel, $account_id ), (int) get_current_blog_id() ) || 'active' !== (string) ( $grant['status'] ?? '' ) ) {
+			return null;
+		}
+		return self::level_of( (array) ( $grant['permissions'] ?? array() ) );
+	}
+
 	public static function authorize( $channel, $account_id, $user_id, $permission = 'view_context' ) {
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-1.33A — authorize an exact user/account permission from the current grant projection.
 		$user_id = (int) $user_id;
@@ -428,13 +495,14 @@ final class BizCity_Channel_User_Grant {
 		if ( $meta_key === '' || ! function_exists( 'get_users' ) ) {
 			return array();
 		}
-		$users = get_users( array( 'meta_key' => $meta_key, 'fields' => array( 'ID' ), 'number' => self::MAX_USERS_PER_ACCOUNT + 1 ) );
+		$users = get_users( array( 'meta_key' => $meta_key, 'fields' => array( 'ID' ), 'number' => self::max_users() + 1 ) );
 		$out = array();
 		foreach ( (array) $users as $user ) {
 			$user_id = is_object( $user ) ? (int) $user->ID : (int) ( $user['ID'] ?? 0 );
 			$grant = self::read_grant( $user_id, $meta_key, array() );
 			if ( $user_id > 0 && self::grant_matches_scope( $grant, $channel, self::account_key( $channel, $account_id ), (int) get_current_blog_id() ) && (string) ( $grant['status'] ?? '' ) === 'active' ) {
 				$grant['user_id'] = $user_id;
+				$grant['level'] = self::level_of( (array) ( $grant['permissions'] ?? array() ) ); // [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3
 				$out[] = $grant;
 			}
 		}

@@ -405,6 +405,14 @@ final class BizCity_FB_Channel_Adapter {
 		return array( 'sent' => false, 'handoff' => true, 'reason' => $why, 'task_created' => $created );
 	}
 
+	/**
+	 * [2026-10-14 08:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L12 — a customer the CELL did not answer (window closed, token invalid, bot error, a person
+	 * took over) reported through `channel-record@1` direction `handoff`: the same CRM task / recorded needs_human row as a handoff the site found itself.
+	 */
+	public static function record_handoff( string $page, string $psid, string $why ): array {
+		return self::handoff( array( 'to_contact' => array( 'platform' => self::P_MESSENGER, 'channel_ref' => $page, 'platform_uid' => $psid ), 'thread_key' => $psid ), $why );
+	}
+
 	/* ---------------- A4 (reuse the CRM ingestors; never a second writer) ---------------- */
 
 	private static function crm_inbound( array $in, array $event ): void {

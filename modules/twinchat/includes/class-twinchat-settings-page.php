@@ -987,15 +987,15 @@ class BizCity_TwinChat_Settings_Page {
 		}
 
 		$minutes = BizCity_Cron_Tier_Settings::get_tier_minutes();
-		$read    = BizCity_Cron_Tier_Settings::is_file_first_read_switch();
-		$primary = BizCity_Cron_Tier_Settings::is_file_primary_write();
+		$read    = BizCity_KG_Filestore_Flags::is_file_first_read_switch();
+		$primary = BizCity_KG_Filestore_Flags::is_file_primary_write();
 		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — expose graph embedding migration cron flag in unified settings.
-		$graph_embedding_migration = method_exists( 'BizCity_Cron_Tier_Settings', 'is_graph_embedding_migration_enabled' )
-			? BizCity_Cron_Tier_Settings::is_graph_embedding_migration_enabled()
+		$graph_embedding_migration = method_exists( 'BizCity_KG_Filestore_Flags', 'is_graph_embedding_migration_enabled' )
+			? BizCity_KG_Filestore_Flags::is_graph_embedding_migration_enabled()
 			: (bool) get_option( 'bizcity_kg_v08_graph_embedding_migration_enabled', false );
 		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — expose triplet raw payload SQL drain toggle.
-		$triplet_raw_migration = method_exists( 'BizCity_Cron_Tier_Settings', 'is_triplet_raw_migration_enabled' )
-			? BizCity_Cron_Tier_Settings::is_triplet_raw_migration_enabled()
+		$triplet_raw_migration = method_exists( 'BizCity_KG_Filestore_Flags', 'is_triplet_raw_migration_enabled' )
+			? BizCity_KG_Filestore_Flags::is_triplet_raw_migration_enabled()
 			: (bool) get_option( 'bizcity_kg_v09_triplet_raw_migration_enabled', true );
 		$cur     = BizCity_Cron_Tier_Settings::current_tier();
 		$curmin  = BizCity_Cron_Tier_Settings::current_minutes();

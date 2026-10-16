@@ -108,6 +108,10 @@ class BizCity_Facebook_Bot_Plugin {
 			'/includes/class-fb-channel-adapter.php',
 			'/includes/class-fb-group-adapter.php',
 			'/includes/class-fb-channel-tools.php',
+			// [2026-10-14 08:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L10/L12 — the cell answers Messenger directly: site-side control (config push) + CRM record receiver. Before setup-rest (it reads them).
+			'/includes/class-fb-cell-direct.php',
+			'/includes/class-fb-channel-record.php',
+			'/includes/class-fb-order-paid-notify.php', // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W5 — tell the customer the order was paid
 			'/includes/class-fb-setup-rest.php',
 			// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — integration-facebook.php (WaicChannelIntegration_facebook)
 			// archived at core/_archived/z8a-20261010/: bizcity_register_channel_integrations is applied only by the dev-only sprint diagnostic.

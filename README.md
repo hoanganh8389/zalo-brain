@@ -2,7 +2,8 @@
 
 <!-- [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 (D96-13) — README chuẩn của Zalo Brain (thay README "BTCare Twin AI"; bản cũ giữ ở máy). -->
 
-**Bộ não Zalo của WordPress.** Mọi số Zalo của doanh nghiệp được một trợ lý tiếp nhận, trả lời, ghi nhớ và giao việc — ngay trong WordPress.
+<!-- [2026-10-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-ZC3 — mô tả theo sứ mệnh mới (Hiến chương). -->
+**Không gian làm việc Zalo cho từng người trong WordPress.** Mỗi người nối công cụ của mình một lần theo một chuẩn, rồi giao việc cho một trợ lý chỉ làm trong quyền của người đó — mỗi việc có sổ ghi, có điểm, và tắt được ở một chỗ. Mọi số Zalo của doanh nghiệp vẫn được một trợ lý tiếp nhận, trả lời, ghi nhớ và giao việc.
 
 *All Channel, One Brain.*
 
@@ -76,7 +77,7 @@ Plugin mở rộng chính thức:
 
 Viết plugin mở rộng theo hợp đồng **`zalo-brain-extension@1`**:
 
-1. Header `Zalo Brain Addon: <phần>` và `Network: false`; **không** dùng `Requires Plugins` (tên thư mục plugin chính có thể khác). Nhận diện plugin chính bằng hằng `BIZCITY_TWIN_AI_VERSION`, thiếu thì từ chối kích hoạt — xem [ADDON-HOST-STANDARD](core/channel-gateway/docs/standards/ADDON-HOST-STANDARD.md). <!-- [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L2 -->
+1. Header `Zalo Brain Addon: <phần>` và `Network: false`; **không** dùng `Requires Plugins` (tên thư mục plugin chính có thể khác). Nhận diện plugin chính bằng hằng `BIZCITY_TWIN_AI_VERSION`, thiếu thì từ chối kích hoạt — chuẩn add-on `ADDON-HOST-STANDARD` (nội bộ, chưa công bố) mô tả khung này: file chính nhỏ, nhận plugin chính bằng hằng, từ chối kích hoạt khi thiếu. <!-- [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 S103-L2 -->
 2. File `zalo-brain.json` ở gốc plugin:
 
 ```json

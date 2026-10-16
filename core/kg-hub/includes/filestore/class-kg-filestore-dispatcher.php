@@ -28,7 +28,7 @@
  * new key intentionally does NOT read/migrate the old option value — every
  * blog picks up the fresh default (1) unless it explicitly sets the new key.
  * Naming now matches the `bizcity_kg_v0N_*_enabled` convention used by
- * BizCity_Cron_Tier_Settings (v06 read-switch, v07 file-primary-write, v08
+ * BizCity_KG_Filestore_Flags (v06 read-switch, v07 file-primary-write, v08
  * graph-embedding-migration, v09 triplet-raw-migration) so all file-first
  * flags share one recognizable prefix.
  *

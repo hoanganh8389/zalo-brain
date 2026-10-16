@@ -1093,6 +1093,48 @@
       if (p.section === 'bottom') bottom.appendChild(item);
       else top.appendChild(item);
     });
+    renderAccountChip(bottom);
+  }
+
+  // [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — account chip at the very
+  // bottom of the rail: avatar → popover with name, email, "Đăng xuất". Guests never reach this
+  // script (PHP renders the login screen instead), so an empty cfg.user just renders nothing.
+  function renderAccountChip(bottom) {
+    var u = cfg.user || {};
+    if (!u.id || !bottom) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'ts-ab-account';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ts-ab-item ts-ab-account-btn';
+    btn.title = u.name || '';
+    btn.setAttribute('aria-label', 'Tài khoản: ' + (u.name || ''));
+    btn.setAttribute('aria-haspopup', 'menu');
+    btn.setAttribute('aria-expanded', 'false');
+    var img = document.createElement('img');
+    img.src = u.avatarUrl || '';
+    img.alt = '';
+    btn.appendChild(img);
+    var pop = document.createElement('div');
+    pop.className = 'ts-ab-account-pop';
+    pop.setAttribute('role', 'menu');
+    pop.hidden = true;
+    var nm = document.createElement('div'); nm.className = 'ts-ab-account-name'; nm.textContent = u.name || '';
+    var em = document.createElement('div'); em.className = 'ts-ab-account-email'; em.textContent = u.email || '';
+    var out = document.createElement('a'); out.className = 'ts-ab-account-out'; out.href = u.logoutUrl || '#';
+    out.setAttribute('role', 'menuitem'); out.textContent = 'Đăng xuất';
+    pop.appendChild(nm); pop.appendChild(em); pop.appendChild(out);
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      pop.hidden = !pop.hidden;
+      btn.setAttribute('aria-expanded', pop.hidden ? 'false' : 'true');
+    });
+    document.addEventListener('click', function (e) {
+      if (!pop.hidden && !wrap.contains(e.target)) { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(pop);
+    bottom.appendChild(wrap);
   }
 
   // Detect whether we are loaded inside the WP admin iframe wrapper.

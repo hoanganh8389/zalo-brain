@@ -115,6 +115,20 @@ final class BizCity_Usage_Plan_Notices {
 		return (string) ( $p['owner_uid'] ?? '' );
 	}
 
+	/**
+	 * [2026-10-14 03:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L7 — the bulletins reuse THIS send path (the number's own transport → its owner uid):
+	 * one public door instead of a second copy of the transport call. False when the number has no owner uid or no transport.
+	 */
+	public static function send_text( string $account, string $text, string $idem ): bool {
+		$uid = self::owner_uid( $account );
+		return '' !== $uid && self::send( $account, $uid, $text, $idem );
+	}
+
+	/** Masked label of a number ("Số …159" when nothing better) — public for the bulletins. */
+	public static function label_for( string $account ): string {
+		return self::label( $account );
+	}
+
 	private static function send( string $account, string $uid, string $text, string $idem ): bool {
 		if ( isset( self::$readers['send'] ) ) {
 			return (bool) call_user_func( self::$readers['send'], $account, $uid, $text, $idem );

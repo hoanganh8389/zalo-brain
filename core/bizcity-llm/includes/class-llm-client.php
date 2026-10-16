@@ -11,9 +11,9 @@
 /**
  * BizCity LLM — Core Client Class
  *
- * Two modes:
- *   • Gateway  — calls bizcity.vn/bizcity.ai REST API (LLM Router)
- *   • Direct   — calls OpenRouter directly with user's own key
+ * One mode:
+ *   • Gateway only — calls bizcity.vn/bizcity.ai REST API (LLM Router → cell → provider)
+ *   [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — direct-to-provider mode removed.
  *
  * Provides identical interface regardless of mode, including:
  *   chat(), chat_stream(), embeddings(), get_model(), get_fallback_model()
@@ -59,27 +59,17 @@ class BizCity_LLM_Client {
      * ================================================================ */
 
     /**
-     * Connection mode: 'gateway' or 'direct'.
+     * Connection mode — always 'gateway'.
      */
-    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L41 — direct mode only when BIZCITY_LLM_ALLOW_DIRECT === true; else gateway (metered lane) + one warning per day.
-    public function get_mode(): string {
-        // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
-        $mode = get_option( 'bizcity_llm_mode', 'gateway' );
-        if ( $mode === 'direct' && ! ( defined( 'BIZCITY_LLM_ALLOW_DIRECT' ) && BIZCITY_LLM_ALLOW_DIRECT === true ) ) {
-            $this->warn_direct_blocked_once_per_day();
-            return 'gateway';
-        }
-        return (string) $mode;
-    }
+    // [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — no direct mode; a stored bizcity_llm_mode=direct is treated as gateway (one log line per request).
+    private static $direct_removed_logged = false;
 
-    // [2026-10-13 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L41 — one warning per day (transient-guarded).
-    private function warn_direct_blocked_once_per_day(): void {
-        $key = 'bizcity_llm_direct_blocked_warned';
-        if ( get_transient( $key ) ) {
-            return;
+    public function get_mode(): string {
+        if ( ! self::$direct_removed_logged && get_option( 'bizcity_llm_mode', 'gateway' ) === 'direct' ) {
+            self::$direct_removed_logged = true;
+            error_log( '[BizCity LLM] direct mode removed (R-ONE-VERTICAL-CELL) — using gateway' );
         }
-        set_transient( $key, 1, DAY_IN_SECONDS );
-        error_log( '[BizCity LLM] bizcity_llm_mode=direct ignored: direct mode bypasses the metered gateway. Define BIZCITY_LLM_ALLOW_DIRECT as true to allow it. Using gateway.' );
+        return 'gateway';
     }
 
     /* ----------------------------------------------------------------
@@ -149,7 +139,7 @@ class BizCity_LLM_Client {
     }
 
     /**
-     * API key — gateway key in gateway mode, OpenRouter key in direct mode.
+     * API key — the gateway key.
      */
     public function get_api_key( bool $allow_main_site_fallback = true ): string {
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option, not network-wide
@@ -336,12 +326,6 @@ class BizCity_LLM_Client {
      */
     public function maybe_sync_master_plan( array $options = array() ): void {
         if ( ! $this->is_ready() ) {
-            return;
-        }
-
-        // [2026-07-27 Johnny Chu] PHASE-0.49-MASTER-CONFIG-401 — in direct
-        // mode, API key is OpenRouter-style and must never hit hub master/config.
-        if ( $this->get_mode() !== 'gateway' ) {
             return;
         }
 
@@ -1277,7 +1261,7 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
-     *  Chat — delegates to gateway or direct based on mode
+     *  Chat — delegates to the gateway
      * ================================================================ */
 
     /**
@@ -2429,265 +2413,6 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
-     *  DIRECT MODE — call OpenRouter directly
-     * ================================================================ */
-
-    private function chat_direct( array $messages, array $options ): array {
-        $base    = $this->empty_result();
-        $api_key = $this->get_api_key();
-        if ( empty( $api_key ) ) {
-            $base['error'] = 'OpenRouter API key chưa được cấu hình.';
-            return $base;
-        }
-
-        $base['provider'] = 'openrouter';
-        $purpose  = $options['purpose'] ?? 'chat';
-
-        $primary = $options['model'] ?? '';
-        if ( empty( $primary ) ) {
-            $primary = $this->get_model( $purpose );
-        }
-
-        $fallback = array_key_exists( 'fallback_model', $options )
-            ? (string) $options['fallback_model']
-            : $this->get_fallback_model( $purpose );
-
-        $no_fallback = ! empty( $options['no_fallback'] ) || $fallback === '' || $fallback === $primary;
-
-        $base['model_primary'] = $primary;
-
-        $result = $this->call_openrouter( $primary, $messages, $options, $api_key );
-        if ( $result['success'] ) {
-            return array_merge( $base, $result );
-        }
-
-        $primary_error = $result['error'];
-        error_log( "[BizCity_LLM] Primary model '{$primary}' failed: {$primary_error}" );
-
-        if ( $no_fallback ) {
-            return array_merge( $base, $result );
-        }
-
-        error_log( "[BizCity_LLM] Falling back to '{$fallback}'" );
-        $fb_result = $this->call_openrouter( $fallback, $messages, $options, $api_key );
-
-        if ( $fb_result['success'] ) {
-            $fb_result['fallback_used'] = true;
-            $fb_result['model_primary'] = $primary;
-            $fb_result['error']         = '';
-            return array_merge( $base, $fb_result );
-        }
-
-        $base['error'] = "Primary ({$primary}): {$primary_error} | Fallback ({$fallback}): {$fb_result['error']}";
-        return $base;
-    }
-
-    /**
-     * Single model call to OpenRouter (direct mode).
-     */
-    private function call_openrouter( string $model_id, array $messages, array $options, string $api_key ): array {
-        $result = [
-            'success'       => false,
-            'message'       => '',
-            'model'         => $model_id,
-            'model_primary' => $model_id,
-            'fallback_used' => false,
-            'provider'      => 'openrouter',
-            'usage'         => [],
-            'error'         => '',
-        ];
-
-        $timeout = isset( $options['timeout'] ) ? intval( $options['timeout'] ) : $this->get_timeout();
-
-        $body = array_merge(
-            [
-                'model'       => $model_id,
-                'messages'    => $messages,
-                'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-                // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default direct output budget.
-                'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
-            ],
-            $options['extra_body'] ?? []
-        );
-
-        $response = wp_remote_post( 'https://openrouter.ai/api/v1/chat/completions', [
-            'timeout' => $timeout,
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer'  => $options['http_referer'] ?? network_home_url(),
-                'X-Title'       => $options['x_title'] ?? $this->get_setting( 'site_name', 'BizCity' ),
-            ],
-            'body' => wp_json_encode( $body ),
-        ] );
-
-        if ( is_wp_error( $response ) ) {
-            $result['error'] = $response->get_error_message();
-            return $result;
-        }
-
-        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        if ( isset( $decoded['choices'][0]['message']['content'] ) ) {
-            $result['success'] = true;
-            $result['message'] = trim( $decoded['choices'][0]['message']['content'] );
-            $result['model']   = $decoded['model'] ?? $model_id;
-            $result['usage']   = $decoded['usage'] ?? [];
-            return $result;
-        }
-
-        $result['error'] = $decoded['error']['message'] ?? 'Không nhận được phản hồi từ LLM.';
-        return $result;
-    }
-
-    private function chat_stream_direct( array $messages, array $options, $on_chunk = null ): array {
-        $base    = $this->empty_result();
-        $api_key = $this->get_api_key();
-        if ( empty( $api_key ) ) {
-            $base['error'] = 'OpenRouter API key chưa được cấu hình.';
-            return $base;
-        }
-
-        if ( ! function_exists( 'curl_init' ) ) {
-            return $this->chat_direct( $messages, $options );
-        }
-
-        $base['provider'] = 'openrouter';
-        $purpose = $options['purpose'] ?? 'chat';
-        $model   = $options['model'] ?? '';
-        if ( empty( $model ) ) {
-            $model = $this->get_model( $purpose );
-        }
-        $base['model']         = $model;
-        $base['model_primary'] = $model;
-
-        $result = $this->stream_single_model( $model, $messages, $options, $api_key, $on_chunk );
-
-        if ( $result['success'] ) {
-            $result['fallback_used'] = false;
-            return array_merge( $base, $result );
-        }
-
-        // Fallback only if no partial output was streamed
-        if ( ! empty( $result['message'] ) ) {
-            return array_merge( $base, $result, [ 'fallback_used' => false ] );
-        }
-
-        $fallback = $options['fallback_model'] ?? '';
-        if ( empty( $fallback ) ) {
-            $fallback = $this->get_fallback_model( $purpose );
-        }
-        if ( empty( $fallback ) || $fallback === $model ) {
-            return array_merge( $base, $result, [ 'fallback_used' => false ] );
-        }
-
-        error_log( "[BizCity-LLM] Stream direct primary '{$model}' failed: {$result['error']}. Trying '{$fallback}'" );
-        $fb = $this->stream_single_model( $fallback, $messages, $options, $api_key, $on_chunk );
-        $fb['fallback_used'] = true;
-        $fb['model_primary'] = $model;
-        $fb['model']         = $fallback;
-
-        if ( ! $fb['success'] ) {
-            $fb['error'] = "Primary ({$model}): {$result['error']} | Fallback ({$fallback}): {$fb['error']}";
-        }
-
-        return array_merge( $base, $fb );
-    }
-
-    /**
-     * Stream a single model call to OpenRouter (used by chat_stream_direct).
-     */
-    private function stream_single_model( string $model, array $messages, array $options, string $api_key, $on_chunk = null ): array {
-        $result = [
-            'success' => false,
-            'message' => '',
-            'model'   => $model,
-            'usage'   => [],
-            'error'   => '',
-        ];
-
-        $body = array_merge(
-            [
-                'model'       => $model,
-                'messages'    => $messages,
-                'temperature' => floatval( $options['temperature'] ?? 0.7 ),
-                // [2026-08-01 Johnny Chu] R-GW-API-CATALOG — raise the default direct streaming output budget.
-                'max_tokens'  => intval( $options['max_tokens']  ?? 16000 ),
-                'stream'      => true,
-            ],
-            $options['extra_body'] ?? []
-        );
-
-        $full_text = '';
-        $usage     = [];
-        $buffer    = '';
-
-        $ch = curl_init( 'https://openrouter.ai/api/v1/chat/completions' );
-        curl_setopt_array( $ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $api_key,
-                'HTTP-Referer: ' . ( $options['http_referer'] ?? network_home_url() ),
-                'X-Title: ' . ( $options['x_title'] ?? $this->get_setting( 'site_name', 'BizCity' ) ),
-            ],
-            CURLOPT_POSTFIELDS     => wp_json_encode( $body ),
-            CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT        => isset( $options['timeout'] ) ? intval( $options['timeout'] ) : $this->get_timeout(),
-            CURLOPT_WRITEFUNCTION  => function ( $ch, $data ) use ( &$full_text, &$usage, &$buffer, $on_chunk ) {
-                $buffer .= $data;
-                while ( ( $nl = strpos( $buffer, "\n" ) ) !== false ) {
-                    $line   = trim( substr( $buffer, 0, $nl ) );
-                    $buffer = substr( $buffer, $nl + 1 );
-
-                    if ( $line === '' || strpos( $line, 'data: ' ) !== 0 ) {
-                        continue;
-                    }
-                    $json_str = substr( $line, 6 );
-                    if ( $json_str === '[DONE]' ) {
-                        continue;
-                    }
-                    $chunk = json_decode( $json_str, true );
-                    if ( ! is_array( $chunk ) ) {
-                        continue;
-                    }
-                    $delta = $chunk['choices'][0]['delta']['content'] ?? '';
-                    if ( $delta !== '' ) {
-                        $full_text .= $delta;
-                        if ( is_callable( $on_chunk ) ) {
-                            call_user_func( $on_chunk, $delta, $full_text );
-                        }
-                    }
-                    if ( isset( $chunk['usage'] ) ) {
-                        $usage = $chunk['usage'];
-                    }
-                }
-                return strlen( $data );
-            },
-        ] );
-
-        $ok        = curl_exec( $ch );
-        $http_code = (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE );
-        $curl_err  = curl_error( $ch );
-        curl_close( $ch );
-
-        if ( ! $ok || $http_code < 200 || $http_code >= 300 ) {
-            $result['error'] = $curl_err ?: "HTTP {$http_code}";
-            if ( ! empty( $full_text ) ) {
-                $result['success'] = true;
-                $result['message'] = $full_text;
-                $result['usage']   = $usage;
-            }
-            return $result;
-        }
-
-        $result['success'] = true;
-        $result['message'] = $full_text;
-        $result['usage']   = $usage;
-        return $result;
-    }
-
-    /* ================================================================
      *  Embeddings
      * ================================================================ */
 
@@ -2708,12 +2433,7 @@ class BizCity_LLM_Client {
             ] )
             : 0;
 
-        if ( $this->get_mode() === 'direct' ) {
-            // Direct mode disabled for IP protection — force gateway
-            $result = $this->embeddings_gateway( $input, $options );
-        } else {
-            $result = $this->embeddings_gateway( $input, $options );
-        }
+        $result = $this->embeddings_gateway( $input, $options );
 
         $ms = intval( ( microtime( true ) - $start ) * 1000 );
         $this->debug_log( 'embeddings() END', [ 'success' => $result['success'], 'ms' => $ms ] );
@@ -2918,91 +2638,8 @@ class BizCity_LLM_Client {
         return $base;
     }
 
-    private function embeddings_direct( $input, array $options ): array {
-        $base = [
-            'success' => false, 'embeddings' => [], 'model' => '',
-            'usage' => [], 'error' => '', 'dimensions' => 0,
-        ];
-
-        $api_key = $this->get_api_key();
-        if ( empty( $api_key ) ) {
-            $base['error'] = 'OpenRouter API key chưa được cấu hình.';
-            return $base;
-        }
-
-        $texts   = is_array( $input ) ? array_values( $input ) : [ (string) $input ];
-        $primary = $options['model'] ?? $this->get_model( 'embedding' );
-        $timeout = intval( $options['timeout'] ?? 30 );
-
-        $result = $this->call_openrouter_embeddings( $primary, $texts, $api_key, $timeout );
-        if ( $result['success'] ) {
-            return $result;
-        }
-
-        $fallback = $this->get_fallback_model( 'embedding' );
-        if ( $fallback && $fallback !== $primary ) {
-            $fb = $this->call_openrouter_embeddings( $fallback, $texts, $api_key, $timeout );
-            if ( $fb['success'] ) {
-                return $fb;
-            }
-            $base['error'] = "Primary ({$primary}): {$result['error']} | Fallback ({$fallback}): {$fb['error']}";
-        } else {
-            $base['error'] = $result['error'];
-        }
-
-        return $base;
-    }
-
-    private function call_openrouter_embeddings( string $model_id, array $texts, string $api_key, int $timeout ): array {
-        $result = [
-            'success' => false, 'embeddings' => [], 'model' => $model_id,
-            'usage' => [], 'error' => '', 'dimensions' => 0,
-        ];
-
-        $response = wp_remote_post( 'https://openrouter.ai/api/v1/embeddings', [
-            'timeout' => $timeout,
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-                'HTTP-Referer'  => network_home_url(),
-                'X-Title'       => get_site_option( 'site_name', 'BizCity' ),
-            ],
-            'body' => wp_json_encode( [
-                'model' => $model_id,
-                'input' => count( $texts ) === 1 ? $texts[0] : $texts,
-            ] ),
-        ] );
-
-        if ( is_wp_error( $response ) ) {
-            $result['error'] = $response->get_error_message();
-            return $result;
-        }
-
-        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        if ( isset( $decoded['data'] ) && is_array( $decoded['data'] ) ) {
-            $embeddings = [];
-            foreach ( $decoded['data'] as $item ) {
-                if ( isset( $item['embedding'] ) ) {
-                    $embeddings[] = $item['embedding'];
-                }
-            }
-            if ( ! empty( $embeddings ) ) {
-                $result['success']    = true;
-                $result['embeddings'] = $embeddings;
-                $result['model']      = $decoded['model'] ?? $model_id;
-                $result['usage']      = $decoded['usage'] ?? [];
-                $result['dimensions'] = count( $embeddings[0] );
-                return $result;
-            }
-        }
-
-        $result['error'] = $decoded['error']['message'] ?? 'Không nhận được embedding.';
-        return $result;
-    }
-
     /* ================================================================
-     *  Fetch available models (from gateway or OpenRouter)
+     *  Fetch available models (from the gateway)
      * ================================================================ */
 
     public function get_available_models( ?string $category = null ): array {
@@ -3011,11 +2648,7 @@ class BizCity_LLM_Client {
         $cached = get_transient( $transient_key );
 
         if ( false === $cached ) {
-            if ( $this->get_mode() === 'gateway' ) {
-                $cached = $this->fetch_gateway_models();
-            } else {
-                $cached = $this->fetch_openrouter_models();
-            }
+            $cached = $this->fetch_gateway_models();
             if ( ! empty( $cached ) ) {
                 set_transient( $transient_key, $cached, DAY_IN_SECONDS );
             }
@@ -3051,19 +2684,6 @@ class BizCity_LLM_Client {
         return $body['data'] ?? $body['models'] ?? [];
     }
 
-    private function fetch_openrouter_models(): array {
-        $api_key  = $this->get_api_key();
-        $response = wp_remote_get( 'https://openrouter.ai/api/v1/models', [
-            'timeout' => 15,
-            'headers' => empty( $api_key ) ? [] : [ 'Authorization' => 'Bearer ' . $api_key ],
-        ] );
-
-        if ( is_wp_error( $response ) ) return [];
-
-        $body = json_decode( wp_remote_retrieve_body( $response ), true );
-        return $body['data'] ?? [];
-    }
-
     public function bust_models_cache(): void {
         // [2026-06-10 Johnny Chu] HOTFIX — per-site transient
         delete_transient( 'bizcity_llm_models' );
@@ -3080,7 +2700,7 @@ class BizCity_LLM_Client {
             'model'         => '',
             'model_primary' => '',
             'fallback_used' => false,
-            'provider'      => $this->get_mode() === 'direct' ? 'openrouter' : 'bizcity-gateway',
+            'provider'      => 'bizcity-gateway',
             'usage'         => [],
             'error'         => '',
         ];
@@ -3121,11 +2741,11 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
-     *  Image Generation (via gateway or direct OpenAI)
+     *  Image Generation (via gateway)
      * ================================================================ */
 
     /**
-     * Generate an image via the LLM gateway (or direct OpenAI in direct mode).
+     * Generate an image via the LLM gateway .
      *
      * @param string $prompt  Image prompt.
      * @param array  $options { model, size, n, timeout, site_url }
@@ -3149,11 +2769,7 @@ class BizCity_LLM_Client {
             ] )
             : 0;
 
-        if ( $this->get_mode() === 'direct' ) {
-            $result = $this->generate_image_direct( $prompt, $options );
-        } else {
-            $result = $this->generate_image_gateway( $prompt, $options );
-        }
+        $result = $this->generate_image_gateway( $prompt, $options );
 
         $ms = intval( ( microtime( true ) - $start ) * 1000 );
         $this->debug_log( 'generate_image() END', [
@@ -3271,69 +2887,130 @@ class BizCity_LLM_Client {
         return $base;
     }
 
+    // [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 R-ONE-VERTICAL-CELL — TTS / music / STT go through the Hub gateway
+    // (core → Hub → cell → provider). No per-bot provider key, no direct provider URL.
+
     /**
-     * Image generation direct to OpenAI (fallback when in direct mode).
+     * POST a JSON body to a Hub /wp-json/bizcity/v1/tools/* route and return the decoded JSON or a WP_Error.
+     * Error shape: WP_Error( hub code | 'hub_http_<status>', message, [ 'status' => 502|402|…, 'http_status' => n ] ).
+     *
+     * @param string $path    e.g. '/tools/tts'
+     * @param array  $body    JSON body.
+     * @param int    $timeout Seconds (client-side).
+     * @param array  $options { caller?, purpose? } for the X-BizCity-Caller tag.
+     * @param string $area    Default caller tag.
+     * @return array|WP_Error
      */
-    private function generate_image_direct( string $prompt, array $options ): array {
-        $base = [
-            'success'   => false,
-            'image_url' => '',
-            'b64_json'  => '',
-            'model'     => $options['model'] ?? 'gpt-image-1',
-            'error'     => '',
-        ];
-
-        // In direct mode, use local OpenAI key
-        $api_key = get_option( 'twf_openai_api_key', '' );
-        if ( empty( $api_key ) ) {
-            $api_key = get_option( 'bztimg_openai_key', '' );
+    private function hub_tool_post( string $path, array $body, int $timeout, array $options, string $area ) {
+        $api_key = $this->get_api_key();
+        if ( $api_key === '' ) {
+            return new WP_Error( 'bot_provider_key_missing', 'BizCity LLM API key chưa được cấu hình.', [ 'status' => 422, 'http_status' => 0 ] );
         }
-        if ( empty( $api_key ) ) {
-            $base['error'] = 'OpenAI API key chưa được cấu hình.';
-            return $base;
-        }
-
-        $model   = $options['model'] ?? 'gpt-image-1';
-        $size    = $options['size'] ?? '1024x1024';
-        $timeout = intval( $options['timeout'] ?? 120 );
-
-        $body = [
-            'model'  => $model,
-            'prompt' => $prompt,
-            'n'      => 1,
-            'size'   => $size,
-        ];
-
-        $response = wp_remote_post( 'https://api.openai.com/v1/images/generations', [
-            'timeout' => $timeout,
-            'headers' => [
-                'Content-Type'  => 'application/json',
-                'Authorization' => 'Bearer ' . $api_key,
-            ],
-            'body' => wp_json_encode( $body ),
+        $url      = $this->get_gateway_url() . '/wp-json/bizcity/v1' . $path;
+        $response = wp_remote_post( $url, [
+            'timeout'     => $timeout,
+            'redirection' => 0,
+            'headers'     => array_merge( [
+                'Content-Type'     => 'application/json',
+                'Accept'           => 'application/json',
+                'Authorization'    => 'Bearer ' . $api_key,
+                'X-BizCity-Caller' => self::resolve_caller( $options, $area ),
+                'X-Site-URL'       => home_url(),
+            ], $this->get_client_domain_headers() ),
+            'body'        => wp_json_encode( $body ),
         ] );
-
         if ( is_wp_error( $response ) ) {
-            $base['error'] = $response->get_error_message();
-            return $base;
+            return new WP_Error( 'hub_unreachable', $response->get_error_message(), [ 'status' => 502, 'http_status' => 0 ] );
         }
-
-        $decoded = json_decode( wp_remote_retrieve_body( $response ), true );
-
-        if ( ! empty( $decoded['data'][0]['url'] ) ) {
-            $base['success']   = true;
-            $base['image_url'] = $decoded['data'][0]['url'];
-            return $base;
+        $code = (int) wp_remote_retrieve_response_code( $response );
+        $raw  = (string) wp_remote_retrieve_body( $response );
+        if ( substr( $raw, 0, 3 ) === "\xEF\xBB\xBF" ) {
+            $raw = substr( $raw, 3 );
         }
-
-        if ( ! empty( $decoded['data'][0]['b64_json'] ) ) {
-            $base['success']  = true;
-            $base['b64_json'] = $decoded['data'][0]['b64_json'];
-            return $base;
+        $decoded = json_decode( trim( $raw ), true );
+        if ( ! is_array( $decoded ) ) {
+            return new WP_Error( 'hub_bad_response', 'Hub trả về dữ liệu không hợp lệ (HTTP ' . $code . ').', [ 'status' => 502, 'http_status' => $code ] );
         }
+        if ( $code < 200 || $code >= 300 || empty( $decoded['success'] ) ) {
+            $msg  = (string) ( $decoded['error'] ?? $decoded['message'] ?? '' );
+            $ecode = (string) ( $decoded['code'] ?? '' );
+            return new WP_Error(
+                $ecode !== '' ? $ecode : 'hub_http_' . $code,
+                $msg !== '' ? $msg : 'Hub trả về lỗi HTTP ' . $code . '.',
+                [ 'status' => ( $code === 402 ? 402 : 502 ), 'http_status' => $code, 'hub' => $decoded ]
+            );
+        }
+        return $decoded;
+    }
 
-        $base['error'] = $decoded['error']['message'] ?? 'OpenAI image generation failed.';
-        return $base;
+    /**
+     * Text → speech via Hub POST /tools/tts.
+     *
+     * @param string $text
+     * @param array  $opts { voice?, format?, model?, caller?, timeout? }
+     * @return array|WP_Error { success, audio_b64, mime_type, ext, bytes, provider, model, chars, latency_ms }
+     */
+    public function text_to_speech( string $text, array $opts = [] ) {
+        $text = trim( $text );
+        if ( $text === '' ) {
+            return new WP_Error( 'invalid_param', 'Không có nội dung để đọc.', [ 'status' => 422 ] );
+        }
+        $body = [ 'text' => $text ];
+        foreach ( [ 'voice', 'format', 'model' ] as $k ) {
+            if ( isset( $opts[ $k ] ) && trim( (string) $opts[ $k ] ) !== '' ) {
+                $body[ $k ] = trim( (string) $opts[ $k ] );
+            }
+        }
+        return $this->hub_tool_post( '/tools/tts', $body, max( 10, (int) ( $opts['timeout'] ?? 100 ) ), $opts, 'tts' );
+    }
+
+    /**
+     * Music generation via Hub POST /tools/music — SYNCHRONOUS and slow (client timeout 330 s).
+     *
+     * @param string $prompt
+     * @param array  $opts { model?, format?, caller?, timeout? }
+     * @return array|WP_Error { success, audio_b64, mime_type, ext, bytes, provider, model, latency_ms }
+     */
+    public function generate_music( string $prompt, array $opts = [] ) {
+        $prompt = trim( $prompt );
+        if ( $prompt === '' ) {
+            return new WP_Error( 'invalid_param', 'Thiếu mô tả bản nhạc.', [ 'status' => 422 ] );
+        }
+        $body = [ 'prompt' => $prompt ];
+        foreach ( [ 'model', 'format' ] as $k ) {
+            if ( isset( $opts[ $k ] ) && trim( (string) $opts[ $k ] ) !== '' ) {
+                $body[ $k ] = trim( (string) $opts[ $k ] );
+            }
+        }
+        $timeout = max( 30, (int) ( $opts['timeout'] ?? 330 ) );
+        if ( function_exists( 'set_time_limit' ) ) {
+            @set_time_limit( $timeout + 30 );
+        }
+        return $this->hub_tool_post( '/tools/music', $body, $timeout, $opts, 'music' );
+    }
+
+    /**
+     * Speech → text via Hub POST /tools/transcribe (the Hub fetches `media_url`, so it must be publicly reachable).
+     *
+     * @param string $media_url
+     * @param array  $opts { mime?, lang?, model?, duration_sec?, caller?, timeout? }
+     * @return array|WP_Error { success, text, model, … }
+     */
+    public function transcribe_audio( string $media_url, array $opts = [] ) {
+        $media_url = trim( $media_url );
+        if ( $media_url === '' ) {
+            return new WP_Error( 'invalid_param', 'Thiếu địa chỉ tệp âm thanh.', [ 'status' => 422 ] );
+        }
+        $body = [ 'media_url' => $media_url, 'kind' => 'audio' ];
+        foreach ( [ 'mime', 'lang', 'model' ] as $k ) {
+            if ( isset( $opts[ $k ] ) && trim( (string) $opts[ $k ] ) !== '' ) {
+                $body[ $k ] = trim( (string) $opts[ $k ] );
+            }
+        }
+        if ( ! empty( $opts['duration_sec'] ) ) {
+            $body['duration_sec'] = (int) $opts['duration_sec'];
+        }
+        return $this->hub_tool_post( '/tools/transcribe', $body, max( 10, (int) ( $opts['timeout'] ?? 120 ) ), $opts, 'stt' );
     }
 
     // [2026-06-10 Johnny Chu] USAGE-ROLLUP-SPEC — generic gateway REST helper (fail-OPEN)

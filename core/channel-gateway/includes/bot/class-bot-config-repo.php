@@ -4,7 +4,7 @@
  *
  * Owns exactly one subkey of `bizcity_characters.settings`: `bot`. Mirrors the
  * decode → merge-only-my-subkey → re-encode → write pattern already proven at
- * core/knowledge/includes/class-character-quick-edit-rest.php:192,227-234,242
+ * core/guru/profile/includes/class-character-quick-edit-rest.php:192,227-234,242
  * so this never clobbers `fanpage_id`/`legacy_id`/other features' keys living
  * in the same JSON column, and that file never clobbers `settings.bot`.
  *

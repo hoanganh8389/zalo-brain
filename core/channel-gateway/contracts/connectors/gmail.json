@@ -1,0 +1,49 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "gmail",
+  "label": "Gmail",
+  "badge": "Composio",
+  "section": "composio",
+  "order": 10,
+  "transport": "composio",
+  "account_kind": "mailbox",
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "gmail"
+  },
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "gmail.list",
+      "sets": "connected"
+    },
+    {
+      "id": "read_one",
+      "executor": "gmail.get"
+    }
+  ],
+  "executors": [
+    "gmail.list",
+    "gmail.get",
+    "gmail.draft",
+    "gmail.send"
+  ],
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.gmail",
+  "tab_components": {},
+  "module_access": {
+    "shared": "connect_composio"
+  },
+  "desc": "Tìm thư khi bạn hỏi; sáng tóm tắt thư quan trọng gửi Zalo.",
+  "ui": {
+    "glyph": "G",
+    "color": "#ea4335"
+  },
+  "open": "/tools/quick-connect"
+}

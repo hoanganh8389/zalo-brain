@@ -12,9 +12,8 @@
  * BizCity LLM — Unified AI Gateway Client
  *
  * Thin client for all LLM calls across the BizCity Twin Brain platform.
- * Supports two connection modes:
- *   • Gateway (default) — proxies through bizcity.vn / bizcity.ai REST API
- *   • Direct  — user's own OpenRouter API key (self-hosted, no gateway)
+ * One connection mode (gateway): proxies through bizcity.vn / bizcity.ai REST API.
+ * [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — direct-to-provider mode removed.
  *
  * All plugins should call bizcity_llm_chat() / bizcity_llm_chat_stream()
  * instead of any direct HTTP calls to LLM providers.
@@ -258,7 +257,7 @@ function bizcity_llm_embeddings( $input, array $options = [] ): array {
 }
 
 /**
- * Generate an image via the BizCity LLM gateway (or direct OpenAI).
+ * Generate an image via the BizCity LLM gateway (gateway only).
  *
  * @param string $prompt  Image prompt.
  * @param array  $options { model, size, n, timeout }
@@ -271,7 +270,7 @@ function bizcity_llm_generate_image( string $prompt, array $options = [] ): arra
 /**
  * Get the current connection mode.
  *
- * @return string 'gateway' | 'direct'
+ * @return string always 'gateway'
  */
 function bizcity_llm_mode(): string {
     return BizCity_LLM_Client::instance()->get_mode();

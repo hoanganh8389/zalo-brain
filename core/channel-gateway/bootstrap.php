@@ -149,6 +149,10 @@ require_once $gateway_dir . 'connect/class-oauth-broker-client.php';
 require_once $gateway_dir . 'connect/class-connect-own-app.php';
 require_once $gateway_dir . 'connect/class-connect-rest.php';
 BizCity_Connect_REST::init();
+// [2026-10-15 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.113 S113-L1 — "Kết nối nhanh" Gmail · Drive · Facebook Page via Composio on the cell (site → Hub → cell; no token here)
+require_once $gateway_dir . 'connect/class-connect-composio.php';
+BizCity_Connect_Composio_REST::init();
+add_action( 'init', static function () { if ( class_exists( 'BizCity_User_Workspace_Pusher' ) ) { BizCity_User_Workspace_Pusher::init(); } }, 20 ); // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
 require_once $gateway_dir . 'connect/class-connect-widget.php';
 BizCity_Connect_Widget::init();
 
@@ -433,6 +437,15 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-apify-client.php'   => 'channel.bot.apify_client',
 	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — agent-mode-access@1 (modes the Owner Agent may use for a user); before the REST that reads it.
 	$gateway_dir . 'class-agent-mode-access.php'      => 'channel.agent_mode_access',
+	// [2026-10-16 04:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector-framework@1: one hook (bizcity_connectors_register), one manifest per connector.
+	$gateway_dir . 'class-connector-registry.php'       => 'channel.connector_registry',
+	$gateway_dir . 'class-connector-rest.php'           => 'channel.connector_rest',
+	// [2026-10-17 01:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A1 — every channel account has a WP user as its owner (R-UW-1): the one seam + repair.
+	$gateway_dir . 'class-account-owner.php'            => 'channel.account_owner',
+	// [2026-10-17 02:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — builds the user-workspace@1 packet of one person (not wired to a transport yet).
+	$gateway_dir . 'class-user-workspace-builder.php'   => 'channel.user_workspace_builder',
+	// [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — sends that packet to the cell (login / role change / profile save; newer rev only).
+	$gateway_dir . 'class-user-workspace-pusher.php'    => 'channel.user_workspace_pusher',
 	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W1 (R-NB-11) — every number works as a WP user; step ③ default "tạo tài khoản tự động" lands here.
 	$gateway_dir . 'class-number-work-user.php'       => 'channel.number_work_user',
 	// [2026-10-03 Claude Opus 5.5] PHASE-0.90 S90-Z3 — R-CONTACT-ID: WP user ⇒ Identity Hub person for owner-agent-block@1.4.
@@ -445,6 +458,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'class-twin-web-turn.php'          => 'channel.twin_web_turn',
 	// [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — copies a cell turn's image/audio/video into the media library (R2 offloads it).
 	$gateway_dir . 'class-twin-cell-output-store.php' => 'channel.twin_cell_output_store',
+	// [2026-10-14 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.110 S110-L3 — public `/outputs/<cm_…>/go` link of a Zalo photo-video: 302 to the stored copy (CDN) or 202 while saving.
+	$gateway_dir . 'class-twin-cell-output-go-rest.php' => 'channel.twin_cell_output_go',
 	// [2026-10-01] PHASE-0.87 CL-2 — astro_self pack (the principal's own chart, read through a filter of the astrology plugin).
 	$gateway_dir . 'class-agent-astro-self-pack.php'  => 'channel.agent_astro_self_pack',
 	$gateway_dir . 'bot/class-bot-rest.php'           => 'channel.bot.rest',
@@ -507,6 +522,22 @@ foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	}
 }
 unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+// [2026-10-16 05:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector permission rows join the shell registry (group connectors: Phân quyền module only, never the ActivityBar).
+if ( class_exists( 'BizCity_Connector_Registry', false ) ) {
+	BizCity_Connector_Registry::boot();
+}
+// [2026-10-17 01:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A1: the plugin that owns the Zalo cá nhân table knows each number's owner; asked lazily, only when a number has no grant primary yet
+add_filter( 'bizcity_account_owner_hint', static function ( $uid, $channel, $account_id ) {
+	if ( (int) $uid > 0 || 'zalo_personal' !== $channel || ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+		return $uid;
+	}
+	$row = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', (string) $account_id );
+	return is_array( $row ) ? (int) ( $row['owner_user_id'] ?? 0 ) : $uid;
+}, 10, 3 );
+if ( class_exists( 'BizCity_Connector_REST', false ) ) {
+	add_action( 'rest_api_init', array( 'BizCity_Connector_REST', 'register_routes' ) );
+	add_action( 'rest_api_init', array( 'BizCity_Connector_REST', 'register_grant_routes' ) ); // [2026-10-17 00:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-U8
+}
 if ( class_exists( 'BizCity_Agent_Mode_Access' ) ) {
 	BizCity_Agent_Mode_Access::register(); // [2026-09-30] PHASE-0.87 CL-13
 }
@@ -523,6 +554,7 @@ $_bzc_usage_files = array(
 	$gateway_dir . 'usage/class-usage-schema.php'    => 'channel.usage.schema',
 	$gateway_dir . 'usage/class-usage-prices.php'    => 'channel.usage.prices',
 	$gateway_dir . 'usage/class-usage-ingest.php'    => 'channel.usage.ingest',
+	$gateway_dir . 'usage/class-usage-activity-day.php' => 'channel.usage.activity_day', // [2026-10-15 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1 — the cell's daily activity counts (activity-day@1)
 	$gateway_dir . 'usage/class-usage-view-rest.php' => 'channel.usage.view_rest',
 	// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 round 4 (L14–L18): wallet proxy, client plans, site-side enforcement (AI switch + owner notice), Woo Pro, REST.
 	$gateway_dir . 'usage/class-usage-wallet.php'     => 'channel.usage.wallet',
@@ -544,7 +576,8 @@ $_bzc_usage_files = array(
 	$gateway_dir . 'usage/class-usage-plan-orders-rest.php' => 'channel.usage.plan_orders_rest',
 	$gateway_dir . 'usage/class-usage-revenue-rest.php'     => 'channel.usage.revenue_rest',
 	$gateway_dir . 'usage/class-usage-myplans-endpoint.php' => 'channel.usage.myplans_endpoint', // Woo My Account "Gói Zalo của tôi" (customer screen ⑥)
-	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',         // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
+	$gateway_dir . 'usage/class-usage-accounts-rest.php'    => 'channel.usage.accounts_rest',    // PHASE-0.109 — account desk + token ledger tabs
+	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',        // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
 	$gateway_dir . 'usage/class-brain-standing-rules.php'   => 'channel.brain.standing_rules',   // cap20_customer_only@1 reference (shared fixture with the cell, T108-33)
 );
 foreach ( $_bzc_usage_files as $_bzc_usage_file => $_bzc_usage_label ) {
@@ -560,6 +593,9 @@ if ( class_exists( 'BizCity_Usage_Schema' ) ) {
 }
 if ( class_exists( 'BizCity_Usage_Ingest' ) && class_exists( 'BizCity_Usage_Prices' ) ) {
 	BizCity_Usage_Ingest::init();
+}
+if ( class_exists( 'BizCity_Usage_Activity_Day' ) && class_exists( 'BizCity_Usage_Schema' ) ) {
+	BizCity_Usage_Activity_Day::init(); // PHASE-0.112 S112-L1
 }
 if ( class_exists( 'BizCity_Usage_View_REST' ) && class_exists( 'BizCity_Usage_Ingest' ) ) {
 	BizCity_Usage_View_REST::init();
@@ -595,6 +631,11 @@ if ( class_exists( 'BizCity_Usage_Revenue_REST' ) && class_exists( 'BizCity_Usag
 	BizCity_Usage_Revenue_REST::init();
 }
 
+// [2026-10-14 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 — "Tài khoản" + "Sổ cái token" tabs (read-only, billed figures only).
+if ( class_exists( 'BizCity_Usage_Accounts_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Usage_Accounts_REST::init();
+}
+
 // [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L1..L6 — menu "Sử dụng" → tab Thành tích: achievements/ROI
 // built entirely from the usage-ledger copy above (D108-2, R-CELL-METER-ONLY). Partial deploy degrades this module
 // only. Q108-1..9 not yet owner-locked — code follows the master plan's suggested defaults (00-MASTER-PLAN.md §6).
@@ -602,6 +643,13 @@ $_bzc_brain_files = array(
 	$gateway_dir . 'usage/class-brain-journey-schema.php'     => 'channel.brain.schema',
 	$gateway_dir . 'usage/class-brain-milestones-catalog.php' => 'channel.brain.milestones_catalog',
 	$gateway_dir . 'usage/class-brain-roi.php'                => 'channel.brain.roi',
+	$gateway_dir . 'usage/class-brain-digest.php'              => 'channel.brain.digest',       // S108-L7 — daily Zalo bulletins (owner + site admin)
+	$gateway_dir . 'usage/class-brain-settings.php'            => 'channel.brain.settings',     // S108-L15 — REST for minutes/wage/action tools/bulletin switches
+	$gateway_dir . 'usage/class-brain-maturity.php'            => 'channel.brain.maturity', // [2026-10-16 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L5 — maturity 0–100 (five axes × efficiency multiplier)
+	$gateway_dir . 'usage/class-brain-owner-ladder.php'        => 'channel.brain.owner_ladder', // S108-L13 — 6-step ladder + what is missing (pure)
+	$gateway_dir . 'usage/class-brain-board.php'               => 'channel.brain.board',          // S108-L11/L12 — ranges, flags, ranking, next milestones, badges (pure)
+	$gateway_dir . 'usage/class-brain-period-metrics.php'      => 'channel.brain.period_metrics', // S108-L11a — 7d / 30d / month windows with the 20/customer/day cap
+	$gateway_dir . 'usage/class-brain-payback-history.php'     => 'channel.brain.payback_history', // S108-L14 — payback.silver/gold + savings + owner Master/Grandmaster counts
 	$gateway_dir . 'usage/class-brain-journey-evaluator.php'  => 'channel.brain.evaluator',
 	$gateway_dir . 'usage/class-brain-journey-rest.php'       => 'channel.brain.journey_rest',
 );
@@ -621,6 +669,12 @@ if ( class_exists( 'BizCity_Brain_Journey_Evaluator' ) && class_exists( 'BizCity
 }
 if ( class_exists( 'BizCity_Brain_Journey_REST' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
 	BizCity_Brain_Journey_REST::init();
+}
+if ( class_exists( 'BizCity_Brain_Settings' ) && class_exists( 'BizCity_Brain_ROI' ) && class_exists( 'BizCity_Brain_Journey_Evaluator' ) ) {
+	BizCity_Brain_Settings::init(); // S108-L15
+}
+if ( class_exists( 'BizCity_Brain_Digest' ) && class_exists( 'BizCity_Brain_Settings' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
+	BizCity_Brain_Digest::init(); // S108-L7 — hourly tick; sends at most once a day per person
 }
 
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
@@ -683,6 +737,7 @@ if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init
 if ( class_exists( 'BizCity_Bot_Media_Jobs' ) ) { BizCity_Bot_Media_Jobs::init(); }
 // [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — cell outputs (image/audio/video) → media library; hooks + WP-Cron action.
 if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) ) { BizCity_Twin_Cell_Output_Store::init(); }
+if ( class_exists( 'BizCity_Twin_Cell_Output_Go_REST' ) ) { BizCity_Twin_Cell_Output_Go_REST::init(); }
 if ( class_exists( 'BizCity_Bot_Schedule' ) ) { BizCity_Bot_Schedule::init(); }
 if ( class_exists( 'BizCity_Bot_Group_Guard' ) ) { BizCity_Bot_Group_Guard::init(); }
 // [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — lets the CRM dispatcher carry the bot's MP3 voice reply.
@@ -914,7 +969,7 @@ function bizcity_gateway_bridge(): BizCity_Gateway_Bridge {
  *
  * The canonical registration lives in
  *   core/kg-hub/includes/integration-notebook.php
- * but `core/knowledge/bootstrap.php` short-circuits with `return;` when a
+ * but `core/guru/profile/bootstrap.php` short-circuits with `return;` when a
  * legacy mu-plugin already loaded `BizCity_Knowledge_Database`, which means
  * kg-hub/bootstrap.php (and hence the bridge) never gets required.
  *

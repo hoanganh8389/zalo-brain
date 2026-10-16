@@ -65,7 +65,7 @@ final class BizCity_Brain_Journey_Evaluator {
 	}
 
 	public static function on_connected( $account_id ): void {
-		self::evaluate_account( (string) $account_id );
+		self::evaluate_account( (string) $account_id, true );
 	}
 
 	/** Hourly: every account that has ever logged a ledger row (so a "sleeping" account's streak can still lapse / tiers still get checked against ROI). */
@@ -80,7 +80,7 @@ final class BizCity_Brain_Journey_Evaluator {
 	 * ================================================================ */
 
 	/** @return array{metrics:array<string,mixed>,new_events:array<int,string>} */
-	public static function evaluate_account( string $account_id ): array {
+	public static function evaluate_account( string $account_id, bool $live_connect = false ): array {
 		if ( class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
 			BizCity_Brain_Journey_Schema::maybe_install();
 		}
@@ -93,6 +93,10 @@ final class BizCity_Brain_Journey_Evaluator {
 
 		$metrics = self::compute_metrics( $account_id, $owner_user_id );
 		self::save_metrics( $account_id, $metrics );
+		// [2026-10-14 03:58 PM Johnny Chu - Chu Hoàng Anh] S108-L11a — the leaderboard's 7d / 30d / month windows (capped per customer per day), rebuilt whole.
+		if ( class_exists( 'BizCity_Brain_Period_Metrics' ) ) {
+			BizCity_Brain_Period_Metrics::refresh( $account_id );
+		}
 
 		$new_events = array();
 		$existing   = self::existing_event_codes( $account_id );
@@ -101,7 +105,8 @@ final class BizCity_Brain_Journey_Evaluator {
 			$new_events[] = self::write_event( array(
 				'subject_kind' => 'brain', 'subject_id' => $account_id, 'owner_user_id' => $owner_user_id,
 				'event' => 'born', 'code' => 'born.bronze', 'tier' => 'bronze', 'value' => 1,
-				'occurred_at' => $metrics['born_at'], 'source' => 'qr', 'source_ref' => $account_id,
+				// G-12: only the connect hook knows the QR scan moment; a number that already existed is dated by the first sweep ⇒ source 'backfill', shown as "ngày ghi sổ".
+					'occurred_at' => $metrics['born_at'], 'source' => $live_connect ? 'qr' : 'backfill', 'source_ref' => $account_id,
 			) ) ? 'born.bronze' : null;
 		}
 		if ( $metrics['customer_replies'] > 0 && null !== $metrics['first_customer_reply_at'] && empty( $existing['born.silver'] ) ) {
@@ -231,7 +236,12 @@ final class BizCity_Brain_Journey_Evaluator {
 			}
 		}
 
+		// [2026-10-14 12:50 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L14 (G-8) — month-by-month payback streak + cost-per-customer drop, from CLOSED months only.
+		$history = class_exists( 'BizCity_Brain_Payback_History' ) ? BizCity_Brain_Payback_History::metrics_for( $account_id ) : array( 'payback_streak_months' => 0, 'cost_per_customer_drop_pct' => 0 );
+
 		return array(
+			'payback_streak_months'    => (int) $history['payback_streak_months'],
+			'cost_per_customer_drop_pct' => (int) $history['cost_per_customer_drop_pct'],
 			'account_id'               => $account_id,
 			'platform'                 => self::PLATFORM,
 			'owner_user_id'            => $owner_user_id,
@@ -239,7 +249,9 @@ final class BizCity_Brain_Journey_Evaluator {
 			'distinct_customers'       => $distinct_customers,
 			'customer_replies_month'   => $customer_replies_month,
 			'distinct_customers_month' => $distinct_customers_month,
-			'distinct_groups'          => 0, // Q108-2 not yet approved — thread_kind not sent by the cell.
+			// [2026-10-15 06:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L3 — groups come from the CELL (activity-day@1 `groups_joined`), not from a site-side guess; 0 until the cell reports.
+			// The milestone group `groups` stays `enabled:false` in brain-milestones@1 until the owner switches it on (catalog change = owner decision).
+			'distinct_groups'          => self::cell_groups( $account_id ),
 			'tasks_done'               => $tasks_done,
 			'trained_items'            => $trained_items,
 			'streak_days'              => $streak_days,
@@ -252,6 +264,15 @@ final class BizCity_Brain_Journey_Evaluator {
 			'first_customer_reply_at'  => $first_customer_reply_at,
 			'active'                   => $has_recent ? 1 : 0,
 		);
+	}
+
+	/** Groups this number is in per the cell's latest activity-day@1 row; 0 when the cell has not reported. */
+	private static function cell_groups( string $account_id ): int {
+		if ( ! class_exists( 'BizCity_Usage_Activity_Day' ) ) {
+			return 0;
+		}
+		$m = BizCity_Usage_Activity_Day::latest_groups_joined( array( $account_id ) );
+		return (int) ( $m[ $account_id ] ?? 0 );
 	}
 
 	/** @return array<int,array{contact:string,day:string,turns:int}> */
@@ -424,6 +445,15 @@ final class BizCity_Brain_Journey_Evaluator {
 
 	/** Re-walk one subject's chain and confirm every row_hash matches (T108-5). */
 	public static function verify_chain( string $subject_kind, string $subject_id ): bool {
+		return self::verify_chain_detail( $subject_kind, $subject_id )['ok'];
+	}
+
+	/**
+	 * Same walk, but says WHERE it broke — the "Kiểm tra sổ" button shows "lệch ở hàng #seq" (T108-14).
+	 *
+	 * @return array{ok:bool,rows:int,first_bad_seq:?int}
+	 */
+	public static function verify_chain_detail( string $subject_kind, string $subject_id ): array {
 		global $wpdb;
 		$journey = BizCity_Brain_Journey_Schema::journey_table();
 		$rows = $wpdb->get_results( $wpdb->prepare(
@@ -433,7 +463,7 @@ final class BizCity_Brain_Journey_Evaluator {
 		$prev = '';
 		foreach ( (array) $rows as $r ) {
 			if ( (string) $r['prev_hash'] !== $prev ) {
-				return false;
+				return array( 'ok' => false, 'rows' => count( (array) $rows ), 'first_bad_seq' => (int) $r['seq'] );
 			}
 			$canonical = wp_json_encode( array(
 				'seq' => (int) $r['seq'], 'subject_kind' => $subject_kind, 'subject_id' => $subject_id,
@@ -441,11 +471,11 @@ final class BizCity_Brain_Journey_Evaluator {
 				'occurred_at' => $r['occurred_at'],
 			) );
 			if ( hash( 'sha256', $prev . $canonical ) !== (string) $r['row_hash'] ) {
-				return false;
+				return array( 'ok' => false, 'rows' => count( (array) $rows ), 'first_bad_seq' => (int) $r['seq'] );
 			}
 			$prev = (string) $r['row_hash'];
 		}
-		return true;
+		return array( 'ok' => true, 'rows' => count( (array) $rows ), 'first_bad_seq' => null );
 	}
 
 	/* ================================================================

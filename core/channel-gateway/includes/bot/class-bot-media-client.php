@@ -1,26 +1,13 @@
 <?php
 /**
- * Bot Studio — real outbound calls for the TTS/STT/tạo nhạc "Test" buttons
+ * Bot Studio — real outbound calls for the TTS/STT/tạo nhạc "Test" buttons and the live-turn TTS / music jobs
  * (PHASE-0.60E D-E1, EB-x.4 "Nút Test gọi đúng đường bot dùng, không mock").
  *
- * Every method here makes a genuine HTTP request to the configured provider
- * using the character's stored config (BizCity_Bot_Config_Repo) and keys
- * (BizCity_Bot_Secrets_Repo) — there is no mock/fake-success path. A provider
- * that rejects every stored key returns a real `provider_error`, not a green
- * checkmark.
- *
- * Confidence note (read before trusting this against a live key): the TTS
- * (Gemini native audio) and STT (OpenAI-compatible `/audio/transcriptions`)
- * request shapes below match well-documented, stable provider contracts. The
- * `music` path (OpenRouter running a Lyria-class model) is built against
- * OpenRouter's documented multimodal chat-completions shape (`modalities`),
- * but has NOT been exercised against a live OpenRouter account — it is the
- * least-verified of the three and should get a real smoke test with a funded
- * key before anyone relies on it.
- *
- * EB-6.4 key rotation: only `tts_api_keys` is multi-valued: try each key in
- * order, and on 401/403/429 move to the next, logging ONLY the key's index —
- * never its value.
+ * [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 R-ONE-VERTICAL-CELL — every provider call here now goes
+ * core → Hub gateway → cell → provider through BizCity_LLM_Client (text_to_speech / generate_music / transcribe_audio) and
+ * BizCity_Search_Client. This class holds NO provider URL and NO per-character provider key. The character's voice / model /
+ * format are passed as parameters; the stored per-character key fields (tts_api_keys, stt_api_key, music_api_key, tavily_api_key)
+ * are no longer read (data is kept, never deleted). There is no mock/fake-success path: a Hub error is returned as a WP_Error.
  *
  * @package BizCity_Twin_AI
  * @subpackage Channel_Gateway\Bot
@@ -32,10 +19,6 @@ defined( 'ABSPATH' ) || exit;
 
 final class BizCity_Bot_Media_Client {
 
-	const TIMEOUT_SECONDS = 45;
-	/** HTTP statuses that mean "this key is bad", not "this request is bad" — the EB-6.4 rotation trigger. */
-	const AUTH_FAILURE_CODES = array( 401, 403, 429 );
-
 	/**
 	 * @param int    $character_id
 	 * @param string $kind   'tts' | 'stt' | 'music' | 'apify' | 'video' | 'image' | 'tavily'
@@ -45,17 +28,17 @@ final class BizCity_Bot_Media_Client {
 	 * @return array|WP_Error
 	 */
 	public static function test( int $character_id, string $kind, array $body ) {
-		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
 			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
 		$media = BizCity_Bot_Config_Repo::get( $character_id )['media'];
 		switch ( $kind ) {
 			case 'tts':
-				return self::test_tts( $character_id, $media['tts'], $body );
+				return self::test_tts( $media['tts'], $body );
 			case 'stt':
-				return self::test_stt( $character_id, $media['stt'], $body );
+				return self::test_stt( $media['stt'], $body );
 			case 'music':
-				return self::test_music( $character_id, $media['music'], $body );
+				return self::test_music( $media['music'], $body );
 			case 'apify':
 				return self::test_apify( $character_id, $body );
 			case 'video':
@@ -63,75 +46,75 @@ final class BizCity_Bot_Media_Client {
 			case 'image':
 				return self::test_image( $media['image'], $body );
 			case 'tavily':
-				return self::test_tavily( $character_id, $body );
+				return self::test_tavily( $body );
 			default:
 				return new WP_Error( 'invalid_param', 'Invalid test type.', array( 'status' => 422, 'help_code' => 'bot_media_test_kind' ) );
 		}
 	}
 
-	/* ── TTS — Google AI Studio (Gemini native audio) · OpenAI-compatible /audio/speech · ElevenLabs ── */
-
 	/**
-	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §5.2A) — ported the 4-provider shape from
-	 * Libe-Zalo's agent-tts-section.tsx (each provider needs DIFFERENT required fields — a single
-	 * "model required" gate blocked every elevenlabs/vbee test before it could even run). vbee stays
-	 * an honest 501 (its API is asynchronous submit+poll; implementing that without a verified account
-	 * to test against would risk shipping a silently-wrong integration — same discipline this file's
-	 * own docblock already applies to the music path).
+	 * The one Hub-backed client, or a WP_Error when bizcity-llm is not loaded / has no key.
+	 *
+	 * @return BizCity_LLM_Client|WP_Error
 	 */
-	private static function test_tts( int $character_id, array $cfg, array $body ) {
-		$provider = (string) ( $cfg['provider'] ?? 'google_ai_studio' );
-		$model    = trim( (string) ( $cfg['model'] ?? '' ) );
-		$voice    = trim( (string) ( $cfg['voice'] ?? '' ) );
-		$keys = BizCity_Bot_Secrets_Repo::get_keys( $character_id, 'tts_api_keys' );
-		if ( empty( $keys ) ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No API key for TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_key_missing' ) );
+	private static function hub() {
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return new WP_Error( 'module_not_loaded', 'LLM client (bizcity-llm) is not loaded.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
-		if ( 'vbee' === $provider ) {
-			return new WP_Error( 'not_implemented', 'Vbee uses an asynchronous API (submit, then poll); a real test for this provider is not implemented yet. The configuration is still saved.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
+		$client = BizCity_LLM_Client::instance();
+		if ( ! $client->is_ready() ) {
+			return new WP_Error( 'bot_provider_key_missing', 'No BizCity 1API key. Set it in BizCity LLM settings (site level, not per Guru).', array( 'status' => 422, 'help_code' => 'bot_media_hub_key_missing' ) );
 		}
-		if ( ! in_array( $provider, array( 'google_ai_studio', 'openai_compatible', 'elevenlabs' ), true ) ) {
-			return new WP_Error( 'not_implemented', 'This TTS provider does not support a real test yet.', array( 'status' => 501, 'help_code' => 'bot_media_tts_provider_unsupported' ) );
-		}
-		if ( in_array( $provider, array( 'google_ai_studio', 'openai_compatible' ), true ) && '' === $model ) {
-			return new WP_Error( 'invalid_param', 'No model configured for TTS.', array( 'status' => 422, 'help_code' => 'bot_media_tts_model_required' ) );
-		}
-		if ( 'elevenlabs' === $provider && '' === $voice ) {
-			return new WP_Error( 'invalid_param', 'No voice (voice_id) configured for ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
-		}
+		return $client;
+	}
+
+	/** Keep the Hub error code/message, make sure the REST envelope has a help_code. */
+	private static function hub_error( WP_Error $e, string $help_code ): WP_Error {
+		$data = $e->get_error_data();
+		$data = is_array( $data ) ? $data : array();
+		$data['status']    = $data['status'] ?? 502;
+		$data['help_code'] = $data['help_code'] ?? $help_code;
+		unset( $data['hub'] );
+		return new WP_Error( $e->get_error_code(), $e->get_error_message(), $data );
+	}
+
+	/* ── TTS — Hub POST /tools/tts (the cell picks the provider; voice / model / format are parameters) ── */
+
+	private static function test_tts( array $cfg, array $body ) {
 		$text = trim( (string) ( $body['text'] ?? '' ) );
 		$text = '' !== $text ? mb_substr( $text, 0, 400 ) : 'Xin chào, đây là một tin nhắn thử giọng nói.';
-		return self::run_tts( $character_id, $cfg, $keys, $text );
+		return self::run_tts( $cfg, $text );
 	}
 
 	/**
-	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — the provider call + key rotation, shared by the manual Test
-	 * button and the turn-time synthesize(). Extracted unchanged from test_tts().
+	 * The Hub call shared by the manual Test button and the turn-time synthesize().
+	 *
+	 * @return array{ok:true,audio_base64:string,mime_type:string,bytes:int}|WP_Error
 	 */
-	private static function run_tts( int $character_id, array $cfg, array $keys, string $text ) {
-		$provider = (string) ( $cfg['provider'] ?? 'google_ai_studio' );
-		$model    = trim( (string) ( $cfg['model'] ?? '' ) );
-		$voice    = trim( (string) ( $cfg['voice'] ?? '' ) );
-		$last_error = null;
-		foreach ( $keys as $index => $key ) {
-			if ( 'google_ai_studio' === $provider ) {
-				$result = self::call_gemini_tts( $model, $voice ?: 'Kore', $text, $key );
-			} elseif ( 'openai_compatible' === $provider ) {
-				$base = trim( (string) ( $cfg['base_url'] ?? '' ) );
-				$result = self::call_openai_tts( $base, $model, $voice ?: 'alloy', (string) ( $cfg['format'] ?? 'mp3' ), $text, $key );
-			} else {
-				$result = self::call_elevenlabs_tts( $voice, $model ?: 'eleven_multilingual_v2', (string) ( $cfg['format'] ?? 'mp3_44100_128' ), $text, $key );
-			}
-			if ( ! is_wp_error( $result ) ) {
-				return $result;
-			}
-			$last_error = $result;
-			if ( ! self::is_key_failure( $result ) ) {
-				return $result; // a real error (bad model, malformed request) — rotating keys won't help.
-			}
-			self::log_key_rotation( $character_id, 'tts_api_keys', $index, count( $keys ) );
+	private static function run_tts( array $cfg, string $text ) {
+		$client = self::hub();
+		if ( is_wp_error( $client ) ) {
+			return $client;
 		}
-		return $last_error ?? new WP_Error( 'provider_error', 'The TTS call failed.', array( 'status' => 502, 'help_code' => 'bot_media_tts_failed' ) );
+		$result = $client->text_to_speech( $text, array(
+			'voice'  => trim( (string) ( $cfg['voice'] ?? '' ) ),
+			'format' => trim( (string) ( $cfg['format'] ?? '' ) ),
+			'model'  => trim( (string) ( $cfg['model'] ?? '' ) ),
+			'caller' => 'bot_tts',
+		) );
+		if ( is_wp_error( $result ) ) {
+			return self::hub_error( $result, 'bot_media_tts_failed' );
+		}
+		$b64 = (string) ( $result['audio_b64'] ?? '' );
+		if ( '' === $b64 ) {
+			return new WP_Error( 'provider_error', 'The TTS provider returned empty audio.', array( 'status' => 502, 'help_code' => 'bot_media_tts_empty_audio' ) );
+		}
+		return array(
+			'ok'           => true,
+			'audio_base64' => $b64,
+			'mime_type'    => (string) ( $result['mime_type'] ?? 'audio/mpeg' ),
+			'bytes'        => (int) ( $result['bytes'] ?? (int) ( strlen( $b64 ) * 3 / 4 ) ),
+		);
 	}
 
 	/* ── TTS for a live bot turn (PHASE-0.60H D-H3, option A) ─────────────────────────────────────────────────── */
@@ -142,31 +125,12 @@ final class BizCity_Bot_Media_Client {
 	/**
 	 * Pure: why this TTS configuration cannot be SENT to a Zalo customer ('' = it can).
 	 *
-	 * The CRM outbound path can only carry a real, playable container. v1 therefore accepts only MP3:
-	 *  - google_ai_studio returns raw PCM (`audio/L16;rate=24000`), not a playable file — PHP has no encoder, so
-	 *    it is refused here instead of shipping a file nobody can play;
-	 *  - openai_compatible only with format `mp3`; elevenlabs only with an `mp3_*` output_format;
-	 *  - vbee is asynchronous (submit + poll) and not implemented.
+	 * The CRM outbound path can only carry a real, playable container, so v1 accepts only MP3 (empty format = mp3).
+	 * The provider field no longer matters: the cell decides it (R-ONE-VERTICAL-CELL).
 	 */
 	public static function tts_turn_support( array $cfg ): string {
-		$provider = (string) ( $cfg['provider'] ?? 'google_ai_studio' );
-		$format   = strtolower( trim( (string) ( $cfg['format'] ?? '' ) ) );
-		if ( 'google_ai_studio' === $provider ) {
-			return 'Google AI Studio trả về âm thanh PCM thô, không gửi được thành file nghe được. Chọn OpenAI-compatible hoặc ElevenLabs (định dạng mp3).';
-		}
-		if ( 'openai_compatible' === $provider ) {
-			if ( '' === trim( (string) ( $cfg['base_url'] ?? '' ) ) || '' === trim( (string) ( $cfg['model'] ?? '' ) ) ) {
-				return 'OpenAI-compatible cần Base URL và Model.';
-			}
-			return ( '' === $format || 'mp3' === $format ) ? '' : 'Định dạng phải là mp3 để gửi qua Zalo.';
-		}
-		if ( 'elevenlabs' === $provider ) {
-			if ( '' === trim( (string) ( $cfg['voice'] ?? '' ) ) ) {
-				return 'ElevenLabs cần Giọng (voice_id).';
-			}
-			return ( '' === $format || 0 === strpos( $format, 'mp3' ) ) ? '' : 'Định dạng phải là mp3_* để gửi qua Zalo.';
-		}
-		return 'Nhà cung cấp TTS này chưa hỗ trợ gửi trong lượt trả lời.';
+		$format = strtolower( trim( (string) ( $cfg['format'] ?? '' ) ) );
+		return ( '' === $format || 0 === strpos( $format, 'mp3' ) ) ? '' : 'Định dạng phải là mp3 để gửi qua Zalo.';
 	}
 
 	/**
@@ -175,7 +139,7 @@ final class BizCity_Bot_Media_Client {
 	 * @return array{ok:true,binary:string,mime_type:string,bytes:int}|WP_Error
 	 */
 	public static function synthesize( int $character_id, string $text ) {
-		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
+		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
 			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503 ) );
 		}
 		$text = trim( $text );
@@ -187,17 +151,8 @@ final class BizCity_Bot_Media_Client {
 		if ( '' !== $reason ) {
 			return new WP_Error( 'tts_format_unsupported', $reason, array( 'status' => 422 ) );
 		}
-		$keys = BizCity_Bot_Secrets_Repo::get_keys( $character_id, 'tts_api_keys' );
-		if ( empty( $keys ) ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No API key for TTS.', array( 'status' => 422 ) );
-		}
-		if ( 'openai_compatible' === (string) $cfg['provider'] && '' === trim( (string) ( $cfg['format'] ?? '' ) ) ) {
-			$cfg['format'] = 'mp3';
-		}
-		if ( 'elevenlabs' === (string) $cfg['provider'] && '' === trim( (string) ( $cfg['format'] ?? '' ) ) ) {
-			$cfg['format'] = 'mp3_44100_128';
-		}
-		$result = self::run_tts( $character_id, $cfg, $keys, mb_substr( $text, 0, self::TTS_TURN_MAX_CHARS ) );
+		$cfg['format'] = 'mp3';
+		$result = self::run_tts( $cfg, mb_substr( $text, 0, self::TTS_TURN_MAX_CHARS ) );
 		if ( is_wp_error( $result ) ) {
 			return $result;
 		}
@@ -254,179 +209,122 @@ final class BizCity_Bot_Media_Client {
 		return $mimes;
 	}
 
-	private static function call_gemini_tts( string $model, string $voice, string $text, string $key ) {
-		$url = 'https://generativelanguage.googleapis.com/v1beta/models/' . rawurlencode( $model ) . ':generateContent?key=' . rawurlencode( $key );
-		$payload = array(
-			'contents'         => array( array( 'parts' => array( array( 'text' => $text ) ) ) ),
-			'generationConfig' => array(
-				'responseModalities' => array( 'AUDIO' ),
-				'speechConfig'        => array( 'voiceConfig' => array( 'prebuiltVoiceConfig' => array( 'voiceName' => $voice ) ) ),
-			),
-		);
-		$response = self::post_json( $url, $payload, array() );
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
-		$data       = $response['data'];
-		$audio_b64  = $data['candidates'][0]['content']['parts'][0]['inlineData']['data'] ?? '';
-		$mime       = $data['candidates'][0]['content']['parts'][0]['inlineData']['mimeType'] ?? 'audio/L16;rate=24000';
-		if ( '' === $audio_b64 ) {
-			return new WP_Error( 'provider_error', 'Gemini returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_tts_empty_audio' ) );
-		}
-		return array( 'ok' => true, 'audio_base64' => $audio_b64, 'mime_type' => $mime, 'bytes' => (int) ( strlen( $audio_b64 ) * 3 / 4 ) );
-	}
+	/* ── STT — Hub POST /tools/transcribe (the Hub fetches a public URL, so the test upload is staged in uploads/ for the call) ── */
 
-	private static function call_openai_tts( string $base_url, string $model, string $voice, string $format, string $text, string $key ) {
-		if ( '' === $base_url ) {
-			return new WP_Error( 'invalid_param', 'No Base URL configured for TTS (OpenAI-compatible).', array( 'status' => 422, 'help_code' => 'bot_media_tts_base_url_required' ) );
-		}
-		$url = rtrim( $base_url, '/' ) . '/audio/speech';
-		$response = self::post_json( $url, array(
-			'model'           => $model,
-			'input'           => $text,
-			'voice'           => $voice,
-			'response_format' => $format,
-		), array( 'Authorization' => 'Bearer ' . $key ), true /* raw binary response */ );
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
-		return array( 'ok' => true, 'audio_base64' => base64_encode( $response['raw'] ), 'mime_type' => 'audio/' . $format, 'bytes' => strlen( $response['raw'] ) );
-	}
-
-	/** ElevenLabs `POST /v1/text-to-speech/{voice_id}` — synchronous, documented, stable contract. */
-	private static function call_elevenlabs_tts( string $voice_id, string $model_id, string $output_format, string $text, string $key ) {
-		if ( '' === $voice_id ) {
-			return new WP_Error( 'invalid_param', 'No voice (voice_id) configured for ElevenLabs.', array( 'status' => 422, 'help_code' => 'bot_media_tts_voice_required' ) );
-		}
-		$url = 'https://api.elevenlabs.io/v1/text-to-speech/' . rawurlencode( $voice_id ) . '?output_format=' . rawurlencode( $output_format );
-		$response = self::post_json( $url, array(
-			'text'     => $text,
-			'model_id' => $model_id,
-		), array( 'xi-api-key' => $key ), true /* raw binary response */ );
-		if ( is_wp_error( $response ) ) {
-			return $response;
-		}
-		$mime = 0 === strpos( $output_format, 'wav' ) ? 'audio/wav' : ( 0 === strpos( $output_format, 'pcm' ) ? 'audio/pcm' : 'audio/mpeg' );
-		return array( 'ok' => true, 'audio_base64' => base64_encode( $response['raw'] ), 'mime_type' => $mime, 'bytes' => strlen( $response['raw'] ) );
-	}
-
-	/* ── STT — OpenAI-compatible /audio/transcriptions ── */
-
-	private static function test_stt( int $character_id, array $cfg, array $body ) {
+	private static function test_stt( array $cfg, array $body ) {
 		if ( empty( $cfg['enabled'] ) ) {
 			return new WP_Error( 'invalid_param', 'STT is turned off for this assistant.', array( 'status' => 422, 'help_code' => 'bot_media_stt_disabled' ) );
-		}
-		$base_url = trim( (string) ( $cfg['base_url'] ?? '' ) );
-		$model    = trim( (string) ( $cfg['model'] ?? '' ) );
-		if ( '' === $base_url || '' === $model ) {
-			return new WP_Error( 'invalid_param', 'No Base URL/Model configured for STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_config_required' ) );
-		}
-		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'stt_api_key' );
-		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No API key for STT.', array( 'status' => 422, 'help_code' => 'bot_media_stt_key_missing' ) );
 		}
 		$file_path = (string) ( $body['file_path'] ?? '' );
 		if ( '' === $file_path || ! is_readable( $file_path ) ) {
 			return new WP_Error( 'invalid_param', 'The test recording is missing.', array( 'status' => 422, 'help_code' => 'bot_media_stt_file_missing' ) );
 		}
-		$boundary = wp_generate_password( 24, false );
-		$body_raw = self::build_multipart( $boundary, array( 'model' => $model ), array( 'file' => $file_path ) );
-		$response = self::post_raw(
-			rtrim( $base_url, '/' ) . '/audio/transcriptions',
-			$body_raw,
-			array(
-				'Authorization' => 'Bearer ' . $key,
-				'Content-Type'  => 'multipart/form-data; boundary=' . $boundary,
-			)
-		);
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		$client = self::hub();
+		if ( is_wp_error( $client ) ) {
+			return $client;
 		}
-		$text = (string) ( $response['data']['text'] ?? '' );
-		return array( 'ok' => true, 'text' => $text );
+		if ( ! function_exists( 'wp_upload_dir' ) ) {
+			return new WP_Error( 'module_not_loaded', 'WordPress uploads are not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
+		}
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) ) {
+			return new WP_Error( 'provider_error', 'The uploads folder is not writable.', array( 'status' => 500, 'help_code' => 'bot_media_stt_stage_failed' ) );
+		}
+		$name = (string) ( $body['file_name'] ?? '' );
+		$ext  = strtolower( pathinfo( '' !== $name ? $name : $file_path, PATHINFO_EXTENSION ) );
+		$ext  = preg_match( '/^[a-z0-9]{2,5}$/', $ext ) ? $ext : 'mp3';
+		$mime = (string) ( wp_check_filetype( 'x.' . $ext )['type'] ?? '' );
+		$dest = trailingslashit( $uploads['path'] ) . 'bot-stt-test-' . wp_generate_password( 12, false ) . '.' . $ext;
+		if ( ! @copy( $file_path, $dest ) ) {
+			return new WP_Error( 'provider_error', 'The test recording could not be staged.', array( 'status' => 500, 'help_code' => 'bot_media_stt_stage_failed' ) );
+		}
+		try {
+			$result = $client->transcribe_audio( trailingslashit( $uploads['url'] ) . basename( $dest ), array(
+				'mime'   => $mime,
+				'lang'   => trim( (string) ( $cfg['language'] ?? '' ) ),
+				'caller' => 'bot_stt',
+			) );
+		} finally {
+			@unlink( $dest );
+		}
+		if ( is_wp_error( $result ) ) {
+			return self::hub_error( $result, 'bot_media_stt_failed' );
+		}
+		return array( 'ok' => true, 'text' => (string) ( $result['text'] ?? '' ) );
 	}
 
-	/* ── Tạo nhạc — OpenRouter (multimodal chat-completions, `modalities: ["audio"]`) ── */
+	/* ── Tạo nhạc — Hub POST /tools/music (synchronous, up to ~330 s) ── */
 
-	private static function test_music( int $character_id, array $cfg, array $body ) {
+	/**
+	 * Hub music call → { audio_b64, mime_type, ext }.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function run_music( array $cfg, string $prompt ) {
+		$client = self::hub();
+		if ( is_wp_error( $client ) ) {
+			return $client;
+		}
+		$result = $client->generate_music( $prompt, array(
+			'model'  => trim( (string) ( $cfg['model'] ?? '' ) ),
+			'format' => trim( (string) ( $cfg['format'] ?? '' ) ),
+			'caller' => 'bot_music',
+		) );
+		if ( is_wp_error( $result ) ) {
+			return self::hub_error( $result, 'bot_media_music_failed' );
+		}
+		if ( '' === (string) ( $result['audio_b64'] ?? '' ) ) {
+			return new WP_Error( 'provider_error', 'The provider returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
+		}
+		return $result;
+	}
+
+	private static function test_music( array $cfg, array $body ) {
 		if ( empty( $body['confirm_cost'] ) ) {
 			// EB-3.1: this call costs real money — the FE must have shown the warning and the
 			// caller must explicitly confirm, or this refuses before spending anything.
 			return new WP_Error( 'confirm_required', 'Confirmation is required before generating real music (it costs money).', array( 'status' => 422, 'help_code' => 'bot_media_music_confirm_required' ) );
 		}
-		$model = trim( (string) ( $cfg['model'] ?? '' ) );
-		if ( '' === $model ) {
-			return new WP_Error( 'invalid_param', 'No model configured for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
-		}
-		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'music_api_key' );
-		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No API key for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
-		}
 		$prompt = trim( (string) ( $body['prompt'] ?? '' ) ) ?: 'Nhạc nền nhẹ nhàng, vui tươi cho một cửa hàng thời trang.';
-		$response = self::post_json(
-			'https://openrouter.ai/api/v1/chat/completions',
-			array(
-				'model'      => $model,
-				'modalities' => array( 'audio' ),
-				'messages'   => array( array( 'role' => 'user', 'content' => $prompt ) ),
-			),
-			array( 'Authorization' => 'Bearer ' . $key )
-		);
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		$result = self::run_music( $cfg, $prompt );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
-		$data       = $response['data'];
-		$audio_b64  = $data['choices'][0]['message']['audio']['data'] ?? '';
-		$format     = (string) ( $cfg['format'] ?? 'mp3' );
-		if ( '' === $audio_b64 ) {
-			return new WP_Error( 'provider_error', 'The provider returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
-		}
-		return array( 'ok' => true, 'audio_base64' => $audio_b64, 'mime_type' => 'audio/' . $format );
+		$ext = (string) ( $result['ext'] ?? ( $cfg['format'] ?? 'mp3' ) );
+		return array( 'ok' => true, 'audio_base64' => (string) $result['audio_b64'], 'mime_type' => (string) ( $result['mime_type'] ?? 'audio/' . $ext ) );
 	}
 
 	/**
-	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — the REAL music generation the async job worker calls (test_music() only proves the
-	 * key works). Same request shape as test_music, but no confirm_cost gate (the job queue already gated cost: opt-in tool, hourly
-	 * ceiling, owner check) and a 180 s timeout — it runs in its own cron event, never inside a customer turn.
-	 * Non-streaming on purpose: WP_Http cannot stream SSE, and a whole-body response with a long timeout is what it can do.
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — the REAL music generation the async job worker calls (test_music() only proves
+	 * the route works). No confirm_cost gate (the job queue already gated cost: opt-in tool, hourly ceiling, owner check). It runs in
+	 * its own cron event, never inside a customer turn. The Hub call is synchronous (client timeout 330 s).
 	 *
 	 * @return array{ok:true,binary:string,mime:string,ext:string}|WP_Error  mp3/wav only
 	 */
 	public static function generate_music( int $character_id, string $prompt ) {
-		$cfg   = (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['music'] ?? array() );
-		$model = trim( (string) ( $cfg['model'] ?? '' ) );
-		if ( '' === $model ) {
-			return new WP_Error( 'invalid_param', 'No model configured for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_model_required' ) );
+		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Bot Studio is not ready.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
-		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'music_api_key' );
-		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No API key for music generation.', array( 'status' => 422, 'help_code' => 'bot_media_music_key_missing' ) );
-		}
+		$cfg    = (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['music'] ?? array() );
 		$prompt = trim( $prompt );
 		if ( '' === $prompt ) {
 			return new WP_Error( 'invalid_param', 'The music description is missing.', array( 'status' => 422, 'help_code' => 'bot_media_music_prompt_required' ) );
 		}
-		$response = self::post_json(
-			'https://openrouter.ai/api/v1/chat/completions',
-			array( 'model' => $model, 'modalities' => array( 'audio' ), 'messages' => array( array( 'role' => 'user', 'content' => $prompt ) ) ),
-			array( 'Authorization' => 'Bearer ' . $key ),
-			false,
-			180
-		);
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		$want = (string) ( $cfg['format'] ?? 'mp3' );
+		if ( ! in_array( $want, array( 'mp3', 'wav' ), true ) ) {
+			// flac is a valid provider format but not one the outbound MIME list (K0-4) accepts: refuse it here rather than pay for a file that cannot be sent.
+			return new WP_Error( 'invalid_param', 'Music format must be mp3 or wav so it can be sent through Zalo.', array( 'status' => 422, 'help_code' => 'bot_media_music_format_unsupported' ) );
 		}
-		$b64 = (string) ( $response['data']['choices'][0]['message']['audio']['data'] ?? '' );
-		if ( '' === $b64 ) {
-			return new WP_Error( 'provider_error', 'The provider returned no audio.', array( 'status' => 502, 'help_code' => 'bot_media_music_empty_audio' ) );
+		$result = self::run_music( $cfg, $prompt );
+		if ( is_wp_error( $result ) ) {
+			return $result;
 		}
-		$binary = base64_decode( $b64, true );
+		$binary = base64_decode( (string) $result['audio_b64'], true );
 		if ( false === $binary || '' === $binary ) {
 			return new WP_Error( 'provider_error', 'The audio returned by the provider could not be decoded.', array( 'status' => 502, 'help_code' => 'bot_media_music_bad_audio' ) );
 		}
-		$ext = (string) ( $cfg['format'] ?? 'mp3' );
+		$ext = strtolower( (string) ( $result['ext'] ?? $want ) );
 		if ( ! in_array( $ext, array( 'mp3', 'wav' ), true ) ) {
-			// flac is a valid provider format but not one the outbound MIME list (K0-4) accepts: refuse it here rather than pay for a file that cannot be sent.
 			return new WP_Error( 'invalid_param', 'Music format must be mp3 or wav so it can be sent through Zalo.', array( 'status' => 422, 'help_code' => 'bot_media_music_format_unsupported' ) );
 		}
 		return array( 'ok' => true, 'binary' => $binary, 'mime' => 'wav' === $ext ? 'audio/wav' : 'audio/mpeg', 'ext' => $ext );
@@ -502,7 +400,7 @@ final class BizCity_Bot_Media_Client {
 	/**
 	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-04/§5.2A.4 "Test image phải chứng
 	 * minh attachment result") — the SAME real call the bot would use (BizCity_LLM_Client::generate_image(),
-	 * already ships a live gateway/direct-OpenAI path); no per-character key (see media_defaults() docblock
+	 * already goes through the Hub gateway); no per-character key (see media_defaults() docblock
 	 * for the R-1API boundary this shares with video). Returns the real image (url or base64) so the FE
 	 * can render an actual preview — the strongest available proof short of a live outbound Zalo send,
 	 * which stays out of scope until the dispatcher attach path (OW-4 runtime) exists.
@@ -536,126 +434,31 @@ final class BizCity_Bot_Media_Client {
 		);
 	}
 
-	/* ── Tra cứu web (Tavily) — gọi thẳng Tavily bằng khóa riêng theo Guru ── */
+	/* ── Tra cứu web — BizCity_Search_Client (Hub), cùng đường với công cụ web_search ── */
 
 	/**
-	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2A "tavily_api_key chỉ khi tool owner
-	 * dùng thật") — before this, `tavily_api_key` was saved but genuinely never read by anything
-	 * (GuruBotMediaPanel's own label said so). This is a REAL call to Tavily's own search API using
-	 * the operator's key — proves the key actually works, unlike a fake "saved ✓" checkmark. It is
-	 * deliberately NOT wired into the live `web_search` turn tool: that tool still goes through the
-	 * site-wide gateway BizCity_Search_Client (class-bot-tool-registry.php::check_search()) —
-	 * switching a live conversation's search provider per-Guru is a turn-behavior change that needs
-	 * its own explicit owner decision, not something a media-config PUT should silently flip.
+	 * [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 — no per-Guru search key and no direct search-provider call:
+	 * the Test button runs the SAME Hub search route the live `web_search` turn tool uses.
 	 */
-	private static function test_tavily( int $character_id, array $body ) {
-		$key = BizCity_Bot_Secrets_Repo::get_value( $character_id, 'tavily_api_key' );
-		if ( '' === $key ) {
-			return new WP_Error( 'bot_provider_key_missing', 'No Tavily API key.', array( 'status' => 422, 'help_code' => 'bot_media_tavily_key_missing' ) );
+	private static function test_tavily( array $body ) {
+		if ( ! class_exists( 'BizCity_Search_Client' ) ) {
+			return new WP_Error( 'module_not_loaded', 'Search client (bizcity-llm) is not loaded.', array( 'status' => 503, 'help_code' => 'module_not_loaded' ) );
 		}
-		$query = trim( (string) ( $body['query'] ?? '' ) ) ?: 'thời tiết Hà Nội hôm nay';
-		$response = self::post_json( 'https://api.tavily.com/search', array(
-			'api_key'      => $key,
-			'query'        => $query,
-			'max_results'  => 5,
-			'search_depth' => 'basic',
-		), array() );
-		if ( is_wp_error( $response ) ) {
-			return $response;
+		$search = BizCity_Search_Client::instance();
+		if ( ! $search->is_ready() ) {
+			return new WP_Error( 'bot_provider_key_missing', 'No BizCity 1API key. Set it in BizCity LLM settings (site level, not per Guru).', array( 'status' => 422, 'help_code' => 'bot_media_hub_key_missing' ) );
 		}
-		$results = is_array( $response['data']['results'] ?? null ) ? $response['data']['results'] : array();
+		$query   = trim( (string) ( $body['query'] ?? '' ) ) ?: 'thời tiết Hà Nội hôm nay';
+		$results = $search->search( $query, 5, array( 'include_raw_content' => false ) );
+		if ( is_wp_error( $results ) ) {
+			return self::hub_error( $results, 'bot_media_search_failed' );
+		}
+		$results = is_array( $results ) ? $results : array();
 		return array(
 			'ok'      => true,
 			'results' => array_map( static function ( $r ) {
 				return array( 'title' => (string) ( $r['title'] ?? '' ), 'url' => (string) ( $r['url'] ?? '' ) );
 			}, array_slice( $results, 0, 5 ) ),
 		);
-	}
-
-	/* ── HTTP + key-rotation helpers ──────────────────────────────────── */
-
-	private static function is_key_failure( WP_Error $error ): bool {
-		$data = $error->get_error_data();
-		return is_array( $data ) && in_array( (int) ( $data['http_status'] ?? 0 ), self::AUTH_FAILURE_CODES, true );
-	}
-
-	private static function log_key_rotation( int $character_id, string $field, int $failed_index, int $total ): void {
-		// EB-6.4: log WHICH key failed, never the value. CH_CHANNEL_GATEWAY (not CH_ZALO_PERSONAL) —
-		// this is a character-level media event with no single Zalo account_id to scope it to, and
-		// write_record() requires account_id for every channel except the two generic ones.
-		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
-			BizCity_Channel_File_Logger::write(
-				BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY,
-				BizCity_Channel_File_Logger::LEVEL_WARN,
-				'bot_media_key_rotated',
-				'Một khóa media bị từ chối, đang chuyển sang khóa kế tiếp.',
-				array( 'character_id' => $character_id, 'field' => $field, 'failed_index' => $failed_index, 'total_keys' => $total )
-			);
-		}
-	}
-
-	private static function post_json( string $url, array $payload, array $headers, bool $raw_response = false, int $timeout = 0 ) {
-		$headers['Content-Type'] = 'application/json';
-		$args = array(
-			'method'  => 'POST',
-			'timeout' => $timeout > 0 ? $timeout : self::TIMEOUT_SECONDS,
-			'headers' => $headers,
-			'body'    => wp_json_encode( $payload ),
-		);
-		return self::dispatch( $url, $args, $raw_response );
-	}
-
-	private static function post_raw( string $url, string $body, array $headers ) {
-		$args = array(
-			'method'  => 'POST',
-			'timeout' => self::TIMEOUT_SECONDS,
-			'headers' => $headers,
-			'body'    => $body,
-		);
-		return self::dispatch( $url, $args, false );
-	}
-
-	private static function dispatch( string $url, array $args, bool $raw_response ) {
-		if ( ! function_exists( 'wp_remote_request' ) ) {
-			return new WP_Error( 'module_not_loaded', 'HTTP client is not ready.', array( 'status' => 503, 'help_code' => 'bot_media_http_missing' ) );
-		}
-		$response = wp_remote_request( $url, $args );
-		if ( is_wp_error( $response ) ) {
-			return new WP_Error( 'provider_error', $response->get_error_message(), array( 'status' => 502, 'help_code' => 'bot_media_http_error' ) );
-		}
-		$status = (int) wp_remote_retrieve_response_code( $response );
-		$raw    = (string) wp_remote_retrieve_body( $response );
-		if ( $status < 200 || $status >= 300 ) {
-			$decoded = json_decode( $raw, true );
-			$message = is_array( $decoded ) ? (string) ( $decoded['error']['message'] ?? $decoded['message'] ?? '' ) : '';
-			return new WP_Error(
-				in_array( $status, self::AUTH_FAILURE_CODES, true ) ? 'bot_provider_key_missing' : 'provider_error',
-				'' !== $message ? $message : ( 'The provider returned HTTP error ' . $status . '.' ),
-				array( 'status' => 502, 'http_status' => $status, 'help_code' => 'bot_media_provider_error' )
-			);
-		}
-		if ( $raw_response ) {
-			return array( 'raw' => $raw );
-		}
-		$decoded = json_decode( $raw, true );
-		if ( ! is_array( $decoded ) ) {
-			return new WP_Error( 'provider_error', 'Invalid response from the provider.', array( 'status' => 502, 'help_code' => 'bot_media_invalid_response' ) );
-		}
-		return array( 'data' => $decoded );
-	}
-
-	/** Minimal multipart/form-data body builder for the STT file upload. */
-	private static function build_multipart( string $boundary, array $fields, array $files ): string {
-		$body = '';
-		foreach ( $fields as $name => $value ) {
-			$body .= "--{$boundary}\r\nContent-Disposition: form-data; name=\"{$name}\"\r\n\r\n{$value}\r\n";
-		}
-		foreach ( $files as $name => $path ) {
-			$filename = basename( $path );
-			$content  = (string) file_get_contents( $path );
-			$body .= "--{$boundary}\r\nContent-Disposition: form-data; name=\"{$name}\"; filename=\"{$filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n{$content}\r\n";
-		}
-		$body .= "--{$boundary}--\r\n";
-		return $body;
 	}
 }

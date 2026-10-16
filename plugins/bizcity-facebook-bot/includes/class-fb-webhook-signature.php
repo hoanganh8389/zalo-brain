@@ -70,6 +70,23 @@ final class BizCity_FB_Webhook_Signature {
 		return 'mismatch';
 	}
 
+	/**
+	 * [2026-10-14 10:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L19 — the App Secret that ACTUALLY verifies this request ('' when none does). The cell must be given exactly this one: a site can hold several
+	 * (option, network, per-bot column) and guessing which is Meta's was the way a wrong secret would silently make the cell refuse everything.
+	 */
+	public static function matching_secret( string $body, string $header ): string {
+		$header = trim( $header );
+		if ( '' === $header ) {
+			return '';
+		}
+		foreach ( self::secrets() as $s ) {
+			if ( hash_equals( 'sha256=' . hash_hmac( 'sha256', $body, $s ), $header ) ) {
+				return (string) $s;
+			}
+		}
+		return '';
+	}
+
 	/** Should this POST reach the handler? Logs every refusal (no body, no secret). */
 	public static function allow( string $body, string $header, string $where ): bool {
 		$r = self::check( $body, $header );

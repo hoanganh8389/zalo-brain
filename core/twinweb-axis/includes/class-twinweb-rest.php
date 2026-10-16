@@ -4133,7 +4133,7 @@ class BizCity_TwinWeb_REST {
 				'order_create' => (bool) ( $order_draft_capable && class_exists( 'BizCity_Twin_Action_Confirmation' ) && class_exists( 'BizCity_Twin_Mutation_Store' ) ),
 				// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-SHEET-UNIFY W0-4 — composer buttons render only when this build of the REST layer owns the route.
 				'private_note' => (bool) ( $can_write && 'zalo_personal' === $channel && method_exists( $this, 'post_mychannels_zalo_personal_note' ) && class_exists( 'BizCity_CRM_REST_Controller' ) ),
-				'ai_reply' => (bool) ( $can_write && 'zalo_personal' === $channel && method_exists( $this, 'post_mychannels_zalo_personal_ai_reply' ) && class_exists( 'BizCity_CRM_AI_Replier' ) ),
+				'ai_reply' => false, // [2026-10-16 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS0 — archived in 0.96
 				'order_send' => (bool) ( $order_draft_capable && 'zalo_personal' === $channel && class_exists( 'BizCity_Twin_Mutation_Store' ) && method_exists( 'BizCity_CRM_REST_Controller', 'post_send_order_to_customer' ) ),
 				// [PHASE-0.54 D54-3] a member may hoãn/đóng/mở lại their OWN conversations — same gate as priority/labels.
 				'snooze' => (bool) $can_write,
@@ -5299,70 +5299,10 @@ class BizCity_TwinWeb_REST {
 	 * and "AI reply" (dispatch=true, sends via the Zalo Personal adapter) both land here.
 	 * [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.48C-COMPOSER-PARITY.
 	 */
+	// [2026-10-16 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS0 — BizCity_CRM_AI_Replier was archived in 0.96 (bizcity-twin-crm/_archived/PHASE-0.96); suggestions come from the cell (R-ONE-VERTICAL-CELL). The route stays registered so an old client gets a clear 410 instead of a 404.
 	public function post_mychannels_zalo_personal_ai_reply( WP_REST_Request $request ) {
-		$body = $request->get_json_params();
-		$body = is_array( $body ) ? $body : array();
-		$prompt = trim( (string) ( $body['prompt'] ?? '' ) );
-		if ( strlen( $prompt ) > 4000 ) { return $this->mychannels_error( 'invalid_param', 'Prompt vượt quá độ dài cho phép.', 'Rút ngắn prompt rồi thử lại.', 'invalid_param_generic' ); }
-		$dispatch = ! isset( $body['dispatch'] ) || (bool) $body['dispatch'];
-		// [2026-09-19 02:05 PM Johnny Chu] PHASE-0.59-CRM-AI-ASSISTANT-RELEVANCE-RELIABILITY — suggestion is a draft-only read and remains usable while the account is expired; a real AI send still requires a connected Zalo inbox.
-		$context = $this->mychannels_zalo_personal_owned_conversation( $request, $dispatch );
-		if ( is_wp_error( $context ) || ! is_array( $context ) ) { return $context; }
-		if ( ! class_exists( 'BizCity_CRM_AI_Replier' ) ) {
-			return $this->mychannels_error( 'module_not_loaded', 'AI reply chưa sẵn sàng.', 'Bật module AI Replier rồi thử lại.', 'module_not_loaded' );
-		}
-		$id = (int) $context['conversation_id'];
-		$idempotency_key = sanitize_text_field( (string) ( $request->get_header( 'x-bizcity-idempotency-key' ) ?: ( $body['idempotency_key'] ?? '' ) ) );
-		if ( strlen( $idempotency_key ) < 16 || strlen( $idempotency_key ) > 190 ) {
-			return $this->mychannels_error( 'invalid_param', 'Thiếu mã idempotency cho AI reply.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
-		}
-		if ( ! class_exists( 'BizCity_Twin_Mutation_Store' ) ) {
-			return $this->mychannels_error( 'module_not_loaded', 'Bộ chống ghi trùng chưa sẵn sàng.', 'Bật lớp an toàn thao tác rồi thử lại.', 'module_not_loaded' );
-		}
-		$mutation = array(
-			'action'          => 'crm_ai_reply.' . ( $dispatch ? 'send' : 'suggest' ),
-			'idempotency_key' => $idempotency_key,
-			'resource'        => array( 'scope' => 'conversation:' . $id ),
-			'trace_id'        => (string) ( $request->get_header( 'x-bizcity-trace-id' ) ?: '' ),
-		);
-		$request_hash = md5( wp_json_encode( array( $id, $prompt, $dispatch ) ) );
-		$mutation_state = BizCity_Twin_Mutation_Store::begin( $mutation, array( 'blog_id' => (int) get_current_blog_id(), 'user_id' => (int) $context['identity']['user_id'] ), $request_hash );
-		if ( 'conflict' === (string) ( $mutation_state['status'] ?? '' ) ) {
-			return $this->mychannels_error( 'invalid_param', 'Mã idempotency đã dùng cho dữ liệu khác.', 'Tạo mã thao tác mới rồi thử lại.', 'invalid_param_generic' );
-		}
-		if ( 'pending' === (string) ( $mutation_state['status'] ?? '' ) ) {
-			return $this->mychannels_error( 'invalid_param', 'AI reply đang được xử lý.', 'Đợi thao tác hiện tại hoàn tất rồi thử lại.', 'invalid_param_generic' );
-		}
-		if ( 'replay' === (string) ( $mutation_state['status'] ?? '' ) ) {
-			$replayed = (array) ( $mutation_state['response'] ?? array() );
-			$replayed['idempotency_replayed'] = true;
-			return rest_ensure_response( $replayed );
-		}
-		$crm_request = new WP_REST_Request( 'POST', '/bizcity-crm/v1/conversations/' . $id . '/ai-reply' );
-		$crm_request->set_url_params( array( 'id' => $id ) );
-		$crm_request->set_header( 'Content-Type', 'application/json' );
-		// Suggest ("Gợi ý") is draft-only: CRM returns text without inserting a message row (D3).
-		$crm_body = $dispatch ? array( 'dispatch' => true ) : array( 'dispatch' => false, 'draft_only' => true );
-		if ( $prompt !== '' ) { $crm_body['prompt'] = $prompt; }
-		$crm_request->set_body( wp_json_encode( $crm_body ) );
-		$crm_response = BizCity_CRM_REST_Controller::post_ai_reply( $crm_request );
-		if ( $crm_response instanceof WP_REST_Response ) {
-			$wrapped = $crm_response->get_data();
-			if ( $crm_response->get_status() >= 400 || ! is_array( $wrapped ) || false === ( $wrapped['ok'] ?? false ) ) {
-				BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
-				return $this->mychannels_error( 'crm_projection_failed', 'Chưa tạo được AI reply.', 'Kiểm tra notebook/character của tài khoản rồi thử lại.', 'gateway_degraded' );
-			}
-			$payload = is_array( $wrapped['data'] ?? null ) ? $wrapped['data'] : $wrapped;
-			if ( isset( $payload['message'] ) && is_array( $payload['message'] ) ) {
-				$payload['message'] = $this->shape_mychannels_zalo_personal_message( $payload['message'] );
-			}
-			$payload['success'] = true;
-			$payload['idempotency_replayed'] = false;
-			BizCity_Twin_Mutation_Store::complete( (string) $mutation_state['key'], $request_hash, $payload );
-			return rest_ensure_response( $payload );
-		}
-		BizCity_Twin_Mutation_Store::release( (string) ( $mutation_state['key'] ?? '' ) );
-		return $crm_response;
+		unset( $request );
+		return new WP_Error( 'feature_moved', 'Gợi ý trả lời do trợ lý trên cell đảm nhiệm, không còn ở màn này.', array( 'status' => 410 ) );
 	}
 
 	public function get_mychannels_zalo_bots( WP_REST_Request $request ) {

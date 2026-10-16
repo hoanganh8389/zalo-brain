@@ -51,7 +51,7 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-database.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-identity-extractor.php';
 // PHASE-0.3 Wave 2 — backfill engine + WP-CLI + REST. Loaded after database.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-identity-backfill.php';
-// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — moved here from core/knowledge/lib/ (same
+// [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-1 (R-LEAN-4) — moved here from core/guru/profile/lib/ (same
 // class names). class-kg-vector-index.php and the bin diagnostic page call BizCity_Knowledge_Embedding behind a
 // class_exists guard; KG-Hub is now its real owner instead of relying on core/knowledge having loaded it first.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-embedding.php';
@@ -59,6 +59,8 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-file-parser.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-vector-index.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-vector-file-store.php';
 // PHASE-0.7-LEARN-VECTOR-FILE (Wave F0-F2, 2026-05-20) — content filestore companion.
+// [2026-10-16 04:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS5.1 — file-store rollout flags moved here from core/cron (class-cron-tier-settings.php).
+require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-filestore-flags.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-notebook-folder.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'filestore/class-kg-md-parser.php';
 // [2026-07-24 Johnny Chu] PHASE-0.46-FILE-BODY — file-first source/chunk body persistence.
@@ -289,7 +291,7 @@ add_shortcode( 'bizcity_notebook_notes', static function ( $atts ) {
 	), $atts, 'bizcity_notebook_notes' );
 
 	// [2026-10-12 10:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L32 — was a hard-coded plugin folder name — shortcode [bizcity_notebook_notes] rendered empty when the plugin folder had another name.
-	$view = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 2 ) . '/' ) . 'core/knowledge/views/notebook-notes-panel.php';
+	$view = ( defined( 'BIZCITY_TWIN_AI_DIR' ) ? BIZCITY_TWIN_AI_DIR : dirname( __DIR__, 2 ) . '/' ) . 'core/guru/admin/views/notebook-notes-panel.php';
 	if ( ! is_readable( $view ) ) { return ''; }
 	ob_start();
 	include $view; // $atts is in scope
@@ -345,30 +347,30 @@ add_action( 'rest_api_init', static function () {
 // Legacy v06 central dual-write mặc định OFF; filestore read-switch + file-primary mặc định ON.
 // Cấu hình qua Network Admin → Settings → BizCity Cron Tiers.
 add_filter( 'bizcity_kg_v06_dual_write', static function ( $enabled ) {
-	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
-		return $enabled || BizCity_Cron_Tier_Settings::is_file_first_dual_write();
+	if ( class_exists( 'BizCity_KG_Filestore_Flags' ) ) {
+		return $enabled || BizCity_KG_Filestore_Flags::is_file_first_dual_write();
 	}
 	return $enabled || (bool) get_option( 'bizcity_kg_v06_dual_write_enabled', false );
 } );
 add_filter( 'bizcity_kg_v06_read_switch', static function ( $enabled ) {
-	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
-		return $enabled || BizCity_Cron_Tier_Settings::is_file_first_read_switch();
+	if ( class_exists( 'BizCity_KG_Filestore_Flags' ) ) {
+		return $enabled || BizCity_KG_Filestore_Flags::is_file_first_read_switch();
 	}
 	return $enabled || (bool) get_option( 'bizcity_kg_v06_read_switch_enabled', true );
 } );
 
 // [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — file-primary write path defaults ON.
 add_filter( 'bizcity_kg_v07_file_primary_write', static function ( $enabled ) {
-	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) ) {
-		return $enabled || BizCity_Cron_Tier_Settings::is_file_primary_write();
+	if ( class_exists( 'BizCity_KG_Filestore_Flags' ) ) {
+		return $enabled || BizCity_KG_Filestore_Flags::is_file_primary_write();
 	}
 	return $enabled || (bool) get_option( 'bizcity_kg_v07_file_primary_write_enabled', true );
 } );
 
 // [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — drain graph embedding LONGTEXT by default.
 add_filter( 'bizcity_kg_v08_graph_embedding_migration', static function ( $enabled ) {
-	if ( class_exists( 'BizCity_Cron_Tier_Settings' ) && method_exists( 'BizCity_Cron_Tier_Settings', 'is_graph_embedding_migration_enabled' ) ) {
-		return $enabled || BizCity_Cron_Tier_Settings::is_graph_embedding_migration_enabled();
+	if ( class_exists( 'BizCity_KG_Filestore_Flags' ) && method_exists( 'BizCity_KG_Filestore_Flags', 'is_graph_embedding_migration_enabled' ) ) {
+		return $enabled || BizCity_KG_Filestore_Flags::is_graph_embedding_migration_enabled();
 	}
 	return $enabled || (bool) get_option( 'bizcity_kg_v08_graph_embedding_migration_enabled', true );
 } );

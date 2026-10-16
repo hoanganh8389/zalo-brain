@@ -30,28 +30,12 @@ class BizCity_CRM_Spine_REST {
 	public static function register_routes(): void {
 		$ns = BIZCITY_CRM_REST_NS;
 
-		register_rest_route( $ns, '/channels', array(
-			'methods'             => WP_REST_Server::READABLE,
-			'callback'            => array( __CLASS__, 'get_channels' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
-		) );
+		// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.3 (doc 87) — route /channels had no caller (SPAs, plugin, cell); registration removed, handler kept until CS6 (twin-crm subclasses this class).
 
 		// M7.W1 — wizard: per-channel form schema + verify endpoint.
-		register_rest_route( $ns, '/channels/(?P<code>[a-z0-9_]+)', array(
-			'methods'             => WP_REST_Server::READABLE,
-			'callback'            => array( __CLASS__, 'get_channel_detail' ),
-			// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E1 — channel setup (Add Inbox wizard) stays admin-only.
-			'permission_callback' => array( __CLASS__, 'can_read' ),
-		) );
+		// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.3 (doc 87) — route /channels/(?P<code>[a-z0-9_]+) had no caller (SPAs, plugin, cell); registration removed, handler kept until CS6 (twin-crm subclasses this class).
 
-		register_rest_route( $ns, '/channels/(?P<code>[a-z0-9_]+)/verify', array(
-			'methods'             => WP_REST_Server::CREATABLE,
-			'callback'            => array( __CLASS__, 'post_channel_verify' ),
-			'permission_callback' => array( __CLASS__, 'can_read' ),
-			'args'                => array(
-				'config' => array( 'type' => 'object', 'required' => true ),
-			),
-		) );
+		// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.3 (doc 87) — route /channels/(?P<code>[a-z0-9_]+)/verify had no caller (SPAs, plugin, cell); registration removed, handler kept until CS6 (twin-crm subclasses this class).
 
 		register_rest_route( $ns, '/inboxes', array(
 			array(
@@ -253,18 +237,7 @@ class BizCity_CRM_Spine_REST {
 			)
 		) );
 
-		register_rest_route( $ns, '/teams/(?P<id>\d+)/members', array(
-			array(
-				'methods'             => WP_REST_Server::READABLE,
-				'callback'            => array( __CLASS__, 'get_team_members' ),
-				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
-			),
-			array(
-				'methods'             => WP_REST_Server::CREATABLE,
-				'callback'            => array( __CLASS__, 'post_team_member' ),
-				'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
-			)
-		) );
+		// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.3 (doc 87) — route /teams/(?P<id>\d+)/members had no caller (SPAs, plugin, cell); registration removed, handler kept until CS6 (twin-crm subclasses this class).
 
 		// [2026-09-23] PHASE-0.71 F71-10 / 0.63C GC-6 — the update path `settings_json.purpose`
 		// never had: `upsert_inbox()` only writes settings once, at creation.
@@ -283,11 +256,7 @@ class BizCity_CRM_Spine_REST {
 			'permission_callback' => array( __CLASS__, 'can_manage_teams' ),
 		) );
 
-		register_rest_route( $ns, '/conversations/(?P<id>\d+)/team', array(
-			'methods'             => WP_REST_Server::EDITABLE,
-			'callback'            => array( __CLASS__, 'post_team_assign' ),
-			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
-		) );
+		// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.3 (doc 87) — route /conversations/(?P<id>\d+)/team had no caller (SPAs, plugin, cell); registration removed, handler kept until CS6 (twin-crm subclasses this class).
 
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/priority', array(
 			'methods'             => WP_REST_Server::EDITABLE,

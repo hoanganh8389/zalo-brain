@@ -1,0 +1,63 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "zalo_bot",
+  "label": "Zalo Bot",
+  "badge": "Quản trị",
+  "section": "own",
+  "order": 20,
+  "transport": "dev_api",
+  "account_kind": "zalo_bot",
+  "auth": {
+    "kind": "bot_token"
+  },
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [
+    {
+      "key": "webhook_secret",
+      "scope": "account",
+      "type": "secret"
+    },
+    {
+      "key": "report_hour",
+      "scope": "connector",
+      "type": "hour",
+      "default": 20
+    }
+  ],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "zalo_bot.message.send",
+      "sets": "connected"
+    },
+    {
+      "id": "send_one",
+      "executor": "zalo_bot.message.send",
+      "sets": "tested",
+      "confirm": "human"
+    }
+  ],
+  "executors": [
+    "zalo_bot.message.send"
+  ],
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.zalo_bot",
+  "tab_components": {},
+  "module_access": {
+    "id": "connect_zalo_bot",
+    "group": "connectors",
+    "parent": null,
+    "label": "Zalo Bot",
+    "mode": "grantable",
+    "default_roles": [
+      "administrator"
+    ],
+    "availability": "connector_status"
+  },
+  "desc": "Nhận lệnh, giao việc và nhận báo cáo nội bộ qua Zalo Bot.",
+  "platform_code": "zalo_bot"
+}

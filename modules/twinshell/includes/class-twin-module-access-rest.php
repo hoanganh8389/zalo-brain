@@ -276,6 +276,19 @@ class BizCity_Twin_Module_Access_REST {
 		return $out;
 	}
 
+	/** @return array{state:string,badge:string,hint:string} */
+	private static function connector_availability( array $entry ) {
+		$open = array( 'state' => 'open', 'badge' => '', 'hint' => '' );
+		if ( ! BizCity_Twin_Shell_Registry::is_connector_entry( $entry ) || ! class_exists( 'BizCity_Connector_Registry' ) ) {
+			return $open;
+		}
+		static $active = false; // false = not asked yet this request; null = unknown
+		if ( false === $active ) {
+			$active = class_exists( 'BizCity_Connect_Composio_REST' ) ? BizCity_Connect_Composio_REST::active_toolkits() : null;
+		}
+		return BizCity_Connector_Registry::instance()->availability( $entry['id'], $active );
+	}
+
 	private static function module_summary( array $entry ) {
 		$manage = null;
 		if ( ! empty( $entry['access']['manage']['plugin'] ) && class_exists( 'BizCity_Twin_Shell_Page' ) ) {
@@ -285,6 +298,7 @@ class BizCity_Twin_Module_Access_REST {
 			}
 			$manage = [ 'url' => esc_url_raw( BizCity_Twin_Shell_Page::shell_url( $args ) ) ];
 		}
+		$avail = self::connector_availability( $entry );
 		$order = isset( BizCity_Twin_Shell_Registry::ACTIVITY_ORDER[ $entry['id'] ] ) ? BizCity_Twin_Shell_Registry::ACTIVITY_ORDER[ $entry['id'] ] : 1000;
 		return [
 			'id'         => $entry['id'],
@@ -299,12 +313,15 @@ class BizCity_Twin_Module_Access_REST {
 			'available'  => empty( $entry['locked'] ),
 			'plan_badge' => $entry['plan_badge'],
 			'manage'     => $manage,
+			// [2026-10-16 09:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7: connector rows (group 'connectors') fold and disable until the connector is usable
+			'group'      => isset( $entry['group'] ) ? $entry['group'] : '',
+			'availability' => $avail,
 		];
 	}
 
 	/** @return array{state:string,editable:bool,reason:string} */
 	private static function role_cell( array $entry, $role_slug ) {
-		if ( ! empty( $entry['locked'] ) ) {
+		if ( ! empty( $entry['locked'] ) || 'open' !== self::connector_availability( $entry )['state'] ) {
 			return [ 'state' => 'na', 'editable' => false, 'reason' => 'unavailable' ];
 		}
 		if ( 'administrator' === $role_slug ) {
@@ -329,10 +346,16 @@ class BizCity_Twin_Module_Access_REST {
 		}
 		if ( 'crm' === $entry['id'] ) {
 			$role = get_role( $role_slug );
-			$on   = $role && $role->has_cap( 'bizcity_crm_handle_inbox' );
-			return [ 'state' => $on ? 'on' : 'off', 'editable' => false, 'reason' => 'managed_by_owner' ];
+			$on   = $role && $role->has_cap( self::crm_role_cap() );
+			// [2026-10-16 Johnny Chu - Chu Hoàng Anh] the role switch writes the CRM owner's own value (the inbox capability its delegate reads) — no second store.
+			return [ 'state' => $on ? 'on' : 'off', 'editable' => true, 'reason' => '' ];
 		}
 		return [ 'state' => 'na', 'editable' => false, 'reason' => 'managed_by_owner' ];
+	}
+
+	/** The capability the CRM inbox gate reads (filterable by core/crm). */
+	private static function crm_role_cap() {
+		return (string) apply_filters( 'bizcity_crm_handle_inbox_cap', 'bizcity_crm_handle_inbox' );
 	}
 
 	/** @return array<int, array{entry:array,role:string,allowed:bool}>|WP_Error */
@@ -372,6 +395,19 @@ class BizCity_Twin_Module_Access_REST {
 		// [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-2/P2 — ask the always-loaded Twin GPT access policy, never class_exists( REST ) (the REST slice is not loaded on bizcity-twinchat/v1).
 		if ( 'gpt' === $entry['id'] && class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
 			return BizCity_TwinWeb_Access_Policy::module_access_set_role( $role_slug, $allowed );
+		}
+		// [2026-10-16 Johnny Chu - Chu Hoàng Anh] CRM (delegated): grant/revoke the inbox capability on the role.
+		if ( 'crm' === $entry['id'] ) {
+			$role = get_role( $role_slug );
+			if ( ! $role ) {
+				return self::error( 'invalid_param', __( 'One change points to an unknown module or role.', 'bizcity-twin-ai' ), __( 'Reload the page and try again.', 'bizcity-twin-ai' ), 400 );
+			}
+			if ( $allowed ) {
+				$role->add_cap( self::crm_role_cap() );
+			} else {
+				$role->remove_cap( self::crm_role_cap() );
+			}
+			return true;
 		}
 		return self::error( 'module_access_write_failed', __( 'This switch cannot be changed here.', 'bizcity-twin-ai' ), '', 409, [ 'reason' => 'not_grantable' ] );
 	}

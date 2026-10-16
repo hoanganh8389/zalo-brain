@@ -953,7 +953,6 @@ class BizCity_Admin_Menu {
 			[ 'title' => 'CRM Webhook',         'icon' => '🔗', 'desc' => 'Kiểm tra webhook CRM đang hoạt động',        'url' => admin_url( 'tools.php?page=bizcity-crm-webhook' ) ],
 			[ 'title' => 'KG Filestore',         'icon' => '📁', 'desc' => 'Knowledge Graph file storage inspector',     'url' => admin_url( 'tools.php?page=bizcity-kg-filestore' ) ],
 			[ 'title' => 'Channel Gateway Logs', 'icon' => '📋', 'desc' => 'Debug logs của Channel Gateway',             'url' => admin_url( 'tools.php?page=bizcity-cg-debug-logs' ) ],
-			[ 'title' => 'Cron Manager',         'icon' => '⏱️', 'desc' => 'Theo dõi và quản lý cron jobs',             'url' => admin_url( 'tools.php?page=bizcity-cron' ) ],
 			[ 'title' => 'BizCity Diagnostics',  'icon' => '🩺', 'desc' => 'Diagnostics tổng hợp toàn platform',        'url' => admin_url( 'tools.php?page=bizcity-diagnostics' ) ],
 			[ 'title' => 'BizCoach Pro Diag',    'icon' => '🔍', 'desc' => 'Chẩn đoán BizCoach Pro module',             'url' => admin_url( 'tools.php?page=bizcoach-pro-diag' ) ],
 			[ 'title' => 'CRM Sprint Diag',      'icon' => '🏃', 'desc' => 'Sprint diagnostic cho module CRM',          'url' => admin_url( 'tools.php?page=bizcity-crm-sprint-diag' ) ],

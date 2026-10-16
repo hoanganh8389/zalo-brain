@@ -1,0 +1,30 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "webchat",
+  "label": "WebChat",
+  "section": "dev",
+  "transport": "site_mcp",
+  "account_kind": "website",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.webchat",
+  "badge": "Website",
+  "order": 50,
+  "auth": {
+    "kind": "none"
+  },
+  "desc": "Ô chat trên website cho khách vãng lai.",
+  "platform_code": "webchat",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_dev"
+  }
+}

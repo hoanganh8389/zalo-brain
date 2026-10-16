@@ -11,9 +11,8 @@
 /**
  * BizCity LLM — Admin Settings Page
  *
- * Two-mode configuration:
- *   • Gateway — enter BizCity API key + gateway URL
- *   • Direct  — enter OpenRouter API key (self-hosted)
+ * Gateway-only configuration: enter BizCity API key + gateway URL.
+ * [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — direct (own OpenRouter key) mode removed.
  *
  * Works in both Multisite (Network Admin) and single-site (Settings menu).
  *
@@ -177,10 +176,7 @@ class BizCity_LLM_Settings {
                 <?php echo esc_html__( 'Configure LLM connection for the BizCity Twin Brain platform.', 'bizcity-twin-ai' ); ?>
             </p>
 
-            <div class="bizcity-llm-status bizcity-llm-status--info" style="background:#eef6ff;border-left:4px solid #2271b1;padding:10px 14px;margin:12px 0">
-                💎 <?php esc_html_e( 'Want to use your own OpenRouter, OpenAI, or other API keys? Upgrade to Pro for direct API integration.', 'bizcity-twin-ai' ); ?>
-                <br/><small style="color:#666">Bạn muốn dùng API key riêng (OpenRouter, OpenAI…)? Nâng cấp bản Pro để tích hợp trực tiếp.</small>
-            </div>
+            <?php // [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — removed the 'use your own OpenRouter/OpenAI key' upsell; every AI call goes via the gateway. ?>
 
             <?php if ( ! empty( $api_key ) ) : ?>
                 <div class="bizcity-llm-status bizcity-llm-status--ok">

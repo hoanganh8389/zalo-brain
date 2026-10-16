@@ -12,9 +12,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( class_exists( 'BizCity_FB_Channel_Tools', false ) ) {
-	return;
-}
+// [2026-10-14 11:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 — the `class_exists(self, false) → return` guard that stood here ALWAYS returned: a top-level class without a parent is hoisted at compile time, so it already
+// exists when the guard runs, and every statement after the class (the add_action below) was skipped. Production proof (bizcity.vn): class loaded, has_action(rest_api_init) false, /fb/setup 404.
+// The file is loaded with require_once only, so no guard is needed.
 
 final class BizCity_FB_Channel_Tools {
 

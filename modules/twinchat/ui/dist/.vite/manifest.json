@@ -1,13 +1,13 @@
 {
-  "_arrow-left-Drv9KgJ_.js": {
-    "file": "assets/arrow-left-Drv9KgJ_.js",
+  "_arrow-left-D7bdTJJq.js": {
+    "file": "assets/arrow-left-D7bdTJJq.js",
     "name": "arrow-left",
     "imports": [
       "index.html"
     ]
   },
-  "_shield-check-Cg3iAGwc.js": {
-    "file": "assets/shield-check-Cg3iAGwc.js",
+  "_shield-check-DNuSz0Mh.js": {
+    "file": "assets/shield-check-DNuSz0Mh.js",
     "name": "shield-check",
     "imports": [
       "index.html"
@@ -43,7 +43,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-rq5iXtHU.js",
+    "file": "assets/index-CRK0ELjV.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -69,7 +69,7 @@
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-Bc-8uTjP.js",
+    "file": "assets/KGGraphViewNexus-BU-LcQEN.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,
@@ -82,7 +82,7 @@
     ]
   },
   "src/components/embed/DesignEmbedTab.tsx": {
-    "file": "assets/DesignEmbedTab-C7fgp0UL.js",
+    "file": "assets/DesignEmbedTab-S5WmESgn.js",
     "name": "DesignEmbedTab",
     "src": "src/components/embed/DesignEmbedTab.tsx",
     "isDynamicEntry": true,
@@ -95,7 +95,7 @@
     ]
   },
   "src/components/embed/ImageStudioTab.tsx": {
-    "file": "assets/ImageStudioTab-Da7HOS09.js",
+    "file": "assets/ImageStudioTab-D16uUpDe.js",
     "name": "ImageStudioTab",
     "src": "src/components/embed/ImageStudioTab.tsx",
     "isDynamicEntry": true,
@@ -109,7 +109,7 @@
     ]
   },
   "src/components/embed/StudioBuilderTab.tsx": {
-    "file": "assets/StudioBuilderTab-DWVifoLr.js",
+    "file": "assets/StudioBuilderTab-D1hxrhUn.js",
     "name": "StudioBuilderTab",
     "src": "src/components/embed/StudioBuilderTab.tsx",
     "isDynamicEntry": true,
@@ -123,13 +123,13 @@
     ]
   },
   "src/components/guru/GuruWorkspacePanel.tsx": {
-    "file": "assets/GuruWorkspacePanel-CAT778b4.js",
+    "file": "assets/GuruWorkspacePanel-EYCE3ihN.js",
     "name": "GuruWorkspacePanel",
     "src": "src/components/guru/GuruWorkspacePanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
-      "_shield-check-Cg3iAGwc.js",
+      "_shield-check-DNuSz0Mh.js",
       "index.html",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
@@ -137,7 +137,7 @@
     ]
   },
   "src/components/workspace/HistoryWorkspace.tsx": {
-    "file": "assets/HistoryWorkspace-CHYCxlvh.js",
+    "file": "assets/HistoryWorkspace-C8gVDtqD.js",
     "name": "HistoryWorkspace",
     "src": "src/components/workspace/HistoryWorkspace.tsx",
     "isDynamicEntry": true,
@@ -150,7 +150,7 @@
     ]
   },
   "src/components/workspace/IntegrationsWorkspace.tsx": {
-    "file": "assets/IntegrationsWorkspace-BeUZT3fG.js",
+    "file": "assets/IntegrationsWorkspace--kUvLVnp.js",
     "name": "IntegrationsWorkspace",
     "src": "src/components/workspace/IntegrationsWorkspace.tsx",
     "isDynamicEntry": true,
@@ -163,29 +163,29 @@
     ]
   },
   "src/components/workspace/PlansAndApiKeyWorkspace.tsx": {
-    "file": "assets/PlansAndApiKeyWorkspace-CwDf8Eru.js",
+    "file": "assets/PlansAndApiKeyWorkspace-lOn8ahFM.js",
     "name": "PlansAndApiKeyWorkspace",
     "src": "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_arrow-left-Drv9KgJ_.js",
-      "_shield-check-Cg3iAGwc.js",
+      "_arrow-left-D7bdTJJq.js",
+      "_shield-check-DNuSz0Mh.js",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"
     ]
   },
   "src/pages/AccountPage.tsx": {
-    "file": "assets/AccountPage-DPB5BJT3.js",
+    "file": "assets/AccountPage-VFyci39U.js",
     "name": "AccountPage",
     "src": "src/pages/AccountPage.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_arrow-left-Drv9KgJ_.js",
+      "_arrow-left-D7bdTJJq.js",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"

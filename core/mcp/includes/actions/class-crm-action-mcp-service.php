@@ -42,6 +42,7 @@ final class BizCity_CRM_Action_MCP_Service {
 
 		// @mcp bizcity-mcp-standard@1 tool crm.customer.lookup
 		BizCity_MCP_Tool_Registry::register( 'crm.customer.lookup', array(
+			'executor'       => 'crm.customer.find', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
 			'title'          => 'Tra cứu khách hàng',
 			'description'    => 'Tìm khách trong CRM theo tên, số điện thoại hoặc mã khách (contact_ref "crm:123"). Trả tối đa 20 khách: tên, SĐT che còn 3 số cuối, giai đoạn, số đơn, lần mua và lần liên hệ gần nhất. Lead/nhân viên chỉ thấy khách được giao cho mình. Không có query thì trả các khách hoạt động gần đây.',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(

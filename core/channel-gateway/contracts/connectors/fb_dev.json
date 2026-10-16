@@ -1,0 +1,104 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "fb_dev",
+  "label": "Facebook cho Dev",
+  "badge": "App riêng",
+  "section": "dev",
+  "order": 10,
+  "transport": "dev_api",
+  "account_kind": "fb_page",
+  "auth": {
+    "kind": "own_app",
+    "fields": [
+      "app_id",
+      "app_secret"
+    ]
+  },
+  "cell_platforms": [
+    "messenger",
+    "fb"
+  ],
+  "tabs": [
+    {
+      "id": "pages",
+      "label": "Pages"
+    },
+    {
+      "id": "messenger",
+      "label": "Messenger"
+    },
+    {
+      "id": "compose",
+      "label": "Tạo bài"
+    },
+    {
+      "id": "posts",
+      "label": "Bài đăng"
+    },
+    {
+      "id": "schedule",
+      "label": "Lịch đăng"
+    },
+    {
+      "id": "inbox",
+      "label": "Inbox"
+    }
+  ],
+  "settings": [
+    {
+      "key": "default_page",
+      "scope": "connector",
+      "type": "text"
+    },
+    {
+      "key": "guru_id",
+      "scope": "account",
+      "type": "guru"
+    }
+  ],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "fb.page.list",
+      "sets": "connected"
+    },
+    {
+      "id": "send_one",
+      "executor": "fb.messenger.send",
+      "sets": "tested",
+      "confirm": "human"
+    }
+  ],
+  "executors": [
+    "fb.page.list",
+    "fb.messenger.send"
+  ],
+  "capabilities": [
+    "cs.messenger.reply"
+  ],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.fb_dev",
+  "tab_components": {
+    "pages": "FacebookPages",
+    "messenger": "FacebookMessenger",
+    "compose": "FacebookCreatePost",
+    "posts": "FacebookPosts",
+    "schedule": "FacebookSchedule",
+    "inbox": "FacebookConversationSheet"
+  },
+  "module_access": {
+    "id": "connect_dev",
+    "group": "connectors",
+    "parent": null,
+    "label": "Công cụ cho Dev",
+    "mode": "grantable",
+    "default_roles": [
+      "administrator"
+    ],
+    "availability": "connector_status"
+  },
+  "desc": "Tự tạo app Facebook: nhập App ID, App Secret, webhook. Quản trị fanpage, trả lời Messenger bằng cùng trợ lý. Page đã dùng webhook này thì không bật tự trả lời ở khu kết nối nhanh.",
+  "platform_code": "facebook_page"
+}

@@ -144,7 +144,8 @@ final class BizCity_Bot_Turn_Claim {
 				self::skip( 'group_reply_off', $envelope, $thread, $binding );
 				return; // EA-2.2: chat riêng của cùng số Zalo vẫn trả lời bình thường (not reached here).
 			}
-			if ( ! empty( $policy['require_mention_in_group'] ) && empty( $envelope['mention_detected'] ) ) {
+			// [2026-10-15 Johnny Chu - Chu Hoàng Anh] cell policy: a group is answered only when the bot is @mentioned — no per-client switch any more
+			if ( empty( $envelope['mention_detected'] ) ) {
 				self::skip( 'mention_required', $envelope, $thread, $binding );
 				return; // group chat requires @mention unless explicitly turned off.
 			}

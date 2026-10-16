@@ -91,7 +91,7 @@
     "guru_reply_dto": {
       "since": "1.0.0",
       "shape": "BizCity_Guru_Reply_DTO",
-      "file": "core/persona/includes/dto/class-guru-reply-dto.php",
+      "file": "core/guru/runtime/includes/dto/class-guru-reply-dto.php",
       "fields": {
         "trace_id": "string (UUID) — joins bizcity_guru_traces.trace_id",
         "runtime": "string — 'guru_native'|'twinbrain'",
@@ -111,7 +111,7 @@
     "channel_send_dto": {
       "since": "1.0.0",
       "shape": "BizCity_Channel_Send_DTO",
-      "file": "core/persona/includes/dto/class-guru-reply-dto.php",
+      "file": "core/guru/runtime/includes/dto/class-guru-reply-dto.php",
       "fields": {
         "channel": "string",
         "recipient_ref": "string — channel-specific user/chat id",

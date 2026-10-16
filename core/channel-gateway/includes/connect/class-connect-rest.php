@@ -544,6 +544,7 @@ final class BizCity_Connect_REST {
 			return array( 'ok' => false, 'code' => 'save_failed' );
 		}
 		self::set_owner( 'zalo_oa', $oa, $uid );
+		self::bind_grant_owner( 'zalo_oa', $oa, $uid ); // [2026-10-17 04:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A1
 		// [2026-10-07 12:45 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 D93-6 — the shared Zalo app has ONE webhook (at the Hub):
 		// claim the OA in the Hub channel registry so its events are relayed here. Own app: Zalo posts to this site directly.
 		// Gap A: the cell answers every registered OA, own app too — so own-app OAs are registered as well (their failure does not
@@ -613,6 +614,22 @@ final class BizCity_Connect_REST {
 		return array( 'mode' => (string) ( $p['mode'] ?? 'shared' ), 'account' => (array) ( $p['account'] ?? array() ), 'missing' => array_values( (array) ( $p['missing'] ?? array() ) ), 'pages' => $pages );
 	}
 
+	/**
+	 * [2026-10-17 04:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A1 — the grant layer (Quyền tab, levels) learns the owner of a connected asset too: Fanpage ⇒ channel 'facebook', Zalo OA ⇒ 'zalo_oa',
+	 * keyed by the asset id the person just picked. Never changes an existing owner and never throws into the connect flow.
+	 */
+	private static function bind_grant_owner( string $provider, string $asset, int $user_id ): void {
+		$channel = array( 'facebook' => 'facebook', 'zalo_oa' => 'zalo_oa' )[ $provider ] ?? '';
+		if ( '' === $channel || '' === $asset || $user_id <= 0 || ! class_exists( 'BizCity_Account_Owner' ) ) {
+			return;
+		}
+		try {
+			BizCity_Account_Owner::ensure( $channel, $asset, $user_id, $user_id );
+		} catch ( \Throwable $e ) {
+			error_log( '[BIZCITY_CONNECT] account owner bind failed: ' . $provider . ' ' . get_class( $e ) );
+		}
+	}
+
 	private static function set_owner( string $provider, string $asset, int $user_id ): void {
 		if ( '' === $asset ) {
 			return;
@@ -630,9 +647,11 @@ final class BizCity_Connect_REST {
 	public static function post_assets( $request ) {
 		$provider = self::provider( $request );
 		$ids      = array_values( array_unique( array_filter( array_map( static function ( $v ) { return preg_replace( '/[^0-9A-Za-z_@.\-]/', '', (string) $v ); }, (array) $request->get_param( 'asset_ids' ) ) ) ) );
-		$owner    = (int) $request->get_param( 'owner_user_id' );
+		// [2026-10-17 03:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A14 (owner 2026-10-17, R-UW-1 / R-S4-23): the asset belongs to the person connecting it — the server's own current user id.
+		// An `owner_user_id` sent by the client is IGNORED: there is no "pick another account" in the connect four steps; moving it later is the takeover flow.
+		$owner    = (int) get_current_user_id();
 		if ( $owner <= 0 ) {
-			$owner = get_current_user_id();
+			return self::err( 'not_admin', 'Chỉ quản trị viên website kết nối kênh.', 'Đăng nhập bằng tài khoản quản trị rồi thử lại.', 403 ); // existing contract code (perm_admin blocks anonymous earlier; this is only a belt)
 		}
 		if ( 'facebook' !== $provider ) {
 			$by = array();
@@ -641,6 +660,7 @@ final class BizCity_Connect_REST {
 			}
 			foreach ( $ids as $id ) {
 				self::set_owner( $provider, $id, $owner );
+				self::bind_grant_owner( $provider, $id, $owner );
 				if ( 'zalo_oa' === $provider && isset( $by[ $id ] ) && 'managed' !== $by[ $id ]['mode'] ) {
 					$reg = self::hub_channel( 'PUT', 'zalo_oa', $id ); // "Thử lại" of a failed Hub registration (D93-6)
 					self::set_registration( 'zalo_oa', $id, $reg['ok'] ? 'ok' : (string) ( $reg['code'] ?? 'hub_register_failed' ) );
@@ -691,6 +711,9 @@ final class BizCity_Connect_REST {
 			return $reg;
 		}
 		delete_transient( 'bzc_fb_pending_' . get_current_user_id() );
+		foreach ( $picked as $pg ) {
+			self::bind_grant_owner( 'facebook', (string) $pg['id'], $owner );
+		}
 		$reg_data = $reg instanceof WP_REST_Response ? $reg->get_data() : (array) $reg;
 		return rest_ensure_response( array( 'ok' => ! $errors && ! empty( $reg_data['ok'] ), 'errors' => array_merge( $errors, (array) ( $reg_data['errors'] ?? array() ) ), 'setup' => self::build( 'facebook' ) ) );
 	}

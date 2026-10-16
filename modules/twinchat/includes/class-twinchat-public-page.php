@@ -270,6 +270,8 @@ class BizCity_TwinChat_Public_Page {
 			// Check the file on disk instead -- true as long as the main plugin itself isn't corrupted/incomplete,
 			// regardless of whether this particular request happened to load it.
 			'twinbrainAvailable' => is_file( BIZCITY_TWIN_AI_DIR . 'core/twinbrain/bootstrap.php' ),
+			// [2026-10-14 12:40 AM Johnny Chu - Chu Hoàng Anh] the vertical chips + `/` picker need the TwinBrain add-on (bizcity-twin-brain-addon defines this constant when it loads).
+			'twinbrainAddon' => defined( 'BIZCITY_TWIN_BRAIN_ADDON_VERSION' ),
 			'bzdesignEmbedUrl' => $bzdesign_embed_url,
 			'bzdesignRestUrl'  => $bzdesign_rest_url,
 			// [2026-09-30 12:23 AM Johnny Chu - Chu Hoàng Anh] R-BA-10 — '' when
@@ -514,6 +516,8 @@ class BizCity_TwinChat_Public_Page {
 			// Check the file on disk instead -- true as long as the main plugin itself isn't corrupted/incomplete,
 			// regardless of whether this particular request happened to load it.
 			'twinbrainAvailable' => is_file( BIZCITY_TWIN_AI_DIR . 'core/twinbrain/bootstrap.php' ),
+			// [2026-10-14 12:40 AM Johnny Chu - Chu Hoàng Anh] the vertical chips + `/` picker need the TwinBrain add-on (bizcity-twin-brain-addon defines this constant when it loads).
+			'twinbrainAddon' => defined( 'BIZCITY_TWIN_BRAIN_ADDON_VERSION' ),
 			// Wave D — BizDesign embed integration (resolved by helper for consistency).
 			'bzdesignEmbedUrl' => self::resolve_bzdesign_embed_url(),
 			'bzdesignRestUrl'  => esc_url_raw( rest_url( 'bzdesign/v1' ) ),

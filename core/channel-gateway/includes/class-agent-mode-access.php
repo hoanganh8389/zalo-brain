@@ -73,7 +73,7 @@ final class BizCity_Agent_Mode_Access {
 			// [2026-10-06 09:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92 S92-CL-5 — mode `automation` serves the `automation` pack (R2 recognition); its tools stay MCP-only.
 			'automation'    => array( 'label' => 'Tự động hoá', 'packs' => array( 'automation' ), 'tools' => array(), 'scope' => 'site', /* [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W4 (D97-R4-5) — chủ chốt: mọi role đăng nhập được dùng chế độ automation mặc định, vì mỗi khối action đã có required_cap + thông báo thiếu quyền cụ thể (R-NB-10/13). `seed` riêng ⇒ chỉ chế độ này được gieo lại trên site đã gieo trước đó. */ 'access' => array( 'mode' => 'grantable', 'default_roles' => array( self::ALL_ROLES ), 'seed' => '0.97.4' ), 'available' => self::automation_installed() ),
 			// [PHASE-0.90 Q90-9] MCP-only mode: the cell's channel tools (messenger.send, fb.comment.reply, fb.post.create, fb.group.post). Administrators by default; staff must be granted.
-			'channel'       => array( 'label' => 'Kênh khách & Gmail (đăng bài, trả lời, gửi email)', 'packs' => array(), 'tools' => array(), 'scope' => 'site', 'access' => array( 'mode' => 'grantable', 'default_roles' => array() ), 'available' => class_exists( 'BizCity_FB_Channel_Adapter' ) || class_exists( 'BZGoogle_Google_Service' ) ),
+			'channel'       => array( 'label' => 'Kênh khách & Gmail (đăng bài, trả lời, gửi email)', 'packs' => array(), 'tools' => array(), 'scope' => 'site', 'access' => array( 'mode' => 'grantable', 'default_roles' => array() ), 'available' => class_exists( 'BizCity_FB_Channel_Adapter' ) || class_exists( 'BZGoogle_Google_Service' ) || class_exists( 'BizCity_Connect_Composio_REST' ) ), // [2026-10-15 04:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.113 Q113-3 — Kết nối nhanh (Composio) alone also makes the mode grantable
 		);
 	}
 
@@ -208,6 +208,14 @@ final class BizCity_Agent_Mode_Access {
 		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
 		$salt = function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '';
 		return hash( 'sha256', $blog . '|' . $user_id . '|' . $salt );
+	}
+
+	/**
+	 * [2026-10-16 01:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I1 — `user_ref`: ĐỊNH DANH NGƯỜI của cả hệ = đúng `user_hash` ở trên (một công thức, chỉ site tính vì chỉ site biết user id + salt).
+	 * Cell và Hub chỉ mang giá trị này (owner-agent-block, principal MCP, `owner_user_ref` / `actor_user_hash` trên sổ cái), không bao giờ tự tính. Mọi chỗ mới của 116 gọi hàm này, không gọi `hash()` riêng.
+	 */
+	public static function user_ref( int $user_id ): string {
+		return self::user_hash( $user_id );
 	}
 
 	public static function changed(): void {

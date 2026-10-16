@@ -29,7 +29,8 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_Brain_Journey_Schema {
 
 	// 1.1.0 (10-SPEC §9 G-2/G-3/G-4): + customer_replies_month, distinct_customers_month, ai_enabled.
-	const SCHEMA_VERSION = '1.1.0';
+	// 1.2.0 (S108-L11a): + bizcity_brain_metrics_period (7d / 30d / month windows + the window before, rebuildable cache).
+	const SCHEMA_VERSION = '1.2.0';
 	const OPTION_VERSION = 'bizcity_brain_journey_schema';
 
 	public static function journey_table(): string {
@@ -45,6 +46,11 @@ final class BizCity_Brain_Journey_Schema {
 	public static function metrics_table(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'bizcity_brain_metrics';
+	}
+
+	public static function period_table(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_brain_metrics_period';
 	}
 
 	public static function installed(): bool {
@@ -65,6 +71,7 @@ final class BizCity_Brain_Journey_Schema {
 		$journey = self::journey_table();
 		$heads   = self::heads_table();
 		$metrics = self::metrics_table();
+		$period  = self::period_table();
 
 		// subject_kind 'brain' = one Zalo/web account_id, 'owner' = one WP user (nấc thang), 'site' = site-wide (bản tin tổng).
 		// occurred_at is UTC. owner_user_id = whoever owned the subject AT THE MOMENT this row was written (luật 2: never rewritten).
@@ -132,6 +139,28 @@ final class BizCity_Brain_Journey_Schema {
 			PRIMARY KEY  (account_id),
 			KEY idx_owner (owner_user_id),
 			KEY idx_active (active, customer_replies)
+		) {$charset};" );
+
+		// [2026-10-14 03:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L11a — one row per (account, window): the leaderboard's per-period figures with the 20/customer/day cap
+		// already applied (D108-U1), plus the equally long window before it for ▲▼. Cache only — BizCity_Brain_Period_Metrics rebuilds a row whole, never increments.
+		dbDelta( "CREATE TABLE {$period} (
+			account_id VARCHAR(64) NOT NULL DEFAULT '',
+			range_key VARCHAR(8) NOT NULL DEFAULT '30d',
+			period_from DATE NULL,
+			period_to DATE NULL,
+			replies BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			customers BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			tasks BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			billed_tokens BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			chi_usd DECIMAL(18,8) NOT NULL DEFAULT 0,
+			thu_usd DECIMAL(18,8) NOT NULL DEFAULT 0,
+			replies_prev BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			customers_prev BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			chi_usd_prev DECIMAL(18,8) NOT NULL DEFAULT 0,
+			thu_usd_prev DECIMAL(18,8) NOT NULL DEFAULT 0,
+			computed_at DATETIME NOT NULL,
+			PRIMARY KEY  (account_id, range_key),
+			KEY idx_range (range_key, replies)
 		) {$charset};" );
 
 		update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );

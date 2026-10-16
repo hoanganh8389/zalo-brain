@@ -29,9 +29,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( class_exists( 'BizCity_Twin_Web_Bridge_REST', false ) ) {
-	return;
-}
+// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-1 — the `class_exists(self,false)` guard that stood here was always true (the class is declared at compile time), so init() below never ran
 
 final class BizCity_Twin_Web_Bridge_REST {
 
@@ -42,6 +40,9 @@ final class BizCity_Twin_Web_Bridge_REST {
 	const GURU_PROFILE  = '/twin-web-bridge/guru-profile';
 	const GURU_CONTEXT  = '/twin-web-bridge/guru-context';
 	const PRINCIPAL_HDR = 'x-bizcity-principal';
+	const CHANNEL_HDR   = 'x-bizcity-channel';
+	const CUSTOMER_HDR  = 'x-bizcity-customer';
+	const GURU_PUBLIC   = 'guru:public';
 	const TURN_HDR      = 'x-bizcity-turn-id';
 	const TURN_MAX      = 120;
 
@@ -112,6 +113,12 @@ final class BizCity_Twin_Web_Bridge_REST {
 		$seam = isset( self::$readers['guru_answering'] );
 		if ( ! $seam && ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
 			return $fail( 503, 'site_guru_unsupported', 'Guru context resolver is not loaded on this site.' );
+		}
+		// [2026-10-14 08:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L14 — the Guru the site picked for a page the CELL answers (Q109-2, Guru per page): served to the cell on top of the
+		// site's default Guru, and ONLY those (a cell still cannot enumerate Gurus). Ids come from the pages in cell_direct mode (BizCity_FB_Cell_Direct::guru_ids()).
+		$page_gurus = isset( self::$readers['page_gurus'] ) ? (array) call_user_func( self::$readers['page_gurus'] ) : ( class_exists( 'BizCity_FB_Cell_Direct', false ) ? BizCity_FB_Cell_Direct::guru_ids() : array() );
+		if ( 1 === preg_match( '/^guru:([1-9][0-9]{0,17})$/', $ref, $pg ) && in_array( (int) $pg[1], array_map( 'intval', $page_gurus ), true ) ) {
+			return array( 'ok' => true, 'character_id' => (int) $pg[1] );
 		}
 		$answering = $seam ? (int) call_user_func( self::$readers['guru_answering'] ) : (int) BizCity_Guru_Context_Resolver::answering_character_id( 0 );
 		$allowed   = $answering > 0 && ( 'auto' === $ref || 'guru:' . $answering === $ref || 'guru:0' === $ref );
@@ -236,6 +243,10 @@ final class BizCity_Twin_Web_Bridge_REST {
 			return self::refuse( BizCity_MCP_Error::AUTH_INVALID, 'Token cầu nối web của site không hợp lệ.' );
 		}
 		$hash      = strtolower( trim( (string) $request->get_header( self::PRINCIPAL_HDR ) ) );
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-1 — a CUSTOMER of a chat page the cell answers (Messenger): the site picks the Guru, the cell never names one
+		if ( self::GURU_PUBLIC === $hash ) {
+			return self::handle_guru_public( $request, $turn );
+		}
 		$principal = preg_match( '/^[0-9a-f]{64}$/', $hash ) ? BizCity_Twin_Web_Home::principal_by_hash( $hash ) : null;
 		if ( null === $principal ) {
 			BizCity_MCP_Delegation::log( 'delegation_principal_unbound', array( 'account_id' => 'web', 'user_hash' => $hash, 'turn_id' => $turn ) );
@@ -266,6 +277,85 @@ final class BizCity_Twin_Web_Bridge_REST {
 				wp_set_current_user( $previous );
 			}
 		}
+	}
+
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-1 — customer turn over MCP for a chat channel (doc 70 §2.4): read-only tools of the Guru answering THIS page (its `customer_tools`,
+	 * e.g. commerce.search_products), no WordPress user, no write tool. The page comes from the Hub-signed channel header and is honoured only
+	 * when it is a page THIS site hands to the cell (cell_direct); anything else falls back to the site's default Guru (header missing / wrong
+	 * shape never fails the turn). A customer cannot pick a Guru or a blog.
+	 */
+	private static function handle_guru_public( WP_REST_Request $request, string $turn ): WP_REST_Response {
+		$guru = self::channel_guru( strtolower( trim( (string) $request->get_header( self::CHANNEL_HDR ) ) ) );
+		if ( null === $guru || (int) $guru['character_id'] <= 0 ) {
+			BizCity_MCP_Delegation::log( 'delegation_principal_unbound', array( 'account_id' => 'web', 'role' => 'customer', 'turn_id' => $turn ) );
+			return self::refuse( BizCity_MCP_Error::DELEGATION_PRINCIPAL_UNBOUND, 'Site này chưa có Agent Guru để trả lời khách.' );
+		}
+		$ctx  = BizCity_MCP_Delegation::context_guru_public( (int) $guru['character_id'], 'web', $turn, (array) $guru['scope'], '' );
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — who is asking (platform uid), set by the cell from the Hub-signed connection; with the page of the channel header it is the identity stamped on the orders of that customer
+		$customer = self::customer_of( strtolower( trim( (string) $request->get_header( self::CHANNEL_HDR ) ) ), (string) $request->get_header( self::CUSTOMER_HDR ) );
+		if ( null !== $customer ) {
+			$ctx = BizCity_MCP_Delegation::with_customer( $ctx, $customer );
+		}
+		$info = array( 'account_id' => 'web', 'user_id' => 0, 'role' => 'customer', 'modes' => $ctx['modes'], 'scopes' => $ctx['scopes'], 'turn_id' => $turn );
+		if ( empty( $ctx['allowed_tools'] ) || empty( $ctx['scopes'] ) ) {
+			BizCity_MCP_Delegation::log( 'delegation_no_scope', $info );
+			return self::refuse( BizCity_MCP_Error::SCOPE_DENIED, 'Agent Guru của site này chưa cho khách dùng công cụ nào.' );
+		}
+		$body = BizCity_MCP_HTTP_Controller::decode_body( (string) $request->get_body() );
+		if ( null === $body ) {
+			return BizCity_MCP_HTTP_Controller::parse_error_response();
+		}
+		BizCity_MCP_Delegation::log( 'delegation_ok', $info + array( 'method' => (string) ( $body['method'] ?? '' ) ) );
+		if ( isset( self::$readers['dispatch'] ) ) {
+			return call_user_func( self::$readers['dispatch'], $body, $ctx );
+		}
+		$previous = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
+		if ( function_exists( 'wp_set_current_user' ) ) {
+			wp_set_current_user( 0 );
+		}
+		try {
+			return BizCity_MCP_HTTP_Controller::dispatch( $body, $ctx, '' );
+		} finally {
+			if ( function_exists( 'wp_set_current_user' ) ) {
+				wp_set_current_user( $previous );
+			}
+		}
+	}
+
+	/** [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — {platform, channel_ref, platform_uid} from the channel header ("messenger:<page>") + the customer header (psid digits), or null */
+	private static function customer_of( string $channel, string $uid ): ?array {
+		$uid = trim( $uid );
+		if ( 1 !== preg_match( '/^(messenger|facebook|fb_page):([0-9]{5,30})$/', $channel, $m ) || 1 !== preg_match( '/^[0-9]{5,30}$/', $uid ) ) {
+			return null;
+		}
+		return array( 'platform' => $m[1], 'channel_ref' => $m[2], 'platform_uid' => $uid );
+	}
+
+	/**
+	 * The Guru + profile scope that answers a chat page's customers. `$channel` = "<platform>:<page id>" from the Hub header.
+	 * Seam `$readers['channel_guru']`(channel): array{character_id:int,scope:array}|null.
+	 *
+	 * @return array{character_id:int,scope:array}|null
+	 */
+	private static function channel_guru( string $channel ): ?array {
+		if ( isset( self::$readers['channel_guru'] ) ) {
+			$g = call_user_func( self::$readers['channel_guru'], $channel );
+			return is_array( $g ) ? $g : null;
+		}
+		if ( ! class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
+			return null;
+		}
+		$cid = 0;
+		if ( 1 === preg_match( '/^(?:messenger|facebook|fb_page):([0-9]{5,30})$/', $channel, $m ) && class_exists( 'BizCity_FB_Cell_Direct', false ) && BizCity_FB_Cell_Direct::is_cell_direct( $m[1] ) ) {
+			$cid = BizCity_FB_Cell_Direct::guru_of( $m[1] );
+		}
+		$cid = $cid > 0 ? $cid : (int) BizCity_Guru_Context_Resolver::answering_character_id( 0 );
+		if ( $cid <= 0 ) {
+			return null;
+		}
+		$profile = (array) BizCity_Guru_Context_Resolver::profile( $cid );
+		return array( 'character_id' => $cid, 'scope' => (array) ( $profile['scope'] ?? array() ) );
 	}
 
 	private static function authorized( WP_REST_Request $request ): bool {

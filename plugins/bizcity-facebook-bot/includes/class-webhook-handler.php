@@ -188,11 +188,16 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		
 		#back_trace( 'NOTICE', 'Facebook Webhook Data Received: ' . print_r( $data, true ) );
 		
+		// [2026-10-14 09:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L17 — pages the CELL answers get their Messenger events forwarded untouched (raw body + Meta's signature); the old handler
+		// below then skips exactly those pages. Comments (`changes`) and every other page stay here. A failed forward covers nothing, so nothing is ever dropped.
+		// S109-L19/L21: an old page connects itself to the cell on its first signed message (this file stays the shell Meta calls); failures change nothing
+		$cell_owned = $this->cell_handoff( (string) $input, $data );
+
 		foreach ( $data['entry'] as $entry ) {
 			$page_id = $entry['id'] ?? '';
 			
 			// Handle messaging events
-			if ( isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
+			if ( isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) && ! isset( $cell_owned[ (string) $page_id ] ) ) {
 				foreach ( $entry['messaging'] as $messaging ) {
 					$this->handle_messenger_message( $page_id, $messaging );
 				}
@@ -211,6 +216,63 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		exit;
 	}
 	
+	/**
+	 * [2026-10-15 12:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L21 — adopt + forward, PER PAGE, inside the page's OWN blog.
+	 * On a multisite hub this request arrives on the main blog, but a page's cell state, 1API key, Guru binding and bot switches live in the blog that owns the page
+	 * (global table bizcity_facebook_page_routes). Running the hand-off on the main blog saw no key / no state and could never adopt. Every outcome is logged, even "nothing to do".
+	 * @return array<string,true> page ids the cell now answers
+	 */
+	private function cell_handoff( string $input, array $data ): array {
+		if ( ! class_exists( 'BizCity_FB_Cell_Direct' ) || ! class_exists( 'BizCity_FB_Webhook_Signature' ) ) {
+			return array();
+		}
+		$hdr     = (string) BizCity_FB_Webhook_Signature::header();
+		$covered = array();
+		$here    = (int) get_current_blog_id();
+		foreach ( (array) $data['entry'] as $entry ) {
+			$page = (string) ( $entry['id'] ?? '' );
+			if ( '' === $page || empty( $entry['messaging'] ) || ! is_array( $entry['messaging'] ) || isset( $covered[ $page ] ) ) {
+				continue;
+			}
+			$one     = array( 'object' => 'page', 'entry' => array( $entry ) );
+			$blog    = $this->page_blog( $page );
+			$switch  = is_multisite() && $blog > 0 && $blog !== $here;
+			$result  = array();
+			try {
+				if ( $switch ) {
+					switch_to_blog( $blog );
+				}
+				// S109-L26: switched into another blog ⇒ forward only; the blog adopts the page from its OWN request (cron / admin / OAuth) so the DB router is never asked inside a webhook
+				$result['why'] = $switch ? array( '*' => 'adopt_deferred_to_own_request' ) : BizCity_FB_Cell_Direct::auto_adopt( $input, $hdr, $one );
+				$cov           = BizCity_FB_Cell_Direct::forward( $input, $hdr, $one );
+				if ( ! empty( $cov[ $page ] ) ) {
+					$covered[ $page ] = true;
+				}
+			} catch ( \Throwable $e ) {
+				$result['error'] = $e->getMessage(); // never lose a message because of the hand-off
+			} finally {
+				if ( $switch && ms_is_switched() ) {
+					restore_current_blog();
+				}
+			}
+			$this->log_info( 'Cell hand-off', array( 'page_id' => $page, 'ingress_blog' => $here, 'page_blog' => $blog, 'forwarded' => isset( $covered[ $page ] ) ) + $result );
+		}
+		return $covered;
+	}
+
+	/** The blog that owns a page on this network (global route table), 0 when unknown / not multisite */
+	private function page_blog( string $page ): int {
+		if ( ! is_multisite() ) {
+			return 0;
+		}
+		global $wpdb;
+		$table = $wpdb->base_prefix . 'bizcity_facebook_page_routes';
+		$prev  = $wpdb->suppress_errors( true );
+		$blog  = (int) $wpdb->get_var( $wpdb->prepare( "SELECT blog_id FROM {$table} WHERE page_id = %s LIMIT 1", $page ) );
+		$wpdb->suppress_errors( $prev );
+		return $blog;
+	}
+
 	/**
 	 * Handle Messenger Message - Call legacy functions directly
 	 */

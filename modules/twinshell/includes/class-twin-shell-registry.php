@@ -74,6 +74,8 @@ class BizCity_Twin_Shell_Registry {
 	const APPS_FILTER = 'zalo_brain_apps';
 	const APPS_GROUP  = 'apps';
 	const APPS_TILE   = 'apps';
+	// [2026-10-16 04:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector permission rows (connector-framework@1): governed by module-access, NEVER an ActivityBar icon or a default page.
+	const CONNECTORS_GROUP = 'connectors';
 
 	private static $instance = null;
 	private $cache = null;
@@ -128,7 +130,7 @@ class BizCity_Twin_Shell_Registry {
 				'capability'  => isset( $entry['capability'] ) ? (string) $entry['capability'] : 'read',
 				'section'     => ( isset( $entry['section'] ) && 'bottom' === $entry['section'] ) ? 'bottom' : 'top',
 				// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — 'apps' ⇒ listed in the Apps launcher, not the ActivityBar.
-				'group'       => ( isset( $entry['group'] ) && self::APPS_GROUP === $entry['group'] ) ? self::APPS_GROUP : '',
+				'group'       => ( isset( $entry['group'] ) && self::APPS_GROUP === $entry['group'] ) ? self::APPS_GROUP : ( ( isset( $entry['group'] ) && self::CONNECTORS_GROUP === $entry['group'] ) ? self::CONNECTORS_GROUP : '' ),
 				'params'      => isset( $entry['params'] ) && is_array( $entry['params'] ) ? array_values( array_unique( array_map( 'sanitize_key', $entry['params'] ) ) ) : [],
 				'desc'        => isset( $entry['desc'] ) ? (string) $entry['desc'] : '',
 				'requires'    => ( isset( $entry['requires'] ) && is_array( $entry['requires'] ) ) ? $entry['requires'] : [],
@@ -351,7 +353,7 @@ class BizCity_Twin_Shell_Registry {
 		$plugins = self::sort_for_activity_bar( is_array( $visible ) ? $visible : $this->all() );
 		// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 — the launcher tile has no page of its own.
 		$plugins = array_values( array_filter( $plugins, static function ( $p ) {
-			return 'launcher' !== ( isset( $p['mode'] ) ? $p['mode'] : '' );
+			return 'launcher' !== ( isset( $p['mode'] ) ? $p['mode'] : '' ) && ! self::is_connector_entry( $p );
 		} ) );
 		foreach ( $plugins as $p ) {
 			if ( 'bottom' !== ( isset( $p['section'] ) ? $p['section'] : 'top' ) ) {
@@ -367,6 +369,11 @@ class BizCity_Twin_Shell_Registry {
 	 * @param mixed $p
 	 * @return bool
 	 */
+	public static function is_connector_entry( $p ) {
+		return is_array( $p ) && isset( $p['group'] ) && self::CONNECTORS_GROUP === $p['group'];
+	}
+
+	/** True when the entry belongs in the Apps launcher instead of the ActivityBar. */
 	public static function is_app_entry( $p ) {
 		return is_array( $p ) && isset( $p['group'] ) && self::APPS_GROUP === $p['group'];
 	}
@@ -521,7 +528,7 @@ class BizCity_Twin_Shell_Registry {
 		$show = self::show_apps_tile( $user_id, $apps );
 		$bar  = [];
 		foreach ( $entries as $p ) {
-			if ( self::is_app_entry( $p ) ) {
+			if ( self::is_app_entry( $p ) || self::is_connector_entry( $p ) ) {
 				continue;
 			}
 			if ( isset( $p['id'] ) && self::APPS_TILE === $p['id'] ) {

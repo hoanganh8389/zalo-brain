@@ -111,6 +111,9 @@ final class BizCity_MCP_Tool_Registry {
 			// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 (R-NB-10) — WP capability the acting user must hold ('' = none).
 			// Not `capability` above (that is the plan/tier axis of tool-registry@1).
 			'required_cap'   => '',
+			// [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2 — executor-registry@1 id (`<miền>.<đối tượng>.<động từ>`) this tool is the site-side way to call; null = not declared yet.
+			// Kept OFF the wire (not in `_meta.bizcity`) until the tools/list fixture is bumped; read it with executor_of().
+			'executor'       => null,
 		), $descriptor );
 		$reason = self::registry_keys_error( $name, $tool );
 		if ( null !== $reason ) {
@@ -139,6 +142,22 @@ final class BizCity_MCP_Tool_Registry {
 		}
 		self::$tools[ $name ] = $tool;
 		return true;
+	}
+
+	/** [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2 — the executor-registry@1 id a registered tool declares, or null (unknown tool / not declared). */
+	public static function executor_of( $name ) {
+		return isset( self::$tools[ $name ]['executor'] ) && is_string( self::$tools[ $name ]['executor'] ) ? self::$tools[ $name ]['executor'] : null;
+	}
+
+	/** [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2 — tool name ⇒ executor id for every tool that declares one. */
+	public static function executors() {
+		$out = array();
+		foreach ( self::$tools as $name => $tool ) {
+			if ( isset( $tool['executor'] ) && is_string( $tool['executor'] ) ) {
+				$out[ $name ] = $tool['executor'];
+			}
+		}
+		return $out;
 	}
 
 	/** PHASE-0.103 RK-15 — same callable? (class + method for [object|class, method]; identity for closures/functions). null on either side ⇒ treated as the same (nothing to compare). */
@@ -177,6 +196,9 @@ final class BizCity_MCP_Tool_Registry {
 		}
 		if ( ! is_string( $tool['scope'] ) || ! in_array( $tool['scope'], $scopes, true ) ) {
 			return 'invalid scope (thread|channel|tenant).';
+		}
+		if ( null !== $tool['executor'] && ( ! is_string( $tool['executor'] ) || ! preg_match( '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,2}$/', $tool['executor'] ) ) ) {
+			return 'invalid executor id (<domain>.<object>.<verb>).';
 		}
 		if ( ! is_array( $tool['roles'] ) || ! $tool['roles'] ) {
 			return 'roles must be a non-empty array.';
@@ -1115,6 +1137,7 @@ final class BizCity_MCP_Tool_Registry {
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1-2 (SW-MCP-1) — canonical name of business.get_sales_metrics; same handler,
 		// descriptor = fixture bridge.tools_list.owner.json.
 		self::register( 'sales.summary', array(
+			'executor'       => 'sales.summary.read', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
 			'title'          => 'Tổng kết doanh số',
 			'description'    => 'Doanh thu, số đơn, hoàn tiền và giá trị đơn trung bình trong một khoảng ngày (mặc định 30 ngày gần nhất; from=to=hôm nay cho \'hôm nay\'). compare_to=previous_period để so với kỳ trước.',
 			'input_schema'   => $sales_schema,
@@ -1356,6 +1379,7 @@ final class BizCity_MCP_Tool_Registry {
 		// public catalog data only (no run_as), customer turns limited to the Guru's product categories (S95-F14). Role group
 		// knowledge (BizCity_MCP_Tool_Policy::TOOL_GROUP_MAP) so a customer turn may reach it when the Guru opens it.
 		self::register( 'commerce.search_products', array(
+			'executor'       => 'commerce.search_products', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
 			'title'          => 'Tìm sản phẩm để tư vấn',
 			'description'    => 'Tìm tối đa 5 sản phẩm hợp với nhu cầu khách (dùng cho ai, tuổi, mục tiêu, điều cần tránh, ngân sách), chấm điểm phù hợp 0–100 kèm lý do, ảnh, giá, tình trạng còn hàng, link và câu nên hỏi tiếp. Chỉ dữ liệu công khai của cửa hàng.',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
@@ -1395,6 +1419,36 @@ final class BizCity_MCP_Tool_Registry {
 			'fallback_pack'  => 'catalog',
 			'since'          => '0.95.0',
 		) );
+		// @mcp bizcity-mcp-standard@1 tool order.pay_info
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — a customer of a chat channel pays the order they placed (QR + link). Not a Guru-chosen tool: the web bridge adds it to a guru_public
+		// context ONLY when the Hub-forwarded customer identity is present; the handler matches it with the order's identity meta.
+		self::register( 'order.pay_info', array(
+			'executor'       => 'order.pay_info', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
+			'title'          => 'Thông tin thanh toán đơn của khách',
+			'description'    => 'Link thanh toán, tài khoản và ảnh QR chuyển khoản của đơn mà CHÍNH khách đang chat vừa đặt (chỉ đơn chờ thanh toán). Khách không phải đối số: site tự đối chiếu danh tính.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'order_id' ), 'properties' => array( 'order_id' => array( 'type' => 'integer', 'minimum' => 1 ) ) ),
+			'output_schema'  => self::envelope_schema( array(
+				'contract'      => array( 'type' => 'string' ),
+				'order_id'      => array( 'type' => 'integer' ),
+				'status'        => array( 'type' => 'string' ),
+				'total'         => array( 'type' => 'integer' ),
+				'pay_url'       => array( 'type' => 'string' ),
+				'transfer_note' => array( 'type' => 'string' ),
+				'qr_image_url'  => array( 'type' => 'string' ),
+			) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'commerce.read',
+			'handler'        => array( $svc, 'pay_info' ),
+			'mode'           => 'stock',
+			'roles'          => array( 'customer' ),
+			'scope'          => 'thread',
+			'scopes'         => array( 'commerce.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'order_pay_info',
+			'fallback_pack'  => null,
+			'since'          => '0.109.0',
+		) );
 		self::register( 'commerce.get_product', array(
 			'title'          => 'Get WooCommerce product',
 			'description'    => 'Đọc chi tiết một sản phẩm theo product_id hoặc sku qua wc_get_product().',
@@ -1424,6 +1478,7 @@ final class BizCity_MCP_Tool_Registry {
 		// @mcp bizcity-mcp-standard@1 tool order.status
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L1 wave 2 — one order by id, or the latest orders; customer phone masked.
 		self::register( 'order.status', array(
+			'executor'       => 'order.status', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
 			'title'          => 'Trạng thái đơn hàng',
 			'description'    => 'Xem trạng thái một đơn theo order_id (dòng sản phẩm, tổng tiền, trạng thái, SĐT khách che còn 3 số cuối), hoặc không có order_id thì xem các đơn mới nhất (tối đa 20).',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(

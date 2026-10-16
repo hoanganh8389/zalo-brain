@@ -32,11 +32,60 @@ final class BizCity_Brain_ROI {
 	 */
 	public static $readers = array();
 
-	/** Real revenue (USD-equivalent VND total) for this account_id, current calendar month, UTC. */
+	/**
+	 * Real revenue of this account_id, current calendar month, UTC, in USD.
+	 * [2026-10-14 03:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 — revenue_between() sums Woo order totals in the SHOP currency (₫) while token cost (chi) is USD:
+	 * comparing them raw made any order look like a payback. Convert once, here, with the Hub rate; no rate ⇒ 0 (never guess a rate, G3).
+	 */
 	public static function revenue_this_month( string $account_id ): float {
-		$from = gmdate( 'Y-m-01 00:00:00' );
-		$to   = gmdate( 'Y-m-d H:i:s' );
-		return self::revenue_between( $account_id, $from, $to );
+		return self::revenue_usd_between( $account_id, gmdate( 'Y-m-01 00:00:00' ), gmdate( 'Y-m-d H:i:s' ) );
+	}
+
+	/** Shop-currency (₫) revenue converted to USD by the Hub rate; 0.0 when the rate is unknown. */
+	public static function revenue_usd_between( string $account_id, string $from_gmt, string $to_gmt ): float {
+		$rate = self::usd_vnd_rate();
+		return ( null === $rate || $rate <= 0 ) ? 0.0 : self::revenue_between( $account_id, $from_gmt, $to_gmt ) / $rate;
+	}
+
+	/** The Hub USD→₫ rate (test seam `rate`); null when unknown. */
+	public static function usd_vnd_rate(): ?float {
+		if ( isset( self::$readers['rate'] ) ) {
+			$r = call_user_func( self::$readers['rate'] );
+			return ( is_numeric( $r ) && (float) $r > 0 ) ? (float) $r : null;
+		}
+		return class_exists( 'BizCity_Usage_Plans' ) ? BizCity_Usage_Plans::rate() : null;
+	}
+
+	/**
+	 * Paid orders of this account in a window — id + total (shop currency) only, never a customer name (card ① shows "đơn #8812").
+	 *
+	 * @return array<int,array{id:int,total:float}>
+	 */
+	public static function order_refs_between( string $account_id, string $from_gmt, string $to_gmt ): array {
+		$out = array();
+		if ( isset( self::$readers['orders'] ) ) {
+			foreach ( (array) call_user_func( self::$readers['orders'], $account_id, $from_gmt, $to_gmt ) as $r ) {
+				$out[] = array( 'id' => (int) ( $r['id'] ?? 0 ), 'total' => (float) ( $r['total'] ?? 0 ) );
+			}
+			return $out;
+		}
+		if ( ! function_exists( 'wc_get_orders' ) ) {
+			return array();
+		}
+		foreach ( array( BizCity_Usage_Plan_Woo_Meta_Key(), self::META_BRAIN_ORDER ) as $meta_key ) {
+			if ( '' === $meta_key ) {
+				continue;
+			}
+			foreach ( (array) wc_get_orders( array(
+				'status' => self::PAID_STATUSES, 'meta_key' => $meta_key, 'meta_value' => $account_id, // phpcs:ignore WordPress.DB.SlowDBQuery
+				'date_created' => gmdate( 'Y-m-d', strtotime( $from_gmt ) ) . '...' . gmdate( 'Y-m-d', strtotime( $to_gmt ) ), 'limit' => 50, 'return' => 'objects',
+			) ) as $order ) {
+				if ( is_object( $order ) && method_exists( $order, 'get_total' ) ) {
+					$out[ (int) $order->get_id() ] = array( 'id' => (int) $order->get_id(), 'total' => (float) $order->get_total() );
+				}
+			}
+		}
+		return array_values( $out );
 	}
 
 	public static function revenue_between( string $account_id, string $from_gmt, string $to_gmt ): float {

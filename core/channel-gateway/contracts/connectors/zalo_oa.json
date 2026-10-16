@@ -1,0 +1,30 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "zalo_oa",
+  "label": "Zalo Official Account",
+  "section": "dev",
+  "transport": "dev_api",
+  "account_kind": "zalo_oa",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.zalo_oa",
+  "badge": "App riêng",
+  "order": 20,
+  "auth": {
+    "kind": "own_app"
+  },
+  "desc": "Tài khoản Zalo chính thức: tin ZNS, chăm khách theo mẫu.",
+  "platform_code": "zalo_oa",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_dev"
+  }
+}

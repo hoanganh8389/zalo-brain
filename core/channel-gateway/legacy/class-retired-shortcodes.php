@@ -5,7 +5,7 @@
  *
  * [2026-10-11 12:23 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8c — created for [zalo_login_form] (legacy AES
  * ?zid= login form, archived from legacy-zalo-shortcodes.php) and [bizcity_character_chat] (public Guru widget, archived
- * from core/knowledge/includes/functions.php). Add a tag here instead of keeping a dead implementation alive.
+ * from core/guru/profile/includes/functions.php). Add a tag here instead of keeping a dead implementation alive.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\ChannelGateway\Legacy

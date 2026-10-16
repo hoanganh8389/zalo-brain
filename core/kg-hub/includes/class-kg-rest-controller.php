@@ -94,6 +94,11 @@ class BizCity_KG_Rest_Controller {
 		register_rest_route( $ns, '/workspaces/(?P<id>\d+)', [
 			'methods' => 'DELETE', 'callback' => [ $this, 'delete_workspace' ], 'permission_callback' => $perm,
 		] );
+		// [2026-10-14 12:30 AM Johnny Chu - Chu Hoàng Anh] workspaces with a STRING id (user_meta list: capture-bridge "ws_zalo_*", "ws_<uuid>") cannot use the
+		// numeric ACL route above; an owner must be able to delete them from the UI without touching the DB.
+		register_rest_route( $ns, '/workspaces/(?P<id>ws_[A-Za-z0-9_\-]+)', [
+			'methods' => 'DELETE', 'callback' => [ $this, 'delete_user_workspace' ], 'permission_callback' => $perm,
+		] );
 		register_rest_route( $ns, '/acl/(?P<object_type>workspace|notebook)/(?P<object_id>\d+)/transfer-owner', [
 			'methods' => 'POST', 'callback' => [ $this, 'transfer_owner' ], 'permission_callback' => $perm,
 		] );
@@ -364,6 +369,53 @@ class BizCity_KG_Rest_Controller {
 		}
 		$res = BizCity_KG_Access::soft_delete_workspace( (int) $req['id'], get_current_user_id() );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( array( 'deleted' => true, 'soft' => true ) );
+	}
+
+	/**
+	 * [2026-10-14 12:30 AM Johnny Chu - Chu Hoàng Anh] DELETE /workspaces/ws_… — remove one workspace from the CALLER's own user_meta list and
+	 * re-home that caller's notebooks inside it to `ws_default` (nothing is deleted but the folder). `ws_default` itself is never removed. A
+	 * Zalo number's workspace (`ws_zalo_*`) is re-created by the next capture, and its notebooks settle back on the next listing.
+	 */
+	public function delete_user_workspace( WP_REST_Request $req ) {
+		$id = sanitize_key( (string) $req['id'] );
+		if ( '' === $id || 'ws_default' === $id ) {
+			return new WP_Error( 'kg_workspace_protected', 'Không xoá được workspace mặc định.', [ 'status' => 400 ] );
+		}
+		$user_id  = get_current_user_id();
+		$meta_key = $this->workspaces_meta_key();
+		$raw      = class_exists( 'BizCity_User_Meta_Cache' ) ? BizCity_User_Meta_Cache::get( $user_id, $meta_key, '' ) : get_user_meta( $user_id, $meta_key, true );
+		$list     = is_string( $raw ) && $raw !== '' ? json_decode( $raw, true ) : $raw;
+		$list     = is_array( $list ) ? $list : [];
+		$kept     = [];
+		$found    = false;
+		foreach ( $list as $w ) {
+			if ( is_array( $w ) && (string) ( $w['id'] ?? '' ) === $id ) {
+				$found = true;
+				continue;
+			}
+			$kept[] = $w;
+		}
+		if ( ! $found ) {
+			return new WP_Error( 'kg_workspace_not_found', 'Không tìm thấy workspace.', [ 'status' => 404 ] );
+		}
+		$moved = 0;
+		$svc   = BizCity_KG_Notebook_Service::instance();
+		foreach ( (array) $svc->list_for_user( $user_id, [ 'limit' => 500 ] ) as $row ) {
+			$settings = (array) ( $row['settings'] ?? [] );
+			if ( (string) ( $settings['workspace_id'] ?? '' ) !== $id || (int) ( $row['owner_id'] ?? $user_id ) !== $user_id ) {
+				continue;
+			}
+			$settings['workspace_id'] = 'ws_default';
+			$svc->update( (int) $row['id'], [ 'settings' => $settings ] );
+			$moved++;
+		}
+		$encoded = wp_json_encode( array_values( $kept ), JSON_UNESCAPED_UNICODE );
+		if ( class_exists( 'BizCity_User_Meta_Cache' ) ) {
+			BizCity_User_Meta_Cache::set( $user_id, $meta_key, $encoded );
+		} else {
+			update_user_meta( $user_id, $meta_key, $encoded );
+		}
+		return rest_ensure_response( [ 'deleted' => true, 'soft' => false, 'notebooks_moved' => $moved ] );
 	}
 
 	public function get_default_notebook( WP_REST_Request $req ) {

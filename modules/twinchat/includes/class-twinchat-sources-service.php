@@ -1017,7 +1017,12 @@ class BizCity_TwinChat_Sources_Service {
 					}
 					$mime = 'text/html';
 					if ( $content === '' ) {
-						return new WP_Error( 'url_extract_empty', 'Gateway không trả về nội dung cho URL này.', [ 'url' => $url ] );
+						// Gateway (Tavily) returns nothing for some pages — fetch the page
+						// ourselves server-side (never the browser-sent snippet, R-GW-INGEST-URL).
+						$content = $this->fetch_url_text_directly( $url );
+					}
+					if ( $content === '' ) {
+						return new WP_Error( 'url_extract_empty', 'Không đọc được nội dung trang này (trang yêu cầu đăng nhập, chặn bot hoặc không có văn bản).', [ 'url' => $url ] );
 					}
 				} else {
 					return new WP_Error( 'search_gateway_not_ready', 'Search gateway chưa sẵn sàng để đọc URL này.', [ 'url' => $url ] );
@@ -1610,6 +1615,33 @@ class BizCity_TwinChat_Sources_Service {
 			] );
 		}
 		return $body;
+	}
+
+	/**
+	 * Fallback page reader: plain server-side GET, HTML stripped to text.
+	 * Returns '' when the page is unreachable, non-HTML, or has too little text.
+	 *
+	 * @param string $url
+	 * @return string
+	 */
+	private function fetch_url_text_directly( $url ) {
+		$res = wp_safe_remote_get( $url, [
+			'timeout'     => 15,
+			'redirection' => 3,
+			'user-agent'  => 'Mozilla/5.0 (compatible; BizCityBot/1.0; +https://bizcity.vn)',
+			'headers'     => [ 'Accept' => 'text/html,text/plain;q=0.9' ],
+		] );
+		if ( is_wp_error( $res ) || (int) wp_remote_retrieve_response_code( $res ) >= 400 ) {
+			return '';
+		}
+		$ctype = strtolower( (string) wp_remote_retrieve_header( $res, 'content-type' ) );
+		if ( $ctype !== '' && strpos( $ctype, 'html' ) === false && strpos( $ctype, 'text/plain' ) === false ) {
+			return '';
+		}
+		$html = substr( (string) wp_remote_retrieve_body( $res ), 0, 1500000 );
+		$html = preg_replace( '#<(script|style|noscript|svg|nav|footer|header)\b[^>]*>.*?</\1>#is', ' ', $html );
+		$text = trim( preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES, 'UTF-8' ) ) );
+		return mb_strlen( $text ) >= 200 ? $text : '';
 	}
 
 	private function normalize_text( $text ) {

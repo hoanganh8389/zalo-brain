@@ -329,6 +329,45 @@ final class BizCity_MCP_Delegation {
 		);
 	}
 
+	/** [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — the customer-pays-own-order tool; allowed only when the channel customer identity is known (see with_customer) */
+	const GUEST_PAY_TOOL = 'order.pay_info';
+
+	/** [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W — a customer of a chat channel PLACES an order (preview → confirm → order + CRM contact + payment info, all in one request). Opened with the customer identity, like the pay tool. */
+	const GUEST_ORDER_TOOL  = 'order.place';
+	const GUEST_ORDER_SCOPE = 'commerce.order.guest';
+
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W — is guest ordering on for this site: WooCommerce can create orders and the owner has not switched it off (option `bizcity_guest_order` = off, filter `bizcity_guest_order_enabled`).
+	 * Default ON when Woo is active ("ship auto + a documented way back").
+	 */
+	public static function guest_order_enabled(): bool {
+		$on = function_exists( 'wc_create_order' ) && 'off' !== (string) ( function_exists( 'get_option' ) ? get_option( 'bizcity_guest_order', 'auto' ) : 'auto' );
+		return (bool) apply_filters( 'bizcity_guest_order_enabled', $on );
+	}
+
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — add the channel customer (platform / channel_ref / platform_uid, from the Hub-forwarded header the CELL set) to a guru_public context and open
+	 * order.pay_info for it. Never called without a complete identity. The handler still matches the identity with the order.
+	 */
+	public static function with_customer( array $ctx, array $customer ): array {
+		$platform = strtolower( trim( (string) ( $customer['platform'] ?? '' ) ) );
+		$ref      = trim( (string) ( $customer['channel_ref'] ?? '' ) );
+		$uid      = trim( (string) ( $customer['platform_uid'] ?? '' ) );
+		if ( '' === $platform || '' === $ref || '' === $uid || self::GURU_PUBLIC !== (string) ( $ctx['principal_kind'] ?? '' ) ) {
+			return $ctx;
+		}
+		$ctx['customer']      = array( 'platform' => $platform, 'channel_ref' => $ref, 'platform_uid' => $uid );
+		$tools  = array( self::GUEST_PAY_TOOL );
+		$scopes = array( 'commerce.read' );
+		if ( self::guest_order_enabled() ) {
+			$tools[]  = self::GUEST_ORDER_TOOL;
+			$scopes[] = self::GUEST_ORDER_SCOPE;
+		}
+		$ctx['allowed_tools'] = array_values( array_unique( array_merge( (array) ( $ctx['allowed_tools'] ?? array() ), $tools ) ) );
+		$ctx['scopes']        = array_values( array_unique( array_merge( (array) ( $ctx['scopes'] ?? array() ), $scopes ) ) );
+		return $ctx;
+	}
+
 	/** PHASE-0.95 S95-F14 — the one customer-facing commerce tool (public catalog read). */
 	const GUEST_COMMERCE_TOOL = 'commerce.search_products';
 
@@ -411,6 +450,10 @@ final class BizCity_MCP_Delegation {
 			// [2026-10-05 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — automation.* for guests: opened by the Guru, narrowed per scenario by the site (audience guest).
 			if ( in_array( $name, self::GUEST_AUTOMATION_TOOLS, true ) ) {
 				return empty( $tool['alias_of'] ) && in_array( $name, array_map( 'strval', (array) ( $ctx['allowed_tools'] ?? array() ) ), true );
+			}
+			// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W — the ONE write tool a customer may reach besides the guest scenarios: order.place, only with a known channel customer, only if opened by with_customer()
+			if ( self::GUEST_ORDER_TOOL === $name ) {
+				return empty( $tool['alias_of'] ) && ! empty( $ctx['customer'] ) && in_array( $name, array_map( 'strval', (array) ( $ctx['allowed_tools'] ?? array() ) ), true );
 			}
 			return in_array( 'customer', (array) ( $tool['roles'] ?? array() ), true )
 				&& empty( $tool['alias_of'] )

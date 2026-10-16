@@ -7,10 +7,10 @@ Cảm ơn bạn quan tâm đóng góp! Đây là framework AI cho WordPress đư
 
 ## Quick links
 
-- 🏗️ [docs/getting-started.md](docs/getting-started.md) — setup dev environment.
-- 🔌 [docs/extending/sub-plugin-quickstart.md](docs/extending/sub-plugin-quickstart.md) — build sub-plugin đầu tiên.
-- 🎯 [.github/copilot-instructions.md](.github/copilot-instructions.md) — rule tối thượng đầy đủ (kiến trúc, DB, channel, error, validation), dùng chung cho người và cho AI agent (Copilot/Claude Code/Codex/Cursor); `AGENTS.md` là bản sinh tự động của cùng bộ rule.
-- 🗺️ [.github/instructions/agent-environment.instructions.md](.github/instructions/agent-environment.instructions.md) + [docs/AGENT-DOC-CATALOG.md](docs/AGENT-DOC-CATALOG.md) — bản đồ contract, README, tool `bin/`, lệnh test/CI và danh mục tài liệu.
+- 🏗️ `docs/getting-started.md` (nội bộ, chưa công bố) — setup dev environment.
+- 🔌 `docs/extending/sub-plugin-quickstart.md` (nội bộ, chưa công bố) — build sub-plugin đầu tiên.
+- 🎯 `.github/copilot-instructions.md` (nội bộ, chưa công bố) — rule tối thượng đầy đủ (kiến trúc, DB, channel, error, validation), dùng chung cho người và cho AI agent (Copilot/Claude Code/Codex/Cursor); `AGENTS.md` là bản sinh tự động của cùng bộ rule.
+- 🗺️ `.github/instructions/agent-environment.instructions.md` + `docs/AGENT-DOC-CATALOG.md` (nội bộ, chưa công bố) — bản đồ contract, README, tool `bin/`, lệnh test/CI và danh mục tài liệu.
 - 📜 [CHANGELOG.md](CHANGELOG.md) — version history.
 
 ---
@@ -19,12 +19,12 @@ Cảm ơn bạn quan tâm đóng góp! Đây là framework AI cho WordPress đư
 
 | Rule | Tóm tắt | Spec |
 |---|---|---|
-| **R-DCL** | Mọi schema change → JSON changelog + validator. | [copilot-instructions.md §4](.github/copilot-instructions.md) |
-| **R-DDV** | Mỗi sprint mới phải có diagnostic row PASS. | [copilot-instructions.md §8](.github/copilot-instructions.md) |
-| **R-CRON-META** | Cron handler phải `note()` evidence. | [copilot-instructions.md §7](.github/copilot-instructions.md) |
-| **R-CH-NS** | Channel REST namespace = `bizcity-channel/v1`. | [copilot-instructions.md §6](.github/copilot-instructions.md) |
-| **R-GW-8** | Client KHÔNG cài `bizcity-llm-router` — proxy về bizcity.vn. | [copilot-instructions.md §2](.github/copilot-instructions.md) |
-| **R-GW-API-CATALOG** | Lookup [docs/api/](../bizcity-llm-router/docs/api) trước, build endpoint server trước nếu thiếu. | [.github/copilot-instructions.md](.github/copilot-instructions.md#R-GW-API-CATALOG) |
+| **R-DCL** | Mọi schema change → JSON changelog + validator. | `copilot-instructions.md` §4 (nội bộ, chưa công bố) |
+| **R-DDV** | Mỗi sprint mới phải có diagnostic row PASS. | `copilot-instructions.md` §8 (nội bộ, chưa công bố) |
+| **R-CRON-META** | Cron handler phải `note()` evidence. | `copilot-instructions.md` §7 (nội bộ, chưa công bố) |
+| **R-CH-NS** | Channel REST namespace = `bizcity-channel/v1`. | `copilot-instructions.md` §6 (nội bộ, chưa công bố) |
+| **R-GW-8** | Client KHÔNG cài `bizcity-llm-router` — proxy về bizcity.vn. | `copilot-instructions.md` §2 (nội bộ, chưa công bố) |
+| **R-GW-API-CATALOG** | Lookup [docs/api/](../bizcity-llm-router/docs/api) trước, build endpoint server trước nếu thiếu. | `copilot-instructions.md` mục R-GW-API-CATALOG (nội bộ, chưa công bố) |
 
 ---
 
@@ -40,7 +40,7 @@ Target runtime: **PHP 7.4** trên shared hosting khách hàng. CẤM:
 - `enum`, `readonly`
 - `str_contains` / `str_starts_with` / `str_ends_with` (dùng `strpos`/`substr` thay).
 
-CI grep guard tự chặn PR. Xem chi tiết trong [.github/copilot-instructions.md §PHP 7.4](.github/copilot-instructions.md).
+CI grep guard tự chặn PR. Tóm tắt sàn PHP 7.4: không union type, `?->`, `match`, constructor promotion / `readonly` / enum, `str_contains` & họ hàng, named arguments; dùng `switch`/ternary, kiểm null tường minh, `strpos() !== false`, tham số theo vị trí. Được dùng: typed property, arrow function, `??=`, array spread, numeric separator. Chi tiết: `copilot-instructions.md` mục "PHP 7.4 compatibility floor" (nội bộ, chưa công bố).
 
 ---
 
@@ -68,7 +68,7 @@ CI grep guard tự chặn PR. Xem chi tiết trong [.github/copilot-instructions
 5. `composer compat:php74` — phải exit 0.
 6. `composer diagnostics` (Phase 0.99.8 sẽ có CLI runner) — probe liên quan phải PASS.
 7. Update [CHANGELOG.md](CHANGELOG.md) `## [Unreleased]`.
-8. Update [docs/extension/HOOKS.md](docs/extension/HOOKS.md) nếu thêm filter/action public.
+8. Update `docs/extension/HOOKS.md` (nội bộ, chưa công bố) nếu thêm filter/action public.
 9. Mở PR — fill template `.github/PULL_REQUEST_TEMPLATE.md`.
 
 ---
@@ -137,7 +137,7 @@ git config --global user.email "your.email@example.com"
 
 ### Bot kiểm tra
 
-GitHub Action [`.github/workflows/dco.yml`](.github/workflows/dco.yml) tự chặn
+GitHub Action `.github/workflows/dco.yml` (nội bộ, chưa công bố) tự chặn
 PR nếu có commit thiếu `Signed-off-by`. Sửa bằng `git rebase -i` + `--signoff`
 rồi force-push.
 

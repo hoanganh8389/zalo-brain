@@ -1,0 +1,30 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "google_own",
+  "label": "Google (Gmail + Lịch)",
+  "section": "dev",
+  "transport": "dev_api",
+  "account_kind": "google_account",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.google_own",
+  "badge": "App riêng",
+  "order": 80,
+  "auth": {
+    "kind": "own_app"
+  },
+  "desc": "Gmail và Lịch Google cho trợ lý (cách cũ, cần cấu hình).",
+  "platform_code": "google",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_dev"
+  }
+}

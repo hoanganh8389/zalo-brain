@@ -199,6 +199,8 @@ final class BizCity_MCP_Tool_Policy {
 		// [2026-10-09 03:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F3 — public catalog consult search: knowledge group, so a customer
 		// turn (guru_public, knowledge only) reaches it when the Guru opens it, and an editor-profile role keeps it.
 		'commerce.search_products' => 'knowledge',
+		'order.place'              => 'knowledge', // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W — customer places an order (guru_public reaches only the knowledge group)
+		'order.pay_info'           => 'knowledge', // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — customer pays their own order (identity-matched in the handler)
 	);
 
 	/** Tool name prefixes of the knowledge group (plus every tool whose mode is `notebook`). */

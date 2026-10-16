@@ -26,7 +26,9 @@ final class BizCity_Brain_Milestones_Catalog {
 	public static $override = null;
 
 	public static function file_path(): string {
-		return dirname( __DIR__ ) . '/contracts/brain-milestones.v1.json';
+		// [2026-10-14 01:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 — this file sits in includes/usage/, the contract in core/channel-gateway/contracts/ (TWO levels up). One level up
+		// pointed at the non-existent includes/contracts/, so the catalog was always empty on a real site: no milestone/badge was ever written ("Huy hiệu 0" with 21 customer turns).
+		return dirname( __DIR__, 2 ) . '/contracts/brain-milestones.v1.json';
 	}
 
 	/** @return array<string,mixed> decoded contract, or a safe empty shape if the file is missing/invalid. */

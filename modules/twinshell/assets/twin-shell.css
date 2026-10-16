@@ -613,3 +613,21 @@
   }
   .ts-apps-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — account chip (rail bottom). */
+.ts-ab-account { position: relative; }
+.ts-ab-account-btn img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; display: block; }
+.ts-ab-account-pop {
+  position: absolute; left: 52px; bottom: 4px; z-index: 50; min-width: 200px; max-width: 260px;
+  background: #1b1e24; border: 1px solid #2a2e36; border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.35); color: #e6e6e6; font-size: 13px;
+}
+.ts-ab-account-pop[hidden] { display: none; }
+.ts-ab-account-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-ab-account-email { color: #9aa0aa; font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts-ab-account-out { display: block; margin-top: 10px; padding-top: 8px; border-top: 1px solid #2a2e36; color: #e6e6e6; text-decoration: none; }
+.ts-ab-account-out:hover { color: #fff; text-decoration: underline; }
+@media (max-width: 720px) {
+  /* the rail is a horizontally scrolling bottom bar here; an absolute popover would be clipped */
+  .ts-ab-account-pop { position: fixed; left: auto; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom, 0)); }
+}

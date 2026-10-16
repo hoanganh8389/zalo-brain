@@ -29,7 +29,9 @@ final class BizCity_Twin_Cell_Output_Store {
 	const HOOK_PULL    = 'bizcity_cell_output_pull';
 	const META         = '_bizcity_cell_output';
 	/** Kinds the site may copy (no customer data by nature); everything else stays on the cell. */
-	const PULL_KINDS   = array( 'image', 'audio', 'video' );
+	/** PHASE-0.110 S110-L3: the cell's `cm_…` media id of the copy — the public `/outputs/<cm_…>/go` link finds the attachment by it. */
+	const META_MEDIA   = '_bizcity_cell_output_media';
+	const PULL_KINDS   =array( 'image', 'audio', 'video' );
 	const MAX_BYTES    = 52428800; // 50 MB = the cell's own per-file cap
 	const MAX_TRIES    = 3;
 	/** Q106-8 (default): the copies of cell outputs a site keeps. Over it, the OLDEST copies go (the cell's 7-day file and the event stay; the list then shows them expired). */
@@ -107,6 +109,42 @@ final class BizCity_Twin_Cell_Output_Store {
 			}
 		}
 		return $ran;
+	}
+
+	/**
+	 * [2026-10-14 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.110 S110-L3 — attachment id of the copy of one cell media id (`cm_…`), 0 = not copied (yet).
+	 * Test seam `by_media(media_id): int`.
+	 */
+	public static function attachment_of_media( string $media_id ): int {
+		if ( isset( self::$readers['by_media'] ) ) {
+			return (int) call_user_func( self::$readers['by_media'], $media_id );
+		}
+		global $wpdb;
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1", self::META_MEDIA, $media_id ) );
+	}
+
+	/**
+	 * S110-L3: a visitor opened the link before the copy exists. If a pull for this media id waits in WP-Cron, make it run now WITHOUT blocking
+	 * (`spawn_cron()` is a non-blocking loopback). Never pulls inline: a 50 MB video would hold the visitor's request. Test seam `nudge(media_id): bool`.
+	 *
+	 * @return bool a waiting pull was found
+	 */
+	public static function nudge_media( string $media_id ): bool {
+		if ( isset( self::$readers['nudge'] ) ) {
+			return (bool) call_user_func( self::$readers['nudge'], $media_id );
+		}
+		foreach ( self::cron_events() as $ev ) {
+			foreach ( $ev as $item ) {
+				$job = (array) ( ( (array) ( $item['args'] ?? array() ) )[0] ?? array() );
+				if ( $media_id === (string) ( $job['output']['media_id'] ?? '' ) ) {
+					if ( function_exists( 'spawn_cron' ) ) {
+						spawn_cron();
+					}
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	/** @return array<int,array<string,array>> time ⇒ [sig ⇒ event] of this class's waiting pulls */
@@ -253,7 +291,7 @@ final class BizCity_Twin_Cell_Output_Store {
 			$name = self::file_name( (string) ( $o['name'] ?? '' ), $id, (string) ( $o['mime'] ?? '' ) );
 			$att  = self::sideload(
 				array( 'name' => $name, 'type' => (string) ( $o['mime'] ?? '' ), 'tmp_name' => $tmp, 'size' => (int) $r['bytes'], 'error' => 0 ),
-				array( self::META => $id, '_bizcity_cell_output_session' => (string) ( $job['session_id'] ?? '' ), '_bizcity_cell_output_user' => $user_id, '_bizcity_cell_output_bytes' => (int) $r['bytes'] )
+				array( self::META => $id, '_bizcity_cell_output_session' => (string) ( $job['session_id'] ?? '' ), '_bizcity_cell_output_user' => $user_id, '_bizcity_cell_output_bytes' => (int) $r['bytes'], self::META_MEDIA => (string) $o['media_id'] )
 			);
 			if ( ! is_int( $att ) || $att <= 0 ) {
 				self::note( 'sideload_failed', 0, self::$last_error );

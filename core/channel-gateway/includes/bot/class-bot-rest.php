@@ -904,6 +904,7 @@ final class BizCity_Bot_REST {
 			$file  = is_array( $files['file'] ?? null ) ? $files['file'] : array();
 			if ( empty( $file['error'] ) && ! empty( $file['tmp_name'] ) ) {
 				$body['file_path'] = (string) $file['tmp_name'];
+				$body['file_name'] = (string) ( $file['name'] ?? '' ); // [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 — extension for the staged STT test file.
 			}
 			foreach ( $req->get_body_params() as $k => $v ) {
 				$body[ $k ] = $v; // e.g. confirm_cost sent alongside the multipart file.

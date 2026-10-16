@@ -1,0 +1,37 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "telegram",
+  "label": "Telegram",
+  "section": "own",
+  "transport": "cell",
+  "account_kind": "telegram_bot",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.telegram",
+  "badge": "Sắp có",
+  "order": 30,
+  "auth": {
+    "kind": "bot_token"
+  },
+  "desc": "Trợ lý trả lời và nhận lệnh qua Telegram.",
+  "planned": true,
+  "module_access": {
+    "id": "connect_telegram",
+    "group": "connectors",
+    "parent": null,
+    "label": "Telegram",
+    "mode": "grantable",
+    "default_roles": [
+      "administrator"
+    ],
+    "availability": "connector_status"
+  }
+}

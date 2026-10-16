@@ -247,7 +247,7 @@ final class BizCity_Twin_Agent_Turn_Complete_REST {
 		return $out;
 	}
 
-	private static function token( string $account ): string {
+	public static function token( string $account ): string {
 		if ( isset( self::$readers['token'] ) ) {
 			return (string) call_user_func( self::$readers['token'], $account );
 		}
@@ -277,7 +277,7 @@ final class BizCity_Twin_Agent_Turn_Complete_REST {
 		return is_array( $p ) && 'staff' === $p['role'] ? (int) $p['user_id'] : 0;
 	}
 
-	private static function owner( string $account ): int {
+	public static function owner( string $account ): int {
 		if ( isset( self::$readers['owner'] ) ) {
 			return (int) call_user_func( self::$readers['owner'], $account );
 		}
@@ -285,14 +285,14 @@ final class BizCity_Twin_Agent_Turn_Complete_REST {
 		return is_array( $acc ) ? (int) ( $acc['owner_user_id'] ?? 0 ) : 0;
 	}
 
-	private static function exists( string $uuid ): bool {
+	public static function exists( string $uuid ): bool {
 		if ( isset( self::$readers['exists'] ) ) {
 			return (bool) call_user_func( self::$readers['exists'], $uuid );
 		}
 		return class_exists( 'BizCity_Twin_Event_Store' ) && BizCity_Twin_Event_Store::exists( $uuid );
 	}
 
-	private static function ingest( array $envelope ): string {
+	public static function ingest( array $envelope ): string {
 		if ( isset( self::$readers['ingest'] ) ) {
 			return (string) call_user_func( self::$readers['ingest'], $envelope );
 		}

@@ -144,6 +144,13 @@ if ( class_exists( 'BizCity_Safe_Loader' ) ) {
 if ( class_exists( 'BizCity_Twin_Agent_Turn_Complete_REST' ) ) {
 	BizCity_Twin_Agent_Turn_Complete_REST::init();
 }
+// [2026-10-14 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.110 S110-L1 — `POST bizcity-twin/v1/cell-output-ready` (a cell file made outside a chat turn).
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( $twin_event_stream . '/class-twin-cell-output-ready-rest.php', 'twin_core.cell_output_ready_rest' );
+}
+if ( class_exists( 'BizCity_Twin_Cell_Output_Ready_REST' ) ) {
+	BizCity_Twin_Cell_Output_Ready_REST::init();
+}
 
 // Phase 0.12 Wave F — Admin page (Twin Event Inspector).
 if ( is_admin() ) {

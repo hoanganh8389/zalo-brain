@@ -326,8 +326,8 @@ class BizCity_KG_Graph_Service {
 	private function is_triplet_raw_file_primary_enabled() {
 		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — v09 toggles SQL raw_llm_output drain + new-write file-primary behavior.
 		$enabled = false;
-		if ( class_exists( 'BizCity_Cron_Tier_Settings' ) && method_exists( 'BizCity_Cron_Tier_Settings', 'is_triplet_raw_migration_enabled' ) ) {
-			$enabled = BizCity_Cron_Tier_Settings::is_triplet_raw_migration_enabled();
+		if ( class_exists( 'BizCity_KG_Filestore_Flags' ) && method_exists( 'BizCity_KG_Filestore_Flags', 'is_triplet_raw_migration_enabled' ) ) {
+			$enabled = BizCity_KG_Filestore_Flags::is_triplet_raw_migration_enabled();
 		} else {
 			$enabled = (bool) get_option( 'bizcity_kg_v09_triplet_raw_migration_enabled', true );
 		}

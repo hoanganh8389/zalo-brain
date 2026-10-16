@@ -1,0 +1,47 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "drive",
+  "label": "Google Drive",
+  "badge": "Composio",
+  "section": "composio",
+  "order": 20,
+  "transport": "composio",
+  "account_kind": "google_account",
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "googledrive"
+  },
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "drive.find",
+      "sets": "connected"
+    },
+    {
+      "id": "read_one",
+      "executor": "drive.meta"
+    }
+  ],
+  "executors": [
+    "drive.find",
+    "drive.meta"
+  ],
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.drive",
+  "tab_components": {},
+  "module_access": {
+    "shared": "connect_composio"
+  },
+  "desc": "Tìm hợp đồng, báo giá trong Drive khi bạn hỏi.",
+  "ui": {
+    "glyph": "D",
+    "color": "#0f9d58"
+  },
+  "open": "/tools/quick-connect"
+}

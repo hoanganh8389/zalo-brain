@@ -138,6 +138,12 @@ final class BizCity_Usage_Wallet {
 		if ( '' === $email && function_exists( 'wp_get_current_user' ) ) {
 			$email = (string) wp_get_current_user()->user_email; // the admin pressing the button; editable on the screen
 		}
+		// [2026-10-14 04:10 AM Johnny Chu - Chu Hoàng Anh] a phone-login admin has no usable WP email (the Hub answered bad_email, 2026-10-14): fall back to the site admin email
+		// before asking; the screen still lets the person type one (usePayPack → PayEmailField).
+		if ( function_exists( 'is_email' ) && ! is_email( $email ) && function_exists( 'get_option' ) ) {
+			$site = (string) get_option( 'admin_email', '' );
+			$email = is_email( $site ) ? $site : $email;
+		}
 		$raw = self::post( '/account/token-packs/order', array( 'product_id' => $product_id, 'email' => $email ) );
 		if ( ! empty( $raw['ok'] ) && 'token-order@1' === ( $raw['contract'] ?? '' ) && '' !== self::url( $raw['pay_url'] ?? '' ) ) {
 			$pack = (array) ( $raw['pack'] ?? array() );

@@ -154,6 +154,16 @@ class BizCity_CRM_DB_Installer_V2 {
 		if ( ! $diagnostics_context && get_option( self::DB_VERSION_OPTION ) === BIZCITY_CRM_DB_VERSION && empty( self::missing_tables() ) ) {
 			return;
 		}
+		// [2026-10-14 03:45 AM Johnny Chu - Chu Hoàng Anh] PERF — same guard as BizCity_CRM_DB_Installer_Ext::maybe_upgrade_ext(): a full dbDelta pass runs once per
+		// request (admin_init + rest_api_init both hook here) and once per 15 min per blog, never on every request when a stamp/table cannot settle.
+		static $attempted = false;
+		if ( ! $diagnostics_context ) {
+			if ( $attempted || get_transient( 'bizcity_crm_core_upgrade_lock' ) ) {
+				return;
+			}
+			$attempted = true;
+			set_transient( 'bizcity_crm_core_upgrade_lock', time(), 900 );
+		}
 		self::install();
 		// [2026-08-26 Johnny Chu] R-DCL — reconcile CRM additive column/index drift from the canonical changelog during headless Diagnostics only.
 		if ( $diagnostics_context

@@ -2442,17 +2442,24 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$svc  = BizCity_KG_Notebook_Service::instance();
 		$scope_type = (string) ( $scope['scope_type'] ?? 'private' );
 		$scope_id   = (string) ( $scope['scope_id'] ?? '' );
-		$workspace_id = $this->resolve_daily_workspace_id( $user_id, $channel );
+		// [2026-10-14 12:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 follow-up — the per-channel daily workspace is created as a SIDE EFFECT
+		// of resolve_daily_workspace_id() (user_meta write). A capture scoped to a Zalo number never lands there (the filter below replaces it), so
+		// resolving first left an empty "Zalo Personal daily" workspace behind on every number capture. Ask the filter FIRST with an empty default;
+		// resolve (and so create) the channel workspace only when no filter claimed the capture.
+		$workspace_id = '';
 		/**
 		 * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — which workspace a capture lands in. A capture scoped to a Zalo
 		 * number (scope_id = zalo_account:<id>) goes to that number's own workspace (BizCity_KG_Zalo_Number_Notebooks).
 		 *
-		 * @param string $workspace_id per-user channel workspace.
+		 * @param string $workspace_id '' on entry (a filter that claims the capture returns its own workspace id; '' = fall back to the per-user channel workspace).
 		 * @param int    $user_id      notebook owner.
 		 * @param string $channel      capture channel.
 		 * @param array  $scope        scope_type / scope_id.
 		 */
 		$workspace_id = (string) apply_filters( 'bizcity_kg_capture_workspace_id', $workspace_id, $user_id, $channel, $scope );
+		if ( '' === $workspace_id ) {
+			$workspace_id = $this->resolve_daily_workspace_id( $user_id, $channel );
+		}
 
 		$existing = $svc->list_for_user( $user_id, array( 'limit' => 200 ) );
 		foreach ( (array) $existing as $row ) {

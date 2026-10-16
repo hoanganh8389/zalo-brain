@@ -1,0 +1,35 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "meet",
+  "label": "Google Meet",
+  "section": "composio",
+  "transport": "composio",
+  "account_kind": "google_account",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.meet",
+  "badge": "Composio",
+  "order": 40,
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "googlemeet"
+  },
+  "desc": "Gắn link họp vào lịch hẹn khi khách đặt.",
+  "ui": {
+    "glyph": "M",
+    "color": "#00897b"
+  },
+  "open": "/tools/quick-connect",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_composio"
+  }
+}

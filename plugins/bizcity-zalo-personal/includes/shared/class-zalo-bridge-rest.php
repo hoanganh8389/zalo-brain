@@ -785,16 +785,35 @@ class BizCity_Zalo_Bridge_REST {
 		try {
 			$list = BizCity_Zalo_Bridge_Client::instance()->list_accounts();
 		} catch ( \Throwable $e ) {
-			return $row;
+			return self::server_lost_account( $bridge_id ) ? self::rehome_lost_row( $row, $bridge_id, $actor_user_id ) : $row;
 		}
 		if ( ! empty( $list['_degraded'] ) || ( empty( $list['success'] ) && empty( $list['ok'] ) ) || ! isset( $list['accounts'] ) || ! is_array( $list['accounts'] ) ) {
-			return $row;
+			return self::server_lost_account( $bridge_id ) ? self::rehome_lost_row( $row, $bridge_id, $actor_user_id ) : $row;
 		}
 		foreach ( $list['accounts'] as $acc ) {
 			if ( is_array( $acc ) && (string) ( $acc['id'] ?? '' ) === $bridge_id ) {
-				return $row;
+				// Listed, but a retired zca-bridge can still list rows it no longer serves: confirm with a status probe.
+				return self::server_lost_account( $bridge_id ) ? self::rehome_lost_row( $row, $bridge_id, $actor_user_id ) : $row;
 			}
 		}
+		return self::rehome_lost_row( $row, $bridge_id, $actor_user_id );
+	}
+
+	/** True when the Zalo server answers `account_not_owned` (or equivalent) for this id. Fail-open on any other outcome. */
+	private static function server_lost_account( string $bridge_id ): bool {
+		if ( '' === $bridge_id || ! class_exists( 'BizCity_Zalo_Session_Errors' ) ) { return false; }
+		try {
+			$r = BizCity_Zalo_Bridge_Client::instance()->get_qr_status( $bridge_id );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+		if ( ! is_array( $r ) || ! empty( $r['success'] ) || ! empty( $r['ok'] ) ) { return false; }
+		$bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $r['reason_bucket'] ?? '' ) );
+		if ( '' === $bucket ) { $bucket = BizCity_Zalo_Session_Errors::bucket_for( (string) ( $r['code'] ?? '' ) ); }
+		return 'account_not_owned' === $bucket;
+	}
+
+	private static function rehome_lost_row( array $row, string $bridge_id, int $actor_user_id ) {
 		$full = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
 		if ( ! is_array( $full ) ) {
 			return $row;

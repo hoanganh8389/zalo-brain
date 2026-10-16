@@ -15,7 +15,7 @@
  *
  * Plugin Name:       Zalo Brain
  * Plugin URI:        https://bizcity.vn
- * Description:       Bộ não Zalo của WordPress — mọi số Zalo của doanh nghiệp được một trợ lý tiếp nhận, trả lời, ghi nhớ và giao việc. Mở rộng bằng plugin (Zalo Brain CRM, Automation). [2026-10-09 PHASE-0.96 — brand Zalo Brain; slug, text domain and code names unchanged]
+ * Description:       Không gian làm việc Zalo cho từng người trong WordPress — nối công cụ của mình một lần theo một chuẩn, trợ lý làm việc trong quyền của bạn, mỗi việc có sổ ghi và tắt được ở một chỗ. Mở rộng bằng plugin (Zalo Brain CRM — quản lý đội quân cell twin, Automation). [2026-10-16 PHASE-0.116 S116-ZC3 — mô tả theo R-ZALO-BRAIN-CHARTER; "Zalo Brain" chỉ là tên plugin; slug, text domain and code names unchanged]
  * Version:           1.4.0
  * Author:            Johnny Chu (Chu Hoàng Anh)
  * Author URI:        https://bizcity.vn
@@ -346,6 +346,11 @@ if ( ! $_bizcity_twinchat_admin_shell_request ) {
         // [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — load the gateway client for the canonical central Facebook endpoint.
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/facehook/' )
         // [2026-08-13 Johnny Chu] HOTFIX-ZALO-LLM-LOADER — the Zalo Bot rewrite is /zalohook/, so load the gateway client before TwinBrain synthesis.
+        // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L28 — the Facebook webhooks of a site (?fbhook=1, /bizfbhook/, ?facehook=1) hand the page to the cell through the Hub: they need the gateway client too.
+        // Without it `BizCity_FB_Hub_Client::is_ready()` was false in EVERY webhook request (log: hub_key_not_ready on blogs 418/1420/1518/1542) while the admin screen of the same site said "key OK".
+        || false !== strpos( $bizcity_llm_bootstrap_uri, 'fbhook=1' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, 'facehook=1' )
+        || false !== strpos( $bizcity_llm_bootstrap_uri, '/bizfbhook' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/zalohook/' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/tool-' )
         || false !== strpos( $bizcity_llm_bootstrap_uri, '/gpt' )
@@ -366,7 +371,8 @@ if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/d
     require_once __DIR__ . '/core/diagnostics/includes/class-diagnostics-table-activity.php';
 }
 
-// [2026-06-29 Johnny Chu] HOTFIX — $_bizcity_admin_ctx MUST be defined BEFORE core/knowledge/bootstrap.php
+// [2026-10-16 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS3 (doc 87) — core/knowledge, core/persona, core/memory are now core/guru/{profile,runtime,memory,admin}; load conditions unchanged.
+// [2026-06-29 Johnny Chu] HOTFIX — $_bizcity_admin_ctx MUST be defined BEFORE core/guru/profile/bootstrap.php
 // because knowledge bootstrap uses it immediately (file-scope) to gate class-chat-gateway.php.
 // Previously this was defined at line ~182 (AFTER knowledge loaded) → $__kg_admin_ctx fell back to
 // the inline check which excluded /bizhook/ and /bizfbhook/ → BizCity_Chat_Gateway never loaded
@@ -416,9 +422,9 @@ if ( ! empty( $_GET['bzzalolink'] ) || ! empty( $_GET['zid'] ) || ! empty( $_COO
 // [2026-08-09 Johnny Chu] R-PERF — Knowledge is needed by admin/REST/webhook runtime, not plain frontend HTML.
 if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
-        BizCity_Loader_Ownership_Registry::claim( 'knowledge', 'main_plugin', __DIR__ . '/core/knowledge/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
+        BizCity_Loader_Ownership_Registry::claim( 'knowledge', 'main_plugin', __DIR__ . '/core/guru/profile/bootstrap.php', defined( 'BIZCITY_TWIN_AI_VERSION' ) ? BIZCITY_TWIN_AI_VERSION : '', 'early_loader', 'pre_plugins_loaded' );
     }
-    require_once __DIR__ . '/core/knowledge/bootstrap.php';
+    require_once __DIR__ . '/core/guru/profile/bootstrap.php';
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::transition( 'knowledge', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
     }
@@ -426,7 +432,7 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
 
 // [2026-08-13 Johnny Chu] PHASE-1.26-MENU — load only the Knowledge admin-menu renderer on the TwinChat shell so the Characters link remains visible without preloading the full Knowledge runtime.
 if ( $_bizcity_twinchat_admin_shell_request ) {
-    $bizcity_knowledge_admin_menu_file = __DIR__ . '/core/knowledge/includes/class-admin-menu.php';
+    $bizcity_knowledge_admin_menu_file = __DIR__ . '/core/guru/admin/includes/class-admin-menu.php';
     if ( file_exists( $bizcity_knowledge_admin_menu_file ) ) {
         require_once $bizcity_knowledge_admin_menu_file;
     }
@@ -611,8 +617,8 @@ $_bizcity_persona_public_request = ! empty( $_SERVER['REQUEST_URI'] )
         || preg_match( '#/twin(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] ) );
 if ( ( $_bizcity_admin_ctx || $_bizcity_persona_public_request )
     && ! $_bizcity_twinchat_admin_shell_request
-    && file_exists( __DIR__ . '/core/persona/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/persona/bootstrap.php';
+    && file_exists( __DIR__ . '/core/guru/runtime/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/guru/runtime/bootstrap.php';
 }
 
 // [2026-09-01 Johnny Chu] CB2.1 — load the side-effect-free Context Bank boundary only on its own surfaces.
@@ -834,8 +840,8 @@ if ( is_admin() && file_exists( __DIR__ . '/core/channel-gateway/integrations/sm
     require_once __DIR__ . '/core/channel-gateway/integrations/smtp-bridge/admin.php';
 }
 // [2026-08-09 Johnny Chu] R-PERF — memory services are backend/admin/REST/cron runtime, not ordinary frontend HTML.
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/memory/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/memory/bootstrap.php';
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/guru/memory/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/guru/memory/bootstrap.php';
 }
 // [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP M1 — client-side membership plans
 // (Free/Pro/Plus). Self-written lean core; PayPal self-billing in later phases.
@@ -945,6 +951,43 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_twinshell_public_request )
     && file_exists( __DIR__ . '/modules/twinshell/bootstrap.php' ) ) {
     require_once __DIR__ . '/modules/twinshell/bootstrap.php';
 }
+// [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — a site cloned by the small-win flow has no
+// traditional homepage: blog option `bizcity_twin_home` = 'twin' (set by bizcity-web on create) sends a bare `/`
+// to `/twin/`. Any query string is left alone (`?auth=sso`, OAuth `?code=`, previews, `?s=`). Other sites are
+// untouched. Way back for one site: delete the option (or set it to '').
+add_action( 'template_redirect', static function () {
+    if ( 'twin' !== (string) apply_filters( 'bizcity_twin_home', (string) get_option( 'bizcity_twin_home', '' ) ) ) {
+        return;
+    }
+    if ( ! empty( $_GET ) || 'GET' !== ( $_SERVER['REQUEST_METHOD'] ?? 'GET' ) || is_admin() || wp_doing_ajax() || is_feed() ) {
+        return;
+    }
+    $path = (string) wp_parse_url( (string) ( $_SERVER['REQUEST_URI'] ?? '' ), PHP_URL_PATH );
+    $home = (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH );
+    if ( rtrim( $path, '/' ) !== rtrim( $home, '/' ) ) {
+        return;
+    }
+    wp_safe_redirect( home_url( '/twin/' ), 302 );
+    exit;
+}, 1 );
+// [2026-10-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §12 — the owner can switch later where WordPress users already look
+// for "trang chủ": Settings → Reading. 'twin' = Trợ lý Twin, 'classic' = the theme homepage. No option yet (older sites)
+// shows as 'classic' because that is what those sites really do; only newly created webs default to 'twin'.
+add_action( 'admin_init', static function () {
+    register_setting( 'reading', 'bizcity_twin_home', array(
+        'type'              => 'string',
+        'sanitize_callback' => static function ( $v ) {
+            return 'twin' === $v ? 'twin' : 'classic';
+        },
+        'default'           => '',
+    ) );
+    add_settings_field( 'bizcity_twin_home', 'Trang chủ của bạn là', static function () {
+        $cur = 'twin' === (string) get_option( 'bizcity_twin_home', '' ) ? 'twin' : 'classic';
+        echo '<fieldset><label><input type="radio" name="bizcity_twin_home" value="twin"' . checked( 'twin', $cur, false ) . '> <strong>Trợ lý Twin</strong> — mở địa chỉ là vào ngay nơi làm việc với đội AI Agent</label><br>';
+        echo '<label><input type="radio" name="bizcity_twin_home" value="classic"' . checked( 'classic', $cur, false ) . '> <strong>Website truyền thống</strong> — trang chủ theo giao diện WordPress</label></fieldset>';
+        echo '<p class="description">Trợ lý Twin luôn mở được ở <a href="' . esc_url( home_url( '/twin/' ) ) . '" target="_blank" rel="noopener">' . esc_html( home_url( '/twin/' ) ) . '</a>, dù bạn chọn gì.</p>';
+    }, 'reading' );
+} );
 // Phase 6.1 — Twinsource (standard source-management panel for all plugins).
 // See PHASE-6.1-TWINSOURCE-STANDARD.md
 // enqueue() is called explicitly by host pages (not via wp_enqueue_scripts hook)

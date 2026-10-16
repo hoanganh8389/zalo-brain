@@ -84,7 +84,7 @@ final class BizCity_Bot_Tool_Registry {
 			// two gaps applies: "no key yet" vs. "key works, tool just isn't wired to a turn".
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — real, but ASYNC: the tool only books a job; a cron event generates the file and sends it.
 			// Default-off (costs money per use) and capped per conversation per hour.
-			'create_music'     => array( 'label' => 'Tạo nhạc', 'group' => 'action', 'default_off' => true, 'description' => 'Sáng tác 1 bài hát/bản nhạc bằng AI rồi gửi file sau khoảng 1 phút (tốn phí). Chỉ khi khách YÊU CẦU rõ. args: {"prompt":"nhạc lofi thư giãn, không lời, 60 giây"}.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + job nền (WP-Cron) + gửi qua CRM outbound', 'check' => 'check_music' ),
+			'create_music'     => array( 'label' => 'Tạo nhạc', 'group' => 'action', 'default_off' => true, 'description' => 'Sáng tác 1 bài hát/bản nhạc bằng AI rồi gửi file sau khoảng 1 phút (tốn phí). Chỉ khi khách YÊU CẦU rõ. args: {"prompt":"nhạc lofi thư giãn, không lời, 60 giây"}.', 'infra' => 'Hub gateway → cell (Bot_Media_Client) + job nền (WP-Cron) + gửi qua CRM outbound', 'check' => 'check_music' ),
 			// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-05) — GuruBotMediaPanel now has
 			// a real config form (model/duration/aspect_ratio/with_audio) and a working manual Test
 			// (class-bot-media-client.php::test_video(), a genuine BizCity_Video_Client::submit() call,
@@ -95,8 +95,8 @@ final class BizCity_Bot_Tool_Registry {
 			'create_video'     => array( 'label' => 'Tạo video', 'group' => 'action', 'default_off' => true, 'description' => 'Tạo 1 video ngắn bằng AI, gửi sau vài phút (tốn phí). Chỉ khi khách YÊU CẦU rõ. args: {"prompt":"cô gái đi dạo dưới mưa","duration":5,"aspect_ratio":"9:16"}.', 'infra' => 'Video_Client 1API (khóa site-level) + job nền (WP-Cron) + gửi qua CRM outbound', 'check' => 'check_video' ),
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — wired to a turn (option A): the model writes the short text to
 			// speak; it is sent as an MP3 right after the text reply. The description is the planner's whole schema.
-			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Gửi thêm một tin thoại đọc một đoạn NGẮN (tối đa vài câu) — chỉ khi khách xin nghe giọng hoặc nhờ đọc. args: {"text":"Dạ bên em còn size M ạ"}.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + đính kèm outbound (MP3)', 'check' => 'check_tts' ),
-			'stt'              => array( 'label' => 'Phiên âm tin thoại (STT)', 'group' => 'action', 'description' => 'Chuyển tin thoại khách gửi thành chữ.', 'infra' => 'khóa riêng theo trợ lý (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_stt' ),
+			'tts'              => array( 'label' => 'Giọng nói (TTS)', 'group' => 'action', 'description' => 'Gửi thêm một tin thoại đọc một đoạn NGẮN (tối đa vài câu) — chỉ khi khách xin nghe giọng hoặc nhờ đọc. args: {"text":"Dạ bên em còn size M ạ"}.', 'infra' => 'Hub gateway → cell (Bot_Media_Client) + đính kèm outbound (MP3)', 'check' => 'check_tts' ),
+			'stt'              => array( 'label' => 'Phiên âm tin thoại (STT)', 'group' => 'action', 'description' => 'Chuyển tin thoại khách gửi thành chữ.', 'infra' => 'Hub gateway → cell (Bot_Media_Client) + chưa nối vào lượt trả lời', 'check' => 'check_stt' ),
 			'send_file'        => array( 'label' => 'Gửi file', 'group' => 'action', 'description' => 'Gửi file kèm chú thích.', 'infra' => 'bridge enqueue_outbound', 'status' => self::STATUS_UNCONFIGURED, 'hint' => 'Cần tool tạo file trước; đường gửi đã có.' ),
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — `mention_member` moved to BizCity_Bot_Zalo_Actions (real executor + roster check).
 			// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — react/sticker/recall/poll/group-admin moved to
@@ -364,89 +364,59 @@ final class BizCity_Bot_Tool_Registry {
 	}
 
 	/**
-	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F §2.2A — shared shape for tts/stt/create_music: a
-	 * per-character key CAN exist (0.60E D-E1, GuruBotMediaPanel) and its manual Test button really
-	 * works, but no turn-time executor exists yet in class-bot-tools.php, so the model still cannot
-	 * call it. Status is always `unconfigured`; only the hint changes, so the operator is told the
-	 * TRUE reason ("no key yet" vs. "key works, just not wired to a turn") instead of a stale
-	 * "1API doesn't have this" message that stopped being accurate the moment D-E1 shipped.
+	 * [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 R-ONE-VERTICAL-CELL — tts/stt/create_music no longer need a per-Guru
+	 * key: they go core → Hub → cell with the site's 1API key. Ready = the site has that key (BizCity_LLM_Client::is_ready()).
+	 * Returns '' when ready, otherwise the operator-facing reason.
 	 */
-	private static function check_media_key( $character, string $secret_field, string $label ): array {
-		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return array( self::STATUS_UNCONFIGURED, 'Module khóa media (Bot_Secrets_Repo) chưa nạp.' );
+	private static function hub_media_gap( string $label ): string {
+		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+			return 'Module bizcity-llm chưa nạp.';
 		}
-		$character_id = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
-		if ( $character_id <= 0 ) {
-			return array( self::STATUS_UNCONFIGURED, "Chưa cấu hình khóa {$label}. Mở khối {$label} trong Quick Edit của Guru để dán khóa." );
-		}
-		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F §2.2A — this status check must never fatal a tool
-		// listing just because the secrets table isn't reachable (e.g. mid-request DB hiccup, or a
-		// test/CLI context with no real $wpdb) — degrade to "no key" rather than crash the caller.
 		try {
-			$has_key = BizCity_Bot_Secrets_Repo::has( $character_id, $secret_field );
+			$ready = BizCity_LLM_Client::instance()->is_ready();
 		} catch ( \Throwable $e ) {
-			$has_key = false;
+			$ready = false;
 		}
-		if ( $has_key ) {
-			return array( self::STATUS_UNCONFIGURED, "Đã có khóa {$label} riêng (Test thủ công trong Quick Edit hoạt động), nhưng công cụ này CHƯA được nối vào lượt trả lời của bot — model chưa tự gọi được." );
-		}
-		return array( self::STATUS_UNCONFIGURED, "Chưa có khóa {$label}. Mở khối {$label} trong Quick Edit của Guru để dán khóa, rồi Test thử." );
+		return $ready ? '' : "Chưa có API key BizCity 1API cho {$label}; nhập ở Cài đặt BizCity LLM (khoá do cell quản lý, không nhập theo từng Guru).";
 	}
 
 	/**
-	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — TTS now has a turn executor, so it CAN become `available`, but
-	 * only when the key exists AND the config produces a file Zalo can play (MP3). Anything else stays
-	 * `unconfigured` with the exact reason, never a green badge that fails at send time.
+	 * [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — TTS has a turn executor. Available once the site's 1API key exists AND the
+	 * config produces a file Zalo can play (MP3). Anything else stays `unconfigured` with the exact reason.
 	 */
 	public static function check_tts( $character = null ): array {
-		$base = self::check_media_key( $character, 'tts_api_keys', 'Giọng nói (TTS)' );
+		$gap = self::hub_media_gap( 'Giọng nói (TTS)' );
+		if ( '' !== $gap ) {
+			return array( self::STATUS_UNCONFIGURED, $gap );
+		}
 		$character_id = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
-		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Media_Client' ) || ! method_exists( 'BizCity_Bot_Media_Client', 'tts_turn_support' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
-			return $base;
-		}
-		try {
-			$has_key = class_exists( 'BizCity_Bot_Secrets_Repo' ) && BizCity_Bot_Secrets_Repo::has( $character_id, 'tts_api_keys' );
-		} catch ( \Throwable $e ) {
-			$has_key = false;
-		}
-		if ( ! $has_key ) {
-			return $base;
-		}
-		$reason = BizCity_Bot_Media_Client::tts_turn_support( (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['tts'] ?? array() ) );
-		if ( '' !== $reason ) {
-			return array( self::STATUS_UNCONFIGURED, 'Đã có khóa TTS nhưng chưa gửi được qua Zalo: ' . $reason );
+		if ( $character_id > 0 && class_exists( 'BizCity_Bot_Media_Client' ) && class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			$reason = BizCity_Bot_Media_Client::tts_turn_support( (array) ( BizCity_Bot_Config_Repo::get( $character_id )['media']['tts'] ?? array() ) );
+			if ( '' !== $reason ) {
+				return array( self::STATUS_UNCONFIGURED, 'Chưa gửi được qua Zalo: ' . $reason );
+			}
 		}
 		return array( self::STATUS_AVAILABLE, 'Bot gửi thêm tin thoại MP3 sau câu trả lời chữ, khi hội thoại có người phụ trách hoặc số Zalo đang bật bot tự động. Tin thoại lỗi thì khách vẫn nhận câu trả lời chữ.' );
 	}
 
+	/** STT has no turn-time executor yet (Test button only) — never `available`; the hint says whether the Hub route is reachable. */
 	public static function check_stt( $character = null ): array {
-		return self::check_media_key( $character, 'stt_api_key', 'Phiên âm (STT)' );
+		$gap = self::hub_media_gap( 'Phiên âm (STT)' );
+		return array( self::STATUS_UNCONFIGURED, '' !== $gap ? $gap : 'Test thủ công qua Hub hoạt động, nhưng công cụ này CHƯA được nối vào lượt trả lời của bot — model chưa tự gọi được.' );
 	}
 
-	/** K3 — available once the job runner is loaded AND this Guru has both a music model and a key (its own, per-Guru). */
+	/** K3 — available once the job runner is loaded and the site's 1API key exists (the cell picks the model when this Guru has none). */
 	public static function check_music( $character = null ): array {
-		$base = self::check_media_key( $character, 'music_api_key', 'Tạo nhạc' );
-		$id   = is_object( $character ) ? (int) ( $character->id ?? 0 ) : 0;
-		if ( $id <= 0 || ! self::media_key_present( $id, 'music_api_key' ) ) {
-			return $base; // the exact "no key yet" hint from check_media_key() — the first thing an operator must fix.
+		$gap = self::hub_media_gap( 'Tạo nhạc' );
+		if ( '' !== $gap ) {
+			return array( self::STATUS_UNCONFIGURED, $gap );
 		}
 		if ( ! class_exists( 'BizCity_Bot_Media_Jobs' ) || ! method_exists( 'BizCity_Bot_Media_Client', 'generate_music' ) ) {
 			return array( self::STATUS_UNCONFIGURED, 'Bộ chạy job nhạc/video chưa nạp.' );
 		}
-		$model = trim( (string) ( BizCity_Bot_Config_Repo::get( $id )['media']['music']['model'] ?? '' ) );
-		if ( '' === $model ) {
-			return array( self::STATUS_UNCONFIGURED, 'Có khóa Tạo nhạc nhưng chưa chọn Model — mở khối Tạo nhạc trong Quick Edit.' );
-		}
-		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT. Bot xếp job nền: khoảng 1 phút sau file mp3/wav được gửi; lỗi thì khách nhận đúng một tin báo lỗi. Tốn phí mỗi bài.' );
+		return array( self::STATUS_AVAILABLE, 'Mặc định TẮT. Bot xếp job nền: khoảng 1-5 phút sau file mp3/wav được gửi; lỗi thì khách nhận đúng một tin báo lỗi. Tốn phí mỗi bài.' );
 	}
 
-	private static function media_key_present( int $character_id, string $field ): bool {
-		try {
-			return (bool) BizCity_Bot_Secrets_Repo::has( $character_id, $field );
-		} catch ( \Throwable $e ) {
-			return false;
-		}
-	}
 
 	/**
 	 * [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 (doc §6.1 G-10) — unlike check_tts/check_stt/

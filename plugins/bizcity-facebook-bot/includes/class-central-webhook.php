@@ -169,8 +169,14 @@ class BizCity_Facebook_Central_Webhook {
      *   3. For each page_id, lookup the associated blog_id
      *   4. switch_to_blog($blog_id) and process the entries there
      */
+    /** @var string raw POST body of the request being routed (the cell verifies the SAME Meta HMAC over it) */
+    private $raw_body = '';
+    /** @var string the App Secret that verified this request on the hub blog (handed to the cell adoption; the sub-blog may not store it) */
+    private $verified_secret = '';
+
     private function route_webhook() {
         $input = file_get_contents( 'php://input' );
+        $this->raw_body = (string) $input;
         $this->log_info( 'Central webhook POST received', array( 'length' => strlen( $input ) ) );
 
         if ( empty( $input ) ) {
@@ -185,6 +191,8 @@ class BizCity_Facebook_Central_Webhook {
             echo 'Forbidden';
             exit;
         }
+
+        $this->verified_secret = class_exists( 'BizCity_FB_Webhook_Signature' ) ? BizCity_FB_Webhook_Signature::matching_secret( (string) $input, (string) BizCity_FB_Webhook_Signature::header() ) : '';
 
         $data = json_decode( $input, true );
         if ( ! is_array( $data ) || empty( $data['entry'] ) ) {
@@ -263,13 +271,31 @@ class BizCity_Facebook_Central_Webhook {
      * This delegates to the existing BizCity_Facebook_Bot_Webhook_Handler methods.
      */
     private function process_entries( string $page_id, array $entries ) {
+        // [2026-10-15 12:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L20 — the hub's central door must hand Messenger to the cell exactly like a site's own ?fbhook=1 does:
+        // we are already switched to the page's blog, so the page's cell state, Hub key and bot switches are the right ones. Comments (changes) stay here; a failed hand-off covers nothing (old bot answers).
+        $cell_owned = false;
+        if ( '' !== $this->raw_body && class_exists( 'BizCity_FB_Cell_Direct' ) && class_exists( 'BizCity_FB_Webhook_Signature' ) ) {
+            try {
+                $hdr  = (string) BizCity_FB_Webhook_Signature::header();
+                $data = array( 'object' => 'page', 'entry' => array_values( $entries ) );
+                // S109-L26: the central door is always switched into the page's blog: forward only; the blog adopts from its own request (cron / admin / OAuth)
+                $why  = ( function_exists( 'ms_is_switched' ) && ms_is_switched() ) ? array( '*' => 'adopt_deferred_to_own_request' ) : BizCity_FB_Cell_Direct::auto_adopt( $this->raw_body, $hdr, $data, $this->verified_secret );
+                $covered    = BizCity_FB_Cell_Direct::forward( $this->raw_body, $hdr, $data );
+                $cell_owned = ! empty( $covered[ $page_id ] );
+                // always logged (even "nothing to do"): a silent hand-off is what hid the first failure
+                $this->log_fb( 'Cell hand-off (central)', array( 'page_id' => $page_id, 'blog' => (int) get_current_blog_id(), 'forwarded' => $cell_owned, 'why' => $why, 'signed' => '' !== $hdr ) );
+            } catch ( \Throwable $e ) {
+                $cell_owned = false; // never lose a message because of the hand-off
+                $this->log_fb( 'Cell hand-off failed (central)', array( 'error' => $e->getMessage() ) );
+            }
+        }
         // If the existing webhook handler class is available, delegate to it
         if ( class_exists( 'BizCity_Facebook_Bot_Webhook_Handler' ) ) {
             $handler = BizCity_Facebook_Bot_Webhook_Handler::instance();
 
             foreach ( $entries as $entry ) {
                 // Handle messaging events
-                if ( isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
+                if ( ! $cell_owned && isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
                     foreach ( $entry['messaging'] as $messaging ) {
                         // Use reflection or public method to handle messages
                         if ( method_exists( $handler, 'handle_webhook_entry_messaging' ) ) {
@@ -298,7 +324,7 @@ class BizCity_Facebook_Central_Webhook {
 
         // Fallback: fire generic hooks for any listener
         foreach ( $entries as $entry ) {
-            if ( isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
+            if ( ! $cell_owned && isset( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
                 foreach ( $entry['messaging'] as $messaging ) {
                     do_action( 'bizcity_facebook_central_messaging', $page_id, $messaging );
                 }
@@ -489,6 +515,16 @@ class BizCity_Facebook_Central_Webhook {
     // ==========================================
     // LOGGING
     // ==========================================
+
+    /** The hand-off outcome goes to the SAME file the site's own webhook uses (fbhook-DATE.log), so one log tells the whole story of a message */
+    private function log_fb( $message, $data = null ) {
+        $this->log_info( $message, $data );
+        $dir = WP_CONTENT_DIR . '/mu-plugins/logs';
+        if ( is_dir( $dir ) || @mkdir( $dir, 0755, true ) ) {
+            @file_put_contents( $dir . '/fbhook-' . gmdate( 'Y-m-d' ) . '.log', json_encode( array( 'time' => gmdate( 'H:i:s' ), 'blog_id' => get_current_blog_id(), 'type' => 'info', 'data' => array( 'message' => $message, 'data' => $data ) ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "
+", FILE_APPEND | LOCK_EX );
+        }
+    }
 
     private function log_error( $message, $data = null ) {
         $this->write_log( 'error', array( 'message' => $message, 'data' => $data ) );

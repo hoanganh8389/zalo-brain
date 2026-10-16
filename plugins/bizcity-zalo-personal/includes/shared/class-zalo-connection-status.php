@@ -381,6 +381,20 @@ class BizCity_Zalo_Connection_Status {
 		// Numbers: live session from the key-scoped Hub list + backend/inbound facts from the connection report.
 		$report['accounts'] = self::accounts( (array) self::read( 'accounts' ), (array) ( $hub['accounts'] ?? array() ) );
 
+		// zca-bridge is retired: a Hub L6 failure that names zca-bridge must not block step ② on a site
+		// whose numbers all run on Zalo Hub (the Hub still probes the old sidecar).
+		$has_zca = false;
+		foreach ( $report['accounts'] as $a ) {
+			if ( ( $a['bridge'] ?? '' ) === 'zca' ) { $has_zca = true; break; }
+		}
+		if ( ! $has_zca ) {
+			foreach ( $report['layers'] as $i => $l ) {
+				if ( 'L6' === $l['id'] && 'ok' !== $l['status'] && false !== stripos( (string) ( $l['message'] ?? '' ), 'zca' ) ) {
+					$report['layers'][ $i ] = self::layer( 'L6', 'ok', 'ok', 'Máy chủ Zalo Hub sẵn sàng.' );
+				}
+			}
+		}
+
 		// L8 — has Hub → site delivery been observed recently?
 		$report['layers'][] = self::inbound_layer( $report['accounts'] );
 

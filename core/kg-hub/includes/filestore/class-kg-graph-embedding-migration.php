@@ -30,8 +30,8 @@ class BizCity_KG_Graph_Embedding_Migration {
 	public static function is_enabled() {
 		// [2026-07-23 Johnny Chu] PHASE-0.45-KG-FILE-GRAPH — feature flag for graph embedding LONGTEXT drain.
 		$enabled = false;
-		if ( class_exists( 'BizCity_Cron_Tier_Settings' ) && method_exists( 'BizCity_Cron_Tier_Settings', 'is_graph_embedding_migration_enabled' ) ) {
-			$enabled = BizCity_Cron_Tier_Settings::is_graph_embedding_migration_enabled();
+		if ( class_exists( 'BizCity_KG_Filestore_Flags' ) && method_exists( 'BizCity_KG_Filestore_Flags', 'is_graph_embedding_migration_enabled' ) ) {
+			$enabled = BizCity_KG_Filestore_Flags::is_graph_embedding_migration_enabled();
 		} else {
 			$enabled = (bool) get_option( 'bizcity_kg_v08_graph_embedding_migration_enabled', false );
 		}

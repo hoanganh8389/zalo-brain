@@ -1,0 +1,42 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "sheets",
+  "label": "Google Sheets",
+  "badge": "Composio",
+  "section": "composio",
+  "order": 70,
+  "transport": "composio",
+  "account_kind": "google_account",
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "googlesheets"
+  },
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "sheets.sheet.list",
+      "sets": "connected"
+    }
+  ],
+  "executors": [
+    "sheets.sheet.list"
+  ],
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.sheets",
+  "tab_components": {},
+  "module_access": {
+    "shared": "connect_composio"
+  },
+  "desc": "Ghi đơn, khách, lịch hẹn vào bảng tính; đọc bảng giá khi khách hỏi.",
+  "ui": {
+    "glyph": "S",
+    "color": "#188038"
+  },
+  "open": "/tools/quick-connect"
+}

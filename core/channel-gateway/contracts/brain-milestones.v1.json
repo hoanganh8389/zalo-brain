@@ -1,6 +1,6 @@
 {
   "contract": "brain-milestones@1",
-  "catalog_version": "2026-10-13.1",
+  "catalog_version": "2026-10-16.1",
   "note": "PHASE-0.108 D108-3 — thresholds here are PROPOSALS per master plan §3.3 (Q108-1/Q108-5 not yet locked by owner). A row already written to bizcity_brain_journey keeps the catalog_version it was evaluated under even if this file changes later.",
   "rules": {
     "actor_role_for_value_metrics": "customer",
@@ -49,8 +49,8 @@
       "label": "Nhóm",
       "metric": "distinct_groups",
       "requires": "thread_kind",
-      "enabled": false,
-      "comment": "Chờ Q108-2 (cell gửi thread_kind). Evaluator bỏ qua nhóm này khi enabled=false.",
+      "enabled": true,
+      "comment": "Bật 2026-10-16 (chủ chốt theo đề xuất, PHASE-0.112 D112-20): cell gửi groups_joined qua activity-day, evaluator đọc cell_groups().",
       "tiers": [
         { "tier": "bronze", "threshold": 1 },
         { "tier": "silver", "threshold": 10 },
@@ -120,7 +120,7 @@
     { "level": 2, "code": "nurturer",    "label": "Người nuôi",          "condition": "max_brain_replies >= 1000" },
     { "level": 3, "code": "trainer",     "label": "Huấn luyện viên",     "condition": "brains_active >= 2 && max_brain_trained_items >= 50" },
     { "level": 4, "code": "supervisor",  "label": "Quản đốc",            "condition": "brains_active >= 10 && total_replies >= 10000" },
-    { "level": 5, "code": "master",      "label": "Master Zalo Brain",   "condition": "brains_active >= 30 && payback_3mo_brains >= 3" },
+    { "level": 5, "code": "master",      "label": "Master Zalo Brain",   "condition": "brains_active >= 30 && maturity_avg >= 60" },
     { "level": 6, "code": "grandmaster", "label": "Grandmaster",         "condition": "brains_active >= 100 && diamond_tier_brains >= 10" }
   ]
 }

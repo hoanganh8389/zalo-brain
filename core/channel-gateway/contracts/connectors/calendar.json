@@ -1,0 +1,35 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "calendar",
+  "label": "Google Calendar",
+  "section": "composio",
+  "transport": "composio",
+  "account_kind": "google_account",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.calendar",
+  "badge": "Composio",
+  "order": 30,
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "googlecalendar"
+  },
+  "desc": "Đặt, đổi lịch hẹn; nhắc trước giờ hẹn.",
+  "ui": {
+    "glyph": "31",
+    "color": "#1a73e8"
+  },
+  "open": "/tools/quick-connect",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_composio"
+  }
+}

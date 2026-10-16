@@ -1,0 +1,124 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "zalo_personal",
+  "label": "Zalo cá nhân",
+  "badge": "Số của bạn",
+  "section": "own",
+  "order": 10,
+  "transport": "cell",
+  "account_kind": "zalo_number",
+  "auth": {
+    "kind": "qr_login"
+  },
+  "cell_platforms": [
+    "zalo_personal"
+  ],
+  "tabs": [
+    {
+      "id": "config",
+      "label": "Cấu hình"
+    },
+    {
+      "id": "users",
+      "label": "Người dùng"
+    }
+  ],
+  "settings": [
+    {
+      "key": "bot_enabled",
+      "scope": "account",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "key": "mode",
+      "scope": "account",
+      "type": "enum",
+      "values": [
+        "manual",
+        "assisted",
+        "auto"
+      ],
+      "default": "auto"
+    },
+    {
+      "key": "guru_id",
+      "scope": "account",
+      "type": "guru"
+    },
+    {
+      "key": "quiet_hours",
+      "scope": "connector",
+      "type": "text"
+    },
+    {
+      "key": "report_hour",
+      "scope": "connector",
+      "type": "hour",
+      "default": 20
+    }
+  ],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "zalo.thread.read",
+      "sets": "connected"
+    },
+    {
+      "id": "reply_one",
+      "executor": "zalo.message.reply",
+      "sets": "tested",
+      "confirm": "human"
+    }
+  ],
+  "executors": [
+    "zalo.message.reply",
+    "zalo.file.send",
+    "zalo.sticker.send",
+    "zalo.reaction.add",
+    "zalo.group.manage",
+    "zalo.poll.create",
+    "zalo.poll.lock",
+    "zalo.thread.read",
+    "notebook.search",
+    "notebook.remember",
+    "journal.note",
+    "schedule.task",
+    "media.image.create",
+    "media.voice.create",
+    "media.music.create",
+    "media.video.create",
+    "media.photo_video.create",
+    "document.write.create",
+    "document.sheet.create",
+    "document.slides.create",
+    "deep_analysis.request"
+  ],
+  "capabilities": [
+    "cs.zalo.reply"
+  ],
+  "report": {
+    "daily_block": true,
+    "default_hour": 20
+  },
+  "plan_gate": "connector.zalo_personal",
+  "tab_components": {
+    "config": "ZaloPersonalOverview",
+    "users": "ZaloPersonalMembers"
+  },
+  "module_access": {
+    "id": "connect_zalo_personal",
+    "group": "connectors",
+    "parent": null,
+    "label": "Zalo cá nhân",
+    "mode": "grantable",
+    "default_roles": [
+      "administrator",
+      "shop_manager",
+      "editor"
+    ],
+    "availability": "connector_status"
+  },
+  "desc": "Trợ lý trả lời khách và nhận lệnh của bạn ngay trong Zalo cá nhân.",
+  "platform_code": "zalo_personal"
+}

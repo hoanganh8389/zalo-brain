@@ -1,0 +1,30 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "twinweb",
+  "label": "TwinWeb",
+  "section": "dev",
+  "transport": "site_mcp",
+  "account_kind": "website",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.twinweb",
+  "badge": "Website",
+  "order": 40,
+  "auth": {
+    "kind": "none"
+  },
+  "desc": "Cài đặt trợ lý trên website (/gpt/): Agent Guru, mô hình, giao diện.",
+  "platform_code": "twinweb",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_dev"
+  }
+}

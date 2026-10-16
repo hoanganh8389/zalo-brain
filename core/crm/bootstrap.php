@@ -95,7 +95,8 @@ require_once $bizcity_crm_inc . 'inbox/class-outbound-dispatcher.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-fb-bot-bridge.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-zalo-bot-bridge.php';
 require_once $bizcity_crm_inc . 'class-google-tool-bridge.php';
-foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'instagram', 'whatsapp-cloud', 'email-imap', 'web-widget', 'webchat', 'mabel-wheel' ) as $bizcity_crm_adapter ) {
+// [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.4 (doc 87, owner Q-CS-2) — instagram / whatsapp-cloud / email-imap adapters archived to core/_archived/crm-20261016/ (no site uses them).
+foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'web-widget', 'webchat', 'mabel-wheel' ) as $bizcity_crm_adapter ) {
 	require_once $bizcity_crm_inc . 'inbox/adapters/class-adapter-' . $bizcity_crm_adapter . '.php';
 }
 unset( $bizcity_crm_adapter );
@@ -225,9 +226,6 @@ final class BizCity_CRM_Spine_Boot {
 				'zalo_bot'       => 'BizCity_CRM_Adapter_ZaloBot',
 				'zalo_oa'        => 'BizCity_CRM_Adapter_ZaloOA',
 				'zalo_personal'  => 'BizCity_CRM_Adapter_ZaloPersonal',
-				'instagram'      => 'BizCity_CRM_Adapter_Instagram',
-				'whatsapp_cloud' => 'BizCity_CRM_Adapter_WhatsApp_Cloud',
-				'email_imap'     => 'BizCity_CRM_Adapter_Email_IMAP',
 				'web_widget'     => 'BizCity_CRM_Adapter_Web_Widget',
 				'webchat'        => 'BizCity_CRM_Adapter_WebChat',
 				'mabel_wheel'    => 'BizCity_CRM_Adapter_Mabel_Wheel',

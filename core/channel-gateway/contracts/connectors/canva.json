@@ -1,0 +1,35 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "canva",
+  "label": "Canva",
+  "section": "composio",
+  "transport": "composio",
+  "account_kind": "canva_account",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.canva",
+  "badge": "Composio",
+  "order": 60,
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "canva"
+  },
+  "desc": "Tạo ảnh bài đăng từ mẫu của bạn.",
+  "ui": {
+    "glyph": "C",
+    "color": "#7d2ae8"
+  },
+  "open": "/tools/quick-connect",
+  "executors_pending": true,
+  "module_access": {
+    "shared": "connect_composio"
+  }
+}

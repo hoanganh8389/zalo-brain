@@ -31,7 +31,8 @@ final class BizCity_Usage_Ingest {
 	const NS        = 'bizcity-channel/v1';
 	const CONTRACT  = 'usage-ledger@1';
 	const MAX_ROWS  = 200;
-	const KINDS     = array( 'llm', 'tool', 'adjust', 'reversal' );
+	// [2026-10-15 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1a — `activity`: hàng 0 token của cell khi tin ĐÃ tới / không tới kênh. Site cũ gặp kind lạ vẫn lưu thành `adjust` (không gãy), site mới giữ đúng nhãn.
+	const KINDS     = array( 'llm', 'tool', 'adjust', 'reversal', 'activity' );
 	const ROLES     = array( 'owner', 'staff', 'customer', 'system' );
 	const ID_RE     = '/^[A-Za-z0-9._:-]{1,64}$/';
 

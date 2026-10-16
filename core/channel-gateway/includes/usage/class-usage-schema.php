@@ -22,7 +22,9 @@ final class BizCity_Usage_Schema {
 	// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L14 — 1.1.0 adds {prefix}bizcity_account_plans (client plan per account id).
 	// [2026-10-13 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 round 5 — 1.2.0: the SITE enforces plans (no push to the cell): ai_off_by_plan / ai_off_at / enforce_error / last_notice_*.
 	// [2026-10-13 06:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L42 — 1.3.0: surface VARCHAR(24) to VARCHAR(96) (cell writes gateway:<caller>).
-	const SCHEMA_VERSION = '1.3.0';
+	// [2026-10-15 05:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1 — 1.4.0 adds {prefix}bizcity_activity_day (the cell's daily ACTIVITY COUNTS per number, activity-day@1; no money).
+	// [2026-10-15 10:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-W9 — 1.5.0: activity_day += points / jobs_done / jobs_failed / jobs_by_kind / efficiency_score / points_rev (activity-day@1.1, no tokens).
+	const SCHEMA_VERSION = '1.5.0';
 	const OPTION_VERSION = 'bizcity_usage_ledger_schema';
 
 	public static function ledger_table(): string {
@@ -38,6 +40,12 @@ final class BizCity_Usage_Schema {
 	public static function plans_table(): string {
 		global $wpdb;
 		return $wpdb->prefix . 'bizcity_account_plans';
+	}
+
+	/** PHASE-0.112 S112-L1 — one row per (account, day): the counts the CELL measured (activity-day@1). A cache the cell overwrites, never a ledger. */
+	public static function activity_day_table(): string {
+		global $wpdb;
+		return $wpdb->prefix . 'bizcity_activity_day';
 	}
 
 	public static function installed(): bool {
@@ -150,6 +158,36 @@ final class BizCity_Usage_Schema {
 			PRIMARY KEY  (id),
 			UNIQUE KEY uniq_account (platform, account_id),
 			KEY idx_state (state, valid_until)
+		) {$charset};" );
+
+		// [2026-10-15 05:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1 — activity-day@1 store. `measured` 0 = the cell was not measuring that day (counts are zeros that must not be shown as "0 customers").
+		// tasks_by_label / by_channel are the cell's own JSON (small, capped at ingest); nothing here is money, tokens or a contact. Overwritten whole by (account_id, day).
+		$activity = self::activity_day_table();
+		dbDelta( "CREATE TABLE {$activity} (
+			account_id VARCHAR(64) NOT NULL DEFAULT '',
+			day DATE NOT NULL,
+			measured TINYINT(1) NOT NULL DEFAULT 1,
+			customers INT UNSIGNED NOT NULL DEFAULT 0,
+			replies INT UNSIGNED NOT NULL DEFAULT 0,
+			customers_new INT UNSIGNED NOT NULL DEFAULT 0,
+			replies_failed INT UNSIGNED NOT NULL DEFAULT 0,
+			groups_active INT UNSIGNED NOT NULL DEFAULT 0,
+			tasks INT UNSIGNED NOT NULL DEFAULT 0,
+			tasks_by_label TEXT NULL,
+			by_channel TEXT NULL,
+			groups_joined INT UNSIGNED NOT NULL DEFAULT 0,
+			connections_active INT UNSIGNED NOT NULL DEFAULT 0,
+			streak_days INT UNSIGNED NOT NULL DEFAULT 0,
+			ledger_to_seq BIGINT UNSIGNED NOT NULL DEFAULT 0,
+			points INT UNSIGNED NOT NULL DEFAULT 0,
+			jobs_done INT UNSIGNED NOT NULL DEFAULT 0,
+			jobs_failed INT UNSIGNED NOT NULL DEFAULT 0,
+			jobs_by_kind TEXT NULL,
+			efficiency_score DECIMAL(4,1) NULL,
+			points_rev VARCHAR(40) NOT NULL DEFAULT '',
+			received_at DATETIME NOT NULL,
+			PRIMARY KEY  (account_id, day),
+			KEY idx_day (day)
 		) {$charset};" );
 
 		update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );

@@ -1,0 +1,166 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "fb_composio",
+  "label": "Facebook Page",
+  "badge": "Composio",
+  "section": "composio",
+  "order": 50,
+  "transport": "composio",
+  "account_kind": "fb_page",
+  "auth": {
+    "kind": "oauth_composio",
+    "toolkit": "facebook",
+    "limits": {
+      "accounts_visible": 25
+    }
+  },
+  "cell_platforms": [
+    "messenger",
+    "fb"
+  ],
+  "tabs": [
+    {
+      "id": "pages",
+      "label": "Pages"
+    },
+    {
+      "id": "messenger",
+      "label": "Messenger"
+    },
+    {
+      "id": "compose",
+      "label": "Tạo bài"
+    },
+    {
+      "id": "posts",
+      "label": "Bài đăng"
+    },
+    {
+      "id": "schedule",
+      "label": "Lịch đăng"
+    },
+    {
+      "id": "inbox",
+      "label": "Inbox"
+    }
+  ],
+  "settings": [
+    {
+      "key": "mode",
+      "scope": "account",
+      "type": "enum",
+      "values": [
+        "manual",
+        "assisted",
+        "auto"
+      ],
+      "default": "auto"
+    },
+    {
+      "key": "yield_minutes",
+      "scope": "account",
+      "type": "int",
+      "min": 1,
+      "max": 1440,
+      "default": 15
+    },
+    {
+      "key": "guru_id",
+      "scope": "account",
+      "type": "guru"
+    },
+    {
+      "key": "comments",
+      "scope": "connector",
+      "type": "enum",
+      "values": [
+        "off",
+        "draft",
+        "send"
+      ],
+      "default": "off"
+    },
+    {
+      "key": "report_hour",
+      "scope": "connector",
+      "type": "hour",
+      "default": 20
+    }
+  ],
+  "checks": [
+    {
+      "id": "connected",
+      "executor": "fb.page.list",
+      "sets": "connected"
+    },
+    {
+      "id": "permission",
+      "executor": "fb.page.permissions",
+      "sets": "verified",
+      "need": [
+        "pages_messaging"
+      ]
+    },
+    {
+      "id": "read_one",
+      "executor": "fb.conversation.list"
+    },
+    {
+      "id": "send_one",
+      "executor": "fb.messenger.send",
+      "sets": "tested",
+      "confirm": "human"
+    }
+  ],
+  "executors": [
+    "fb.page.list",
+    "fb.page.permissions",
+    "fb.conversation.list",
+    "fb.message.list",
+    "fb.messenger.draft",
+    "fb.messenger.send",
+    "fb.messenger.send_media",
+    "fb.comment.list",
+    "fb.comment.reply",
+    "fb.post.list",
+    "fb.post.create"
+  ],
+  "capabilities": [
+    "cs.messenger.reply",
+    "cs.comment.triage",
+    "mk.post.draft",
+    "mg.fanpage.daily_report"
+  ],
+  "report": {
+    "daily_block": true,
+    "default_hour": 20
+  },
+  "plan_gate": "connector.fb_composio",
+  "tab_components": {
+    "pages": "FacebookPages",
+    "messenger": "FacebookMessenger",
+    "compose": "FacebookCreatePost",
+    "posts": "FacebookPosts",
+    "schedule": "FacebookSchedule",
+    "inbox": "FacebookConversationSheet"
+  },
+  "module_access": {
+    "id": "connect_composio",
+    "group": "connectors",
+    "parent": null,
+    "label": "Kết nối Composio",
+    "mode": "grantable",
+    "default_roles": [
+      "administrator",
+      "shop_manager",
+      "editor"
+    ],
+    "availability": "connector_status"
+  },
+  "desc": "Tự trả lời Messenger, soạn trả lời bình luận, soạn bài đăng chờ duyệt.",
+  "ui": {
+    "glyph": "f",
+    "color": "#1877f2"
+  },
+  "open": "/tools/composio/facebook"
+}

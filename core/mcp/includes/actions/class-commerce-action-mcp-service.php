@@ -32,6 +32,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 	}
 
 	public static function register_tools() {
+		self::register_guest_tool(); // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-W
 		$order_input = array( 'type' => 'object', 'required' => array( 'items' ), 'properties' => array(
 			'contact_ref'   => array( 'type' => 'string' ),
 			'items'         => array( 'type' => 'array', 'minItems' => 1, 'items' => array( 'type' => 'object', 'required' => array( 'product_id', 'qty' ), 'properties' => array( 'product_id' => array( 'type' => 'integer', 'minimum' => 1 ), 'qty' => array( 'type' => 'integer', 'minimum' => 1 ) ) ) ),
@@ -127,6 +128,7 @@ final class BizCity_Commerce_Action_MCP_Service {
 
 		// @mcp bizcity-mcp-standard@1 tool inventory.check
 		BizCity_MCP_Tool_Registry::register( 'inventory.check', array(
+			'executor'       => 'inventory.stock.read', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
 			'title'          => 'Kiểm tra tồn kho',
 			'description'    => 'Tồn kho theo sản phẩm: tồn, đang giữ cho đơn chờ, còn bán được (available = tồn − đang giữ), trạng thái; kèm danh sách sắp hết / hết hàng. Không có product_ids thì xem các sản phẩm đang bán (tối đa limit).',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
@@ -147,6 +149,366 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'since'          => '0.88.2',
 		) );
 	}
+
+	/* ── order.place (customer of a chat channel) ─────────────────── */
+
+	/** Test seams: product(id) · counts(identity): array{pending:int,today:int} · new_order(plan) · reserve(order, minutes): bool · pay_info(order_id, ctx): array|WP_Error|null */
+	public static $guest_seams = array();
+
+	private static function guest_seam( $name, $default, array $args = array() ) {
+		return isset( self::$guest_seams[ $name ] ) ? call_user_func_array( self::$guest_seams[ $name ], $args ) : call_user_func_array( $default, $args );
+	}
+
+	/** Limits a guest order obeys (filter `bizcity_guest_order_limits`) — the owner can only make them stricter or looser on purpose, never remove them */
+	public static function guest_limits() {
+		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] chủ: chặn chống spam từ 5 đơn chờ thanh toán trở lên (trước là 2); trần/ngày nâng 10 để không chặn sớm hơn trần chờ
+		$d = array( 'lines' => 5, 'qty' => 20, 'pending' => 5, 'per_day' => 10 );
+		$l = function_exists( 'apply_filters' ) ? (array) apply_filters( 'bizcity_guest_order_limits', $d ) : $d;
+		return array(
+			'lines'   => max( 1, min( 20, (int) ( $l['lines'] ?? $d['lines'] ) ) ),
+			'qty'     => max( 1, min( 100, (int) ( $l['qty'] ?? $d['qty'] ) ) ),
+			'pending' => max( 1, min( 10, (int) ( $l['pending'] ?? $d['pending'] ) ) ),
+			'per_day' => max( 1, min( 50, (int) ( $l['per_day'] ?? $d['per_day'] ) ) ),
+		);
+	}
+
+	private static function register_guest_tool() {
+		$input = array( 'type' => 'object', 'required' => array( 'items', 'customer' ), 'properties' => array(
+			'items'         => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => 20, 'items' => array( 'type' => 'object', 'properties' => array(
+				'product_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'ref'        => array( 'type' => 'string', 'maxLength' => 80 ),
+				'name'       => array( 'type' => 'string', 'maxLength' => 120 ), // [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115: the site finds the product by its name (one cheap query), no id needed
+				'qty'        => array( 'type' => 'integer', 'minimum' => 1 ),
+			) ) ),
+			'customer'      => array( 'type' => 'object', 'properties' => array(
+				'name'    => array( 'type' => 'string', 'maxLength' => 80 ),
+				'phone'   => array( 'type' => 'string', 'maxLength' => 20 ),
+				'address' => array( 'type' => 'string', 'maxLength' => 255 ),
+				'email'   => array( 'type' => 'string', 'maxLength' => 120 ),
+			) ),
+			'note'          => array( 'type' => 'string', 'maxLength' => 300 ),
+			'confirm_token' => array( 'type' => 'string' ),
+		) );
+		$output = BizCity_MCP_Tool_Registry::envelope_schema( array(
+			'status'          => array( 'type' => 'string', 'enum' => array( 'needs_confirmation', 'done' ) ),
+			'preview'         => array( 'type' => 'object' ),
+			'confirm_token'   => array( 'type' => 'string' ),
+			'expires_at'      => array( 'type' => 'string' ),
+			'order_id'        => array( 'type' => 'integer' ),
+			'total'           => array( 'type' => 'number' ),
+			'currency'        => array( 'type' => 'string' ),
+			'hold_expires_at' => array( 'type' => 'string' ),
+			'payment'         => array( 'type' => 'object' ),
+		) );
+		// @mcp bizcity-mcp-standard@1 tool order.place
+		BizCity_MCP_Tool_Registry::register( 'order.place', array(
+			'executor'       => 'order.place', // [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2
+			'title'          => 'Khách đặt hàng (kênh chat)',
+			'description'    => 'Khách đang chat tự đặt đơn: tên người nhận, SĐT, địa chỉ + dòng hàng (product_id hoặc ref "product:ID", qty). Giá luôn lấy từ website. Lần đầu chỉ trả bản xem trước + confirm_token; gọi lại ĐÚNG tham số kèm confirm_token sau khi khách đồng ý. Khách là người đang nhắn (không phải đối số); khách mới được ghi vào CRM.',
+			'input_schema'   => $input,
+			'output_schema'  => $output,
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => false,
+			'required_scope' => 'commerce.order.guest',
+			'handler'        => array( __CLASS__, 'guest_place' ),
+			'preview'        => array( __CLASS__, 'guest_preview' ),
+			'mode'           => 'stock',
+			'roles'          => array( 'customer' ),
+			'scope'          => 'thread',
+			'scopes'         => array( 'commerce.order.guest' ),
+			'confirm'        => 'always',
+			'llm_alias'      => 'order_place',
+			'fallback_pack'  => null,
+			'since'          => '0.115.0',
+		) );
+	}
+
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 — the product a customer's words point to, found ON THE SITE with ONE light query (publish only, newest first, ≤ 8 rows, no popularity sort, no scoring): the order no longer depends on
+	 * the heavy consult search (which timed out at 6 s on a slow site). Unique match ⇒ id; several ⇒ an error that LISTS them so the bot asks; none ⇒ not found. Seam guest_seams['find'](name): array of {id,name}.
+	 *
+	 * @return int|WP_Error
+	 */
+	private static function find_product_by_name( string $name ) {
+		$name = trim( function_exists( 'sanitize_text_field' ) ? sanitize_text_field( $name ) : $name );
+		if ( '' === $name ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Chưa rõ khách chọn sản phẩm nào.', 422 );
+		}
+		$rows = (array) self::guest_seam( 'find', static function ( $name ) {
+			if ( ! function_exists( 'wc_get_products' ) ) {
+				return array();
+			}
+			$out = array();
+			foreach ( (array) wc_get_products( array( 'status' => 'publish', 'limit' => 8, 'return' => 'objects', 's' => $name, 'orderby' => 'date', 'order' => 'DESC' ) ) as $p ) {
+				if ( is_object( $p ) ) {
+					$out[] = array( 'id' => (int) $p->get_id(), 'name' => (string) $p->get_name() );
+				}
+			}
+			return $out;
+		}, array( $name ) );
+		$plain = static function ( $s ) {
+			$s = function_exists( 'remove_accents' ) ? remove_accents( (string) $s ) : (string) $s;
+			return trim( (string) preg_replace( '/[^a-z0-9]+/', ' ', strtolower( str_replace( 'đ', 'd', mb_strtolower( $s, 'UTF-8' ) ) ) ) );
+		};
+		$n    = $plain( $name );
+		$hits = array_values( array_filter( $rows, static function ( $r ) use ( $plain, $n ) {
+			$t = $plain( $r['name'] );
+			return '' !== $n && ( false !== strpos( $t, $n ) || false !== strpos( $n, $t ) );
+		} ) );
+		$pick = $hits ?: $rows;
+		if ( 1 === count( $pick ) ) {
+			return (int) $pick[0]['id'];
+		}
+		if ( ! $pick ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::NOT_FOUND, 'Không tìm thấy sản phẩm tên «' . $name . '» đang bán.', 404 );
+		}
+		$list = array_map( static function ( $r ) { return $r['name']; }, array_slice( $pick, 0, 5 ) );
+		return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Có nhiều sản phẩm khớp «' . $name . '»: ' . implode( ' · ', $list ) . '. Hỏi khách chọn món nào.', 422, array( 'candidates' => $list ) );
+	}
+
+	/** {platform, channel_ref, platform_uid} of the channel customer — from the context the web bridge built from the Hub header, NEVER from the arguments */
+	private static function guest_identity( array $ctx ) {
+		$c        = is_array( $ctx['customer'] ?? null ) ? $ctx['customer'] : array();
+		$platform = strtolower( trim( (string) ( $c['platform'] ?? '' ) ) );
+		$ref      = trim( (string) ( $c['channel_ref'] ?? '' ) );
+		$uid      = trim( (string) ( $c['platform_uid'] ?? '' ) );
+		if ( '' === $platform || '' === $ref || '' === $uid ) {
+			return null;
+		}
+		return array(
+			'platform'     => class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::canon_platform( $platform ) : $platform,
+			'channel_ref'  => substr( $ref, 0, 190 ),
+			'platform_uid' => substr( $uid, 0, 190 ),
+			'display_name' => '',
+		);
+	}
+
+	/** Orders this customer already has: waiting for payment, and made today */
+	private static function guest_counts( array $id ) {
+		return (array) self::guest_seam( 'counts', static function ( $id ) {
+			if ( ! function_exists( 'wc_get_orders' ) ) {
+				return array( 'pending' => 0, 'today' => 0 );
+			}
+			$meta = array(
+				'relation' => 'AND',
+				array( 'key' => '_bizcity_platform_uid', 'value' => $id['platform_uid'] ),
+				array( 'key' => '_bizcity_channel_ref', 'value' => $id['channel_ref'] ),
+				array( 'key' => self::META_GUEST, 'value' => '1' ),
+			);
+			$pending = wc_get_orders( array( 'limit' => 20, 'return' => 'ids', 'status' => array( 'pending', 'on-hold' ), 'meta_query' => $meta ) );
+			$today   = wc_get_orders( array( 'limit' => 60, 'return' => 'ids', 'date_created' => '>' . ( time() - DAY_IN_SECONDS ), 'meta_query' => $meta ) );
+			return array( 'pending' => count( (array) $pending ), 'today' => count( (array) $today ) );
+		}, array( $id ) );
+	}
+
+	/**
+	 * Validate + price + availability for a CUSTOMER order, side-effect free (preview and commit share it). Prices come from WooCommerce at this moment — there is no
+	 * price argument and no free-text line at all, so a customer (or text injected into the model) cannot make an order cheaper or invent a product.
+	 *
+	 * @return array|WP_Error
+	 */
+	private static function guest_plan( array $args, array $ctx ) {
+		$id = self::guest_identity( $ctx );
+		if ( null === $id ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::SCOPE_DENIED, 'Kênh này chưa nhận ra khách để đặt hàng.', 403 );
+		}
+		$rs = self::reserve_stock();
+		if ( null === $rs && ! isset( self::$guest_seams['product'] ) ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INVENTORY_RESERVE_UNAVAILABLE, 'Cửa hàng chưa bật giữ hàng của WooCommerce.', 503 );
+		}
+		$lim    = self::guest_limits();
+		$qty_by = array();
+		foreach ( array_slice( (array) ( $args['items'] ?? array() ), 0, $lim['lines'] + 1 ) as $row ) {
+			$row = is_array( $row ) ? $row : array();
+			$pid = (int) ( $row['product_id'] ?? 0 );
+			if ( $pid <= 0 && 1 === preg_match( '/^product:([1-9][0-9]{0,17})$/', trim( (string) ( $row['ref'] ?? '' ) ), $m ) ) {
+				$pid = (int) $m[1];
+			}
+			$qty = (int) ( $row['qty'] ?? 0 );
+			if ( $pid <= 0 && '' !== trim( (string) ( $row['name'] ?? '' ) ) ) {
+				$found = self::find_product_by_name( (string) $row['name'] );
+				if ( is_wp_error( $found ) ) {
+					return $found;
+				}
+				$pid = (int) $found;
+			}
+			if ( $pid <= 0 || $qty < 1 || $qty > $lim['qty'] ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Mỗi dòng cần sản phẩm và số lượng từ 1 đến ' . $lim['qty'] . '.', 422 );
+			}
+			$qty_by[ $pid ] = ( $qty_by[ $pid ] ?? 0 ) + $qty;
+		}
+		if ( ! $qty_by || count( $qty_by ) > $lim['lines'] ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Một đơn từ 1 đến ' . $lim['lines'] . ' sản phẩm.', 422 );
+		}
+		foreach ( $qty_by as $q ) {
+			if ( $q > $lim['qty'] ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Mỗi sản phẩm tối đa ' . $lim['qty'] . ' cái; đơn lớn hơn nhờ nhân viên hỗ trợ.', 422 );
+			}
+		}
+		// who the goods go to: all three are needed, nothing is guessed (the model asks ONE merged question)
+		$customer = self::customer_of( $args );
+		$missing  = array();
+		if ( ! is_array( $customer ) || mb_strlen( (string) $customer['name'] ) < 2 ) {
+			$missing[] = 'name';
+		}
+		if ( ! is_array( $customer ) || '' === (string) $customer['phone'] ) {
+			$missing[] = 'phone';
+		}
+		if ( ! is_array( $customer ) || mb_strlen( (string) $customer['address'] ) < 8 ) {
+			$missing[] = 'address';
+		}
+		if ( $missing ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Cần đủ tên người nhận, số điện thoại và địa chỉ giao hàng (thiếu: ' . implode( ', ', $missing ) . ').', 422, array( 'missing' => $missing ) );
+		}
+		$id['display_name'] = (string) $customer['name'];
+		$counts = self::guest_counts( $id );
+		if ( (int) ( $counts['pending'] ?? 0 ) >= $lim['pending'] ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::RATE_LIMITED, 'Bạn đang có ' . (int) $counts['pending'] . ' đơn chờ thanh toán. Hãy thanh toán hoặc đợi đơn cũ hết hạn trước khi đặt thêm.', 429, array( 'reason' => 'guest_order_pending_cap' ) );
+		}
+		if ( (int) ( $counts['today'] ?? 0 ) >= $lim['per_day'] ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::RATE_LIMITED, 'Hôm nay đã đủ số đơn cho phép qua tin nhắn. Nhân viên sẽ hỗ trợ thêm.', 429, array( 'reason' => 'guest_order_day_cap' ) );
+		}
+		$allowed_cats = array_values( array_filter( array_map( 'intval', (array) ( $ctx['allowed_product_cat_ids'] ?? array() ) ) ) );
+		$lines = array();
+		$total = 0.0;
+		$short = array();
+		foreach ( $qty_by as $pid => $qty ) {
+			$product = self::guest_seam( 'product', static function ( $pid ) {
+				return function_exists( 'wc_get_product' ) ? wc_get_product( $pid ) : null;
+			}, array( $pid ) );
+			if ( ! $product || ! is_object( $product ) || 'publish' !== (string) $product->get_status() || ! $product->is_purchasable() ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::NOT_FOUND, 'Không tìm thấy sản phẩm #' . $pid . ' đang bán.', 404 );
+			}
+			if ( ! $product->is_type( 'simple' ) && ! $product->is_type( 'variation' ) ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Sản phẩm #' . $pid . ' cần chọn phiên bản; nhờ nhân viên hỗ trợ.', 422 );
+			}
+			if ( $allowed_cats && ! array_intersect( $allowed_cats, array_map( 'intval', (array) $product->get_category_ids() ) ) ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::NOT_FOUND, 'Không tìm thấy sản phẩm #' . $pid . ' đang bán.', 404 );
+			}
+			$unit = self::num( $product->get_price() );
+			if ( $unit <= 0 ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Sản phẩm #' . $pid . ' chưa có giá; nhờ nhân viên báo giá.', 422 );
+			}
+			$row = self::stock_row( $product, $rs );
+			if ( 'outofstock' === $row['stock_status'] || ( null !== $row['available'] && $qty > $row['available'] ) ) {
+				$short[] = array( 'product_id' => $pid, 'name' => $row['name'], 'requested' => $qty, 'available' => null === $row['available'] ? 0 : $row['available'] );
+				continue;
+			}
+			$total  += $unit * $qty;
+			$lines[] = array( 'product_id' => $pid, 'name' => $row['name'], 'qty' => $qty, 'unit_price' => $unit, 'line_total' => self::num( $unit * $qty ), 'product' => $product );
+		}
+		if ( $short ) {
+			$s = $short[0];
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INVENTORY_NOT_ENOUGH, 'Không đủ hàng: ' . $s['name'] . ' còn ' . $s['available'] . ', cần ' . $s['requested'] . '.', 409, array( 'short' => $short ) );
+		}
+		return array(
+			'lines'        => $lines,
+			'total'        => self::num( $total ),
+			'currency'     => function_exists( 'get_woocommerce_currency' ) ? (string) get_woocommerce_currency() : 'VND',
+			'hold_minutes' => self::hold_minutes( 0 ),
+			'contact'      => null,
+			'customer'     => $customer,
+			'identity'     => $id,
+			'note'         => trim( function_exists( 'sanitize_textarea_field' ) ? sanitize_textarea_field( (string) ( $args['note'] ?? '' ) ) : (string) ( $args['note'] ?? '' ) ),
+		);
+	}
+
+	public static function guest_preview( array $args, array $ctx ) {
+		$plan = self::guest_plan( $args, $ctx );
+		if ( is_wp_error( $plan ) ) {
+			return $plan;
+		}
+		$parts = array();
+		foreach ( $plan['lines'] as $l ) {
+			$parts[] = $l['qty'] . ' × ' . $l['name'] . ' (' . self::money( $l['unit_price'], $plan['currency'] ) . ')';
+		}
+		return array(
+			'summary'      => 'Đặt hàng: ' . implode( ', ', $parts ) . ' = ' . self::money( $plan['total'], $plan['currency'] ) . '. Giao: ' . self::ship_line( $plan['customer'] ) . '. Giữ hàng ' . $plan['hold_minutes'] . ' phút chờ thanh toán.',
+			'lines'        => array_map( static function ( $l ) { unset( $l['product'] ); return $l; }, $plan['lines'] ),
+			'total'        => $plan['total'],
+			'currency'     => $plan['currency'],
+			'hold_minutes' => $plan['hold_minutes'],
+		);
+	}
+
+	/** Commit (after the registry's confirm gate): order + stock hold + CRM contact (new customer recorded) + the payment info of THIS order, in one answer */
+	public static function guest_place( array $args, array $ctx ) {
+		$plan = self::guest_plan( $args, $ctx ); // availability, caps and the identity are re-checked at commit time
+		if ( is_wp_error( $plan ) ) {
+			return $plan;
+		}
+		$order = self::guest_seam( 'new_order', static function ( $plan ) {
+			return self::new_order( $plan ); // apply_customer + stamp_identity (resolve_or_create: a new customer becomes a CRM contact)
+		}, array( $plan ) );
+		if ( is_wp_error( $order ) ) {
+			return $order;
+		}
+		$order->update_meta_data( self::META_HOLD, 1 );
+		$order->update_meta_data( self::META_HOLD_BY, 0 );
+		$order->update_meta_data( self::META_GUEST, 1 );
+		$method = (string) self::guest_seam( 'payment_method', array( __CLASS__, 'guest_payment_method' ) );
+		if ( '' !== $method && method_exists( $order, 'set_payment_method' ) ) {
+			$order->set_payment_method( $method );
+		}
+		$order->add_order_note( 'Khách đặt hàng qua tin nhắn (' . $plan['identity']['platform'] . '); nhân viên xác nhận và gọi lại nếu cần.' );
+		$order->save();
+		$expires = time() + $plan['hold_minutes'] * 60;
+		$held    = (bool) self::guest_seam( 'reserve', static function ( $order, $minutes ) {
+			$class = self::$reserve_class;
+			if ( ! class_exists( $class ) ) {
+				return true; // plan() already refused when the hold is unavailable
+			}
+			$rs = new $class();
+			try {
+				$rs->reserve_stock_for_order( $order, $minutes );
+				return true;
+			} catch ( \Exception $e ) {
+				$rs->release_stock_for_order( $order );
+				return false;
+			}
+		}, array( $order, $plan['hold_minutes'] ) );
+		if ( ! $held ) {
+			$order->update_status( 'cancelled', 'Không giữ được hàng (khách đặt qua tin nhắn).' );
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INVENTORY_NOT_ENOUGH, 'Không đủ hàng để giữ (vừa có đơn khác giữ). Kiểm tra lại số lượng.', 409 );
+		}
+		$order_id = (int) $order->get_id();
+		// the order EXISTS now: nothing in the payment lookup may turn it into an error answer (the customer would retry and the caps would count a second order)
+		try {
+			$pay = self::guest_seam( 'pay_info', static function ( $order_id, $ctx ) {
+				return class_exists( 'BizCity_Commerce_Brain_MCP_Service' ) ? BizCity_Commerce_Brain_MCP_Service::instance()->pay_info( array( 'order_id' => $order_id ), $ctx ) : null;
+			}, array( $order_id, $ctx ) );
+		} catch ( Throwable $e ) {
+			$pay = null;
+		}
+		return array(
+			'status'          => 'done',
+			'order_id'        => $order_id,
+			'total'           => $plan['total'],
+			'currency'        => $plan['currency'],
+			'hold_expires_at' => BizCity_MCP_Action_Support::iso( $expires ),
+			'payment'         => ( is_array( $pay ) && ! empty( $pay['order_id'] ) ) ? $pay : null, // null = no TTCK / COD: the staff sends the payment details
+		);
+	}
+
+	/** The payment method of a guest order: the first TTCK gateway when it is active, else bank transfer; filter `bizcity_guest_order_payment_method` */
+	public static function guest_payment_method() {
+		$id = '';
+		if ( function_exists( 'WC' ) && is_object( WC() ) && is_object( WC()->payment_gateways() ) ) {
+			foreach ( (array) WC()->payment_gateways()->get_available_payment_gateways() as $gid => $gw ) {
+				if ( 0 === strpos( (string) $gid, 'ttck' ) ) {
+					$id = (string) $gid;
+					break;
+				}
+			}
+			if ( '' === $id && isset( WC()->payment_gateways()->payment_gateways()['bacs'] ) ) {
+				$id = 'bacs';
+			}
+		}
+		return (string) apply_filters( 'bizcity_guest_order_payment_method', $id );
+	}
+
+	const META_GUEST = '_bizcity_guest_order';
 
 	/* ── order.create / inventory.reserve ────────────────────────── */
 

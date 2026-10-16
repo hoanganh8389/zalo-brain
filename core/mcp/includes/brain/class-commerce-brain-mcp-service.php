@@ -566,6 +566,133 @@ final class BizCity_Commerce_Brain_MCP_Service {
 		);
 	}
 
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — order.pay_info: how a CUSTOMER of a chat channel pays the order THEY placed (doc 70 §9). The customer is NEVER an argument: it is the
+	 * identity the cell sent in the Hub-forwarded header (ctx['customer'] = platform / channel_ref / platform_uid) and it must equal the identity stamped on
+	 * the order (BizCity_CRM_Contact_Identity::order_identity_meta). Any mismatch, unknown order or closed order answers the same "not found".
+	 * The QR is the public VietQR image TTCK itself shows on the pay page (class-ttck-base.php get_qrcode_vietqr_img_url); payment is confirmed by TTCK.
+	 * Seams: readers['order'](id) · readers['ttck'](order_id): array{account:array,note:string}|null
+	 */
+	public function pay_info( array $args, array $ctx ) {
+		$nf       = static function () {
+			return new WP_Error( BizCity_MCP_Error::NOT_FOUND, 'Không tìm thấy đơn hàng của bạn.', array( 'status' => 404 ) );
+		};
+		$order_id = absint( $args['order_id'] ?? 0 );
+		$cust     = is_array( $ctx['customer'] ?? null ) ? $ctx['customer'] : array();
+		$platform = strtolower( trim( (string) ( $cust['platform'] ?? '' ) ) );
+		$ref      = trim( (string) ( $cust['channel_ref'] ?? '' ) );
+		$uid      = trim( (string) ( $cust['platform_uid'] ?? '' ) );
+		if ( $order_id <= 0 || '' === $platform || '' === $ref || '' === $uid ) {
+			return $nf();
+		}
+		$order = isset( self::$readers['order'] ) ? call_user_func( self::$readers['order'], $order_id ) : ( function_exists( 'wc_get_order' ) ? wc_get_order( $order_id ) : false );
+		if ( ! $order || is_wp_error( $order ) ) {
+			return $nf();
+		}
+		$canon = class_exists( 'BizCity_CRM_Contact_Identity' ) ? BizCity_CRM_Contact_Identity::canon_platform( $platform ) : $platform;
+		$have  = array(
+			(string) $order->get_meta( '_bizcity_platform' ),
+			(string) $order->get_meta( '_bizcity_channel_ref' ),
+			(string) $order->get_meta( '_bizcity_platform_uid' ),
+		);
+		if ( '' === $have[2] || ! hash_equals( $canon, $have[0] ) || ! hash_equals( $ref, $have[1] ) || ! hash_equals( $uid, $have[2] ) ) {
+			return $nf();
+		}
+		$status = (string) $order->get_status();
+		if ( ! in_array( $status, array( 'pending', 'on-hold' ), true ) ) {
+			return $nf();
+		}
+		$ttck = isset( self::$readers['ttck'] ) ? call_user_func( self::$readers['ttck'], $order_id ) : self::ttck_for_order( $order_id, $order );
+		$acct = is_array( $ttck['account'] ?? null ) ? $ttck['account'] : array();
+		$note = (string) ( $ttck['note'] ?? '' );
+		$amount = (int) round( (float) $order->get_total() );
+		$bin    = (string) ( $acct['bin'] ?? '' );
+		$no     = (string) ( $acct['account_number'] ?? '' );
+		$qr     = ( '' !== $no && '' !== $note && $amount > 0 && ctype_digit( $bin ) )
+			? 'https://api.vietqr.io/' . $bin . '/' . rawurlencode( $no ) . '/' . $amount . '/' . rawurlencode( $note ) . '/qr_only.jpg'
+			: '';
+		return array(
+			'contract'       => 'order-pay-info@1.0.0',
+			'order_id'       => (int) $order->get_id(),
+			'number'         => (string) $order->get_order_number(),
+			'status'         => $status,
+			'total'          => $amount,
+			'currency'       => (string) $order->get_currency(),
+			'pay_url'        => (string) $order->get_checkout_payment_url(),
+			'bank'           => array( 'name' => (string) ( $acct['bank_name'] ?? '' ), 'account_number' => $no, 'account_name' => (string) ( $acct['account_name'] ?? '' ) ),
+			'transfer_note'  => $note,
+			'qr_image_url'   => $qr,
+		);
+	}
+
+	/**
+	 * [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.115 S115-QR — the TTCK payment data of an order, read the way TTCK's own pay page reads it: from the GATEWAY of the order
+	 * (`ttck_up_<bank>`: its `account_details`, its bank id → BIN, its bank name). The account the owner typed in "Quét Mã ACB" lives there, not in get_settings()['bank_transfer_accounts'].
+	 * The order's own gateway first, else the first enabled TTCK gateway that has an account; the old settings list is only a last resort. The transfer note is computed ONCE
+	 * and stored on the order (TTCK's extra_text can be random: the QR, the text and the pay page must say the same thing).
+	 * Seam readers['ttck_gateways']() : array<string,object> (id => gateway).
+	 *
+	 * @return array{account:array,note:string}|null
+	 */
+	private static function ttck_for_order( $order_id, $order = null ) {
+		if ( ! class_exists( 'TTCKPayment' ) ) {
+			return null;
+		}
+		$settings = TTCKPayment::get_settings();
+		$order    = is_object( $order ) ? $order : ( function_exists( 'wc_get_order' ) ? wc_get_order( $order_id ) : null );
+		$gateways = isset( self::$readers['ttck_gateways'] ) ? (array) call_user_func( self::$readers['ttck_gateways'] ) : ( function_exists( 'WC' ) && is_object( WC() ) && is_object( WC()->payment_gateways() ) ? (array) WC()->payment_gateways()->payment_gateways() : array() );
+		$own      = is_object( $order ) && method_exists( $order, 'get_payment_method' ) ? (string) $order->get_payment_method() : '';
+		$order_of = array();
+		if ( '' !== $own && isset( $gateways[ $own ] ) ) {
+			$order_of[] = $gateways[ $own ];
+		}
+		foreach ( $gateways as $gid => $gw ) {
+			if ( 0 === strpos( (string) $gid, 'ttck_up_' ) && is_object( $gw ) && ( ! isset( $gw->enabled ) || 'no' !== (string) $gw->enabled ) ) {
+				$order_of[] = $gw;
+			}
+		}
+		$acct = null;
+		foreach ( $order_of as $gw ) {
+			$bank = (string) ( $gw->bank_id ?? '' );
+			$list = function_exists( 'apply_filters' ) ? apply_filters( 'woocommerce_' . $bank . '_accounts', (array) ( $gw->account_details ?? array() ), $order_id ) : (array) ( $gw->account_details ?? array() );
+			foreach ( (array) $list as $a ) {
+				$a = (array) $a;
+				if ( '' === trim( (string) ( $a['account_number'] ?? '' ) ) ) {
+					continue;
+				}
+				$bins = array_flip( TTCKPayment::get_list_bin() );
+				$acct = array(
+					'bank_name'      => (string) ( $gw->bank_name ?? strtoupper( $bank ) ),
+					'account_number' => trim( (string) $a['account_number'] ),
+					'account_name'   => trim( (string) ( $a['account_name'] ?? '' ) ),
+					'bin'            => (string) ( $bins[ $bank ] ?? ( ctype_digit( $bank ) ? $bank : '' ) ),
+				);
+				break 2;
+			}
+		}
+		if ( null === $acct ) { // last resort: the old settings list
+			foreach ( (array) ( $settings['bank_transfer_accounts'] ?? array() ) as $a ) {
+				if ( is_array( $a ) && 'no' !== (string) ( $a['is_show'] ?? 'yes' ) && '' !== trim( (string) ( $a['account_number'] ?? '' ) ) ) {
+					$acct = $a;
+					break;
+				}
+			}
+		}
+		if ( null === $acct ) {
+			return null;
+		}
+		$note = is_object( $order ) && method_exists( $order, 'get_meta' ) ? trim( (string) $order->get_meta( '_ttck_ndck_expected' ) ) : '';
+		if ( '' === $note ) {
+			$code = (string) ( $settings['bank_transfer']['transaction_prefix'] ?? '' ) . (int) $order_id;
+			$note = (string) TTCKPayment::transaction_text( $code, $settings );
+			if ( is_object( $order ) && method_exists( $order, 'update_meta_data' ) && '' !== $note ) {
+				$order->update_meta_data( '_ttck_ndck_expected', $note );
+				$order->save();
+			}
+		}
+		return array( 'account' => $acct, 'note' => $note );
+	}
+
 	public function get_order( array $args, array $ctx ) {
 		if ( ! function_exists( 'wc_get_order' ) ) {
 			return array( '_degraded' => true, 'reason' => 'woocommerce_unavailable' );

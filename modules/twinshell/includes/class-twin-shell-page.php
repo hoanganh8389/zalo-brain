@@ -236,18 +236,38 @@ class BizCity_Twin_Shell_Page {
 			return;
 		}
 
-		if ( ! get_query_var( self::QUERY_VAR ) ) {
+		// [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — a fresh clone can carry stale
+		// rewrite rules (flush only runs at admin_init); /twin/ is the home of a new site, so match the path too.
+		if ( ! get_query_var( self::QUERY_VAR ) && ! self::request_is_shell_path() ) {
 			return;
 		}
+		status_header( 200 );
 
 		if ( ! is_user_logged_in() ) {
 			// [2026-07-09 Johnny Chu] PHASE-TWINSHELL-ACTIVITY-LOG — audit unauthenticated shell access.
 			$this->emit_activity_event( 'shell.guard.not_logged_in', array(
-				'outcome' => 'blocked',
+				'outcome' => 'login_screen',
 				'route'   => home_url( add_query_arg( null, null ) ),
 			) );
+			// [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — guests get the shell's own
+			// login screen (Google · BizCity ID · email/password, same as TwinWeb AuthModal) instead of a
+			// bounce to wp-login.php. Way back: add_filter( 'bizcity_twin_shell_guest_login_screen', '__return_false' ).
+			if ( apply_filters( 'bizcity_twin_shell_guest_login_screen', true ) ) {
+				nocache_headers();
+				$this->render_guest_login();
+				exit;
+			}
 			$redirect = home_url( add_query_arg( null, null ) );
 			wp_safe_redirect( wp_login_url( $redirect ) );
+			exit;
+		}
+
+		// [2026-10-15 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §9 R-2 — `/twin/?next=<same-site URL>`:
+		// the small-win success screen sends the owner here so the shell's login screen (Google) runs first,
+		// then this hop lands on the QR deep link. Same-host only, never back into another `next` (no loop).
+		$next = self::next_target();
+		if ( '' !== $next ) {
+			wp_safe_redirect( $next, 302 );
 			exit;
 		}
 
@@ -731,6 +751,8 @@ class BizCity_Twin_Shell_Page {
 			// [2026-09-16 02:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-TWINSHELL-CHROME-HOTFIX — carry the embed + loop-breaker markers so nested navigations resolve to the embedded shell instead of bouncing back into wp-admin.
 			'shellUrl'      => esc_url_raw( self::shell_url( self::embedded_args( $this->is_embedded ) ) ),
 			'pluginUrl'     => BIZCITY_TWIN_SHELL_URL,
+			// [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — account chip at the rail bottom (avatar · name · Đăng xuất).
+			'user'          => self::current_user_card(),
 		] );
 
 		$ver       = BIZCITY_TWIN_SHELL_VERSION;
@@ -778,6 +800,218 @@ class BizCity_Twin_Shell_Page {
 		echo '<script data-cfasync="false" src="' . esc_url( $upload_js ) . '"></script>' . "\n";
 		echo '<script data-cfasync="false" src="' . esc_url( $shell_js ) . '"></script>' . "\n";
 		echo '</body></html>' . "\n";
+	}
+
+	/**
+	 * True when the request path is exactly the shell path (/twin or /twin/), query string ignored.
+	 *
+	 * [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — fallback for clones whose
+	 * rewrite_rules option predates the /twin/ rule.
+	 *
+	 * @return bool
+	 */
+	public static function request_is_shell_path() {
+		$uri  = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
+		$path = (string) wp_parse_url( $uri, PHP_URL_PATH );
+		$base = rtrim( (string) wp_parse_url( home_url( '/' ), PHP_URL_PATH ), '/' );
+		return (bool) preg_match( '#^' . preg_quote( $base, '#' ) . '/twin/?$#', $path );
+	}
+
+	/**
+	 * Validated `next` query arg: a same-site absolute URL to hop to after login, or ''.
+	 *
+	 * [2026-10-15 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §9 R-2 — wp_validate_redirect keeps it
+	 * on allowed hosts (this site); a target that itself carries `next=` is refused so two hops can't loop.
+	 *
+	 * @return string
+	 */
+	public static function next_target() {
+		$raw = isset( $_GET['next'] ) ? trim( (string) wp_unslash( $_GET['next'] ) ) : '';
+		if ( '' === $raw || false !== strpos( $raw, 'next=' ) || ! preg_match( '#^https?://#i', $raw ) ) {
+			return '';
+		}
+		return (string) wp_validate_redirect( $raw, '' );
+	}
+
+	/**
+	 * Where the guest login screen returns to: this exact shell request (keeps `plugin`, `next`, …).
+	 *
+	 * @return string
+	 */
+	private static function guest_return_url() {
+		$uri  = isset( $_SERVER['REQUEST_URI'] ) ? (string) wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+		$home = wp_parse_url( home_url( '/' ) );
+		$url  = ( $home['scheme'] ?? 'https' ) . '://' . ( $home['host'] ?? '' ) . ( isset( $home['port'] ) ? ':' . $home['port'] : '' ) . $uri;
+		return (string) wp_validate_redirect( $url, self::shell_url() );
+	}
+
+	/**
+	 * Logged-in user card for the rail's account chip; empty array for guests.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function current_user_card() {
+		$user = wp_get_current_user();
+		if ( ! $user || ! $user->exists() ) {
+			return array();
+		}
+		return array(
+			'id'        => (int) $user->ID,
+			'name'      => (string) $user->display_name,
+			'email'     => (string) $user->user_email,
+			'avatarUrl' => esc_url_raw( (string) get_avatar_url( $user->ID, array( 'size' => 64 ) ) ),
+			'logoutUrl' => esc_url_raw( wp_logout_url( self::shell_url() ) ),
+		);
+	}
+
+	/**
+	 * Google + BizCity ID login URLs that come back to $return.
+	 *
+	 * [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — same split as
+	 * BizCity_TwinWeb_Page::get_page_html(): a client site (WPOSSO_Client loaded) logs in through
+	 * bizgpt-oauth-client `?auth=sso`; the hub uses login-with-google `auto_google_login=1`.
+	 *
+	 * @param string $return Absolute URL to land on after login.
+	 * @return array{google:string,bizcity:string}
+	 */
+	public static function sso_urls( $return ) {
+		if ( class_exists( 'WPOSSO_Client' ) ) {
+			$urls = array(
+				'google'  => add_query_arg( array( 'auth' => 'sso', 'redirect_to' => rawurlencode( $return ) ), home_url( '/' ) ),
+				'bizcity' => add_query_arg( array( 'auth' => 'sso', 'provider' => 'bizcity', 'redirect_to' => rawurlencode( $return ) ), home_url( '/' ) ),
+			);
+		} else {
+			// [2026-10-15 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §9 R-3 — `auto_google_login` is only
+			// handled by login-with-google; without it the button would just open wp-login, so hide it ('').
+			$has_google = function_exists( '\RtCamp\GoogleLogin\plugin' );
+			$urls = array(
+				'google'  => $has_google ? add_query_arg( 'auto_google_login', '1', wp_login_url( $return ) ) : '',
+				'bizcity' => wp_login_url( $return ),
+			);
+		}
+		return (array) apply_filters( 'bizcity_twin_shell_sso_urls', $urls, $return );
+	}
+
+	/**
+	 * Guest screen for /twin/: a bare rail (brand + login icon) and the login card.
+	 *
+	 * [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 50 §6 — mirrors TwinWeb AuthModal:
+	 * Google · BizCity ID · "hoặc" · email/username + password. Password login posts JSON to
+	 * bizcity-twinweb/v1/auth/login (wp_signon); if that route is missing (TwinWeb axis not loaded)
+	 * the same form falls back to a native wp-login.php POST.
+	 *
+	 * @return void
+	 */
+	private function render_guest_login() {
+		$return    = self::guest_return_url();
+		$sso       = self::sso_urls( $return );
+		$site_name = (string) get_bloginfo( 'name' );
+		$lang      = esc_attr( get_bloginfo( 'language' ) );
+		$logo_id   = (int) get_theme_mod( 'custom_logo' );
+		$logo      = $logo_id ? (string) wp_get_attachment_image_url( $logo_id, 'thumbnail' ) : (string) get_site_icon_url( 64 );
+		$cfg       = (string) wp_json_encode( array(
+			'loginRest' => esc_url_raw( rest_url( 'bizcity-twinweb/v1/auth/login' ) ),
+			'returnUrl' => esc_url_raw( $return ),
+		) );
+		$lost_url  = wp_lostpassword_url( $return );
+		$reg_url   = get_option( 'users_can_register' ) ? wp_registration_url() : '';
+		$initial   = function_exists( 'mb_substr' ) ? mb_strtoupper( mb_substr( $site_name, 0, 1 ) ) : strtoupper( substr( $site_name, 0, 1 ) );
+
+		header( 'Content-Type: text/html; charset=utf-8' );
+		?>
+<!DOCTYPE html>
+<html lang="<?php echo $lang; ?>">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title><?php echo esc_html( 'Đăng nhập — ' . $site_name ); ?></title>
+<style>
+:root{--bg:#0f1115;--rail:#16181d;--card:#1b1e24;--line:#2a2e36;--fg:#e6e6e6;--mut:#9aa0aa;--pri:#ffffff;--pri-fg:#111;--err:#f87171}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.tsg{display:flex;height:100%}
+.tsg-rail{width:52px;flex:0 0 52px;background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:10px 0}
+.tsg-brand,.tsg-login{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700}
+.tsg-brand{background:var(--pri);color:var(--pri-fg);overflow:hidden}.tsg-brand img{width:100%;height:100%;object-fit:cover}
+.tsg-login{color:var(--fg);border:1px solid var(--line);background:transparent;cursor:pointer}
+.tsg-main{flex:1;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}
+.tsg-card{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 24px 24px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.tsg-head{text-align:center;margin-bottom:18px}.tsg-head .tsg-brand{margin:0 auto 10px;width:44px;height:44px}
+.tsg-head h1{font-size:18px;margin:0 0 4px}.tsg-head p{margin:0;font-size:13px;color:var(--mut)}
+.tsg-btn{width:100%;height:42px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--fg);font-size:14px;font-weight:500;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;text-decoration:none;margin-bottom:8px}
+.tsg-btn:hover{background:#23262d}.tsg-btn--pri{background:var(--pri);color:var(--pri-fg);border-color:var(--pri);font-weight:600}.tsg-btn--pri:hover{background:#e5e5e5}
+.tsg-b{width:16px;height:16px;border-radius:4px;background:var(--pri);color:var(--pri-fg);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.tsg-or{display:flex;align-items:center;gap:10px;margin:12px 0;color:var(--mut);font-size:12px}.tsg-or:before,.tsg-or:after{content:"";flex:1;height:1px;background:var(--line)}
+.tsg-f label{display:block;font-size:12px;color:var(--mut);margin:0 0 4px}
+.tsg-f input{width:100%;height:42px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:0 12px;font-size:14px;margin-bottom:10px}
+.tsg-f input:focus{outline:2px solid #4b5563;outline-offset:0}
+.tsg-row{display:flex;justify-content:space-between;font-size:12px;margin:-4px 0 12px}.tsg-row a{color:var(--mut);text-decoration:none}.tsg-row a:hover{color:var(--fg)}
+.tsg-err{display:none;color:var(--err);font-size:13px;margin:0 0 10px}
+@media (max-width:480px){.tsg-rail{display:none}}
+</style>
+</head>
+<body>
+<div class="tsg">
+  <aside class="tsg-rail" aria-label="Activity bar">
+    <div class="tsg-brand"><?php echo $logo ? '<img src="' . esc_url( $logo ) . '" alt="">' : esc_html( $initial ); ?></div>
+    <button type="button" class="tsg-login" title="Đăng nhập" aria-label="Đăng nhập" onclick="document.getElementById('tsg-user').focus()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+    </button>
+  </aside>
+  <main class="tsg-main">
+    <div class="tsg-card">
+      <div class="tsg-head">
+        <div class="tsg-brand"><?php echo $logo ? '<img src="' . esc_url( $logo ) . '" alt="">' : esc_html( $initial ); ?></div>
+        <h1><?php echo esc_html( $site_name ); ?></h1>
+        <p>Đăng nhập để dùng trợ lý của bạn</p>
+      </div>
+      <?php if ( '' !== (string) $sso['google'] ) : ?><a class="tsg-btn tsg-btn--pri" href="<?php echo esc_url( $sso['google'] ); ?>">
+        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/><path fill="#34A853" d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.615 24 12.255 24z"/><path fill="#FBBC05" d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 000 10.76l3.98-3.09z"/><path fill="#EA4335" d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.64 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/></svg>
+        Đăng nhập bằng Google
+      </a><?php endif; ?>
+      <a class="tsg-btn" href="<?php echo esc_url( $sso['bizcity'] ); ?>"><span class="tsg-b">B</span>Đăng nhập bằng BizCity ID</a>
+      <div class="tsg-or">hoặc</div>
+      <form class="tsg-f" id="tsg-form" method="post" action="<?php echo esc_url( site_url( 'wp-login.php', 'login_post' ) ); ?>">
+        <label for="tsg-user">Email hoặc tên đăng nhập</label>
+        <input id="tsg-user" name="log" type="text" autocomplete="username" required>
+        <label for="tsg-pass">Mật khẩu</label>
+        <input id="tsg-pass" name="pwd" type="password" autocomplete="current-password" required>
+        <input type="hidden" name="rememberme" value="forever">
+        <input type="hidden" name="redirect_to" value="<?php echo esc_attr( $return ); ?>">
+        <div class="tsg-row">
+          <a href="<?php echo esc_url( $lost_url ); ?>">Quên mật khẩu?</a>
+          <?php if ( '' !== $reg_url ) : ?><a href="<?php echo esc_url( $reg_url ); ?>">Tạo tài khoản</a><?php endif; ?>
+        </div>
+        <p class="tsg-err" id="tsg-err" role="alert"></p>
+        <button class="tsg-btn tsg-btn--pri" id="tsg-submit" type="submit">Đăng nhập</button>
+      </form>
+    </div>
+  </main>
+</div>
+<script data-cfasync="false">
+(function(){
+  var cfg = <?php echo $cfg; ?>;
+  var form = document.getElementById('tsg-form'), err = document.getElementById('tsg-err'), btn = document.getElementById('tsg-submit');
+  var native = false;
+  form.addEventListener('submit', function(e){
+    if (native || !window.fetch) return;
+    e.preventDefault();
+    err.style.display = 'none'; btn.disabled = true; btn.textContent = 'Đang đăng nhập…';
+    fetch(cfg.loginRest, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username: form.log.value, password: form.pwd.value})})
+    .then(function(r){ if (r.status === 404) { throw 'no_route'; } return r.json(); })
+    .then(function(res){
+      if (res && res.success) { window.location.href = cfg.returnUrl; return; }
+      err.textContent = (res && res.message) || 'Đăng nhập thất bại.'; err.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Đăng nhập';
+    })
+    .catch(function(){ native = true; form.submit(); });
+  });
+})();
+</script>
+</body>
+</html>
+		<?php
 	}
 
 	public static function on_activate() {

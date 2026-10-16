@@ -985,10 +985,17 @@ final class BizCity_Bot_Studio_REST {
 		if ( $character_id <= 0 || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
 			return array( 'tts' => false, 'stt' => false, 'music' => false, 'video' => false, 'apify' => false );
 		}
+		$hub_ready = false;
+		try {
+			$hub_ready = class_exists( 'BizCity_LLM_Client' ) && BizCity_LLM_Client::instance()->is_ready();
+		} catch ( \Throwable $e ) {
+			$hub_ready = false;
+		}
 		return array(
-			'tts'   => BizCity_Bot_Secrets_Repo::has( $character_id, 'tts_api_keys' ),
-			'stt'   => BizCity_Bot_Secrets_Repo::has( $character_id, 'stt_api_key' ),
-			'music' => BizCity_Bot_Secrets_Repo::has( $character_id, 'music_api_key' ),
+			// [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 R-ONE-VERTICAL-CELL — tts/stt/music need no per-Guru key any more: the flag means "the Hub path is usable" (site 1API key present).
+			'tts'   => $hub_ready,
+			'stt'   => $hub_ready,
+			'music' => $hub_ready,
 			// [PHASE-0.60F] EB-4 (video) has no secret field yet (0.60E §7 EB-4.1 "chưa làm") —
 			// always false rather than guessing at a field that doesn't exist.
 			'video' => false,

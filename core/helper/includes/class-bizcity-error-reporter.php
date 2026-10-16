@@ -155,7 +155,7 @@ final class BizCity_Error_Reporter {
 		$diag     = admin_url( 'tools.php?page=bizcity-diagnostics' );
 		$settings = admin_url( 'admin.php?page=bizcity-twinchat-settings' );
 		$channels = admin_url( 'admin.php?page=bizcity-channel-gateway' );
-		$cron     = admin_url( 'tools.php?page=bizcity-cron' );
+		$cron     = $diag; // [2026-10-16 03:26 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.5 — the Cron admin page is archived; the diagnostics hub is the ops entry
 		$upgrade  = admin_url( 'admin.php?page=bizcity-upgrade' );
 		$auto     = admin_url( 'admin.php?page=bizcity-automation' );
 

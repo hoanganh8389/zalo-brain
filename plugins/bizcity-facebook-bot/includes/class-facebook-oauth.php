@@ -316,30 +316,13 @@ class BizCity_Facebook_OAuth {
 		// Determine app credentials based on flow source
 		$app_source = $saved['app_source'] ?? 'admin';
 		if ( $app_source === 'user' ) {
-			// Prefer the credentials we stashed at start (covers both user_meta
-			// and WAIC "Tích hợp bên ngoài" rows). Fall back to user_meta for
+			// Prefer the credentials we stashed at start. Fall back to user_meta for
 			// older transients that pre-date the stash.
 			$app_id     = ! empty( $saved['app_id'] )     ? $saved['app_id']     : get_user_meta( $user_id, 'bztfb_user_app_id', true );
 			$app_secret = ! empty( $saved['app_secret'] ) ? $saved['app_secret'] : get_user_meta( $user_id, 'bztfb_user_app_secret', true );
 
-			// BizCity PHASE 0.31 Sprint 6 — last-resort WAIC fallback inside
-			// the callback in case neither transient nor user_meta carry creds
-			// (e.g. transient stash from older deploy / opcache lag).
-			if ( ( empty( $app_id ) || empty( $app_secret ) ) && class_exists( 'WaicFrame' ) ) {
-				try {
-					$model = WaicFrame::_()->getModule( 'workflow' )->getModel( 'integrations' );
-					$accs  = $model->getSavedIntegrations( 'facebook' );
-					if ( is_array( $accs ) && ! empty( $accs ) ) {
-						$first = reset( $accs );
-						$integ = $model->getIntegration( 'facebook', $first );
-						if ( $integ ) {
-							$p = $integ->getDecryptedParams( true );
-							if ( empty( $app_id )     && ! empty( $p['app_id'] ) )     $app_id     = $p['app_id'];
-							if ( empty( $app_secret ) && ! empty( $p['app_secret'] ) ) $app_secret = $p['app_secret'];
-						}
-					}
-				} catch ( \Throwable $e ) { /* fall through */ }
-			}
+			// [2026-10-17 11:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X14: the last-resort lookup in the WAIC "Tích hợp bên ngoài" rows is removed with the archived WAIC engine;
+			// credentials come from the transient stash or the user meta only.
 
 			// [2026-06-29 Johnny Chu] HOTFIX — use the redirect_uri stored in the
 			// transient (set during user_start) so token exchange uses the EXACT

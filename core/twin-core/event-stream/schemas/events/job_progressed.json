@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: job_progressed",
+  "description": "PHASE-0.117 S117-J3 - one state change of an assistant Job on the cell (job-event@1). References only; fold by seq.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "seq",
+    "kind",
+    "status"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "pattern": "^job_[0-9A-Za-z]{10,40}$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "enum": [
+        "requested",
+        "approval_requested",
+        "progressed",
+        "completed"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24
+    },
+    "step_id": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "account_id": {
+      "type": "string",
+      "maxLength": 64
+    }
+  },
+  "additionalProperties": true
+}

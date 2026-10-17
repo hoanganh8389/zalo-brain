@@ -3,7 +3,7 @@
  * BizCity Context Layers Capture — Observability Snapshot
  *
  * Captures all context layers injected into a system prompt for
- * debug/trace purposes. Persisted to session for Working Panel UI.
+ * debug/trace purposes. In-request only (no longer persisted to a session or a table: S116-X9).
  *
  * @since   Phase 1.6 v1.0
  * @package BizCity_Twin_AI
@@ -116,79 +116,9 @@ class BizCity_Context_Layers_Capture {
 	 *  D. persist — lưu vào encrypted session-state filestore
 	 * ────────────────────────────────────────────── */
 
-	/**
-	 * Persist snapshot to the encrypted WebChat session-state record.
-	 *
-	 * @param string $session_id WebChat session ID.
-	 * @return bool
-	 */
-	public static function persist_to_session( $session_id ) {
-		if ( empty( self::$snapshot['layers'] ) ) {
-			return false;
-		}
-
-		if ( ! class_exists( 'BizCity_WebChat_Database' ) ) {
-			return false;
-		}
-
-		// [2026-09-03 03:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-1.30-SESSION-STATE-FILESTORE — keep context-layer snapshots out of session SQL columns.
-		if ( ! class_exists( 'BizCity_WebChat_Session_State' ) ) {
-			return false;
-		}
-		return BizCity_WebChat_Session_State::instance()->update_by_session( $session_id, array(
-			'context_layers_snapshot' => self::$snapshot,
-		) );
-	}
-
-	/**
-	 * Persist snapshot to task params (for pipeline observability).
-	 *
-	 * @param int $task_id Task row ID.
-	 * @return bool
-	 */
-	public static function persist_to_task( $task_id ) {
-		if ( empty( self::$snapshot['layers'] ) ) {
-			return false;
-		}
-
-		if ( ! class_exists( 'BizCity_Memory_Spec' ) ) {
-			return false;
-		}
-
-		// Store via direct DB update to bizcity_tasks.params.meta.context_layers
-		global $wpdb;
-		$table = $wpdb->prefix . ( defined( 'WAIC_DB_PREF' ) ? WAIC_DB_PREF : 'bizcity_' ) . 'tasks';
-
-		$raw = $wpdb->get_var( $wpdb->prepare(
-			"SELECT params FROM {$table} WHERE id = %d",
-			(int) $task_id
-		) );
-
-		if ( empty( $raw ) ) {
-			return false;
-		}
-
-		$params = json_decode( $raw, true );
-		if ( ! is_array( $params ) ) {
-			return false;
-		}
-
-		if ( ! isset( $params['meta'] ) ) {
-			$params['meta'] = array();
-		}
-		$params['meta']['context_layers'] = self::$snapshot;
-
-		$json = wp_json_encode( $params, JSON_UNESCAPED_UNICODE );
-		$updated = $wpdb->update(
-			$table,
-			array( 'params' => $json ),
-			array( 'id' => (int) $task_id ),
-			array( '%s' ),
-			array( '%d' )
-		);
-
-		return $updated !== false;
-	}
+	// [2026-10-17 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X9 — persist_to_session() (WebChat session state) and persist_to_task() (writes bizcity_tasks of the old WAIC engine) are REMOVED: the framework
+	// declares and connects, the cell processes; WebChat and both old engines are gone (doc 95 / 96). The snapshot now lives only for the current request.
+	// If observability is needed again, write to the twin event stream instead — do not bring a table write back here.
 
 	/* ──────────────────────────────────────────────
 	 *  E. Filter hook — capture bizcity_system_prompt_built
@@ -207,13 +137,7 @@ class BizCity_Context_Layers_Capture {
 			return;
 		}
 
-		$session_id = isset( $args['session_id'] ) ? $args['session_id'] : '';
-		if ( ! empty( $session_id ) ) {
-			self::persist_to_session( $session_id );
-			// §20 C1 fix: Mark as persisted so persist_on_message() won't duplicate
-			self::$snapshot['_persisted'] = true;
-		}
-
+		// [2026-10-17 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X9: nothing is persisted any more; just end this request's capture
 		self::stop();
 	}
 
@@ -286,14 +210,7 @@ class BizCity_Context_Layers_Capture {
 		self::$snapshot['filter_delta_chars']       = $delta;
 		self::$snapshot['session_id']               = isset( $args['session_id'] ) ? $args['session_id'] : '';
 
-		// §20 L6 fix: Safety-persist BEFORE LLM call so snapshot survives LLM failures.
-		// on_prompt_built() (twin_resolver path) will overwrite with richer layer data.
-		// persist_on_message() will overwrite on success. If LLM fails → this remains.
-		$sid = self::$snapshot['session_id'];
-		if ( ! empty( $sid ) && ! empty( self::$snapshot['layers'] ) ) {
-			self::persist_to_session( $sid );
-		}
-
+		// [2026-10-17 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X9: the safety-persist before the LLM call is removed with persist_to_session()
 		return $prompt;
 	}
 
@@ -306,28 +223,8 @@ class BizCity_Context_Layers_Capture {
 	 * @param array $data Message processed data.
 	 */
 	public static function persist_on_message( $data ) {
-		if ( ! self::$active && empty( self::$snapshot['layers'] ) ) {
-			return;
-		}
-
-		// §20 C1 fix: Skip if on_prompt_built() already persisted this snapshot
-		if ( ! empty( self::$snapshot['_persisted'] ) ) {
-			self::stop();
-			self::$snapshot       = array();
-			self::$pre_filter_len = 0;
-			return;
-		}
-
-		$session_id = isset( $data['session_id'] ) ? $data['session_id'] : '';
-		if ( empty( $session_id ) ) {
-			$session_id = isset( self::$snapshot['session_id'] ) ? self::$snapshot['session_id'] : '';
-		}
-
-		if ( ! empty( $session_id ) && ! empty( self::$snapshot['layers'] ) ) {
-			self::persist_to_session( $session_id );
-		}
-
-		// Reset for next request
+		unset( $data );
+		// [2026-10-17 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X9: no persistence any more — only reset the per-request state for the next request
 		self::stop();
 		self::$snapshot       = array();
 		self::$pre_filter_len = 0;

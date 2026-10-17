@@ -70,6 +70,13 @@ final class BizCity_User_Workspace_Builder {
 			),
 			'off'        => array(),
 		);
+		// [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1 — the cash-book sheet(s) this person bound; omitted when none so nobody else's bundle / rev changes
+		if ( class_exists( 'BizCity_Sheet_Bindings' ) ) {
+			$bound = BizCity_Sheet_Bindings::for_workspace( $user_id );
+			if ( $bound ) {
+				$ws['bindings'] = array( 'sheets' => $bound );
+			}
+		}
 		$ws['rev'] = self::rev_for( $user_id, $ws );
 		return $ws;
 	}

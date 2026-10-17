@@ -59,7 +59,8 @@ class BizCity_Twin_Event_Taxonomy {
 	// [2026-09-15 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C — register memory_recall so Layer 0.5 audit emit stops throwing.
 	// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33D-D2 — register the Context Bank phase boundary pair.
 	// [2026-10-13 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5/C9 — added cell_output_created (one file a cell turn made) + cell_turn_failed (a Cell Chat turn the cell could not answer).
-	const TAXONOMY_VERSION = 15;
+	// [2026-10-17 02:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J3 — added job_progressed + job_completed (an assistant Job on the cell; references + hashes only).
+	const TAXONOMY_VERSION = 16;
 
 	// ---- 15 canonical event types (Phase 0.12) --------------------------
 	const USER_MESSAGE              = 'user_message';
@@ -177,6 +178,11 @@ class BizCity_Twin_Event_Taxonomy {
 	const CELL_TURN_FAILED    = 'cell_turn_failed';
 	const CELL_OUTPUT_STORED  = 'cell_output_stored'; // child of cell_output_created: the file now lives in the media library (R2)
 
+	// ---- PHASE-0.117 (2026-10-17) — assistant Jobs (job-event@1 relayed from the cell) -----------------
+	// Schemas: event-stream/schemas/events/job_{progressed,completed}.json. trace_id = job_id; folded by `seq` (R-JOB-9).
+	const JOB_PROGRESSED = 'job_progressed';
+	const JOB_COMPLETED  = 'job_completed';
+
 	/**
 	 * Required payload fields per event type.
 	 * (Keep tight — extra fields go in payload freely.)
@@ -276,6 +282,10 @@ class BizCity_Twin_Event_Taxonomy {
 			self::CELL_OUTPUT_CREATED => [ 'output_id', 'kind', 'name', 'mime', 'media_id' ],
 			self::CELL_TURN_FAILED    => [ 'trace_id', 'code' ],
 			self::CELL_OUTPUT_STORED  => [ 'output_id', 'attachment_id' ],
+
+			// [2026-10-17 02:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J3
+			self::JOB_PROGRESSED => [ 'job_id', 'seq', 'kind', 'status' ],
+			self::JOB_COMPLETED  => [ 'job_id', 'seq', 'kind', 'status' ],
 		];
 	}
 

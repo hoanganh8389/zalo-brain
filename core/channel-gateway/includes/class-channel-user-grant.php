@@ -21,7 +21,8 @@ final class BizCity_Channel_User_Grant {
 	const CONTRACT = 'core.channel_gateway.channel_user_grant';
 	const VERSION  = '1.0';
 	const META_PREFIX = '_bizcity_chgrant_v1_';
-	const MAX_USERS_PER_ACCOUNT = 4;
+	// [2026-10-17 03:19 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 Q116-4 / PHASE-0.117 Q117-12 (owner approved 2026-10-16): 4 → 20 people per channel account; the filter stays the one switch.
+	const MAX_USERS_PER_ACCOUNT = 20;
 	/**
 	 * [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 (doc 30 §3.3): the 4 risk levels. A grant carries its permissions as before; the level is DERIVED from them (one vocabulary for
 	 * the screen, the cell snapshot and the executors) — nothing stored twice, so an old grant needs no migration.
@@ -366,7 +367,8 @@ final class BizCity_Channel_User_Grant {
 	}
 
 	/**
-	 * [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — people per account. Default stays 4 until the owner answers Q116-4 (doc 30: proposal 20); the filter is the one switch.
+	 * [2026-10-16 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-L3 — people per account; the filter is the one switch.
+	 * [2026-10-17 03:19 PM Johnny Chu - Chu Hoàng Anh] Q116-4 answered: default 20 (was 4).
 	 */
 	public static function max_users() {
 		$n = function_exists( 'apply_filters' ) ? (int) apply_filters( 'bizcity_channel_grant_max_users', self::MAX_USERS_PER_ACCOUNT ) : self::MAX_USERS_PER_ACCOUNT;

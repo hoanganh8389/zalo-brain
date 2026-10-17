@@ -297,7 +297,8 @@ final class BizCity_Usage_Accounts_REST {
 	}
 
 	/** @return array{user_id:int,name:string,state:string,uid_masked:string} state ∈ verified | unverified | none */
-	private static function owner_of( string $bridge_id, int $user_id ): array {
+	// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — public so the admin "Người dùng" overview reads owner confirmation from THIS one reader (no second copy).
+	public static function owner_of( string $bridge_id, int $user_id ): array {
 		$u      = $user_id > 0 ? get_userdata( $user_id ) : false;
 		$policy = array();
 		if ( class_exists( 'BizCity_Channel_Binding' ) ) {

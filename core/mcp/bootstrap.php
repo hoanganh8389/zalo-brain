@@ -168,6 +168,9 @@ require_once BIZCITY_MCP_DIR . 'includes/actions/class-automation-action-mcp-ser
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-schedule-sync-mcp-service.php';
 // [2026-10-08 01:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.94-MEM-H1 — memory.save / memory.recall / memory.forget (long-term person memory on the client, Q-MEM-1).
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-memory-mcp-service.php';
+// [2026-10-16 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5/L6 — self_wp executors: cf7.form.create + wp.landing.draft (page-spec@1 compiler for Flatsome / Gutenberg; mode `content`).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-page-compiler.php';
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-action-mcp-service.php';
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-M7 — site.content.search (posts / pages / public CPTs / media library, each with its https image; media-out@1).
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-site-content-mcp-service.php';
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L4/L5/L13 — plugin tool libraries (mcp/tools.json loader), adapters for plugins

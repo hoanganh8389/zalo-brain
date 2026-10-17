@@ -385,6 +385,30 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/**
+	 * [2026-10-17 11:45 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 S120-L1 — danh bạ + sổ gửi thay của MỘT số zalo-hub qua relay brain/* của Hub
+	 * (Hub chuyển `brain/<path>?account_id=` → cell `/wp/brain/<path>?accountId=`). Chỉ 4 đường được phép; đường khác bị từ chối TẠI ĐÂY,
+	 * trước mọi lần gọi mạng. Kết quả chứa UID đầy đủ (máy-với-máy) - nơi gọi phải che UID / số điện thoại trước khi đưa ra giao diện.
+	 *
+	 * @param 'GET'|'POST' $method
+	 * @return array<string,mixed> luôn là mảng; hỏng ⇒ `ok=false` + `_degraded=true`.
+	 */
+	public function outreach_call( string $method, string $path, string $bridge_account_id, array $query = array(), array $body = array() ): array {
+		$allowed = array( 'GET directory', 'POST directory/sync', 'GET outreach/log', 'GET outreach/settings', 'POST outreach/settings' );
+		$method  = strtoupper( $method );
+		$id      = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( '' === $id || ! in_array( $method . ' ' . $path, $allowed, true ) ) {
+			return $this->degraded( 'outreach_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		$full = '/zalo-personal-bridge/brain/' . $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+		if ( 'GET' === $method ) {
+			return $this->get( $full );
+		}
+		$body['account_id'] = (int) $id;
+		return $this->post( $full, $body );
+	}
+
+	/**
 	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
 	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
 	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.

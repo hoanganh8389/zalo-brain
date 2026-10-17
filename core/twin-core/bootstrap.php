@@ -151,6 +151,13 @@ if ( class_exists( 'BizCity_Safe_Loader' ) ) {
 if ( class_exists( 'BizCity_Twin_Cell_Output_Ready_REST' ) ) {
 	BizCity_Twin_Cell_Output_Ready_REST::init();
 }
+// [2026-10-17 02:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J3 — `POST bizcity-twin/v1/job-event` (progress of an assistant Job, relayed from the cell).
+if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+	BizCity_Safe_Loader::require_file( $twin_event_stream . '/class-twin-job-event-rest.php', 'twin_core.job_event_rest' );
+}
+if ( class_exists( 'BizCity_Twin_Job_Event_REST' ) ) {
+	BizCity_Twin_Job_Event_REST::init();
+}
 
 // Phase 0.12 Wave F — Admin page (Twin Event Inspector).
 if ( is_admin() ) {

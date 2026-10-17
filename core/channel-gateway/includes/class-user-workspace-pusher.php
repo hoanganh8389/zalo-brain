@@ -48,12 +48,12 @@ final class BizCity_User_Workspace_Pusher {
 	}
 
 	/** @return string pushed | same | debounced | unknown_user | no_hub | failed */
-	public static function push( int $user_id ): string {
+	public static function push( int $user_id, bool $force = false ): string {
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_User_Workspace_Builder' ) ) {
 			return 'unknown_user';
 		}
 		$key = 'bizcity_uw_push_' . $user_id;
-		if ( false !== get_transient( $key ) ) {
+		if ( ! $force && false !== get_transient( $key ) ) { // [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1: a person's own change (a bound sheet) is pushed at once
 			return 'debounced';
 		}
 		set_transient( $key, 1, self::DEBOUNCE_S );

@@ -56,6 +56,16 @@ final class BizCity_Connect_Composio_REST {
 		foreach ( array( array( '/status', 'GET', 'pipe' ), array( '/connect', 'POST', 'post_connect' ), array( '/refresh', 'POST', 'pipe' ), array( '/connection', 'DELETE', 'pipe' ), array( '/default', 'PUT', 'pipe' ) ) as $row ) {
 			register_rest_route( self::NS, $base . $row[0], array( 'methods' => $row[1], 'callback' => array( __CLASS__, $row[2] ), 'permission_callback' => $staff0 ) );
 		}
+		// [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1 — the person's own cash-book sheet: list / bind (checks row 1 against the template) / unbind
+		register_rest_route( self::NS, $base . '/sheets-binding', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_sheet_binding' ), 'permission_callback' => $staff0 ),
+			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'put_sheet_binding' ), 'permission_callback' => $staff0 ),
+			array( 'methods' => 'DELETE', 'callback' => array( __CLASS__, 'delete_sheet_binding' ), 'permission_callback' => $staff0 ),
+		) );
+		// [2026-10-17 03:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — what THIS person can run (Skill Editor ②): a thin proxy, the cell alone computes readiness; any signed-in person, about themselves only
+		// [2026-10-17 03:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K4 — Skill Editor ①: my description ⇒ a draft (the cell asks the model once; nothing is stored)
+		register_rest_route( self::NS, $base . '/skills-draft', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_skills_draft' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ) );
+		register_rest_route( self::NS, $base . '/skills-readiness', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_skills_readiness' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ) );
 		$r( '/assign', 'PUT', 'pipe' ); // admin: give a login made before the per-person split to a person
 		$r( '/facebook/pages', 'GET,PUT', 'pipe' );
 		$r( '/pages/(?P<page>[0-9]{5,30})/auto', 'PUT', 'pipe' ); // [2026-10-15 07:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.114 S114-U1: what the cell does with that page's customer messages (admin only)
@@ -95,6 +105,128 @@ final class BizCity_Connect_Composio_REST {
 		$url = self::callback_url();
 		// the cell refuses non-https callbacks (an http dev site still connects: Composio then shows its own "done" page)
 		return self::send( 'POST', '/connect', array(), array( 'toolkit' => $toolkit, 'callback_url' => 0 === strpos( $url, 'https://' ) ? $url : '' ) );
+	}
+
+	/** [2026-10-17 03:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — readiness is about the caller only, so any signed-in person may ask */
+	public static function perm_signed_in() {
+		return get_current_user_id() > 0 ? true : BizCity_Connect_REST::err( 'not_signed_in', 'Bạn cần đăng nhập.', 'Đăng nhập rồi mở lại trang.', 401 );
+	}
+
+	/**
+	 * [2026-10-17 03:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — `?executors=a.b,c.d` (≤ 30 ids) or nothing (= every executor I could use).
+	 * Never recomputed here. Hub / cell / old cell unreachable ⇒ 200 + _degraded (R-GW-8): the Editor shows "Không kiểm được lúc này", never a green tick.
+	 */
+	public static function get_skills_readiness( WP_REST_Request $request ): WP_REST_Response {
+		$ids = self::parse_executor_ids( (string) $request->get_param( 'executors' ) );
+		if ( null === $ids ) {
+			return self::error( 400, 'invalid_param', 'Danh sách bước không hợp lệ.', 'Gửi tối đa 30 mã executor, cách nhau bằng dấu phẩy.' );
+		}
+		$resp = self::send( 'GET', '/skills/readiness', $ids ? array( 'executors' => implode( ',', $ids ) ) : array(), array() );
+		$out  = self::readiness_reply( $resp->get_status(), (array) $resp->get_data() );
+		return new WP_REST_Response( $out['body'], $out['status'] );
+	}
+
+	/** [2026-10-17 03:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K4 — body {name, text}; only these two fields go to the cell */
+	public static function post_skills_draft( WP_REST_Request $request ): WP_REST_Response {
+		$p    = $request->get_json_params();
+		$name = is_array( $p ) ? trim( (string) ( $p['name'] ?? '' ) ) : '';
+		$text = is_array( $p ) ? trim( (string) ( $p['text'] ?? '' ) ) : '';
+		if ( '' === $name || mb_strlen( $text ) < 8 || mb_strlen( $name ) > 120 || strlen( $text ) > 8192 ) {
+			return self::error( 400, 'invalid_param', 'Cần tên việc và mô tả (8 ký tự – 8 KB).', 'Viết rõ: đọc gì, ghi vào đâu, gửi cho ai.' );
+		}
+		$resp = self::send( 'POST', '/skills/draft', array(), array( 'name' => $name, 'text' => $text ) );
+		$out  = self::readiness_reply( $resp->get_status(), (array) $resp->get_data(), 'twin-skill-draft@1' );
+		return new WP_REST_Response( $out['body'], $out['status'] );
+	}
+
+	/** Pure: '' ⇒ array(); bad id or more than 30 ⇒ null. @return string[]|null */
+	public static function parse_executor_ids( string $raw ): ?array {
+		$ids = array_values( array_filter( array_map( 'trim', explode( ',', $raw ) ), 'strlen' ) );
+		if ( count( $ids ) > 30 ) {
+			return null;
+		}
+		foreach ( $ids as $id ) {
+			if ( 1 !== preg_match( '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,2}$/', $id ) ) {
+				return null;
+			}
+		}
+		return $ids;
+	}
+
+	/**
+	 * Pure: map the cell's answer for the browser. 200 with the readiness contract passes through; the cell's own refusals
+	 * (no bundle yet, bad id) pass through with a help_code; anything else (Hub down, old Hub / cell without the path) is degraded.
+	 *
+	 * @return array{status:int, body:array}
+	 */
+	public static function readiness_reply( int $status, array $data, string $contract = 'skill-readiness@1' ): array {
+		if ( 200 === $status && 0 === strpos( (string) ( $data['contract'] ?? '' ), $contract ) ) {
+			return array( 'status' => 200, 'body' => $data );
+		}
+		$code = (string) ( $data['code'] ?? '' );
+		if ( in_array( $code, array( 'workspace_not_found', 'invalid_param', 'user_ref_required' ), true ) ) {
+			return array( 'status' => $status >= 400 && $status < 500 ? $status : 400, 'body' => array(
+				'ok'        => false,
+				'code'      => $code,
+				'message'   => (string) ( $data['message'] ?? 'Chưa kiểm được.' ),
+				'hint'      => (string) ( $data['hint'] ?? '' ) !== '' ? (string) $data['hint'] : 'Mở lại trang Bắt đầu để website đồng bộ quyền.',
+				'help_code' => 'S117-' . strtoupper( str_replace( '_', '-', $code ) ),
+			) );
+		}
+		return array( 'status' => 200, 'body' => array(
+			'ok'        => false,
+			'_degraded' => true,
+			'code'      => 'readiness_unavailable',
+			'message'   => 'Không kiểm được lúc này.',
+			'hint'      => 'Thử lại sau ít phút; nếu vẫn vậy, báo quản trị viên cập nhật máy chủ trợ lý.',
+			'help_code' => 'S117-READINESS-UNAVAILABLE',
+		) );
+	}
+
+	public static function get_sheet_binding( WP_REST_Request $request ): WP_REST_Response {
+		unset( $request );
+		return new WP_REST_Response( array( 'ok' => true, 'bindings' => BizCity_Sheet_Bindings::get( get_current_user_id() ) ), 200 );
+	}
+
+	/** [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1: ask the cell whether row 1 of the tab matches the template; bind only when it does, then push the bundle at once */
+	public static function put_sheet_binding( WP_REST_Request $request ): WP_REST_Response {
+		$uid  = get_current_user_id();
+		$p    = $request->get_json_params();
+		$p    = is_array( $p ) ? $p : array();
+		$tpl  = (string) ( $p['template'] ?? 'cashbook_v1' );
+		$id   = BizCity_Sheet_Bindings::id_from( $p['spreadsheet'] ?? ( $p['spreadsheet_id'] ?? '' ) );
+		$tab  = trim( (string) ( $p['tab'] ?? '' ) );
+		$chk0 = BizCity_Sheet_Bindings::validate( $tpl, $id, $tab );
+		if ( empty( $chk0['ok'] ) ) {
+			return self::error( 400, (string) $chk0['code'], (string) $chk0['message'], '' );
+		}
+		$chk = self::send( 'POST', '/sheets/bind-check', array(), array( 'spreadsheet_id' => $id, 'tab' => $tab, 'template' => $tpl ) );
+		if ( $chk->get_status() >= 400 ) {
+			return $chk; // not connected / needs_choice / no access: the cell's own sentence
+		}
+		$d = (array) $chk->get_data();
+		if ( empty( $d['match'] ) ) {
+			$empty = ! empty( $d['empty'] );
+			return new WP_REST_Response( array(
+				'ok'       => false,
+				'code'     => 'sheet_header_mismatch',
+				'message'  => $empty ? 'Tab đang trống. Dán dòng tiêu đề mẫu vào ô A1 của tab rồi liên kết lại.' : 'Dòng 1 của tab chưa đúng mẫu: thiếu hoặc sai ' . implode( ', ', array_slice( (array) ( $d['missing'] ?? array() ), 0, 6 ) ) . '.',
+				'hint'     => 'Hệ thống không tự sửa bảng tính của bạn.',
+				'empty'    => $empty,
+				'expected' => (array) ( $d['expected'] ?? array() ),
+				'missing'  => (array) ( $d['missing'] ?? array() ),
+			), 422 );
+		}
+		BizCity_Sheet_Bindings::set( $uid, $tpl, $id, $tab );
+		$pushed = class_exists( 'BizCity_User_Workspace_Pusher' ) ? BizCity_User_Workspace_Pusher::push( $uid, true ) : 'no_pusher';
+		return new WP_REST_Response( array( 'ok' => true, 'bindings' => BizCity_Sheet_Bindings::get( $uid ), 'pushed' => $pushed ), 200 );
+	}
+
+	public static function delete_sheet_binding( WP_REST_Request $request ): WP_REST_Response {
+		$uid = get_current_user_id();
+		BizCity_Sheet_Bindings::remove( $uid, (string) ( $request->get_param( 'template' ) ?: 'cashbook_v1' ) );
+		$pushed = class_exists( 'BizCity_User_Workspace_Pusher' ) ? BizCity_User_Workspace_Pusher::push( $uid, true ) : 'no_pusher';
+		return new WP_REST_Response( array( 'ok' => true, 'bindings' => BizCity_Sheet_Bindings::get( $uid ), 'pushed' => $pushed ), 200 );
 	}
 
 	/** Every other route: same path at the Hub, whitelisted query, JSON body as is. */
@@ -159,6 +291,25 @@ final class BizCity_Connect_Composio_REST {
 		}
 		set_transient( 'bizcity_cg_composio_active_' . get_current_user_id(), array( 'list' => $list ), 60 );
 		return $list;
+	}
+
+	/**
+	 * [2026-10-17 12:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M6 — the cell's per-person rollup for the admin "Người dùng" page
+	 * (admin-users-rollup@1.0.0: logins + pending drafts per user_ref, masked). Only for a site admin: send() marks `_admin` after can_manage(),
+	 * and the cell refuses without it. `null` = not measured (no key, Hub / cell down, old cell) — the page then shows "—", never 0.
+	 *
+	 * @return array|null
+	 */
+	public static function admin_rollup(): ?array {
+		if ( ! BizCity_Connect_REST::can_manage() ) {
+			return null;
+		}
+		$resp = self::send( 'GET', '/admin/rollup', array(), array() );
+		$data = $resp->get_data();
+		if ( 200 !== $resp->get_status() || ! is_array( $data ) || empty( $data['ok'] ) || 'admin-users-rollup@1.0.0' !== ( $data['contract'] ?? '' ) || ! is_array( $data['people'] ?? null ) ) {
+			return null;
+		}
+		return $data;
 	}
 
 	/** Register this site's web-home (callback URL + bridge token) at the Hub; true when the Hub has the current one. Never throws. */

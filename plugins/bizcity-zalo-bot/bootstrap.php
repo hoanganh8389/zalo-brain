@@ -112,13 +112,16 @@ class BizCity_Zalo_Bot_Plugin {
 		// [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — integration-zalo.php (WaicChannelIntegration_zalobot)
 		// is archived at core/_archived/z8a-20261010/: its filter bizcity_register_channel_integrations is applied only by the dev-only sprint diagnostic.
 
-		// PHASE 0.31 Sprint 6 follow-up — frontend /tool-zalo-bizcity/ profile
-		// page (mirrors bizcity-tool-facebook /tool-facebook/). Provides 2-tab
-		// UI (Bot OA + Hotline ZNS) editing the same WAIC integration rows
-		// as the dialog, but at a public-facing slug users can bookmark.
-		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-tool-zalo-page.php' ) ) {
-			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-tool-zalo-page.php';
-		}
+		// [2026-10-17 11:50 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X17 (owner chose: remove) — the public /tool-zalo-bizcity/ page read and wrote the Bot OA / Hotline ZNS settings
+		// through the WAIC integrations model; WAIC is archived, so the page could only fail (Save = HTTP 500). The page and its view
+		// are archived at core/_archived/zalo-bot-tool-page-20261017/. The Zalo Bot message path never used it; Zalo Bot moves to
+		// the cell in PHASE-0.118. Drop the stale rewrite rule once so the old URL is not routed to a page that no longer exists.
+		add_action( 'admin_init', static function () {
+			$rules = get_option( 'rewrite_rules' );
+			if ( is_array( $rules ) && isset( $rules['^tool-zalo-bizcity/?$'] ) ) {
+				flush_rewrite_rules( false );
+			}
+		} );
 
 		// Gateway Bridge (standalone Channel Gateway compat)
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-gateway-bridge.php' ) ) {

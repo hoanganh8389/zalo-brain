@@ -44,7 +44,7 @@ class BizCity_Admin_Menu {
 	const SLUG_CREATOR   = 'bizcity-creator';           // End-user: Content Creator
 	const SLUG_GATEWAY   = 'bizchat-gateway';           // Đào tạo kết nối — tích hợp kênh (PHASE 0.31 T-S4.2: demoted → read-only deep-link dashboard)
 	const SLUG_CHANNELS  = 'bizcity-channels';          // PHASE 0.31 T-S4.1 — Channel admin parent (Zalo Bot, FB Bot, Zalo Hotline)
-	const SLUG_INTEGRATIONS = 'bizcity-integrations';  // PHASE 0.31 Sprint 6 — Standalone integration config page (moved from Workflow tab)
+	// [2026-10-17 11:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X14 — SLUG_INTEGRATIONS ('bizcity-integrations', the WAIC "Tích hợp bên ngoài" page) removed: the WAIC engine (bizcity-automation-legacy) is archived.
 	const SLUG_ADMIN     = 'bizcity-ai';                // Admin hub: settings / logs
 	const SLUG_KNOWLEDGE = 'bizcity-knowledge';         // Đào tạo kiến thức — characters, memory, legal
 	const SLUG_SKILLS    = 'bizcity-skills-hub';        // Đào tạo kỹ năng — content, image, notebook
@@ -392,15 +392,7 @@ class BizCity_Admin_Menu {
 				: [ __CLASS__, 'render_gateway_page' ]
 		);
 
-		// PHASE 0.31 Sprint 6 — Standalone Integrations page (moved from Workflow tab)
-		add_submenu_page(
-			self::SLUG_WORKSPACE,
-			__( 'Tích hợp bên ngoài', $td ),
-			__( 'Tích hợp', $td ),
-			self::menu_cap(),
-			self::SLUG_INTEGRATIONS,
-			[ __CLASS__, 'render_integrations_page' ]
-		);
+		// [2026-10-17 11:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X14: the WAIC "Tích hợp" submenu is gone with the archived engine (it only printed "Automation (WAIC) module not loaded").
 
 		// [2026-06-22 Johnny Chu] PHASE-TWINWEB — moved from TwinChat to SLUG_GATEWAY
 		if ( class_exists( 'BizCity_Gateway_Admin_SPA', false ) ) {
@@ -1404,26 +1396,6 @@ class BizCity_Admin_Menu {
 			</form>
 		</div>
 		<?php
-	}
-
-	/**
-	 * PHASE 0.31 Sprint 6 — Standalone Integrations admin page.
-	 *
-	 * Renders the integration list (previously the "Tích hợp bên ngoài" tab
-	 * of the Workflow Builder) as an independent WP admin page accessible via
-	 * ?page=bizcity-integrations in the "Đào tạo kết nối" sidebar.
-	 */
-	public static function render_integrations_page(): void {
-		if ( ! class_exists( 'WaicFrame', false ) ) {
-			echo '<div class="wrap"><div class="notice notice-error"><p>Automation (WAIC) module not loaded.</p></div></div>';
-			return;
-		}
-		$workflow_mod = WaicFrame::_()->getModule( 'workflow' );
-		if ( ! $workflow_mod ) {
-			echo '<div class="wrap"><div class="notice notice-error"><p>Workflow module not available.</p></div></div>';
-			return;
-		}
-		echo $workflow_mod->getView()->showIntegrationsPage(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**

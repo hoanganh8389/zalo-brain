@@ -9,7 +9,10 @@
   "tabs": [],
   "settings": [],
   "checks": [],
-  "executors": [],
+  "executors": [
+    "cf7.form.create",
+    "cf7.form.list"
+  ],
   "tab_components": {},
   "capabilities": [],
   "report": {
@@ -23,7 +26,6 @@
   },
   "desc": "Lead từ Contact Form 7 vào danh bạ.",
   "platform_code": "cf7",
-  "executors_pending": true,
   "module_access": {
     "shared": "connect_dev"
   }

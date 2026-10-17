@@ -68,7 +68,9 @@ require_once $bizcity_crm_inc . 'class-repository.php';
 require_once $bizcity_crm_inc . 'class-inbox-access.php';
 require_once $bizcity_crm_inc . 'class-team-manager.php';
 require_once $bizcity_crm_inc . 'class-staff-policy.php';
-require_once $bizcity_crm_inc . 'class-conversation-identity-resolver.php';
+// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97) — class-conversation-identity-resolver, class-contact-transfer, class-personal-quota-rest, class-google-tool-bridge,
+// class-inbox-to-crm-bridge, class-crm-ingest-notif, admin-chat/functions.php, admin-chat/class-admin-chat-grants-admin, class-guru-resolver,
+// class-guru-roles-admin and class-crm-order-identity-metabox moved to plugins/bizcity-twin-crm (nothing in core calls them; the add-on loads them).
 require_once $bizcity_crm_inc . 'class-crm-contact-identity.php';
 require_once $bizcity_crm_inc . 'class-contact-roles.php';
 require_once $bizcity_crm_inc . 'class-contact-custom-meta.php';
@@ -78,9 +80,12 @@ require_once $bizcity_crm_inc . 'class-contact-enrichment.php';
 if ( is_readable( $bizcity_crm_inc . 'class-crm-lead-score.php' ) ) {
 	require_once $bizcity_crm_inc . 'class-crm-lead-score.php';
 }
-require_once $bizcity_crm_inc . 'class-contact-transfer.php';
-require_once $bizcity_crm_inc . 'class-personal-quota-rest.php';
 require_once $bizcity_crm_inc . 'class-system-owner.php';
+// [2026-10-17 11:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 S120-L1 — danh bạ Zalo (cell) → CRM contacts + trang trace gửi thay (guarded: new file).
+if ( is_readable( $bizcity_crm_inc . 'class-crm-zalo-directory.php' ) ) {
+	require_once $bizcity_crm_inc . 'class-crm-zalo-directory.php';
+	BizCity_CRM_Zalo_Directory::init();
+}
 foreach ( array( 'class-crm-actor.php', 'class-crm-authority.php', 'class-crm-zone-registry.php', 'crm-surfaces.php', 'class-crm-agent-mode-delegate.php' ) as $bizcity_crm_contract ) {
 	require_once $bizcity_crm_inc . 'contracts/' . $bizcity_crm_contract;
 }
@@ -94,7 +99,6 @@ require_once $bizcity_crm_inc . 'inbox/class-channel-registry.php';
 require_once $bizcity_crm_inc . 'inbox/class-outbound-dispatcher.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-fb-bot-bridge.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-zalo-bot-bridge.php';
-require_once $bizcity_crm_inc . 'class-google-tool-bridge.php';
 // [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.4 (doc 87, owner Q-CS-2) — instagram / whatsapp-cloud / email-imap adapters archived to core/_archived/crm-20261016/ (no site uses them).
 foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'web-widget', 'webchat', 'mabel-wheel' ) as $bizcity_crm_adapter ) {
 	require_once $bizcity_crm_inc . 'inbox/adapters/class-adapter-' . $bizcity_crm_adapter . '.php';
@@ -102,25 +106,15 @@ foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'we
 unset( $bizcity_crm_adapter );
 require_once $bizcity_crm_inc . 'inbox/class-fb-ingestor.php';
 require_once $bizcity_crm_inc . 'class-crm-inbox-bridge.php';
-require_once $bizcity_crm_inc . 'class-inbox-to-crm-bridge.php';
-require_once $bizcity_crm_inc . 'class-crm-ingest-notif.php';
 require_once $bizcity_crm_inc . 'class-gmail-smtp-repo.php';
 require_once $bizcity_crm_inc . 'class-email-send-log.php';
 
 // ── Staff ↔ Zalo Bot magic links + admin-chat grants ──────────────────────────────────────────────────────────
 require_once $bizcity_crm_inc . 'admin-chat/class-magic-link.php';
 require_once $bizcity_crm_inc . 'admin-chat/class-magic-link-handler.php';
-require_once $bizcity_crm_inc . 'admin-chat/functions.php';
 require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-grants.php';
 require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-policy.php';
 require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-confirm.php';
-if ( is_admin() ) {
-	require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-grants-admin.php';
-}
-
-// ── Guru per inbox ────────────────────────────────────────────────────────────────────────────────────────────
-require_once $bizcity_crm_inc . 'class-guru-resolver.php';
-require_once $bizcity_crm_inc . 'class-guru-roles-admin.php';
 
 // ── /crm/ "Đội Zalo" when the Zalo Brain CRM plugin is not active (PHASE-0.96 S96-7.4) ───────────────────────
 require_once $bizcity_crm_inc . 'class-crm-core-page.php';
@@ -166,14 +160,12 @@ final class BizCity_CRM_Spine_Boot {
 		if ( class_exists( 'BizCity_CRM_Inbox_Bridge' ) && method_exists( 'BizCity_CRM_Inbox_Bridge', 'init' ) ) {
 			BizCity_CRM_Inbox_Bridge::init();
 		}
-		if ( class_exists( 'BizCity_CRM_Inbox_To_CRM_Bridge' ) ) {
-			BizCity_CRM_Inbox_To_CRM_Bridge::register();
-		}
+		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): BizCity_CRM_Inbox_To_CRM_Bridge is registered by bizcity-twin-crm now
 
 		// REST.
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Spine_REST', 'register_routes' ), 9 );
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Spine', 'register_rest' ), 9 );
-		add_action( 'rest_api_init', array( 'BizCity_CRM_Personal_Quota_REST', 'register_routes' ) );
+		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): /crm-settings/personal-phone-quota is registered by bizcity-twin-crm now
 
 		// Grants version bump on mutation.
 		$bump = array( 'BizCity_CRM_Spine_REST', 'bump_grants_version' );
@@ -191,9 +183,7 @@ final class BizCity_CRM_Spine_Boot {
 		if ( class_exists( 'BizCity_CRM_System_Owner', false ) ) {
 			BizCity_CRM_System_Owner::init();
 		}
-		if ( class_exists( 'BizCity_CRM_Guru_Roles_Admin' ) && method_exists( 'BizCity_CRM_Guru_Roles_Admin', 'register' ) ) {
-			BizCity_CRM_Guru_Roles_Admin::register();
-		}
+		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): BizCity_CRM_Guru_Roles_Admin is registered by bizcity-twin-crm now
 
 		// PHASE 0.35 M1.W2 — ensure capabilities exist on roles (idempotent, signature-guarded inside).
 		BizCity_CRM_Capabilities::ensure();
@@ -203,9 +193,7 @@ final class BizCity_CRM_Spine_Boot {
 			BizCity_CRM_Magic_Link_Handler::register();
 		}
 		BizCity_CRM_Admin_Chat_Grants::register();
-		if ( is_admin() && class_exists( 'BizCity_CRM_Admin_Chat_Grants_Admin' ) ) {
-			BizCity_CRM_Admin_Chat_Grants_Admin::register();
-		}
+		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): the grants admin screen is registered by bizcity-twin-crm now
 
 		// Module access: the CRM authority answers the 'crm' module for TwinShell.
 		add_filter( 'bizcity_module_access_delegate', array( __CLASS__, 'module_access_delegate' ), 10, 3 );

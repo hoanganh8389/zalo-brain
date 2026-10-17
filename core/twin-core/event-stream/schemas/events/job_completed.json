@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Twin Event Stream: job_completed",
+  "description": "PHASE-0.117 S117-J3 - the final state of an assistant Job, with the job-result@1 snapshot (references + hashes, never content).",
+  "type": "object",
+  "required": [
+    "job_id",
+    "seq",
+    "kind",
+    "status"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "pattern": "^job_[0-9A-Za-z]{10,40}$"
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "enum": [
+        "requested",
+        "approval_requested",
+        "progressed",
+        "completed"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 24
+    },
+    "step_id": {
+      "type": "string",
+      "maxLength": 40
+    },
+    "account_id": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "result": {
+      "type": "object",
+      "description": "job-result@1 snapshot: references + hashes only"
+    },
+    "result_omitted": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true
+}

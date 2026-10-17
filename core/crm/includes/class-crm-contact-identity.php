@@ -24,7 +24,7 @@ defined( 'ABSPATH' ) || exit;
 // Above the double-load guard: PHP hoists the class below, so the guard returns even on a first load.
 require_once __DIR__ . '/class-crm-identity-canon-migration.php';
 // [2026-10-09 03:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F9 — read-only order box (channel · name · masked UID).
-require_once __DIR__ . '/class-crm-order-identity-metabox.php';
+// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): the read-only Woo order box (BizCity_CRM_Order_Identity_Metabox) moved to plugins/bizcity-twin-crm
 
 // [2026-06-15 Johnny Chu] R-UNIFY Wave 1 — double-load guard.
 if ( class_exists( 'BizCity_CRM_Contact_Identity', false ) ) {

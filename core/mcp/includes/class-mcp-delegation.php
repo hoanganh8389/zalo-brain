@@ -53,6 +53,7 @@ final class BizCity_MCP_Delegation {
 		'booking'       => array( 'booking.read', 'booking.write' ),
 		'automation'    => array( 'automation.run' ),
 		'channel'       => array( 'channel.reply', 'channel.post', 'channel.mail' ), // [2026-10-07 10:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 gap B — gmail.send
+		'content'       => array( 'content.read', 'content.write' ), // [2026-10-16 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L14 — self_wp: the cell builds pages / forms on the website (doc 20 §2c)
 	);
 
 	/** Mirror of BIZCITY-MCP-STANDARD-v1.json → any_business_mode_scopes. */

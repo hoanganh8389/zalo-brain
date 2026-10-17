@@ -6556,7 +6556,8 @@ class BizCity_TwinWeb_REST {
 			$default_scopes = array_merge( $default_scopes, array( 'document.render.docx', 'document.render.pptx' ) );
 		}
 		if ( defined( 'BIZCITY_MCP_PAGE_TOOLS_ENABLED' ) && BIZCITY_MCP_PAGE_TOOLS_ENABLED ) {
-			$default_scopes = array_merge( $default_scopes, array( 'page.read', 'page.write', 'page.publish' ) );
+			// [2026-10-17 02:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 Q118-10 (phương án B): KHÔNG tự cấp `page.publish` cho key tự tạo của người dùng. Token xác nhận của page.publish trả về cho chính client vừa sửa nháp nên không có người duyệt do hệ thống ép; quản trị viên vẫn cấp tay (admin REST / OAuth) hoặc thêm lại bằng filter `bizcity_mcp_customer_default_scopes`.
+			$default_scopes = array_merge( $default_scopes, array( 'page.read', 'page.write' ) );
 		}
 		if ( defined( 'BIZCITY_MCP_BUSINESS_TOOLS_ENABLED' ) && BIZCITY_MCP_BUSINESS_TOOLS_ENABLED ) {
 			$default_scopes[] = 'business.read';

@@ -152,7 +152,9 @@ BizCity_Connect_REST::init();
 // [2026-10-15 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.113 S113-L1 — "Kết nối nhanh" Gmail · Drive · Facebook Page via Composio on the cell (site → Hub → cell; no token here)
 require_once $gateway_dir . 'connect/class-connect-composio.php';
 BizCity_Connect_Composio_REST::init();
-add_action( 'init', static function () { if ( class_exists( 'BizCity_User_Workspace_Pusher' ) ) { BizCity_User_Workspace_Pusher::init(); } }, 20 ); // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
+add_action( 'init', static function () { if ( class_exists( 'BizCity_User_Workspace_Pusher' ) ) { BizCity_User_Workspace_Pusher::init(); } }, 20 );
+add_action( 'init', static function () { if ( class_exists( 'BizCity_Job_View_REST' ) ) { BizCity_Job_View_REST::init(); } }, 20 );
+add_action( 'init', static function () { if ( class_exists( 'BizCity_Sheet_Bindings' ) ) { BizCity_Sheet_Bindings::init(); } }, 20 ); // [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7 — adopt a book the cell created // [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
 require_once $gateway_dir . 'connect/class-connect-widget.php';
 BizCity_Connect_Widget::init();
 
@@ -443,6 +445,10 @@ $_bzc_bot_files = array(
 	// [2026-10-17 01:00 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A1 — every channel account has a WP user as its owner (R-UW-1): the one seam + repair.
 	$gateway_dir . 'class-account-owner.php'            => 'channel.account_owner',
 	// [2026-10-17 02:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — builds the user-workspace@1 packet of one person (not wired to a transport yet).
+	// [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1 — the Google Sheets a person bound as their cash book (rides in the user-workspace bundle).
+	$gateway_dir . 'class-sheet-bindings.php'           => 'channel.sheet_bindings',
+	// [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 — "Việc đã làm": the person's assistant Jobs folded from the twin event stream.
+	$gateway_dir . 'class-job-view-rest.php'            => 'channel.job_view_rest',
 	$gateway_dir . 'class-user-workspace-builder.php'   => 'channel.user_workspace_builder',
 	// [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — sends that packet to the cell (login / role change / profile save; newer rev only).
 	$gateway_dir . 'class-user-workspace-pusher.php'    => 'channel.user_workspace_pusher',
@@ -577,6 +583,8 @@ $_bzc_usage_files = array(
 	$gateway_dir . 'usage/class-usage-revenue-rest.php'     => 'channel.usage.revenue_rest',
 	$gateway_dir . 'usage/class-usage-myplans-endpoint.php' => 'channel.usage.myplans_endpoint', // Woo My Account "Gói Zalo của tôi" (customer screen ⑥)
 	$gateway_dir . 'usage/class-usage-accounts-rest.php'    => 'channel.usage.accounts_rest',    // PHASE-0.109 — account desk + token ledger tabs
+	// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview (read only, one row per WP user).
+	$gateway_dir . 'usage/class-admin-users-overview-rest.php' => 'channel.usage.admin_users_overview',
 	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',        // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
 	$gateway_dir . 'usage/class-brain-standing-rules.php'   => 'channel.brain.standing_rules',   // cap20_customer_only@1 reference (shared fixture with the cell, T108-33)
 );
@@ -634,6 +642,11 @@ if ( class_exists( 'BizCity_Usage_Revenue_REST' ) && class_exists( 'BizCity_Usag
 // [2026-10-14 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 — "Tài khoản" + "Sổ cái token" tabs (read-only, billed figures only).
 if ( class_exists( 'BizCity_Usage_Accounts_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
 	BizCity_Usage_Accounts_REST::init();
+}
+
+// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview; reads the same owners as the Accounts tab.
+if ( class_exists( 'BizCity_Admin_Users_Overview_REST' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
+	BizCity_Admin_Users_Overview_REST::init();
 }
 
 // [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L1..L6 — menu "Sử dụng" → tab Thành tích: achievements/ROI

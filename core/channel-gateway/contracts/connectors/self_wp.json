@@ -1,0 +1,38 @@
+{
+  "contract": "connector-framework@1.0.0",
+  "id": "self_wp",
+  "label": "Website của tôi",
+  "section": "dev",
+  "transport": "site_mcp",
+  "account_kind": "website",
+  "cell_platforms": [],
+  "tabs": [],
+  "settings": [],
+  "checks": [],
+  "executors": [
+    "wp.landing.draft",
+    "wp.page.publish",
+    "wp.site.info",
+    "wp.content.list",
+    "wp.page.read",
+    "wp.page.edit",
+    "wp.page.update_live",
+    "wp.page.restore"
+  ],
+  "tab_components": {},
+  "capabilities": [],
+  "report": {
+    "daily_block": false
+  },
+  "plan_gate": "connector.self_wp",
+  "badge": "Website",
+  "order": 35,
+  "auth": {
+    "kind": "none"
+  },
+  "desc": "Nhắn Zalo để trợ lý dựng trang landing (bản nháp) bằng Flatsome kèm form liên hệ, rồi đăng sau khi bạn xác nhận.",
+  "platform_code": "self_wp",
+  "module_access": {
+    "shared": "connect_dev"
+  }
+}

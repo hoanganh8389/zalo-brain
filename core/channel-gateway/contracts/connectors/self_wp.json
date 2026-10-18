@@ -15,9 +15,19 @@
     "wp.site.info",
     "wp.content.list",
     "wp.page.read",
+    "wp.page.history",
     "wp.page.edit",
     "wp.page.update_live",
-    "wp.page.restore"
+    "wp.page.restore",
+    "wp.theme.info",
+    "wp.theme.update",
+    "wp.user.create",
+    "wp.user.set_role",
+    "wp.page.draft",
+    "wp.page.attach_form",
+    "wp.media.upload",
+    "wp.menu.list",
+    "wp.menu.update"
   ],
   "tab_components": {},
   "capabilities": [],
@@ -32,6 +42,20 @@
   },
   "desc": "Nhắn Zalo để trợ lý dựng trang landing (bản nháp) bằng Flatsome kèm form liên hệ, rồi đăng sau khi bạn xác nhận.",
   "platform_code": "self_wp",
+  "small_win": {
+    "id": "MK-T2",
+    "title": "Dựng landing page cho sản phẩm",
+    "promise": "Thấy bản nháp trong 3–10 phút",
+    "try_sentence": "Dựng landing page cho sản phẩm của tôi, có form để khách để lại số điện thoại",
+    "steps": [
+      "Nhắn trợ lý trên Zalo: sản phẩm gì, bán cho ai",
+      "Xem bản nháp kèm form liên hệ",
+      "Nói “đăng” để xác nhận — chưa xác nhận thì chưa lên web"
+    ],
+    "executors": ["wp.landing.draft", "cf7.form.create", "wp.page.publish"],
+    "risk_max": "R2",
+    "open": "/website"
+  },
   "module_access": {
     "shared": "connect_dev"
   }

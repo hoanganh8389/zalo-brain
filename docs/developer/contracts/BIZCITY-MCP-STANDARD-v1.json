@@ -76,6 +76,23 @@
             "new_in": "0.90",
             "default_grant": "administrator",
             "notes": "PHASE-0.93 gap B (2026-10-07): channel.mail = gmail.send. The mode already exists in the cell (KNOWN_AGENT_MODES), so the cell offers gmail.send from the principal tools\/list with no cell change."
+        },
+        "content": {
+            "scopes": [
+                "content.read",
+                "content.write"
+            ],
+            "new_in": "0.118",
+            "default_grant": "administrator",
+            "notes": "PHASE-0.118 (2026-10-16): self_wp — the cell builds pages and forms on the website (cf7.form.create, wp.landing.draft). System tools: only the cell's builtin create_landing_page calls them. Pages are always drafts; each tool still checks the person's WordPress capability (edit_pages / wpcf7_edit_contact_forms)."
+        },
+        "site_admin": {
+            "scopes": [
+                "site.admin"
+            ],
+            "new_in": "0.118",
+            "default_grant": "administrator",
+            "notes": "PHASE-0.118 W4 (2026-10-17): self_wp - the cell changes the look of the website through a whitelist of Flatsome theme_mods (wp.theme.info, wp.theme.update). Administrators only (D118-19): the mode is grantable, but every tool also needs the WordPress capability edit_theme_options."
         }
     },
     "role_groups": {
@@ -1428,6 +1445,565 @@
             ],
             "scope": "tenant",
             "capability": "mcp.track.set"
+        },
+        {
+            "name": "cf7.form.create",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "wpcf7_edit_contact_forms",
+            "confirm": "never",
+            "llm_alias": "cf7_form_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L6 (2026-10-16): creates ONE Contact Form 7 form from a form-spec@1 (≤ 8 text/email/tel/textarea fields); mail goes to the requesting person's own email. System tool: only the cell's builtin create_landing_page calls it. Hidden when Contact Form 7 is not installed.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.cf7.form.create"
+        },
+        {
+            "name": "wp.landing.draft",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_landing_draft",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-16): builds ONE landing page as a DRAFT from a page-spec@1 (hero/benefits/text/form/cta). Flatsome ⇒ UX Builder shortcodes, other theme ⇒ Gutenberg. Never publishes. System tool: only the cell's builtin create_landing_page calls it.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.landing.draft"
+        },
+        {
+            "name": "wp.page.publish",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "publish_pages",
+            "confirm": "always",
+            "llm_alias": "wp_page_publish",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L7 (2026-10-17): publishes ONE page that the assistant built (wp.landing.draft, meta _bizcity_generated) and that is still not public. R2: confirm ALWAYS (preview with the public address + confirm_token bound to the arguments), needs publish_pages and edit_post of that page. System tool: only the cell's builtin publish_landing_page calls it.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.publish"
+        },
+        {
+            "name": "wp.site.info",
+            "kind": "read",
+            "mode": "content",
+            "scopes": [
+                "content.read"
+            ],
+            "required_cap": "read",
+            "confirm": "never",
+            "llm_alias": "wp_site_info",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L4 (2026-10-17 02:09 PM): read-only site facts (name, theme, page transports flatsome/gutenberg, Contact Form 7, the caller's page capabilities). PageBuilder is reported only as an optional extension (D118-23). Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.site.info"
+        },
+        {
+            "name": "wp.content.list",
+            "kind": "read",
+            "mode": "content",
+            "scopes": [
+                "content.read"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "wp_content_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L4 (2026-10-17 02:09 PM): read-only list of pages/posts (≤ 20); admins see all, others only their own; a draft never exposes an address. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.content.list"
+        },
+        {
+            "name": "cf7.form.list",
+            "kind": "read",
+            "mode": "content",
+            "scopes": [
+                "content.read"
+            ],
+            "required_cap": "wpcf7_read_contact_forms",
+            "confirm": "never",
+            "llm_alias": "cf7_form_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L4 (2026-10-17 02:09 PM): read-only list of Contact Form 7 forms (id, title, shortcode, ≤ 30). Hidden when CF7 is not installed. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.cf7.form.list"
+        },
+        {
+            "name": "wp.page.read",
+            "kind": "read",
+            "mode": "content",
+            "scopes": [
+                "content.read"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_page_read",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-17 02:16 PM): read the sections of ONE assistant-built page (indexed from 0) + spec_hash; any other page returns needs_human + the WordPress edit link. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.read"
+        },
+        {
+            "name": "wp.page.history",
+            "kind": "read",
+            "mode": "content",
+            "scopes": [
+                "content.read"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_page_history",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L11 (2026-10-17): site-change-log@1 of ONE assistant-built page: newest first (max 20) when\/what\/who\/how approved (manual|standing|none)\/changes\/command_line (display only, never run)\/before_ref+after_ref (snapshot ids)\/can_restore. Detail lives in the page meta history; the MCP audit gets one metadata-only line per change. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.history"
+        },
+        {
+            "name": "wp.theme.info",
+            "kind": "read",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "edit_theme_options",
+            "confirm": "never",
+            "llm_alias": "wp_theme_info",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 W4 (2026-10-17): the active theme (Flatsome supported?), the WHITELIST of changeable theme_mods with current values and limits, and the last 10 changes (change_id, revertable). Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.theme.info"
+        },
+        {
+            "name": "wp.theme.update",
+            "kind": "write",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "edit_theme_options",
+            "confirm": "always",
+            "llm_alias": "wp_theme_update",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 W4 (2026-10-17): changes up to 8 whitelisted theme_mods, or reverts one logged change. R2: confirm ALWAYS (preview old -> new + confirm_token bound to the arguments); needs edit_theme_options. The previous values are kept (option bizcity_selfwp_theme_changes, max 20) and a revert is itself revertable. No CSS\/JS\/HTML key is in the whitelist. System tool: the cell builtin update_theme_settings is its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.theme.update"
+        },
+        {
+            "name": "cf7.form.update",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "wpcf7_edit_contact_forms",
+            "confirm": "never",
+            "llm_alias": "cf7_form_update",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L6 (2026-10-17): edits ONE assistant-built Contact Form 7 form (fields, labels, button, thank-you text) from a partial form-spec, or restores a snapshot. The recipient is read back and written back untouched; recipient_email is refused (use cf7.form.set_recipient). The previous spec is kept (max 10, 90 days). A hand-made form answers selfwp_form_not_generated + the WordPress link. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.cf7.form.update"
+        },
+        {
+            "name": "cf7.form.set_recipient",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "wpcf7_edit_contact_forms",
+            "confirm": "always",
+            "llm_alias": "cf7_form_set_recipient",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L8 (2026-10-17): the ONLY door that changes where an assistant-built form mails the visitor data. R2: confirm ALWAYS (preview shows old -> new address, both masked; token bound to the arguments); one address only; the previous address is kept (last 5) so revert=true can put it back; history and audit carry masked addresses. System tool: the cell builtin change_form_recipient is its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.cf7.form.set_recipient"
+        },
+        {
+            "name": "wp.user.create",
+            "kind": "write",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "create_users",
+            "confirm": "always",
+            "llm_alias": "wp_user_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 W4 S118-L9 (2026-10-17): R3 - creates ONE WordPress account with a role in {subscriber, customer, contributor, author, editor} (never administrator \/ shop_manager). Owner principal only, mode site_admin, needs create_users. confirm ALWAYS every time (preview + token bound to the arguments), never schedulable \/ standing. No password is created, returned or logged: WordPress mails the person its set-password link. Emails masked everywhere. System tool: the cell builtin create_website_account is its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.user.create"
+        },
+        {
+            "name": "wp.user.set_role",
+            "kind": "write",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "promote_users",
+            "confirm": "always",
+            "llm_alias": "wp_user_set_role",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 W4 S118-L9 (2026-10-17): R3 - moves ONE account between the same five roles. Owner principal only, mode site_admin, needs promote_users + promote_user (that account). Refuses yourself, administrators \/ super admins and anyone whose current role is outside the list. confirm ALWAYS every time. System tool: the cell builtin set_website_account_role is its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.user.set_role"
+        },
+        {
+            "name": "wp.page.draft",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_page_draft",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-18): creates ONE plain page as a DRAFT from a page-spec@1 (no landing template, the theme header \/ footer stay); idempotency_key is mandatory so a retry never opens a second page; never public (publish is wp.page.publish). Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.draft"
+        },
+        {
+            "name": "wp.page.attach_form",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_page_attach_form",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-18): adds ONE existing Contact Form 7 form to a DRAFT page the assistant built (an add-section edit through wp.page.edit: same rights, snapshot and history); the same form twice is a quiet no-op. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.attach_form"
+        },
+        {
+            "name": "wp.media.upload",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "upload_files",
+            "confirm": "never",
+            "llm_alias": "wp_media_upload",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-18): stores ONE picture (JPEG \/ PNG \/ GIF \/ WebP, max 1.5 MB, max 8000 px) into the media library. The bytes travel inside the call (data_base64); no URL is ever accepted or fetched (no SSRF). The type comes from the content, never the name; SVG \/ HTML \/ PHP and pictures carrying script markers are refused; same bytes = same media id. Needs upload_files. System tool: its cell door (taking the picture from the chat file store) is still to be built.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.media.upload"
+        },
+        {
+            "name": "wp.menu.list",
+            "kind": "read",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "edit_theme_options",
+            "confirm": "never",
+            "llm_alias": "wp_menu_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L8 (2026-10-18): the navigation menus (id, name, locations) with their items (item_id, title, parent, page or address) and the last menu changes (change_id). Read-only companion of wp.menu.update (the model needs item_id). Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.menu.list"
+        },
+        {
+            "name": "wp.menu.update",
+            "kind": "write",
+            "mode": "site_admin",
+            "scopes": [
+                "site.admin"
+            ],
+            "required_cap": "edit_theme_options",
+            "confirm": "always",
+            "llm_alias": "wp_menu_update",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L8 (2026-10-18): edits ONE menu with up to 10 operations (add \/ remove \/ move \/ rename) or reverts one logged change. R2: confirm ALWAYS (diff preview + token bound to the arguments). Max 40 items, 2 levels; a link is a PUBLISHED page of the site, an internal path or an http(s) address with a real host (no IP literal, no javascript:\/data:\/mailto:\/tel:). The previous structure is saved BEFORE the write (option bizcity_selfwp_menu_changes, max 20); the audit line carries no titles or addresses. System tool: the cell builtin update_site_menu is its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.menu.update"
+        },
+        {
+            "name": "wp.page.edit",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "never",
+            "llm_alias": "wp_page_edit",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "notes": "PHASE-0.118 S118-L5 (2026-10-17 02:16 PM): edit ONE assistant-built DRAFT page section by section (≤ 10 ops: set_title/update/add/remove) on the spec stored when it was built; optimistic lock via base_spec_hash; never publishes; published or hand-written pages are refused / needs_human. Model-visible.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.edit"
+        },
+        {
+            "name": "wp.page.update_live",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "publish_pages",
+            "confirm": "always",
+            "llm_alias": "wp_page_update_live",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L7 (2026-10-17): edits ONE PUBLIC page that the assistant built, section by section (same ops as wp.page.edit), on the spec stored with the page. R2: confirm ALWAYS (preview = section diff + confirm_token bound to the arguments); base_spec_hash is required (optimistic lock, a stale read is a 409); needs publish_pages AND edit_post of that page. The previous version is kept as a snapshot (max 10, 90 days) so wp.page.restore can undo it. Never changes the publish status. System tool: the cell builtin (S118-B) will be its only door.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.update_live"
+        },
+        {
+            "name": "wp.page.restore",
+            "kind": "write",
+            "mode": "content",
+            "scopes": [
+                "content.write"
+            ],
+            "required_cap": "edit_pages",
+            "confirm": "always",
+            "llm_alias": "wp_page_restore",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 118,
+            "system": true,
+            "notes": "PHASE-0.118 S118-L7 (2026-10-17): puts ONE assistant-built page back to a snapshot (snapshot_id from wp.page.read). R2: confirm ALWAYS (preview = diff). snapshot_id is mandatory so a retried call can never undo the undo; the version it replaces becomes a snapshot too. A public page also needs publish_pages. Snapshots are re-validated like a fresh spec. Never changes the publish status. System tool.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.wp.page.restore"
         }
     ],
     "existing_tool_modes": {

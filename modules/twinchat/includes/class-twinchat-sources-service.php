@@ -848,7 +848,8 @@ class BizCity_TwinChat_Sources_Service {
 		$force_remote = ! empty( $metadata['force_remote_evidence'] );
 		$remote_url   = (string) ( $metadata['evidence_url'] ?? $metadata['provider_url'] ?? '' );
 		if ( $remote_url === '' ) {
-			$remote_url = (string) wp_get_attachment_url( $attach_id );
+			// [2026-10-17 05:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 Q121-1 — a private original's public URL is the owner-only route; an R2-offloaded one is fetched from its real storage URL (server-side only).
+			$remote_url = class_exists( 'BizCity_KG_Private_File_Store' ) && BizCity_KG_Private_File_Store::is_private( $attach_id ) ? BizCity_KG_Private_File_Store::storage_url( $attach_id ) : (string) wp_get_attachment_url( $attach_id );
 		}
 
 		if ( $force_remote ) {

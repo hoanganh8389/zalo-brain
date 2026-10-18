@@ -24,9 +24,11 @@ final class BizCity_Sheet_Bindings {
 		'debts.setup'  => 'debts_v1',
 		'progress.setup' => 'progress_v1',
 		'checklist.setup' => 'checklist_v1',
+		'plan.setup' => 'plan_v1',
+		'docs.setup' => 'docs_v1', // [2026-10-18 01:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A2-3 / B2-3 (I-8) — sổ tài liệu (tab TaiLieu)
 	);
 	/** must equal zalo-hub src/sheets/template-ids.ts TEMPLATE_IDS */
-	const TEMPLATES = array( 'cashbook_v1', 'cashbook_v2', 'debts_v1', 'progress_v1', 'checklist_v1' );
+	const TEMPLATES = array( 'cashbook_v1', 'cashbook_v2', 'debts_v1', 'progress_v1', 'checklist_v1', 'plan_v1', 'docs_v1' ); // [2026-10-18 01:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A2-3 / B2-3 (I-8)
 
 	/** [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7 — the site adopts a book the CELL created: the Job event carries evidence `sheet_created` with ref `sheet:<id>!<tab>` */
 	public static function init(): void {

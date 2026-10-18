@@ -141,6 +141,27 @@ class BizCity_Skill_Manager {
 		return true;
 	}
 
+	/**
+	 * [2026-10-17 03:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — write the `<name>.twin.json` sidecar of a skill (twin-skill@1).
+	 * Separate from write_file() on purpose: the generic POST /file route stays .md-only, so a twin file is only ever written by
+	 * BizCity_Skills_Service::save() after the cell checked it. @return true|WP_Error
+	 */
+	public function write_sidecar( string $relative_path, string $json ) {
+		if ( 1 !== preg_match( '#/[a-z0-9][a-z0-9-]{1,62}(\.v[0-9]{1,6})?\.twin\.json$#', $relative_path ) ) {
+			return new WP_Error( 'invalid_ext', 'Chỉ nhận file <tên>.twin.json.' );
+		}
+		$abs = $this->resolve_path( $relative_path );
+		if ( is_wp_error( $abs ) ) {
+			return $abs;
+		}
+		$this->ensure_library();
+		$dir = dirname( $abs );
+		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
+			return new WP_Error( 'write_error', 'Không tạo được thư mục.' );
+		}
+		return false === file_put_contents( $abs, $json ) ? new WP_Error( 'write_error', 'Không ghi được file.' ) : true;
+	}
+
 	/** Delete a file, or an EMPTY folder. @return true|WP_Error */
 	public function delete_file( string $relative_path ) {
 		$abs = $this->resolve_path( $relative_path );

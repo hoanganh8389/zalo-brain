@@ -102,6 +102,10 @@ final class BizCity_Twin_Job_Event_REST {
 		if ( ! empty( $body['failure_code'] ) && preg_match( '/^[a-z0-9_]{1,40}$/', (string) $body['failure_code'] ) ) {
 			$payload['failure_code'] = (string) $body['failure_code'];
 		}
+		// [2026-10-17 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J6: the skill id, so a Job that has not finished still has a name on the Job page
+		if ( ! empty( $body['skill'] ) && preg_match( '/^[a-z]{2,20}\.[a-z]{2,20}$/', (string) $body['skill'] ) ) {
+			$payload['skill'] = (string) $body['skill'];
+		}
 		$result_omitted = false;
 		if ( 'completed' === $kind && isset( $body['result'] ) && is_array( $body['result'] ) ) {
 			$json = wp_json_encode( $body['result'] );

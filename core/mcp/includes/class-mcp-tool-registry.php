@@ -658,6 +658,11 @@ final class BizCity_MCP_Tool_Registry {
 		}
 		$error_code = isset( $envelope['error']['code'] ) ? (string) $envelope['error']['code'] : '';
 		$evaluation = self::evaluation_meta( $envelope, $error_code );
+		// [2026-10-17 10:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W3 — tie this line to the cell's turn (the same 12-hex `turn_hash` the delegation line carries),
+		// so one chat turn can be followed from the cell trace to every site tool it called (skills.*, notebook, sales…). A hash prefix of the turn id, never the id.
+		if ( '' !== (string) ( $ctx['turn_id'] ?? '' ) ) {
+			$evaluation['turn_hash'] = substr( hash( 'sha256', (string) $ctx['turn_id'] ), 0, 12 );
+		}
 		$scores     = self::score_meta( $envelope );
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — write file evidence before the DB audit insert.
 		if ( class_exists( 'BizCity_MCP_File_Logger' ) ) {
@@ -775,6 +780,10 @@ final class BizCity_MCP_Tool_Registry {
 				// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43 — ngày của GHI CHÚ (Ymd),
 				// không phải ngày của sổ: hỏi "ghi chú hôm qua" vẫn đúng khi mọi ghi chú nằm chung một sổ.
 				'day_key'            => array( 'type' => 'string', 'pattern' => '^\\d{8}$' ),
+				// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 (I-2) — search INSIDE given documents only (T2 of the answer ladder, R-JN-21):
+				// kg source ids, or journal entry ids the site maps to them; filtered BEFORE ranking, still within allowed notebooks.
+				'source_ids'         => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ), 'maxItems' => 10 ),
+				'entry_ids'          => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ), 'maxItems' => 10 ),
 				'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
 				'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
 				'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),

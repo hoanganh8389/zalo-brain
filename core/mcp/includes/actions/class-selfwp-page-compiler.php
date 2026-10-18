@@ -31,6 +31,50 @@ final class BizCity_SelfWP_Page_Compiler {
 	const FIELD_TYPES  = array( 'text', 'email', 'tel', 'textarea' );
 
 	/**
+	 * [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.118 (client MCP trước) — the JSON Schema of a page-spec@1, built from the SAME constants and limits as validate(), so a client such as
+	 * Claude Code sees the real shape (section types, required fields, lengths) in tools/list instead of a bare "object" and has to guess. Advertising only: validate() stays the judge
+	 * (it normalises and reports every error with its path); nothing here rejects a call. A limit changed in validate() must be changed here - the unit test builds a spec from this
+	 * schema's own examples and refuses to drift.
+	 */
+	public static function json_schema(): array {
+		$s = static function ( int $max, int $min = 0 ): array {
+			return array( 'type' => 'string', 'maxLength' => $max ) + ( $min > 0 ? array( 'minLength' => $min ) : array() );
+		};
+		$cta = array( 'type' => 'object', 'description' => 'Nút: label tối đa 30 ký tự; target là #anchor, tel:+số hoặc https://… (khác ⇒ "#").', 'properties' => array( 'label' => $s( 30 ), 'target' => array( 'type' => 'string', 'maxLength' => 300 ) ) );
+		return array(
+			'type'        => 'object',
+			'description' => 'page-spec@1: một trang landing. Chỉ dùng các loại phần đã liệt kê; chữ thường, không HTML (thẻ bị bỏ). Tối đa ' . self::MAX_SECTIONS . ' phần, tối đa một phần "form". Muốn có form: tạo trước bằng cf7.form.create rồi dùng form_ref "cf7:<form_id>". Ảnh: chỉ "media:<id>" của thư viện.',
+			'required'    => array( 'title', 'sections' ),
+			'properties'  => array(
+				'title'    => $s( 120, 1 ) + array( 'description' => 'Tiêu đề trang (bắt buộc).' ),
+				'slug'     => array( 'type' => 'string', 'maxLength' => 60, 'pattern' => '^[a-z0-9]+(?:-[a-z0-9]+)*$', 'description' => 'Đường dẫn: chữ thường, số, gạch ngang.' ),
+				'kind'     => array( 'type' => 'string', 'enum' => array( 'landing' ) ),
+				'seo'      => array( 'type' => 'object', 'properties' => array( 'meta_description' => $s( 160 ) ) ),
+				'sections' => array(
+					'type'     => 'array',
+					'minItems' => 1,
+					'maxItems' => self::MAX_SECTIONS,
+					'items'    => array( 'oneOf' => array(
+						array( 'type' => 'object', 'required' => array( 'type', 'headline' ), 'properties' => array(
+							'type' => array( 'const' => 'hero' ), 'headline' => $s( 120, 1 ), 'sub' => $s( 240 ),
+							'image_ref' => array( 'type' => 'string', 'pattern' => '^media:[1-9][0-9]{0,9}$' ), 'cta' => $cta ) ),
+						array( 'type' => 'object', 'required' => array( 'type', 'items' ), 'properties' => array(
+							'type' => array( 'const' => 'benefits' ),
+							'items' => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => self::MAX_ITEMS, 'items' => array( 'type' => 'object', 'required' => array( 'title' ), 'properties' => array( 'title' => $s( 60, 1 ), 'text' => $s( 200 ) ) ) ) ) ),
+						array( 'type' => 'object', 'required' => array( 'type', 'body' ), 'properties' => array(
+							'type' => array( 'const' => 'text' ), 'title' => $s( 80 ), 'body' => $s( 1500, 1 ) ) ),
+						array( 'type' => 'object', 'required' => array( 'type', 'form_ref' ), 'properties' => array(
+							'type' => array( 'const' => 'form' ), 'form_ref' => array( 'type' => 'string', 'pattern' => '^cf7:[1-9][0-9]{0,9}$' ), 'title' => $s( 80 ), 'anchor' => array( 'type' => 'string', 'pattern' => '^[a-z0-9_-]{1,30}$', 'default' => 'form' ) ) ),
+						array( 'type' => 'object', 'required' => array( 'type', 'headline' ), 'properties' => array(
+							'type' => array( 'const' => 'cta' ), 'headline' => $s( 120, 1 ),
+							'button' => array( 'type' => 'object', 'properties' => array( 'label' => $s( 30, 1 ), 'tel' => array( 'type' => 'string', 'description' => 'Số điện thoại 8–15 chữ số, có thể có +.' ), 'target' => array( 'type' => 'string', 'maxLength' => 300 ) ) ) ) ),
+					) ),
+				),
+			),
+		);
+	}
+
+	/**
 	 * Validate and normalise a page-spec. Never throws.
 	 *
 	 * @param mixed $spec

@@ -27,11 +27,14 @@ if ( class_exists( 'BizCity_Journal_Database', false ) ) {
 
 final class BizCity_Journal_Database {
 
-	const SCHEMA_VERSION = '1.1.0';
+	// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J3 (R-JN-14, Q121-13) — 1.2.0: `status` ENUM + review / verified / failed / void (journal-entry@1.1.0 `state`); dbDelta alters the column in place.
+	const SCHEMA_VERSION = '1.2.0';
 	const SCHEMA_VERSION_KEY = 'bizcity_journal_db_version';
 	const CACHE_GROUP = 'journal';
 	// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — backfill batch size, bounded (R-JOURNAL R-JN-4).
 	const BACKFILL_BATCH = 500;
+	/** journal-entry@1.1.0 `state` values (+ legacy draft/published/archived). `void` and `archived` are hidden from every listing. */
+	const STATUSES = array( 'draft', 'captured', 'published', 'archived', 'review', 'verified', 'failed', 'void' );
 
 	private static $instance = null;
 	private $table;
@@ -78,7 +81,7 @@ final class BizCity_Journal_Database {
 			workspace_id        VARCHAR(64) NOT NULL DEFAULT 'notion',
 			title               VARCHAR(255) NOT NULL DEFAULT '',
 			body                LONGTEXT NOT NULL,
-			status              ENUM('draft','captured','published','archived') NOT NULL DEFAULT 'draft',
+			status              ENUM('draft','captured','published','archived','review','verified','failed','void') NOT NULL DEFAULT 'draft',
 			source_type         VARCHAR(32) NOT NULL DEFAULT 'menu',
 			source_ref          VARCHAR(191) NOT NULL DEFAULT '',
 			idempotency_key     VARCHAR(191) NOT NULL DEFAULT '',
@@ -211,7 +214,7 @@ final class BizCity_Journal_Database {
 		}
 
 		global $wpdb;
-		$where = array( "status != 'archived'" );
+		$where = array( "status NOT IN ('archived','void')" );
 		$params = array();
 		if ( ! $all ) {
 			$where[] = 'owner_user_id = %d';
@@ -241,7 +244,7 @@ final class BizCity_Journal_Database {
 		global $wpdb;
 		$owner = (int) ( $filter['owner_user_id'] ?? 0 );
 		$all   = ! empty( $filter['all'] );
-		$where  = array( "status != 'archived'" );
+		$where  = array( "status NOT IN ('archived','void')" );
 		$params = array();
 		if ( ! $all ) {
 			$where[]  = 'owner_user_id = %d';
@@ -284,6 +287,16 @@ final class BizCity_Journal_Database {
 				$params[] = '%' . $wpdb->esc_like( ',' . $t . ',' ) . '%';
 			}
 		}
+		// [2026-10-17 10:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B4-1 (S121-R6, doc 70 §6) — web "Kho" filters: one live state, and rows that keep an original file.
+		if ( ! empty( $filter['status'] ) && in_array( (string) $filter['status'], array( 'captured', 'review', 'verified', 'failed' ), true ) ) {
+			$where[]  = 'status = %s';
+			$params[] = (string) $filter['status'];
+		}
+		if ( ! empty( $filter['has_file'] ) ) {
+			$where[]  = 'metadata LIKE %s AND metadata NOT LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"attachment_id":' ) . '%';
+			$params[] = '%' . $wpdb->esc_like( '"attachment_id":0' ) . '%';
+		}
 		// `q` narrows the already-structured-filtered set (title only — R-JN-5: semantic search is a separate pass).
 		if ( '' !== trim( (string) ( $filter['q'] ?? '' ) ) ) {
 			$where[]  = 'title LIKE %s';
@@ -303,7 +316,7 @@ final class BizCity_Journal_Database {
 		global $wpdb;
 		$rows = $wpdb->get_results( $wpdb->prepare(
 			"SELECT kind, COUNT(*) AS c, MIN(doc_date) AS d_from, MAX(doc_date) AS d_to, MAX(updated_at) AS u
-			 FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' AND kind != '' GROUP BY kind ORDER BY c DESC LIMIT %d",
+			 FROM {$this->table} WHERE owner_user_id = %d AND status NOT IN ('archived','void') AND kind != '' GROUP BY kind ORDER BY c DESC LIMIT %d",
 			$owner_user_id, max( 1, $max )
 		), ARRAY_A ) ?: array();
 		return $rows;
@@ -313,13 +326,13 @@ final class BizCity_Journal_Database {
 	public function subject_rows( int $owner_user_id, int $max = 30 ): array {
 		global $wpdb;
 		$subjects = $wpdb->get_col( $wpdb->prepare(
-			"SELECT DISTINCT subject_hash FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' AND subject_hash != '' ORDER BY updated_at DESC LIMIT %d",
+			"SELECT DISTINCT subject_hash FROM {$this->table} WHERE owner_user_id = %d AND status NOT IN ('archived','void') AND subject_hash != '' ORDER BY updated_at DESC LIMIT %d",
 			$owner_user_id, max( 1, $max )
 		) ) ?: array();
 		$out = array();
 		foreach ( $subjects as $sh ) {
 			$kind_rows = $wpdb->get_results( $wpdb->prepare(
-				"SELECT kind, COUNT(*) AS c, MAX(doc_date) AS last FROM {$this->table} WHERE owner_user_id = %d AND subject_hash = %s AND status != 'archived' GROUP BY kind",
+				"SELECT kind, COUNT(*) AS c, MAX(doc_date) AS last FROM {$this->table} WHERE owner_user_id = %d AND subject_hash = %s AND status NOT IN ('archived','void') GROUP BY kind",
 				$owner_user_id, $sh
 			), ARRAY_A ) ?: array();
 			$kinds = array();
@@ -334,10 +347,51 @@ final class BizCity_Journal_Database {
 	}
 
 	/** Recent rows for `doc_index` (doc 92 §5). */
+	/** [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1) — full rows for the cell registry (newest first), hidden states excluded. */
+	public function register_rows( int $owner_user_id, int $max = 120 ): array {
+		global $wpdb;
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$this->table} WHERE owner_user_id = %d AND status NOT IN ('archived','void') ORDER BY updated_at DESC, id DESC LIMIT %d",
+			$owner_user_id, max( 1, min( 500, $max ) )
+		), ARRAY_A ) ?: array();
+	}
+
+	/**
+	 * [2026-10-17 11:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 Q121-8 web — rows OTHER people (staff) filed from documents they sent into one of `$bridge_ids`
+	 * (Q121-17: their book; Q121-8: the number's owner may read them). Joined on the private original's workspace
+	 * `u<sender>|zalo_account:<bridge>`; only `TL-<attachment>` rows qualify.
+	 */
+	public function number_rows( array $bridge_ids, int $exclude_owner, int $max = 200, int $entry_id = 0 ): array {
+		global $wpdb;
+		$bridge_ids = array_values( array_filter( array_map( 'strval', $bridge_ids ), static function ( $b ) { return '' !== $b && 1 === preg_match( '/^[A-Za-z0-9_.:-]{1,64}$/', $b ); } ) );
+		if ( array() === $bridge_ids ) {
+			return array();
+		}
+		$likes  = array();
+		$params = array( $exclude_owner );
+		foreach ( $bridge_ids as $b ) {
+			$likes[]  = 'pm.meta_value LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '|zalo_account:' . $b );
+		}
+		$one = '';
+		if ( $entry_id > 0 ) {
+			$one      = ' AND j.id = %d';
+			$params[] = $entry_id;
+		}
+		$params[] = max( 1, min( 500, $max ) );
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT j.* FROM {$this->table} j
+			 INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = CAST(SUBSTRING(j.source_ref, 4) AS UNSIGNED) AND pm.meta_key = '_bizcity_sb_workspace'
+			 WHERE j.source_ref LIKE 'TL-%%' AND j.owner_user_id <> %d AND j.status NOT IN ('archived','void') AND (" . implode( ' OR ', $likes ) . "){$one}
+			 ORDER BY j.updated_at DESC, j.id DESC LIMIT %d",
+			$params
+		), ARRAY_A ) ?: array();
+	}
+
 	public function recent_rows( int $owner_user_id, int $max = 20 ): array {
 		global $wpdb;
 		return $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, kind, title, doc_date, tags, updated_at FROM {$this->table} WHERE owner_user_id = %d AND status != 'archived' ORDER BY updated_at DESC LIMIT %d",
+			"SELECT id, kind, title, doc_date, tags, updated_at FROM {$this->table} WHERE owner_user_id = %d AND status NOT IN ('archived','void') ORDER BY updated_at DESC LIMIT %d",
 			$owner_user_id, max( 1, $max )
 		), ARRAY_A ) ?: array();
 	}
@@ -397,7 +451,7 @@ final class BizCity_Journal_Database {
 		if ( array_key_exists( 'body', $data ) ) {
 			$write['body'] = wp_kses_post( (string) $data['body'] );
 		}
-		if ( array_key_exists( 'status', $data ) && in_array( $data['status'], array( 'draft', 'captured', 'published', 'archived' ), true ) ) {
+		if ( array_key_exists( 'status', $data ) && in_array( $data['status'], self::STATUSES, true ) ) {
 			$write['status'] = $data['status'];
 		}
 		if ( array_key_exists( 'metadata', $data ) ) {
@@ -435,6 +489,27 @@ final class BizCity_Journal_Database {
 		}
 		$this->flush_cache();
 		return $this->get( $id, $owner_user_id, $all );
+	}
+
+	/** [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-4 (S121-A4, I-3) — the row whose source_ref is a document code (TL-…), any owner; null when none. */
+	public function get_by_source_ref( string $source_ref ): ?array {
+		$source_ref = trim( $source_ref );
+		if ( '' === $source_ref ) {
+			return null;
+		}
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE source_ref = %s AND status NOT IN ('archived','void') ORDER BY id ASC LIMIT 1", $source_ref ), ARRAY_A );
+		return is_array( $row ) ? $row : null;
+	}
+
+	/** [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 — the row that points at one KG source (idx_kg_source), any owner; null when none. */
+	public function get_by_kg_source_id( int $kg_source_id ): ?array {
+		if ( $kg_source_id <= 0 ) {
+			return null;
+		}
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE kg_source_id = %d ORDER BY id ASC LIMIT 1", $kg_source_id ), ARRAY_A );
+		return is_array( $row ) ? $row : null;
 	}
 
 	public function archive( int $id, int $owner_user_id, bool $all = false, int $expected_revision = 0 ) {
@@ -488,7 +563,7 @@ final class BizCity_Journal_Database {
 			'workspace_id'    => sanitize_key( (string) ( $data['workspace_id'] ?? 'notion' ) ) ?: 'notion',
 			'title'           => $title,
 			'body'            => $body,
-			'status'          => in_array( $data['status'] ?? 'draft', array( 'draft', 'captured', 'published' ), true ) ? $data['status'] : 'draft',
+			'status'          => in_array( $data['status'] ?? 'draft', self::STATUSES, true ) && 'archived' !== ( $data['status'] ?? '' ) ? $data['status'] : 'draft',
 			'source_type'     => sanitize_key( (string) ( $data['source_type'] ?? 'menu' ) ) ?: 'menu',
 			'source_ref'      => sanitize_text_field( (string) ( $data['source_ref'] ?? '' ) ),
 			'idempotency_key' => $key,

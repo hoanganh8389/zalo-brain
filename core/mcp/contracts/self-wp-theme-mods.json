@@ -1,0 +1,27 @@
+{
+    "contract": "self-wp-theme-mods@1",
+    "theme": "flatsome",
+    "doc": "core\/channel-gateway\/docs\/PHASE-0.118-SELF-WP-SITE-BUILDER-MCP\/20-SELF-WP-EXECUTORS.md section 3",
+    "notes": "Whitelist of Flatsome theme_mods that wp.theme.update may write (D118-10). Keys verified against themes\/flatsome (get_theme_mod calls). Deliberately NOT here: html_custom_css, html_scripts_header and every other key that can carry CSS\/JS\/HTML - the assistant never injects code. Adding a key = edit this file + a test, never a new executor.",
+    "max_keys_per_call": 8,
+    "mods": {
+        "color_primary": { "type": "color", "label": "Màu chủ đạo" },
+        "color_secondary": { "type": "color", "label": "Màu phụ" },
+        "color_success": { "type": "color", "label": "Màu thành công" },
+        "color_alert": { "type": "color", "label": "Màu cảnh báo" },
+        "site_logo": { "type": "media", "label": "Logo (mã ảnh trong thư viện)" },
+        "logo_width": { "type": "int", "min": 20, "max": 600, "label": "Chiều rộng logo (px)" },
+        "header_height": { "type": "int", "min": 40, "max": 300, "label": "Chiều cao thanh đầu trang (px)" },
+        "header_height_sticky": { "type": "int", "min": 30, "max": 200, "label": "Chiều cao thanh đầu trang khi cuộn (px)" },
+        "button_radius": { "type": "int", "min": 0, "max": 100, "label": "Bo góc nút (px)" },
+        "topbar_show": { "type": "bool", "label": "Hiện thanh trên cùng" },
+        "type_headings": { "type": "font", "label": "Phông chữ tiêu đề" },
+        "type_texts": { "type": "font", "label": "Phông chữ nội dung" },
+        "type_nav": { "type": "font", "label": "Phông chữ menu" },
+        "type_alt": { "type": "font", "label": "Phông chữ nhấn" }
+    },
+    "font": {
+        "family_pattern": "^[A-Za-z0-9][A-Za-z0-9 \\-]{1,39}$",
+        "variant_pattern": "^(regular|italic|[1-9]00(italic)?)$"
+    }
+}

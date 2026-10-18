@@ -92,6 +92,10 @@ final class BizCity_Skill_Admin_Page {
 			'restBase'     => $rest_path ? $rest_path : '/wp-json/' . BizCity_Skill_REST_API::API_NAMESPACE,
 			'nonce'        => wp_create_nonce( 'wp_rest' ),
 			'toolsCatalog' => self::tools_catalog(),
+			// [2026-10-17 04:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K5 — Skill Editor reads readiness / asks for a draft through Channel Gateway's Composio pipe (same nonce)
+			// [2026-10-18 02:45 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — "Hỏi Zalo Second Brain" lands in TwinChat: the canonical link (R-ROUTE), never a hand-built page=…&plugin=… string
+			'twinchatUrl'  => class_exists( 'BizCity_Twin_Route' ) ? (string) BizCity_Twin_Route::url( 'twinchat' ) : '',
+			'composioBase' => (string) wp_parse_url( rest_url( 'bizcity-channel/v1/connect/composio' ), PHP_URL_PATH ),
 		);
 		wp_add_inline_script( 'bizcity-skill-app', 'window.skillAppConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 		wp_dequeue_script( 'wc-settings' );

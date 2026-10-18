@@ -28,7 +28,10 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 	const KIND        = 'doc_index';
 	const MAX_SHELF    = 40;
 	const MAX_SUBJECT  = 30;
-	const MAX_RECENT   = 20;
+	const MAX_RECENT   = 20;  // v1 cap, kept for the constant's readers
+	const MAX_DOCS     = 120; // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1) — doc rows until the byte budget
+	const CONTRACT     = 'doc-index@2';
+	const SUMMARY_MAX  = 160;
 	const MAX_BYTES    = 24576;
 	const CACHE_TTL    = 60; // [2026-10-12 11:35 AM Johnny Chu - Chu Hoàng Anh] doc 92 §5 — ≤ 60 s after a write.
 
@@ -82,8 +85,8 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 			return $cached;
 		}
 		$db        = BizCity_Journal_Database::instance();
-		$items     = array();
-		$bytes     = 2;
+		$items     = array( array( 'row' => 'meta', 'contract' => self::CONTRACT ) ); // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1)
+		$bytes     = 2 + strlen( (string) wp_json_encode( $items[0] ) ) + 1;
 		$truncated = false;
 
 		foreach ( $db->shelf_rows( $owner_user_id, self::MAX_SHELF ) as $r ) {
@@ -104,6 +107,23 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 				break;
 			}
 		}
+		// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1) — one `doc` row per document: code, kind, title, date, one-line summary, 2-4 key card
+		// fields, tags, learning level, state, notebook. Pinned first, then contracts ending within 30 days, then newest.
+		if ( ! $truncated && class_exists( 'BizCity_Journal_Index' ) ) {
+			$docs = array();
+			foreach ( $db->register_rows( $owner_user_id, self::MAX_DOCS ) as $r ) {
+				$entry   = BizCity_Journal_Index::to_journal_entry( $r );
+				$docs[]  = self::doc_item( $entry ) + array(
+					'_pinned' => ! empty( $entry['flags']['pinned'] ),
+					'_end'    => is_scalar( $entry['card']['end_date'] ?? null ) ? (string) $entry['card']['end_date'] : '',
+				);
+			}
+			foreach ( self::order_docs( $docs, gmdate( 'Y-m-d' ) ) as $item ) {
+				if ( ! self::push( $items, $bytes, $item, $truncated ) ) {
+					break;
+				}
+			}
+		}
 		if ( ! $truncated ) {
 			foreach ( $db->subject_rows( $owner_user_id, self::MAX_SUBJECT ) as $r ) {
 				$item = array(
@@ -118,27 +138,74 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 				}
 			}
 		}
-		if ( ! $truncated ) {
-			foreach ( $db->recent_rows( $owner_user_id, self::MAX_RECENT ) as $r ) {
-				$item = array(
-					'row'      => 'recent',
-					'entry_id' => (int) $r['id'],
-					'kind'     => (string) $r['kind'],
-					'title'    => mb_substr( (string) $r['title'], 0, 120 ),
-					'doc_date' => $r['doc_date'] ?? null,
-					'tags'     => array_slice( BizCity_Journal_Database::decode_tags( (string) $r['tags'] ), 0, 10 ),
-				);
-				if ( ! self::push( $items, $bytes, $item, $truncated ) ) {
-					break;
-				}
-			}
-		}
 
 		$out = array( 'items' => $items, 'truncated' => $truncated );
 		if ( function_exists( 'set_transient' ) ) {
 			set_transient( self::cache_key( $owner_user_id ), $out, self::CACHE_TTL );
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1) — one `doc` row (I-1) from a journal-entry@1.1.0. Sensitive kinds (finance · health · child ·
+	 * personal) carry only code, kind, title, date, state — never a summary or card values (R-JN-11). Never a URL / hash. Pure.
+	 */
+	public static function doc_item( array $e ): array {
+		$orig      = is_array( $e['original'] ?? null ) ? $e['original'] : array();
+		$code      = '' !== (string) ( $orig['doc_code'] ?? '' ) ? (string) $orig['doc_code'] : 'JE-' . (int) ( $e['entry_id'] ?? 0 );
+		$sensitive = '' !== (string) ( $e['flags']['sensitive'] ?? '' );
+		$item      = array(
+			'row'      => 'doc',
+			'code'     => $code,
+			'entry_id' => (int) ( $e['entry_id'] ?? 0 ),
+			'kind'     => (string) ( $e['kind'] ?? '' ),
+			'title'    => mb_substr( (string) ( $e['title'] ?? '' ), 0, 120 ),
+			'doc_date' => $e['doc_date'] ?? null,
+			'state'    => (string) ( $e['state'] ?? 'captured' ),
+		);
+		if ( $sensitive ) {
+			return $item;
+		}
+		$key  = array();
+		$card = is_array( $e['card'] ?? null ) ? $e['card'] : array();
+		$decl = class_exists( 'BizCity_Journal_Kinds' ) ? BizCity_Journal_Kinds::get( (string) $item['kind'] ) : null;
+		foreach ( (array) ( $decl['card_fields'] ?? array() ) as $f ) {
+			if ( count( $key ) >= 4 ) {
+				break;
+			}
+			if ( in_array( $f, array( 'title', 'summary', 'doc_date' ), true ) || ! isset( $card[ $f ] ) || ! is_scalar( $card[ $f ] ) || '' === (string) $card[ $f ] ) {
+				continue;
+			}
+			$key[ $f ] = mb_substr( (string) $card[ $f ], 0, 60 );
+		}
+		$item['summary']    = mb_substr( (string) ( $e['summary'] ?? '' ), 0, self::SUMMARY_MAX );
+		$item['key']        = (object) $key;
+		$item['tags']       = array_slice( array_map( 'strval', (array) ( $e['tags'] ?? array() ) ), 0, 6 );
+		$item['level']      = (string) ( $e['learning']['level'] ?? 'L0' );
+		$item['nb']         = (int) ( $e['kg']['notebook_ids'][0] ?? 0 );
+		$item['updated_at'] = (string) ( $e['updated_at'] ?? '' );
+		return $item;
+	}
+
+	/**
+	 * Registry order: pinned → contracts whose `end_date` (card) falls within 30 days → everything else in the given (newest
+	 * first) order. Stable. Pure. `$docs` items may carry `_pinned` / `_end` hints; they are stripped from the output.
+	 */
+	public static function order_docs( array $docs, string $today ): array {
+		$soon = gmdate( 'Y-m-d', (int) strtotime( $today . ' +30 days UTC' ) );
+		$rank = static function ( array $d ) use ( $today, $soon ): int {
+			if ( ! empty( $d['_pinned'] ) ) {
+				return 0;
+			}
+			$end = (string) ( $d['_end'] ?? '' );
+			return '' !== $end && $end >= $today && $end <= $soon ? 1 : 2;
+		};
+		$keyed = array();
+		foreach ( array_values( $docs ) as $i => $d ) {
+			$keyed[] = array( $rank( $d ), $i, $d );
+		}
+		usort( $keyed, static function ( $a, $b ) { return $a[0] <=> $b[0] ?: $a[1] <=> $b[1]; } );
+		return array_map( static function ( $k ) { unset( $k[2]['_pinned'], $k[2]['_end'] ); return $k[2]; }, $keyed );
 	}
 
 	/** Append `$item` unless it would push the pack past MAX_BYTES; returns false when the pack is full (stop paging). */
@@ -161,7 +228,7 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 	}
 
 	private static function cache_key( int $owner_user_id ): string {
-		return 'bizcity_journal_doc_index_v1_' . (int) get_current_blog_id() . '_' . $owner_user_id;
+		return 'bizcity_journal_doc_index_v2_' . (int) get_current_blog_id() . '_' . $owner_user_id; // v2: doc-index@2 (I-1)
 	}
 
 	private static function iso( string $mysql ): string {

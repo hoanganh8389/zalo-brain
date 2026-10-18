@@ -6556,8 +6556,9 @@ class BizCity_TwinWeb_REST {
 			$default_scopes = array_merge( $default_scopes, array( 'document.render.docx', 'document.render.pptx' ) );
 		}
 		if ( defined( 'BIZCITY_MCP_PAGE_TOOLS_ENABLED' ) && BIZCITY_MCP_PAGE_TOOLS_ENABLED ) {
-			// [2026-10-17 02:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 Q118-10 (phương án B): KHÔNG tự cấp `page.publish` cho key tự tạo của người dùng. Token xác nhận của page.publish trả về cho chính client vừa sửa nháp nên không có người duyệt do hệ thống ép; quản trị viên vẫn cấp tay (admin REST / OAuth) hoặc thêm lại bằng filter `bizcity_mcp_customer_default_scopes`.
-			$default_scopes = array_merge( $default_scopes, array( 'page.read', 'page.write' ) );
+			// [2026-10-17 02:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 Q118-10 (phương án B, đã ĐẢO LẠI 2026-10-18 — xem dòng dưới): từng bỏ `page.publish` khỏi key tự tạo vì token xác nhận trả về cho chính client vừa sửa nháp.
+			// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.118 Q118-10 ĐẢO LẠI (chủ quyết định, "mặc định cho phép page.publish"): người có quyền tự sửa/xoá trang đó thì đăng cũng không thêm rủi ro; lưu ý token xác nhận của page.publish vẫn trả về cho chính client vừa sửa nháp (không có người thứ hai duyệt). Muốn siết lại: bỏ `page.publish` bằng filter `bizcity_mcp_customer_default_scopes`.
+			$default_scopes = array_merge( $default_scopes, array( 'page.read', 'page.write', 'page.publish' ) );
 		}
 		if ( defined( 'BIZCITY_MCP_BUSINESS_TOOLS_ENABLED' ) && BIZCITY_MCP_BUSINESS_TOOLS_ENABLED ) {
 			$default_scopes[] = 'business.read';

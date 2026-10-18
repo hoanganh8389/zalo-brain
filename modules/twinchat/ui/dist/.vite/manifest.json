@@ -1,13 +1,13 @@
 {
-  "_arrow-left-D7bdTJJq.js": {
-    "file": "assets/arrow-left-D7bdTJJq.js",
+  "_arrow-left-Be7kRrrm.js": {
+    "file": "assets/arrow-left-Be7kRrrm.js",
     "name": "arrow-left",
     "imports": [
       "index.html"
     ]
   },
-  "_shield-check-DNuSz0Mh.js": {
-    "file": "assets/shield-check-DNuSz0Mh.js",
+  "_shield-check-BhrLbWeo.js": {
+    "file": "assets/shield-check-BhrLbWeo.js",
     "name": "shield-check",
     "imports": [
       "index.html"
@@ -43,7 +43,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-CRK0ELjV.js",
+    "file": "assets/index-Bt_7s_Da.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -61,15 +61,16 @@
       "src/components/workspace/HistoryWorkspace.tsx",
       "src/components/workspace/IntegrationsWorkspace.tsx",
       "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
+      "src/components/workspace/UsageWorkspace.tsx",
       "src/components/guru/GuruWorkspacePanel.tsx",
       "src/pages/AccountPage.tsx"
     ],
     "css": [
-      "assets/index-kVdz7xmx.css"
+      "assets/index-CrJgORwp.css"
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-BU-LcQEN.js",
+    "file": "assets/KGGraphViewNexus-BKKlX6K7.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,
@@ -82,7 +83,7 @@
     ]
   },
   "src/components/embed/DesignEmbedTab.tsx": {
-    "file": "assets/DesignEmbedTab-S5WmESgn.js",
+    "file": "assets/DesignEmbedTab-Cklh7--i.js",
     "name": "DesignEmbedTab",
     "src": "src/components/embed/DesignEmbedTab.tsx",
     "isDynamicEntry": true,
@@ -95,7 +96,7 @@
     ]
   },
   "src/components/embed/ImageStudioTab.tsx": {
-    "file": "assets/ImageStudioTab-D16uUpDe.js",
+    "file": "assets/ImageStudioTab-BdDsEmNh.js",
     "name": "ImageStudioTab",
     "src": "src/components/embed/ImageStudioTab.tsx",
     "isDynamicEntry": true,
@@ -109,7 +110,7 @@
     ]
   },
   "src/components/embed/StudioBuilderTab.tsx": {
-    "file": "assets/StudioBuilderTab-D1hxrhUn.js",
+    "file": "assets/StudioBuilderTab-HDaEUJ93.js",
     "name": "StudioBuilderTab",
     "src": "src/components/embed/StudioBuilderTab.tsx",
     "isDynamicEntry": true,
@@ -123,13 +124,13 @@
     ]
   },
   "src/components/guru/GuruWorkspacePanel.tsx": {
-    "file": "assets/GuruWorkspacePanel-EYCE3ihN.js",
+    "file": "assets/GuruWorkspacePanel-Iu8xH1U3.js",
     "name": "GuruWorkspacePanel",
     "src": "src/components/guru/GuruWorkspacePanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
-      "_shield-check-DNuSz0Mh.js",
+      "_shield-check-BhrLbWeo.js",
       "index.html",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
@@ -137,7 +138,7 @@
     ]
   },
   "src/components/workspace/HistoryWorkspace.tsx": {
-    "file": "assets/HistoryWorkspace-C8gVDtqD.js",
+    "file": "assets/HistoryWorkspace-B_6B35Nc.js",
     "name": "HistoryWorkspace",
     "src": "src/components/workspace/HistoryWorkspace.tsx",
     "isDynamicEntry": true,
@@ -150,7 +151,7 @@
     ]
   },
   "src/components/workspace/IntegrationsWorkspace.tsx": {
-    "file": "assets/IntegrationsWorkspace--kUvLVnp.js",
+    "file": "assets/IntegrationsWorkspace-Cu8UxTwx.js",
     "name": "IntegrationsWorkspace",
     "src": "src/components/workspace/IntegrationsWorkspace.tsx",
     "isDynamicEntry": true,
@@ -163,29 +164,43 @@
     ]
   },
   "src/components/workspace/PlansAndApiKeyWorkspace.tsx": {
-    "file": "assets/PlansAndApiKeyWorkspace-lOn8ahFM.js",
+    "file": "assets/PlansAndApiKeyWorkspace-mNe08l2g.js",
     "name": "PlansAndApiKeyWorkspace",
     "src": "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_arrow-left-D7bdTJJq.js",
-      "_shield-check-DNuSz0Mh.js",
+      "_arrow-left-Be7kRrrm.js",
+      "_shield-check-BhrLbWeo.js",
+      "src/components/workspace/UsageWorkspace.tsx",
+      "_vendor-react-D_0olU3u.js",
+      "_vendor-md-CC_Gvf8G.js",
+      "_vendor-graph-Db3CWWXx.js"
+    ]
+  },
+  "src/components/workspace/UsageWorkspace.tsx": {
+    "file": "assets/UsageWorkspace-B1evOY5u.js",
+    "name": "UsageWorkspace",
+    "src": "src/components/workspace/UsageWorkspace.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_vendor-query-Br6H_MhE.js",
+      "index.html",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"
     ]
   },
   "src/pages/AccountPage.tsx": {
-    "file": "assets/AccountPage-VFyci39U.js",
+    "file": "assets/AccountPage-CR6X5EeA.js",
     "name": "AccountPage",
     "src": "src/pages/AccountPage.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-Br6H_MhE.js",
       "index.html",
-      "_arrow-left-D7bdTJJq.js",
+      "_arrow-left-Be7kRrrm.js",
       "_vendor-react-D_0olU3u.js",
       "_vendor-md-CC_Gvf8G.js",
       "_vendor-graph-Db3CWWXx.js"

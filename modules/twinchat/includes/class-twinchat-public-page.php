@@ -288,6 +288,7 @@ class BizCity_TwinChat_Public_Page {
 			// Research, learning, etc.) instead of failing with a cryptic 404.
 			'apiKeyStatus'   => self::get_api_key_status(),
 			'settingsUrl'    => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
+			'twinSettingsUrl' => esc_url_raw( home_url( '/twin/?plugin=settings' ) ), // [2026-10-18 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-U1…U4 (doc 80 §2)
 			// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-2 — user + auth URLs for AccountButton + guest support.
 			'isLoggedIn'    => $user_id > 0,
 			'currentUser'   => $user_id > 0 && class_exists( 'BizCity_TwinChat_Admin_Menu' )
@@ -526,6 +527,7 @@ class BizCity_TwinChat_Public_Page {
 			// 2026-05-21 — API key health for the React setup dialog.
 			'apiKeyStatus'   => self::get_api_key_status(),
 			'settingsUrl'    => esc_url_raw( admin_url( 'admin.php?page=bizcity-twinchat-settings' ) ),
+			'twinSettingsUrl' => esc_url_raw( home_url( '/twin/?plugin=settings' ) ), // [2026-10-18 01:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-U1…U4 (doc 80 §2)
 			// [2026-06-04 Johnny Chu] PHASE-MEMBERSHIP FE-2 — auth fields for AccountButton (same as enqueue_assets).
 			'ajaxUrl'       => esc_url_raw( admin_url( 'admin-ajax.php' ) ),
 			'webchatNonce'  => wp_create_nonce( 'bizcity_webchat' ),

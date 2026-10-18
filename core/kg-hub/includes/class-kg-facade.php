@@ -1259,6 +1259,37 @@ final class BizCity_KG {
 	}
 
 	/**
+	 * [2026-10-18 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L4 — page range of each chunk, from the "[Page N]" markers the document adapters write into the body
+	 * (`\n\n[Page N]\n<text>`). Chunks arrive in reading order; a chunk starts on the page of the last marker seen before it (or its own leading marker) and ends on its last marker.
+	 * Returns [ index => [ page_from, page_to ] ] only for chunks whose start page is known; a body without any marker, or text before the first marker, yields nothing —
+	 * a wrong page in a citation is worse than none. Pure.
+	 *
+	 * @param string[] $contents chunk texts in reading order
+	 * @return array<int,array{0:int,1:int}>
+	 */
+	public static function chunk_pages( array $contents ): array {
+		$out     = array();
+		$current = 0;
+		foreach ( array_values( $contents ) as $i => $text ) {
+			$text = (string) $text;
+			$from = $current;
+			$to   = $current;
+			if ( preg_match_all( '/\[Page (\d{1,5})\]/', $text, $m, PREG_OFFSET_CAPTURE ) ) {
+				$first_at = (int) $m[0][0][1];
+				if ( '' === trim( substr( $text, 0, $first_at ) ) ) {
+					$from = (int) $m[1][0][0]; // the chunk opens with a marker
+				}
+				$to      = (int) $m[1][ count( $m[1] ) - 1 ][0];
+				$current = $to;
+			}
+			if ( $from > 0 ) {
+				$out[ $i ] = array( $from, max( $from, $to ) );
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Copy any chunks from legacy chunks table → kg_source_chunks.
 	 * Idempotent: skips chunk_index values already present for this kg_source_id.
 	 *
@@ -1327,8 +1358,10 @@ final class BizCity_KG {
 		$inserted    = 0;
 		$has_embed   = false;
 		$embed_model = '';
+		// [2026-10-18 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L4 — the page each chunk starts/ends on, read from the "[Page N]" markers the adapters put in the body. Walks ALL rows (also the ones already mirrored) so an incremental run keeps the right page.
+		$pages = self::chunk_pages( array_map( static function ( $r ) { return (string) ( $r['content'] ?? '' ); }, $rows ) );
 
-		foreach ( $rows as $ch ) {
+		foreach ( $rows as $row_no => $ch ) {
 			$idx = (int) ( $ch['chunk_index'] ?? 0 );
 			if ( isset( $existing_idx[ $idx ] ) ) {
 				continue;
@@ -1367,7 +1400,7 @@ final class BizCity_KG {
 					'legacy_id'      => $legacy_id,
 					'legacy_chunk_id'=> (int) ( $ch['id'] ?? 0 ),
 					'chunk_index'    => $idx,
-				] ),
+				] + ( isset( $pages[ $row_no ] ) ? [ 'page' => $pages[ $row_no ][0], 'page_to' => $pages[ $row_no ][1] ] : [] ) ),
 			] );
 			if ( $ok ) {
 				$inserted++;

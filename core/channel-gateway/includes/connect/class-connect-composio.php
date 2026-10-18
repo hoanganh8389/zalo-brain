@@ -65,6 +65,11 @@ final class BizCity_Connect_Composio_REST {
 		// [2026-10-17 03:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — what THIS person can run (Skill Editor ②): a thin proxy, the cell alone computes readiness; any signed-in person, about themselves only
 		// [2026-10-17 03:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K4 — Skill Editor ①: my description ⇒ a draft (the cell asks the model once; nothing is stored)
 		register_rest_route( self::NS, $base . '/skills-draft', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_skills_draft' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ) );
+		// [2026-10-17 07:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — step-by-step check of MY permission bundle on the cell: GET reads only; POST re-sends it once
+		register_rest_route( self::NS, $base . '/workspace-check', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'workspace_check' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'workspace_check' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ),
+		) );
 		register_rest_route( self::NS, $base . '/skills-readiness', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_skills_readiness' ), 'permission_callback' => array( __CLASS__, 'perm_signed_in' ) ) );
 		$r( '/assign', 'PUT', 'pipe' ); // admin: give a login made before the per-person split to a person
 		$r( '/facebook/pages', 'GET,PUT', 'pipe' );
@@ -121,7 +126,7 @@ final class BizCity_Connect_Composio_REST {
 		if ( null === $ids ) {
 			return self::error( 400, 'invalid_param', 'Danh sách bước không hợp lệ.', 'Gửi tối đa 30 mã executor, cách nhau bằng dấu phẩy.' );
 		}
-		$resp = self::send( 'GET', '/skills/readiness', $ids ? array( 'executors' => implode( ',', $ids ) ) : array(), array() );
+		$resp = self::send_with_workspace( 'GET', '/skills/readiness', $ids ? array( 'executors' => implode( ',', $ids ) ) : array(), array() );
 		$out  = self::readiness_reply( $resp->get_status(), (array) $resp->get_data() );
 		return new WP_REST_Response( $out['body'], $out['status'] );
 	}
@@ -134,9 +139,78 @@ final class BizCity_Connect_Composio_REST {
 		if ( '' === $name || mb_strlen( $text ) < 8 || mb_strlen( $name ) > 120 || strlen( $text ) > 8192 ) {
 			return self::error( 400, 'invalid_param', 'Cần tên việc và mô tả (8 ký tự – 8 KB).', 'Viết rõ: đọc gì, ghi vào đâu, gửi cho ai.' );
 		}
-		$resp = self::send( 'POST', '/skills/draft', array(), array( 'name' => $name, 'text' => $text ) );
+		$resp = self::send_with_workspace( 'POST', '/skills/draft', array(), array( 'name' => $name, 'text' => $text ) );
 		$out  = self::readiness_reply( $resp->get_status(), (array) $resp->get_data(), 'twin-skill-draft@1' );
 		return new WP_REST_Response( $out['body'], $out['status'] );
+	}
+
+	/**
+	 * [2026-10-17 05:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — the cell answers `workspace_not_found` when it has no bundle for this person
+	 * (new cell, other cell, lost row) while the site still remembers "already pushed". Push it again once, ignoring that memory, then ask again.
+	 */
+	private static function send_with_workspace( string $method, string $path, array $query, array $body ): WP_REST_Response {
+		$resp = self::send( $method, $path, $query, $body );
+		$data = (array) $resp->get_data();
+		if ( 404 !== $resp->get_status() || 'workspace_not_found' !== ( $data['code'] ?? '' ) || ! class_exists( 'BizCity_User_Workspace_Pusher' ) ) {
+			return $resp;
+		}
+		$pushed = BizCity_User_Workspace_Pusher::push( get_current_user_id(), true, true );
+		return 'pushed' === $pushed ? self::send( $method, $path, $query, $body ) : $resp;
+	}
+
+	/**
+	 * [2026-10-17 07:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — where does MY user-workspace@1 bundle stop? W1 pusher / builder loaded ·
+	 * W2 the bundle builds (rev, counts) · W3 the rev the site believes it pushed · W4 what the cell holds (Hub GET zalo-hub/user-workspace) ·
+	 * W5 (POST only) push it again now and report the Hub's status / code. Never returns the bundle, a raw id, a phone or an e-mail.
+	 */
+	public static function workspace_check( WP_REST_Request $request ): WP_REST_Response {
+		$uid = get_current_user_id();
+		$out = array( 'ok' => true, 'contract' => 'workspace-check@1.0.0' );
+		$out['w1_loaded'] = class_exists( 'BizCity_User_Workspace_Builder' ) && class_exists( 'BizCity_User_Workspace_Pusher' ) && class_exists( 'BizCity_Agent_Mode_Access' );
+		if ( ! $out['w1_loaded'] ) {
+			return new WP_REST_Response( $out, 200 );
+		}
+		$ref    = BizCity_Agent_Mode_Access::user_ref( $uid );
+		$bundle = BizCity_User_Workspace_Builder::build( $uid );
+		$out['w2_bundle'] = is_array( $bundle ) ? array(
+			'rev'         => (int) ( $bundle['rev'] ?? 0 ),
+			'ref_tail'    => substr( (string) ( $bundle['user_ref'] ?? '' ), -6 ),
+			'ref_matches' => (string) ( $bundle['user_ref'] ?? '' ) === $ref,
+			'role'        => (string) ( $bundle['profile']['role'] ?? '' ),
+			'max_risk'    => (string) ( $bundle['plan']['max_risk'] ?? '' ),
+			'assistants'  => count( (array) ( $bundle['assistants'] ?? array() ) ),
+			'connections' => count( (array) ( $bundle['connections'] ?? array() ) ),
+			'modes'       => array_values( array_map( 'strval', (array) ( $bundle['modes'] ?? array() ) ) ),
+		) : null;
+		$out['w3_pushed_rev'] = (int) get_user_meta( $uid, BizCity_User_Workspace_Pusher::META_PUSHED, true );
+		// [2026-10-17 07:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — the last real push attempt (login, role change, self-heal): when, and what the Hub answered
+		$last = get_transient( BizCity_User_Workspace_Pusher::LAST_KEY . $uid );
+		$out['w3_last_push'] = is_array( $last ) ? array_intersect_key( $last, array_flip( array( 'at', 'result', 'status', 'code', 'help', 'msg' ) ) ) : null;
+		if ( 'POST' === strtoupper( $request->get_method() ) ) {
+			$out['w5_push'] = array( 'result' => BizCity_User_Workspace_Pusher::push( $uid, true, true ), 'hub' => BizCity_User_Workspace_Pusher::$last ); // hub.msg = the cell's own refusal reason (field paths only)
+		}
+		$out['w4_cell'] = self::cell_workspace( $ref );
+		return new WP_REST_Response( $out, 200 );
+	}
+
+	/** What the cell holds for this user_ref: {status, code, rev?} through the Hub's GET zalo-hub/user-workspace. */
+	private static function cell_workspace( string $ref ): array {
+		if ( is_callable( self::$hub_seam ) ) {
+			$r = (array) call_user_func( self::$hub_seam, 'GET', '/__user-workspace', array( 'user_ref' => $ref ), array() );
+			$raw = (array) ( $r['body'] ?? array() ) + array( 'http_code' => (int) ( $r['status'] ?? 200 ) );
+		} elseif ( class_exists( 'BizCity_LLM_Client' ) && '' !== BizCity_Connect_REST::api_key() ) {
+			$raw = BizCity_LLM_Client::instance()->gateway_get( '/zalo-hub/user-workspace', array( 'user_ref' => $ref ), 'GET', 20, false );
+			$raw = is_array( $raw ) ? $raw : array();
+		} else {
+			return array( 'status' => 0, 'code' => 'key_missing', 'help' => '' );
+		}
+		$status = (int) ( $raw['http_code'] ?? ( ! empty( $raw['_degraded'] ) ? 424 : 200 ) );
+		$cell   = array( 'status' => $status, 'code' => substr( (string) ( $raw['code'] ?? '' ), 0, 40 ), 'help' => substr( (string) ( $raw['help_code'] ?? '' ), 0, 40 ) );
+		if ( 200 === $status ) {
+			$cell['rev']       = (int) ( $raw['rev'] ?? 0 );
+			$cell['executors'] = count( (array) ( $raw['executors'] ?? array() ) );
+		}
+		return $cell;
 	}
 
 	/** Pure: '' ⇒ array(); bad id or more than 30 ⇒ null. @return string[]|null */
@@ -169,7 +243,7 @@ final class BizCity_Connect_Composio_REST {
 				'ok'        => false,
 				'code'      => $code,
 				'message'   => (string) ( $data['message'] ?? 'Chưa kiểm được.' ),
-				'hint'      => (string) ( $data['hint'] ?? '' ) !== '' ? (string) $data['hint'] : 'Mở lại trang Bắt đầu để website đồng bộ quyền.',
+				'hint'      => (string) ( $data['hint'] ?? '' ) !== '' ? (string) $data['hint'] : 'Đăng xuất rồi đăng nhập lại để website gửi lại quyền của bạn.',
 				'help_code' => 'S117-' . strtoupper( str_replace( '_', '-', $code ) ),
 			) );
 		}
@@ -180,6 +254,14 @@ final class BizCity_Connect_Composio_REST {
 			'message'   => 'Không kiểm được lúc này.',
 			'hint'      => 'Thử lại sau ít phút; nếu vẫn vậy, báo quản trị viên cập nhật máy chủ trợ lý.',
 			'help_code' => 'S117-READINESS-UNAVAILABLE',
+			// [2026-10-17 04:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — which link answered and how (status + code only, never a body): tells "Hub not updated" from "cell not updated" from "cell down"
+			'upstream'  => array(
+				'status'   => $status,
+				'code'     => substr( preg_replace( '/[^a-z0-9_.-]/i', '', (string) ( $data['code'] ?? '' ) ), 0, 40 ),
+				'contract' => substr( preg_replace( '/[^a-z0-9_.@-]/i', '', (string) ( $data['contract'] ?? '' ) ), 0, 40 ),
+				// [2026-10-17 04:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — the cell's catch-all also answers 404 `not_found`; only the Hub adds help_code S113-H1-404
+				'help'     => substr( preg_replace( '/[^a-z0-9_.-]/i', '', (string) ( $data['help_code'] ?? '' ) ), 0, 40 ),
+			),
 		) );
 	}
 

@@ -10,8 +10,8 @@
     {
       "path": "contracts/BIZCITY-MCP-STANDARD-v1.json",
       "source": "docs/contracts/BIZCITY-MCP-STANDARD-v1.json",
-      "sha256": "93ba98bc190228d243fcb5f0771ff9c4df19311880350a2e72af99b8ff655e83",
-      "bytes": 60342
+      "sha256": "ca836e7afbec73a070cb10ef7e0da45c82dc2f1a81c3399196dcb43e1de07c45",
+      "bytes": 84078
     },
     {
       "path": "contracts/BIZCITY-MCP-TOOL-CONTRACT-v1.md",
@@ -22,8 +22,8 @@
     {
       "path": "contracts/JOURNAL-KINDS-v1.json",
       "source": "core/kg-hub/contracts/JOURNAL-KINDS-v1.json",
-      "sha256": "9d82db94bdb68eb8190b94181593f234b8e8d3e6dbb44ce6f79fdb3d54cd2d31",
-      "bytes": 6437
+      "sha256": "49ec2b0f8829cec72685adb5d5d68d7ea8ab4a290b362b5df9399614e051a3cc",
+      "bytes": 17537
     },
     {
       "path": "contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.json",
@@ -40,8 +40,8 @@
     {
       "path": "contracts/ZALO-BRAIN-HOOKS-v1.json",
       "source": "docs/contracts/ZALO-BRAIN-HOOKS-v1.json",
-      "sha256": "6c2505c506555f780b412760fe5825027aaa999c0463a2669b0c65bced992f62",
-      "bytes": 148715
+      "sha256": "65ca31a97b41e136debb8ffcd5e98b26a9e4f379d56b9ce8869ce1ce30f706b4",
+      "bytes": 148785
     },
     {
       "path": "tools/validate-extension.mjs",

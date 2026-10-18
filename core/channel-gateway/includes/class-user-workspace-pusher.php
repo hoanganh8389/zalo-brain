@@ -18,11 +18,14 @@ final class BizCity_User_Workspace_Pusher {
 
 	const META_PUSHED = '_bizcity_uw_pushed_rev';
 	const DEBOUNCE_S  = 60;
+	const LAST_KEY    = 'bizcity_uw_last_';
 	const HUB         = '/zalo-hub/user-workspace';
 	const TIMEOUT     = 15;
 
 	/** @var callable|null Tests: fn(array $bundle): array{status:int, body:array} */
 	public static $hub_seam = null;
+	/** @var array|null [2026-10-17 07:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — the last Hub answer of push(): {status, code, help} (no body), for the workspace check */
+	public static $last = null;
 
 	public static function init(): void {
 		add_action( 'wp_login', array( __CLASS__, 'on_login' ), 20, 2 );
@@ -47,8 +50,11 @@ final class BizCity_User_Workspace_Pusher {
 		}
 	}
 
-	/** @return string pushed | same | debounced | unknown_user | no_hub | failed */
-	public static function push( int $user_id, bool $force = false ): string {
+	/**
+	 * @param bool $resend [2026-10-17 05:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — the cell said it has no bundle: send even when this rev was "already pushed"
+	 * @return string pushed | same | debounced | unknown_user | no_hub | failed
+	 */
+	public static function push( int $user_id, bool $force = false, bool $resend = false ): string {
 		if ( $user_id <= 0 || ! class_exists( 'BizCity_User_Workspace_Builder' ) ) {
 			return 'unknown_user';
 		}
@@ -62,10 +68,13 @@ final class BizCity_User_Workspace_Pusher {
 			return 'unknown_user';
 		}
 		$rev = (int) ( $bundle['rev'] ?? 0 );
-		if ( $rev <= (int) get_user_meta( $user_id, self::META_PUSHED, true ) ) {
+		if ( ! $resend && $rev <= (int) get_user_meta( $user_id, self::META_PUSHED, true ) ) {
 			return 'same';
 		}
 		$r = self::send( $bundle );
+		self::$last = null === $r ? null : array( 'status' => (int) $r['status'], 'code' => substr( (string) ( $r['body']['code'] ?? '' ), 0, 40 ), 'help' => substr( (string) ( $r['body']['help_code'] ?? '' ), 0, 40 ), 'msg' => self::reason( $r ) );
+		// [2026-10-17 07:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — keep the last answer one day so the read-only workspace check can show WHY a push failed (status + codes only)
+		set_transient( self::LAST_KEY . $user_id, array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z' ), 'result' => null === $r ? 'no_hub' : ( $r['status'] >= 200 && $r['status'] < 300 ? 'pushed' : 'failed' ) ) + (array) ( self::$last ?? array( 'status' => 0, 'code' => 'no_hub_client', 'help' => '', 'msg' => '' ) ), 86400 );
 		if ( null === $r ) {
 			return 'no_hub';
 		}
@@ -74,6 +83,19 @@ final class BizCity_User_Workspace_Pusher {
 			return 'pushed';
 		}
 		return 'failed';
+	}
+
+	/**
+	 * [2026-10-17 08:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K3 — WHY the cell refused a bundle: its own message ("modes.9: Invalid option…"). The cell composes it from field PATHS and
+	 * the rule, never from the person's values (zalo-hub parseUserWorkspace); cut to 200 characters and stripped of anything that looks like a number run or an address, just in case.
+	 */
+	private static function reason( array $r ): string {
+		if ( (int) $r['status'] >= 200 && (int) $r['status'] < 300 ) {
+			return '';
+		}
+		$m = (string) ( $r['body']['message'] ?? $r['body']['error'] ?? '' );
+		$m = (string) preg_replace( '/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+.[A-Za-z]{2,}|d{7,}/', '…', $m );
+		return substr( $m, 0, 200 );
 	}
 
 	/** @return array{status:int, body:array}|null null when this site has no Hub key / client */

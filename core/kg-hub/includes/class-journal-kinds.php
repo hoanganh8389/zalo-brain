@@ -79,10 +79,37 @@ final class BizCity_Journal_Kinds {
 		return $map[ strtolower( $fallback_hint ) ] ?? self::FALLBACK_KIND;
 	}
 
-	/** `''|health|child|finance` — never leaves to the cell / evidence (R-JN-11). */
+	/** `''|health|child|finance|personal` — never leaves to the cell / evidence (R-JN-11). */
 	public static function sensitive( string $kind ): string {
 		$k = self::get( $kind );
 		return $k ? (string) ( $k['sensitive'] ?? '' ) : '';
+	}
+
+	/**
+	 * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-K5 (R-JN-20) — default learning level of a kind:
+	 * `index` (L0 only) · `vector` (L1, the default) · `graph` (L2 allowed without an explicit command). A sensitive kind never
+	 * goes past `vector` by declaration alone. Unknown kind ⇒ `vector`.
+	 */
+	public static function learn( string $kind ): string {
+		$k     = self::get( $kind );
+		$learn = $k ? strtolower( (string) ( $k['learn'] ?? '' ) ) : '';
+		if ( ! in_array( $learn, array( 'index', 'vector', 'graph' ), true ) ) {
+			$learn = 'vector';
+		}
+		if ( 'graph' === $learn && '' !== self::sensitive( $kind ) ) {
+			$learn = 'vector';
+		}
+		return $learn;
+	}
+
+	/** Is this kind declared (core JSON, profile or plugin)? Plugins must declare before writing (R-JN-17). */
+	public static function is_declared( string $kind ): bool {
+		return null !== self::get( $kind );
+	}
+
+	/** Test seam: forget the merged catalog (a plugin declared kinds after the first read). */
+	public static function reset(): void {
+		self::$memo = null;
 	}
 
 	/** Vietnamese shelf label for a kind, else the kind itself. */

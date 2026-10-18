@@ -54,11 +54,21 @@ class BizCity_KG_Cell_Extract_Adapter implements BizCity_KG_Source_Adapter {
 	public function extract( $file_path, array $opts ) {
 		$ext = strtolower( (string) ( $opts['ext'] ?? pathinfo( (string) $file_path, PATHINFO_EXTENSION ) ) );
 		$account_id = self::active_zalo_hub_account_id();
-		$sideloaded = '' !== $account_id ? self::sideload_public_url( $file_path, $ext, $opts ) : new WP_Error( 'no_account', 'no zalo_hub account' );
+		// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — a private original (owner-capture document) is
+		// never re-uploaded as a public temp copy (that copy went to the CDN and was never removed there): the cell gets a
+		// 15-minute signed link to the owner-only route instead.
+		$private_url = '' !== $account_id ? self::private_signed_url( $opts ) : '';
+		if ( '' !== $private_url ) {
+			$sideloaded = array( 'attach_id' => 0, 'url' => $private_url );
+		} else {
+			$sideloaded = '' !== $account_id ? self::sideload_public_url( $file_path, $ext, $opts ) : new WP_Error( 'no_account', 'no zalo_hub account' );
+		}
 
 		if ( ! is_wp_error( $sideloaded ) ) {
 			$result = BizCity_Zalo_Personal_Hub_Client::instance()->doc_extract( $account_id, $sideloaded['url'], $ext, (string) ( $opts['job_id'] ?? '' ) );
-			wp_delete_attachment( $sideloaded['attach_id'], true );
+			if ( $sideloaded['attach_id'] > 0 ) {
+				wp_delete_attachment( $sideloaded['attach_id'], true );
+			}
 			$text = is_array( $result ) ? trim( (string) ( $result['text'] ?? '' ) ) : '';
 			if ( is_array( $result ) && ! empty( $result['ok'] ) && '' !== $text ) {
 				do_action( 'bizcity_kg_adapter_chosen', self::id(), $ext, (string) ( $opts['mime'] ?? '' ) );
@@ -153,6 +163,15 @@ class BizCity_KG_Cell_Extract_Adapter implements BizCity_KG_Source_Adapter {
 			return new WP_Error( 'cell_extract_no_url', 'Could not get attachment URL after sideload' );
 		}
 		return [ 'attach_id' => (int) $attach_id, 'url' => (string) $url ];
+	}
+
+	/** PHASE-0.121 S121-L1 — signed link of a private original named by `attachment_id`, '' for any other file. */
+	private static function private_signed_url( array $opts ) {
+		$id = (int) ( $opts['attachment_id'] ?? 0 );
+		if ( $id <= 0 || ! class_exists( 'BizCity_KG_Private_File_Store' ) ) {
+			return '';
+		}
+		return BizCity_KG_Private_File_Store::signed_url( $id );
 	}
 
 	/** Direct instance call (never through the registry, which would re-resolve to THIS adapter and loop). */

@@ -26,9 +26,12 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	const TEMPLATE_LANDING = 'page-blank-landingpage.php';
 	const META_GENERATED   = '_bizcity_generated';
+	const META_FORM        = '_bizcity_selfwp_form'; // the form-spec + history of a form the assistant built (read by BizCity_SelfWP_Form_Service)
 	const DUP_WINDOW_S     = 900;
 	const SNAP_MAX         = 10;
 	const SNAP_TTL_S       = 7776000; // 90 ngày (doc 50 §4)
+	const HISTORY_MAX      = 50;
+	const HISTORY_READ_MAX = 20;
 
 	/**
 	 * Test seams, name → callable. Defaults call WordPress / Contact Form 7.
@@ -57,7 +60,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			BizCity_MCP_Tool_Registry::register( 'cf7.form.create', array(
 				'executor'       => 'cf7.form.create',
 				'title'          => 'Tạo form liên hệ (Contact Form 7)',
-				'description'    => 'Đồng bộ hệ thống (chỉ zalo-hub gọi): tạo một form Contact Form 7 từ form-spec (tiêu đề, tối đa 8 trường text/email/tel/textarea). Thư báo về email của người yêu cầu. Trả form_id để gắn vào trang. Không gửi email, không công khai gì.',
+				'description'    => 'Dựng website (cell Zalo và client MCP như Claude Code dùng chung): tạo một form Contact Form 7 từ form-spec (tiêu đề, tối đa 8 trường text/email/tel/textarea). Thư báo về email của người yêu cầu. Trả form_id để gắn vào trang. Không gửi email, không công khai gì.',
 				'input_schema'   => array( 'type' => 'object', 'required' => array( 'title', 'fields' ), 'properties' => array(
 					'title'           => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 120 ),
 					'fields'          => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => BizCity_SelfWP_Page_Compiler::MAX_FIELDS, 'items' => array( 'type' => 'object', 'required' => array( 'type', 'name', 'label' ), 'properties' => array(
@@ -95,9 +98,9 @@ final class BizCity_SelfWP_Action_MCP_Service {
 		BizCity_MCP_Tool_Registry::register( 'wp.landing.draft', array(
 			'executor'       => 'wp.landing.draft',
 			'title'          => 'Dựng trang landing (bản nháp)',
-			'description'    => 'Đồng bộ hệ thống (chỉ zalo-hub gọi): dựng MỘT trang landing ở trạng thái NHÁP từ page-spec@1 (hero, benefits, text, form, cta). Flatsome ⇒ shortcode UX Builder (mở lại chỉnh tay được), theme khác ⇒ Gutenberg. Không bao giờ công khai; trả preview_url và edit_url. Cùng spec gọi lại trong 15 phút trả lại đúng bản nháp cũ.',
+			'description'    => 'Dựng website (cell Zalo và client MCP như Claude Code dùng chung): dựng MỘT trang landing ở trạng thái NHÁP từ page-spec@1 (hero, benefits, text, form, cta). Flatsome ⇒ shortcode UX Builder (mở lại chỉnh tay được), theme khác ⇒ Gutenberg. Không bao giờ công khai; trả preview_url và edit_url. Cùng spec gọi lại trong 15 phút trả lại đúng bản nháp cũ. QUY TRÌNH: (1) wp.site.info xem theme / CF7; (2) cần form thu khách ⇒ cf7.form.create trước, lấy form_id rồi đặt phần form_ref "cf7:<form_id>" vào spec; (3) gọi công cụ này; (4) báo người dùng đúng edit_url và preview_url trả về (link bản nháp chỉ mở khi đang đăng nhập quản trị; KHÔNG tự bịa link); (5) chỉ khi họ đồng ý mới wp.page.publish (hai bước). Không bịa số điện thoại, giá, lợi ích người dùng chưa nói.',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'spec' ), 'properties' => array(
-				'spec'      => array( 'type' => 'object' ),
+				'spec'      => BizCity_SelfWP_Page_Compiler::json_schema(),
 				'transport' => array( 'type' => 'string', 'enum' => array( 'auto', 'flatsome', 'gutenberg' ), 'default' => 'auto' ),
 			) ),
 			'output_schema'  => $S::envelope_schema( array(
@@ -125,12 +128,66 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			'since'          => '0.118.0',
 		) );
 
+		// [2026-10-18 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5 — trang thường (không khung landing) + gắn form có sẵn vào trang nháp
+		// @mcp bizcity-mcp-standard@1 tool wp.page.draft
+		BizCity_MCP_Tool_Registry::register( 'wp.page.draft', array(
+			'executor'       => 'wp.page.draft',
+			'title'          => 'Dựng trang thường (bản nháp)',
+			'description'    => 'Dựng MỘT trang thường ở trạng thái NHÁP từ page-spec@1 (hero, benefits, text, form, cta); KHÔNG dùng khung landing nên giữ nguyên đầu / chân trang của giao diện. Bắt buộc idempotency_key (8–64 ký tự) để thử lại không tạo trang đôi. Không bao giờ công khai: muốn đăng thì dùng wp.page.publish. Muốn trang landing đầy đủ khung thì dùng create_landing_page.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'spec', 'idempotency_key' ), 'properties' => array(
+				'spec'            => BizCity_SelfWP_Page_Compiler::json_schema(),
+				'idempotency_key' => array( 'type' => 'string', 'minLength' => 8, 'maxLength' => 64, 'pattern' => '^[A-Za-z0-9_-]{8,64}$' ),
+				'transport'       => array( 'type' => 'string', 'enum' => array( 'auto', 'flatsome', 'gutenberg' ), 'default' => 'auto' ),
+			) ),
+			'output_schema'  => $S::envelope_schema( array( 'page_id' => array( 'type' => 'integer' ), 'title' => array( 'type' => 'string' ), 'status' => array( 'type' => 'string' ), 'transport' => array( 'type' => 'string' ), 'preview_url' => array( 'type' => 'string' ), 'edit_url' => array( 'type' => 'string' ), 'sections' => array( 'type' => 'integer' ), 'spec_hash' => array( 'type' => 'string' ), 'duplicate' => array( 'type' => 'boolean' ) ), array( 'page_id', 'status' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => false,
+			'required_scope' => 'content.write',
+			'required_cap'   => 'edit_pages',
+			'handler'        => array( __CLASS__, 'page_draft' ),
+			'mode'           => 'content',
+			'scopes'         => array( 'content.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'wp_page_draft',
+			'fallback_pack'  => null,
+			'since'          => '0.118.0',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool wp.page.attach_form
+		BizCity_MCP_Tool_Registry::register( 'wp.page.attach_form', array(
+			'executor'       => 'wp.page.attach_form',
+			'title'          => 'Gắn form liên hệ vào trang nháp',
+			'description'    => 'Thêm MỘT form Contact Form 7 có sẵn (form_id từ cf7.form.list hoặc cf7.form.create) vào trang NHÁP do trợ lý dựng, sau phần số "after" (bỏ trống = cuối trang; -1 = đầu trang). Gắn cùng form lần hai thì không làm gì. Là một lần sửa trang như wp.page.edit (giữ bản cũ để quay lại); trang đã công khai thì dùng wp.page.update_live.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'page_id', 'form_id' ), 'properties' => array(
+				'page_id'        => array( 'type' => 'integer', 'minimum' => 1 ),
+				'form_id'        => array( 'type' => 'integer', 'minimum' => 1 ),
+				'after'          => array( 'type' => 'integer', 'minimum' => -1 ),
+				'title'          => array( 'type' => 'string', 'maxLength' => 120 ),
+				'anchor'         => array( 'type' => 'string', 'maxLength' => 40 ),
+				'base_spec_hash' => array( 'type' => 'string', 'maxLength' => 64 ),
+			) ),
+			'output_schema'  => $S::envelope_schema( array( 'page_id' => array( 'type' => 'integer' ), 'changes' => array( 'type' => 'array' ), 'spec_hash' => array( 'type' => 'string' ), 'preview_url' => array( 'type' => 'string' ), 'unchanged' => array( 'type' => 'boolean' ) ), array( 'page_id' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'content.write',
+			'required_cap'   => 'edit_pages',
+			'handler'        => array( __CLASS__, 'page_attach_form' ),
+			'mode'           => 'content',
+			'scopes'         => array( 'content.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'wp_page_attach_form',
+			'fallback_pack'  => null,
+			'since'          => '0.118.0',
+		) );
+
 		// [2026-10-16 11:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L7 — the ONLY door that makes a cell-built page public: R2, preview → confirm (token bound to the arguments).
 		// @mcp bizcity-mcp-standard@1 tool wp.page.publish
 		BizCity_MCP_Tool_Registry::register( 'wp.page.publish', array(
 			'executor'       => 'wp.page.publish',
 			'title'          => 'Đăng trang landing (công khai)',
-			'description'    => 'Đồng bộ hệ thống (chỉ zalo-hub gọi): ĐĂNG công khai một trang NHÁP do trợ lý dựng (wp.landing.draft). Lần đầu chỉ trả bản xem trước + confirm_token, CHƯA đăng; gọi lại ĐÚNG tham số kèm confirm_token sau khi người yêu cầu đồng ý. Chỉ đăng được trang trợ lý đã dựng và đang ở trạng thái nháp.',
+			'description'    => 'Dựng website (cell Zalo và client MCP như Claude Code dùng chung): ĐĂNG công khai một trang NHÁP do trợ lý dựng (wp.landing.draft). Lần đầu chỉ trả bản xem trước + confirm_token, CHƯA đăng; gọi lại ĐÚNG tham số kèm confirm_token sau khi người yêu cầu đồng ý. Chỉ đăng được trang trợ lý đã dựng và đang ở trạng thái nháp. Hỏi người dùng đồng ý TRƯỚC khi gọi lại với confirm_token; đăng xong thì báo đúng url trả về.',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'page_id' ), 'properties' => array(
 				'page_id'       => array( 'type' => 'integer', 'minimum' => 1 ),
 				'confirm_token' => array( 'type' => 'string' ),
@@ -195,7 +252,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'content.read',
-			'required_cap'   => 'edit_pages',
+			'required_cap'   => 'edit_posts', // [2026-10-17 11:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L12: doc 20 says edit_posts; an author lists their own posts. content_list() still demands edit_pages for pages and edit_posts for posts.
 			'handler'        => array( __CLASS__, 'content_list' ),
 			'mode'           => 'content',
 			'scopes'         => array( 'content.read' ),
@@ -248,8 +305,32 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			'since'          => '0.118.0',
 		) );
 
+// [2026-10-17 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L11 — nhật ký thay đổi của MỘT trang (site-change-log@1, doc 50): ai/khi nào/việc gì/duyệt thế nào/quay lại được không
+		// @mcp bizcity-mcp-standard@1 tool wp.page.history
+		BizCity_MCP_Tool_Registry::register( 'wp.page.history', array(
+			'executor'       => 'wp.page.history',
+			'title'          => 'Lịch sử thay đổi của một trang',
+			'description'    => 'Liệt kê (mới nhất trước, tối đa 20) những lần trợ lý dựng / sửa / đăng / hoàn tác MỘT trang: thời điểm, việc, ai yêu cầu, đã duyệt hay chưa, các thay đổi, và còn quay lại được bản trước không (can_restore + before_ref = snapshot_id cho restore_landing_page). Chỉ đọc. Dùng khi chủ hỏi "ai sửa trang này", "đã đổi gì", "quay lại bản hôm qua".',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'page_id' ), 'properties' => array(
+				'page_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+				'limit'   => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => self::HISTORY_READ_MAX ),
+			) ),
+			'output_schema'  => $S::envelope_schema( array( 'page_id' => array( 'type' => 'integer' ), 'entries' => array( 'type' => 'array' ), 'total' => array( 'type' => 'integer' ) ), array( 'page_id' ) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'content.read',
+			'required_cap'   => 'edit_pages',
+			'handler'        => array( __CLASS__, 'page_history' ),
+			'mode'           => 'content',
+			'scopes'         => array( 'content.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'wp_page_history',
+			'fallback_pack'  => null,
+			'since'          => '0.118.0',
+		) );
+
 		// @mcp bizcity-mcp-standard@1 tool wp.page.edit
-		BizCity_MCP_Tool_Registry::register( 'wp.page.edit', array(
+BizCity_MCP_Tool_Registry::register( 'wp.page.edit', array(
 			'executor'       => 'wp.page.edit',
 			'title'          => 'Sửa từng phần của trang nháp',
 			'description'    => 'Sửa MỘT trang NHÁP do trợ lý dựng bằng danh sách thao tác theo phần (tối đa 10): set_title {value}; update {index, fields} (hero: headline/sub/image_ref/cta · benefits: items · text: title/body · form: title/form_ref · cta: headline/button); add {section, after?}; remove {index}. Đọc trang bằng wp.page.read trước, truyền base_spec_hash để không ghi đè thay đổi của người khác. Trang đã công khai hoặc không do trợ lý dựng thì từ chối / báo needs_human. Không bao giờ công khai trang.',
@@ -408,8 +489,8 @@ final class BizCity_SelfWP_Action_MCP_Service {
 	}
 
 	/** @return array|WP_Error */
-	public static function page_edit( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+	public static function page_edit( array $args, array $ctx, string $as = 'wp.page.edit' ) {
+		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args, $as ) {
 			$id = (int) ( $args['page_id'] ?? 0 );
 			if ( $id <= 0 ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Thiếu mã trang (page_id).', 422 );
@@ -437,14 +518,15 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			}
 			$spec = $v['spec'];
 			$bad = self::refs_error( $spec );
-				if ( $bad ) {
-					return $bad;
-				}
-				$new_hash  = BizCity_SelfWP_Page_Compiler::spec_hash( $spec );
+			if ( $bad ) {
+				return $bad;
+			}
+			$new_hash  = BizCity_SelfWP_Page_Compiler::spec_hash( $spec );
 			$transport = in_array( (string) ( $p['generated']['transport'] ?? '' ), array( 'flatsome', 'gutenberg' ), true ) ? (string) $p['generated']['transport'] : 'gutenberg';
 			if ( $new_hash === $old_hash ) {
 				return array( 'page_id' => $id, 'title' => (string) $p['title'], 'status' => (string) $p['status'], 'unchanged' => true, 'spec_hash' => $new_hash, 'changes' => array() );
 			}
+			$entry = self::change_entry( $as, 'R1', $uid, array(), $id, substr( $old_hash, 0, 12 ), substr( $new_hash, 0, 12 ), BizCity_SelfWP_Page_Compiler::diff( $old, $spec ) ); // [2026-10-17 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L11
 			$r = self::seam( 'update_post', array( $id, array( 'post_title' => $spec['title'], 'post_content' => BizCity_SelfWP_Page_Compiler::compile( $spec, $transport ) ) ), static function ( $id, $fields ) {
 				return wp_update_post( wp_slash( array_merge( array( 'ID' => (int) $id ), $fields ) ), true ); // WordPress lưu một revision của bản cũ (nếu site bật revision)
 			} );
@@ -454,9 +536,10 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( (int) $r <= 0 ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không lưu được thay đổi của trang.', 500 );
 			}
-			self::seam( 'update_meta', array( $id, self::META_GENERATED, array_merge( self::push_snapshot( (array) $p['generated'], $old ), array( 'spec_hash' => $new_hash, 'spec' => $spec, 'edited_by' => $uid, 'edited_at' => gmdate( 'c' ) ) ) ), static function ( $id, $key, $value ) {
-				return update_post_meta( $id, $key, $value );
-			} );
+			self::seam( 'update_meta', array( $id, self::META_GENERATED, self::with_history( array_merge( self::push_snapshot( (array) $p['generated'], $old ), array( 'spec_hash' => $new_hash, 'spec' => $spec, 'edited_by' => $uid, 'edited_at' => gmdate( 'c' ) ) ), $entry ) ), static function ( $id, $key, $value ) {
+								return update_post_meta( $id, $key, $value );
+							} );
+							self::audit_change( $entry );
 			return array(
 				'page_id'     => $id,
 				'title'       => $spec['title'],
@@ -469,6 +552,123 @@ final class BizCity_SelfWP_Action_MCP_Service {
 					return function_exists( 'get_preview_post_link' ) ? (string) get_preview_post_link( $id ) : '';
 				} ),
 			);
+		} );
+	}
+
+	/* ───────────────────────────── site-change-log@1 (doc 50): history in the page's own meta + a metadata-only audit line ─────────────────────── */
+
+	/** a line for a HUMAN to read, never executed (D118-4): fixed templates + ids only, no page text */
+	private static function command_line( string $executor, int $id, string $kind = 'page' ): string {
+		if ( 'form' === $kind ) {
+			return 'wp post create --post_type=wpcf7_contact_form  # cf7 form #' . $id;
+		}
+		$map = array(
+			'wp.landing.draft'    => 'wp post create --post_type=page --post_status=draft',
+			'wp.page.draft'       => 'wp post create --post_type=page --post_status=draft',
+			'wp.page.attach_form' => 'wp post update ' . $id . ' --post_content=…  # + contact form',
+			'wp.page.edit'        => 'wp post update ' . $id . ' --post_title=… --post_content=…',
+			'wp.page.publish'     => 'wp post update ' . $id . ' --post_status=publish',
+			'wp.page.update_live' => 'wp post update ' . $id . ' --post_title=… --post_content=…  # trang đang công khai',
+			'wp.page.restore'     => 'wp post update ' . $id . ' --post_content=<bản lưu>',
+		);
+		return $map[ $executor ] ?? '';
+	}
+
+	/** manual = a person approved this very preview; standing = a standing authorisation; none = R0/R1 (nothing public) */
+	private static function approval( string $risk, array $ctx ): string {
+		if ( 'R2' !== $risk && 'R3' !== $risk ) {
+			return 'none';
+		}
+		return 'standing' === (string) ( $ctx['_confirm'] ?? '' ) ? 'standing' : 'manual';
+	}
+
+	/**
+	 * One `site-change-log@1` row. before_ref / after_ref are short refs (spec-hash prefix = snapshot id, or a status word), never page text;
+	 * `changes` are the ≤ 8 diff lines the person saw (each already cut to 60 chars by the compiler).
+	 *
+	 * @param string[] $changes
+	 */
+	public static function change_entry( string $executor, string $risk, int $uid, array $ctx, int $id, string $before, string $after, array $changes, string $kind = 'page' ): array {
+		return array(
+			'at'           => gmdate( 'c' ),
+			'executor'     => $executor,
+			'risk'         => $risk,
+			'by'           => $uid,
+			'approval'     => self::approval( $risk, $ctx ),
+			'target'       => $kind . ':' . $id,
+			'command_line' => self::command_line( $executor, $id, $kind ),
+			'before_ref'   => $before,
+			'after_ref'    => $after,
+			'changes'      => array_slice( array_map( 'strval', $changes ), 0, 8 ),
+			'result'       => 'ok',
+		);
+	}
+
+	/** append to the page's own history (newest last), keeping HISTORY_MAX; returns the updated `generated` meta */
+	public static function with_history( array $generated, array $entry ): array {
+		$h   = array_values( array_filter( (array) ( $generated['history'] ?? array() ), 'is_array' ) );
+		$h[] = $entry;
+		$generated['history'] = array_slice( $h, -self::HISTORY_MAX );
+		return $generated;
+	}
+
+	/** the cross-page index: ONE metadata-only line in the MCP audit (never the changes, never page text — see write_audit) */
+	public static function audit_change( array $entry ): void {
+		$line = array(
+			'tool_name'     => 'site_change_log',
+			'status'        => 'success',
+			'user_id'       => (int) $entry['by'],
+			'executor'      => $entry['executor'],
+			'risk'          => $entry['risk'],
+			'approval'      => $entry['approval'],
+			'target'        => $entry['target'],
+			'before_ref'    => $entry['before_ref'],
+			'after_ref'     => $entry['after_ref'],
+			'changes_count' => count( (array) $entry['changes'] ),
+			'result'        => $entry['result'],
+		);
+		try { // the write is already done: a broken log must never turn it into an error
+			self::seam( 'audit', array( $line ), static function ( $line ) {
+				return class_exists( 'BizCity_MCP_File_Logger' ) ? BizCity_MCP_File_Logger::write( $line ) : false;
+			} );
+		} catch ( \Throwable $e ) {
+			return;
+		}
+	}
+
+	/** @return array|WP_Error */
+	public static function page_history( array $args, array $ctx ) {
+		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+			$id = (int) ( $args['page_id'] ?? 0 );
+			if ( $id <= 0 ) {
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Thiếu mã trang (page_id).', 422 );
+			}
+			$p = self::editable_page( $id, false );
+			if ( is_wp_error( $p ) ) {
+				return $p;
+			}
+			$gen   = (array) ( $p['generated'] ?? array() );
+			$all   = array_values( array_filter( (array) ( $gen['history'] ?? array() ), 'is_array' ) );
+			$snaps = array_column( self::snapshot_list( $gen ), 'id' );
+			$limit = max( 1, min( self::HISTORY_READ_MAX, (int) ( $args['limit'] ?? self::HISTORY_READ_MAX ) ) );
+			$out   = array();
+			foreach ( array_slice( array_reverse( $all ), 0, $limit ) as $e ) {
+				$before = (string) ( $e['before_ref'] ?? '' );
+				$out[]  = array(
+					'at'           => (string) ( $e['at'] ?? '' ),
+					'executor'     => (string) ( $e['executor'] ?? '' ),
+					'risk'         => (string) ( $e['risk'] ?? '' ),
+					'by'           => (int) ( $e['by'] ?? 0 ),
+					'approval'     => (string) ( $e['approval'] ?? '' ),
+					'command_line' => (string) ( $e['command_line'] ?? '' ),
+					'before_ref'   => $before,
+					'after_ref'    => (string) ( $e['after_ref'] ?? '' ),
+					'changes'      => array_slice( array_map( 'strval', (array) ( $e['changes'] ?? array() ) ), 0, 8 ),
+					'result'       => (string) ( $e['result'] ?? '' ),
+					'can_restore'  => '' !== $before && in_array( $before, $snaps, true ), // the version BEFORE this change is still kept (90 days)
+				);
+			}
+			return array( 'page_id' => $id, 'title' => (string) $p['title'], 'status' => (string) $p['status'], 'total' => count( $all ), 'entries' => $out );
 		} );
 	}
 
@@ -619,7 +819,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 	}
 
 	/** compile + save the new spec, keep the old one as a snapshot. @return true|WP_Error */
-	private static function write_live( array $plan, int $uid, string $executor ) {
+	private static function write_live( array $plan, int $uid, string $executor, array $ctx = array() ) {
 		$p         = $plan['page'];
 		$transport = in_array( (string) ( $p['generated']['transport'] ?? '' ), array( 'flatsome', 'gutenberg' ), true ) ? (string) $p['generated']['transport'] : 'gutenberg';
 		$r         = self::seam( 'update_post', array( $plan['id'], array( 'post_title' => $plan['spec']['title'], 'post_content' => BizCity_SelfWP_Page_Compiler::compile( $plan['spec'], $transport ) ) ), static function ( $id, $fields ) {
@@ -631,10 +831,13 @@ final class BizCity_SelfWP_Action_MCP_Service {
 		if ( (int) $r <= 0 ) {
 			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không lưu được thay đổi của trang.', 500 );
 		}
-		$gen = array_merge( self::push_snapshot( (array) $p['generated'], $plan['old'] ), array( 'spec_hash' => $plan['new_hash'], 'spec' => $plan['spec'], 'edited_by' => $uid, 'edited_at' => gmdate( 'c' ), 'edited_via' => $executor ) );
+		$gen   = array_merge( self::push_snapshot( (array) $p['generated'], $plan['old'] ), array( 'spec_hash' => $plan['new_hash'], 'spec' => $plan['spec'], 'edited_by' => $uid, 'edited_at' => gmdate( 'c' ), 'edited_via' => $executor ) );
+		$entry = self::change_entry( $executor, 'R2', $uid, $ctx, $plan['id'], substr( $plan['old_hash'], 0, 12 ), substr( $plan['new_hash'], 0, 12 ), $plan['changes'] );
+		$gen   = self::with_history( $gen, $entry ); // [2026-10-17 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L11
 		self::seam( 'update_meta', array( $plan['id'], self::META_GENERATED, $gen ), static function ( $id, $key, $value ) {
 			return update_post_meta( $id, $key, $value );
 		} );
+		self::audit_change( $entry );
 		return true;
 	}
 
@@ -665,7 +868,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	/** @return array|WP_Error */
 	public static function page_update_live( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+			return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args, $ctx ) {
 			$plan = self::plan_live_edit( $args );
 			if ( is_wp_error( $plan ) ) {
 				return $plan;
@@ -674,7 +877,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( array() === $plan['changes'] ) {
 				return array( 'status' => 'done', 'page_id' => $plan['id'], 'url' => $url, 'changes' => array(), 'unchanged' => true, 'spec_hash' => $plan['new_hash'] );
 			}
-			$w = self::write_live( $plan, $uid, 'wp.page.update_live' );
+			$w = self::write_live( $plan, $uid, 'wp.page.update_live', $ctx );
 			if ( is_wp_error( $w ) ) {
 				return $w;
 			}
@@ -707,7 +910,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	/** @return array|WP_Error */
 	public static function page_restore( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+			return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args, $ctx ) {
 			$plan = self::plan_restore( $args );
 			if ( is_wp_error( $plan ) ) {
 				return $plan;
@@ -716,12 +919,61 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( array() === $plan['changes'] ) { // a retry / second tap: already on that version
 				return array( 'status' => 'done', 'page_id' => $plan['id'], 'url' => $url, 'changes' => array(), 'unchanged' => true, 'spec_hash' => $plan['new_hash'] );
 			}
-			$w = self::write_live( $plan, $uid, 'wp.page.restore' );
+			$w = self::write_live( $plan, $uid, 'wp.page.restore', $ctx );
 			if ( is_wp_error( $w ) ) {
 				return $w;
 			}
 			return array( 'status' => 'done', 'page_id' => $plan['id'], 'url' => $url, 'changes' => $plan['changes'], 'unchanged' => false, 'spec_hash' => $plan['new_hash'], 'snapshot_id' => substr( $plan['old_hash'], 0, 12 ) );
 		} );
+	}
+
+	/**
+	 * [2026-10-18 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5: put an existing Contact Form 7 form into a DRAFT page the assistant built - a previewed edit like any other (same rights, snapshot, history).
+	 * The form must exist and be usable by this person (cf7:<id> is checked by page_edit); attaching the same form twice is a quiet no-op.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function page_attach_form( array $args, array $ctx ) {
+		$fid = is_int( $args['form_id'] ?? null ) ? (int) $args['form_id'] : 0;
+		$id  = is_int( $args['page_id'] ?? null ) ? (int) $args['page_id'] : 0;
+		if ( $id <= 0 || $fid <= 0 ) {
+			return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Cần page_id và form_id (số nguyên dương).', 422 );
+		}
+		$ref = BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $id, $fid ) {
+			$p = self::editable_page( $id, true );
+			if ( is_wp_error( $p ) ) {
+				return $p;
+			}
+			$spec = is_array( $p['generated']['spec'] ?? null ) ? $p['generated']['spec'] : null;
+			if ( null === $spec ) {
+				return self::needs_human( $id, $p );
+			}
+			foreach ( (array) ( $spec['sections'] ?? array() ) as $sec ) {
+				if ( 'form' !== ( $sec['type'] ?? '' ) ) {
+					continue;
+				}
+				if ( 'cf7:' . $fid === ( $sec['form_ref'] ?? '' ) ) {
+					return array( 'page_id' => $id, 'title' => (string) $p['title'], 'status' => (string) $p['status'], 'unchanged' => true, 'spec_hash' => BizCity_SelfWP_Page_Compiler::spec_hash( $spec ), 'changes' => array() );
+				}
+				// the page-spec allows ONE form section per page: say so instead of letting the compiler's generic error through
+				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Trang đã có form ' . (string) ( $sec['form_ref'] ?? '' ) . ' (mỗi trang chỉ một form). Đổi form: wp.page.edit, op update, fields.form_ref.', 422, array( 'help_code' => 'selfwp_form_already_attached' ) );
+			}
+			return null;
+		} );
+		if ( null !== $ref ) {
+			return $ref;
+		}
+		$section = array( 'type' => 'form', 'form_ref' => 'cf7:' . $fid );
+		foreach ( array( 'title', 'anchor' ) as $k ) {
+			if ( isset( $args[ $k ] ) ) {
+				$section[ $k ] = $args[ $k ];
+			}
+		}
+		$op = array( 'op' => 'add', 'section' => $section );
+		if ( isset( $args['after'] ) && is_int( $args['after'] ) ) {
+			$op['after'] = $args['after'];
+		}
+		return self::page_edit( array( 'page_id' => $id, 'base_spec_hash' => (string) ( $args['base_spec_hash'] ?? '' ), 'ops' => array( $op ) ), $ctx, 'wp.page.attach_form' );
 	}
 
 	/* ───────────────────────────── R0: wp.site.info · wp.content.list · cf7.form.list ─────────────────────── */
@@ -861,7 +1113,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	/** @return array|WP_Error */
 	public static function form_create( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+			return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
 			if ( ! self::can( 'wpcf7_edit_contact_forms' ) ) {
 				return self::denied( 'wpcf7_edit_contact_forms', 'tạo form liên hệ' );
 			}
@@ -931,6 +1183,11 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( $id <= 0 ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không lưu được form (Contact Form 7 không trả id).', 500 );
 			}
+			$entry = self::change_entry( 'cf7.form.create', 'R1', $uid, array(), $id, '', substr( BizCity_SelfWP_Page_Compiler::spec_hash( $f['form'] ), 0, 12 ), array( 'Tạo form «' . $f['form']['title'] . '» (' . count( $f['form']['fields'] ) . ' ô)' ), 'form' ); // [2026-10-17 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L6/L8: the spec + history live in the form's own meta so cf7.form.update / set_recipient can work on it later
+			self::seam( 'update_meta', array( $id, self::META_FORM, self::with_history( array( 'spec' => $f['form'], 'by' => $uid, 'at' => gmdate( 'c' ) ), $entry ) ), static function ( $id, $key, $value ) {
+				return update_post_meta( $id, $key, $value );
+			} );
+			self::audit_change( $entry );
 			return array(
 				'form_id'          => $id,
 				'shortcode'        => '[contact-form-7 id="' . $id . '"]',
@@ -944,9 +1201,26 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	/** @return array|WP_Error */
 	public static function landing_draft( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+		return self::draft_page( $args, $ctx, 'wp.landing.draft', true );
+	}
+
+	/** [2026-10-18 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5: a plain page - same spec, same checks, but NOT the blank landing template (the theme's header / footer stay) and keyed by a mandatory idempotency_key @return array|WP_Error */
+	public static function page_draft( array $args, array $ctx ) {
+		return self::draft_page( $args, $ctx, 'wp.page.draft', false );
+	}
+
+	/** @return array|WP_Error */
+	private static function draft_page( array $args, array $ctx, string $executor, bool $landing ) {
+		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args, $executor, $landing ) {
 			if ( ! self::can( 'edit_pages' ) ) {
 				return self::denied( 'edit_pages', 'tạo trang' );
+			}
+			$idem = '';
+			if ( ! $landing ) { // a retried call must never open a second page: the key says "this is the same request"
+				$idem = is_string( $args['idempotency_key'] ?? null ) ? trim( $args['idempotency_key'] ) : ''; // an array / number is "missing", not a PHP notice
+				if ( 1 !== preg_match( '/^[A-Za-z0-9_-]{8,64}$/D', $idem ) ) {
+					return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Cần idempotency_key (8–64 ký tự a-z, 0-9, _ , -) để thử lại không tạo trang đôi.', 422, array( 'help_code' => 'selfwp_idempotency_key_required' ) );
+				}
 			}
 			$v = BizCity_SelfWP_Page_Compiler::validate( $args['spec'] ?? null );
 			if ( ! $v['ok'] ) {
@@ -965,7 +1239,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 				}
 			}
 			$hash = BizCity_SelfWP_Page_Compiler::spec_hash( $spec );
-			$dup  = (int) self::seam( 'find_duplicate', array( $uid, $hash ), array( __CLASS__, 'default_find_duplicate' ) );
+			$dup  = (int) self::seam( 'find_duplicate', array( $uid, $landing ? $hash : $idem ), array( __CLASS__, 'default_find_duplicate' ) );
 			$want = (string) ( $args['transport'] ?? 'auto' );
 			$flat = 'flatsome' === $want || ( 'auto' === $want && 'flatsome' === (string) self::seam( 'active_template', array(), static function () {
 				return function_exists( 'get_template' ) ? (string) get_template() : '';
@@ -987,7 +1261,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( ! empty( $spec['seo']['meta_description'] ) ) {
 				$postarr['post_excerpt'] = $spec['seo']['meta_description'];
 			}
-			if ( $flat && self::seam( 'template_exists', array( self::TEMPLATE_LANDING ), static function ( $file ) {
+			if ( $landing && $flat && self::seam( 'template_exists', array( self::TEMPLATE_LANDING ), static function ( $file ) {
 				return function_exists( 'locate_template' ) && '' !== locate_template( $file );
 			} ) ) {
 				$postarr['page_template'] = self::TEMPLATE_LANDING;
@@ -1002,8 +1276,11 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			if ( $id <= 0 ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không tạo được trang nháp.', 500 );
 			}
+			$entry = self::change_entry( $executor, 'R1', $uid, array(), $id, '', substr( $hash, 0, 12 ), array( 'Tạo trang nháp «' . $spec['title'] . '» (' . count( $spec['sections'] ) . ' phần)' ) ); // [2026-10-17 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L11
 			self::seam( 'update_meta', array( $id, self::META_GENERATED, array(
-				'executor'  => 'wp.landing.draft',
+				'history'   => array( $entry ),
+				'executor'  => $executor,
+				'idem'      => $idem,
 				'spec_hash' => $hash,
 				'transport' => $transport,
 				'user_id'   => $uid,
@@ -1012,6 +1289,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			) ), static function ( $id, $key, $value ) {
 				return update_post_meta( $id, $key, $value );
 			} );
+			self::audit_change( $entry );
 			return self::shape( $id, $spec, $transport, $hash, false );
 		} );
 	}
@@ -1068,7 +1346,7 @@ final class BizCity_SelfWP_Action_MCP_Service {
 
 	/** @return array|WP_Error */
 	public static function page_publish( array $args, array $ctx ) {
-		return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args ) {
+			return BizCity_MCP_Action_Support::run_as( $ctx, static function ( $uid ) use ( $args, $ctx ) {
 			$id = (int) ( $args['page_id'] ?? 0 );
 			if ( $id <= 0 ) {
 				return BizCity_MCP_Action_Support::error( BizCity_MCP_Error::QUERY_INVALID, 'Thiếu mã trang (page_id).', 422 );
@@ -1093,6 +1371,11 @@ final class BizCity_SelfWP_Action_MCP_Service {
 			self::seam( 'update_meta', array( $id, '_bizcity_published', array( 'executor' => 'wp.page.publish', 'user_id' => $uid, 'at' => gmdate( 'c' ) ) ), static function ( $id, $key, $value ) {
 				return update_post_meta( $id, $key, $value );
 			} );
+			$entry = self::change_entry( 'wp.page.publish', 'R2', $uid, $ctx, $id, 'draft', 'publish', array( 'Đăng công khai trang «' . $p['title'] . '»' ) ); // [2026-10-17 05:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L11
+			self::seam( 'update_meta', array( $id, self::META_GENERATED, self::with_history( (array) $p['generated'], $entry ) ), static function ( $id, $key, $value ) {
+				return update_post_meta( $id, $key, $value );
+			} );
+			self::audit_change( $entry );
 			// the address of a PUBLISHED page is its real permalink: ask again now that it is public
 			$url = (string) self::seam( 'public_url', array( $id ), array( __CLASS__, 'default_public_url' ) );
 			return array( 'status' => 'done', 'page_id' => $id, 'url' => $url, 'duplicate' => false );
@@ -1194,11 +1477,11 @@ final class BizCity_SelfWP_Action_MCP_Service {
 	}
 
 	/** [2026-10-17 01:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 Q118-4: đúng MỘT email, ký tự an toàn, không thể chèn header thư hay nhiều người nhận */
-	private static function single_email( string $e ): bool {
+	public static function single_email( string $e ): bool {
 		return strlen( $e ) <= 100 && 1 === preg_match( '/^[A-Za-z0-9._%+\-]+@[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}$/D', $e );
 	}
 
-	private static function mask_email( string $e ): string {
+	public static function mask_email( string $e ): string {
 		$p = explode( '@', $e, 2 );
 		if ( 2 !== count( $p ) ) {
 			return '***';

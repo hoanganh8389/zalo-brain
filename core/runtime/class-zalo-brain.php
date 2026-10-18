@@ -35,9 +35,11 @@ final class BizCity_Zalo_Brain {
 	const CONTRACT = 'zalo-brain-extension@1';
 	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-L1 — 1.1.0 (additive): register_from_manifest(), register_block(), register_scenarios(),
 	// manifest keys mcp_library / scenarios / automation_blocks read, tools_by_owner in describe(). 1.0 callers unchanged.
-	const VERSION  = '1.1.0';
+	// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-K2 (R-JOURNAL R-JN-17) — 1.2.0 (additive): manifest `journal_kinds` (inline {families, kinds} or a file path inside
+	// the plugin, shape journal-kinds@1) ⇒ merged into the filter `bizcity_journal_kinds`; register_journal_kinds(); journal_kinds() in describe().
+	const VERSION  = '1.2.0';
 	/** Manifest keys 1.1 reads beyond 1.0 (all optional). */
-	const MANIFEST_KEYS_11 = array( 'mcp_library', 'scenarios', 'automation_blocks', 'skills', 'context_producers' ); // + context_producers: PHASE-0.104 S104-C1
+	const MANIFEST_KEYS_11 = array( 'mcp_library', 'scenarios', 'automation_blocks', 'skills', 'context_producers', 'journal_kinds' ); // + context_producers: PHASE-0.104 S104-C1 · + journal_kinds: PHASE-0.121 S121-K2
 
 	/** The seven surfaces of Zalo Brain (doc 50 §3). Owner = code that renders it; requires = feature or plugin. */
 	const CORE_SURFACES = array(
@@ -70,6 +72,9 @@ final class BizCity_Zalo_Brain {
 	 * owner => manifest `mcp_tools[]` (declared, checked against the real registrations by the validator and `wp bizcity health`).
 	 */
 	private static $blocks = array(), $scenarios = array(), $declared_tools = array();
+
+	/** @var array<string,array{families:array,kinds:array}> owner extension => declared journal kinds (journal-kinds@1) — PHASE-0.121 S121-K2 */
+	private static $journal_kinds = array();
 
 	/** @var bool */
 	private static $loaded = false;
@@ -144,6 +149,17 @@ final class BizCity_Zalo_Brain {
 		$dir = isset( $manifest['_dir'] ) ? rtrim( (string) $manifest['_dir'], '/\\' ) : '';
 		if ( '' !== $dir && ! empty( $manifest['scenarios'] ) && is_string( $manifest['scenarios'] ) ) {
 			self::register_scenarios( $dir . '/' . ltrim( str_replace( '\\', '/', $manifest['scenarios'] ), '/' ), $id );
+		}
+		// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-K2 (R-JN-17) — manifest `journal_kinds`: inline {families, kinds} or a JSON file path relative to the plugin dir.
+		if ( ! empty( $manifest['journal_kinds'] ) ) {
+			$jk = $manifest['journal_kinds'];
+			if ( is_string( $jk ) && '' !== $dir && false === strpos( $jk, '..' ) ) {
+				$jk_file = $dir . '/' . ltrim( str_replace( '\\', '/', $jk ), '/' );
+				$jk      = is_readable( $jk_file ) ? json_decode( (string) file_get_contents( $jk_file ), true ) : null; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			}
+			if ( is_array( $jk ) ) {
+				self::register_journal_kinds( $jk, $id );
+			}
 		}
 		// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 (R-ZBF-4) — manifest `context_producers[]`: {id, label, metrics, roles, kind?, icon?}.
 		foreach ( (array) ( $manifest['context_producers'] ?? array() ) as $p ) {
@@ -248,6 +264,65 @@ final class BizCity_Zalo_Brain {
 		}
 		return true === BizCity_Context_Producers::register( $id, $def );
 	}
+
+	/**
+	 * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-K2 (R-JOURNAL R-JN-17) — the fifth door: journal kinds (journal-kinds@1 shape {families, kinds}). A plugin
+	 * declares its own family (= its slug) and kinds `<slug>.<object>` here, then writes rows with bizcity_journal_record().
+	 * Core families (common, education, nutrition, nanny, astro, commerce, tasks, mkt, research, hr) cannot be redefined; a core
+	 * kind cannot be overridden. Merged into `bizcity_journal_kinds` once (hooked lazily), so BizCity_Journal_Kinds sees it.
+	 */
+	public static function register_journal_kinds( array $decl, string $owner = '' ): bool {
+		if ( self::closed( 'register_journal_kinds' ) ) {
+			return false;
+		}
+		$owner = sanitize_key( $owner );
+		$fams  = array();
+		$kinds = array();
+		foreach ( (array) ( $decl['families'] ?? array() ) as $fid => $f ) {
+			$fid = sanitize_key( (string) $fid );
+			if ( '' !== $fid && is_array( $f ) ) {
+				$fams[ $fid ] = array( 'label' => (string) ( $f['label'] ?? $fid ), 'per_subject_notebook_default' => ! empty( $f['per_subject_notebook_default'] ), 'sensitive' => (string) ( $f['sensitive'] ?? '' ), 'owner' => $owner );
+			}
+		}
+		foreach ( (array) ( $decl['kinds'] ?? array() ) as $kid => $k ) {
+			$kid = strtolower( (string) preg_replace( '/[^a-z0-9_.]/', '', strtolower( (string) $kid ) ) );
+			if ( '' !== $kid && is_array( $k ) && preg_match( '/^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){1,2}$/', $kid ) ) {
+				$kinds[ $kid ] = $k + array( 'family' => (string) strtok( $kid, '.' ), 'label' => $kid, 'sensitive' => '', 'card_fields' => array(), 'owner' => $owner );
+			}
+		}
+		if ( empty( $fams ) && empty( $kinds ) ) {
+			return false;
+		}
+		self::$journal_kinds[ '' !== $owner ? $owner : 'core' ] = array( 'families' => $fams, 'kinds' => $kinds );
+		if ( function_exists( 'add_filter' ) ) {
+			add_filter( 'bizcity_journal_kinds', array( __CLASS__, 'merge_journal_kinds' ), 20, 1 ); // idempotent in WP (same callback + priority); merge itself is idempotent too
+		}
+		if ( class_exists( 'BizCity_Journal_Kinds' ) ) {
+			BizCity_Journal_Kinds::reset();
+		}
+		return true;
+	}
+
+	/** `bizcity_journal_kinds` filter body: core first (never overridden), then every extension's declaration. Pure. */
+	public static function merge_journal_kinds( $base ) {
+		$out = is_array( $base ) ? $base : array( 'families' => array(), 'kinds' => array() );
+		foreach ( self::$journal_kinds as $decl ) {
+			foreach ( (array) $decl['families'] as $fid => $f ) {
+				if ( ! isset( $out['families'][ $fid ] ) ) {
+					$out['families'][ $fid ] = $f;
+				}
+			}
+			foreach ( (array) $decl['kinds'] as $kid => $k ) {
+				if ( ! isset( $out['kinds'][ $kid ] ) ) {
+					$out['kinds'][ $kid ] = $k;
+				}
+			}
+		}
+		return $out;
+	}
+
+	/** @return array<string,array{families:array,kinds:array}> owner => declared journal kinds */
+	public static function journal_kinds(): array { return self::$journal_kinds; }
 
 	/** @return array<string,string> block id => owner (extensions only) */
 	public static function blocks(): array { return self::$blocks; }

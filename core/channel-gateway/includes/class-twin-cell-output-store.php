@@ -299,6 +299,10 @@ final class BizCity_Twin_Cell_Output_Store {
 			}
 			self::note( 'stored', 200 );
 			self::record_stored( $job, $att );
+			// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4 — the journal row of this output now points at the attachment (BizCity_Journal_Output_Listener).
+			if ( function_exists( 'do_action' ) ) {
+				do_action( 'bizcity_cell_output_stored', $job, $att );
+			}
 			self::enforce_quota( $att );
 			return $att;
 		} finally {

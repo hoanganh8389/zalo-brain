@@ -1,0 +1,46 @@
+{
+  "$schema": "https://bizcity.vn/schema/journal-entry-v1.json",
+  "contract": "journal-entry@1.1.0",
+  "_stamp": "[2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J2 — runtime schema of ONE journal row (R-JOURNAL v1.1 R-JN-12…18, doc 72 §3). 1.0.0 lived only in PHASE-0.100 doc 92 §2; 1.1.0 is additive: state, summary, original.doc_code, origin, error, mirror, learning. Read by BizCity_Journal_Index (site) and by plugins through bizcity_journal_record().",
+  "table": "{prefix}bizcity_journal_entries",
+  "rule": "R-JOURNAL (docs/rules/PHASE-0-RULE-JOURNAL.md) — every bookkeeping need of every business flow, entry point and plugin is ONE row here; Sheet / CSV / web / KG are layers around it, never a second ledger.",
+  "fields": {
+    "entry_id":     { "type": "integer", "column": "id" },
+    "kind":         { "type": "string", "column": "kind", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){1,2}$", "from": "journal-kinds@1 (core/kg-hub/contracts/JOURNAL-KINDS-v1.json + filter bizcity_journal_kinds / manifest journal_kinds)" },
+    "title":        { "type": "string", "column": "title", "max": 255 },
+    "summary":      { "type": "string", "column": "body", "note": "1-3 sentences for people and for the cell registry; '' when nobody wrote one (then title stands in)" },
+    "doc_date":     { "type": "date|null", "column": "doc_date", "note": "date ON the document, not the capture date" },
+    "state":        { "type": "enum", "column": "status", "values": ["captured", "review", "verified", "failed", "void"], "legacy": ["draft", "published", "archived"], "rules": ["failed = no original kept (R-JN-14, Q121-13) and error.code is set", "verified is set by a PERSON (flags.verified.by = WP user id), never by a model", "void = removed from the register; the row stays (history)"] },
+    "subject":      { "type": "object", "shape": { "type": "self|contact|none", "hash": "s-<16 hex>" }, "column": "subject_hash" },
+    "tags":         { "type": "string[]", "column": "tags", "max_items": 12 },
+    "card":         { "type": "object", "column": "metadata.card", "note": "fields declared by the kind's card_fields" },
+    "confidence":   { "type": "number", "column": "metadata.confidence", "note": "< 0.6 ⇒ flags.review" },
+    "original":     { "type": "object", "column": "metadata.original", "shape": { "attachment_id": "integer", "doc_code": "TL-<attachment id>", "file_name": "string", "mime": "string", "size": "integer bytes", "sha256": "64 hex" }, "note": "R-JN-2 immutable; every document row must carry doc_code + sha256" },
+    "origin":       { "type": "object", "column": "metadata.origin + source_type", "shape": { "surface": "zalo_1_1|web_upload|notebook|plugin:<slug>|automation|cell|crm|job", "ref": "string" } },
+    "source_type":  { "type": "enum", "column": "source_type", "values": ["owner_capture", "web_upload", "context_producer", "derived", "track", "job", "automation_run", "cell_output", "crm", "plugin", "file", "menu"], "note": "closed set (R-JN-19); unknown ⇒ plugin" },
+    "source_ref":   { "type": "string", "column": "source_ref", "note": "doc_code for documents; <table>:<id> for a pointer row" },
+    "idempotency_key": { "type": "string", "column": "idempotency_key", "unique": true, "prefixes": { "oc:": "owner_capture (Zalo 1-1)", "src:": "notebook source (web upload / ingest)", "ctx:": "context producer day row", "derive:": "journal.derive", "track:": "track.set", "job:": "assistant job result", "run:": "automation run result", "out:": "cell output", "crm:": "CRM pointer", "plg:<slug>:": "plugin" } },
+    "kg":           { "type": "object", "shape": { "source_id": "integer", "notebook_ids": "integer[]" }, "column": "kg_source_id, notebook_id" },
+    "learning":     { "type": "object", "column": "learning_status, learning_error, metadata.learning", "shape": { "level": "L0|L1|L2|L3", "status": "not_queued|queued|processing|learned|failed|retryable", "error": "string", "text_ready": "boolean", "passages": "integer", "embedded_at": "iso|null", "graph_state": "none|pending|done|skipped" }, "note": "R-JN-20 four learning levels; L3 never automatic" },
+    "error":        { "type": "object|null", "column": "metadata.error", "shape": { "code": "string", "message": "string" }, "note": "present only when state = failed" },
+    "mirror":       { "type": "object", "column": "metadata.mirror", "shape": { "sheet": "off|pending|ok|failed", "row_ref": "string" }, "note": "R-JN-15 the Sheet mirror is written AFTER this row exists" },
+    "derived_from": { "type": "integer[]", "column": "metadata.derived_from", "note": "R-JN-10 products point at their sources" },
+    "flags":        { "type": "object", "column": "metadata.flags", "shape": { "pinned": "boolean", "review": "boolean", "sensitive": "''|health|child|finance|personal", "verified": { "by": "integer", "at": "iso" } } },
+    "by":           { "type": "object", "column": "metadata.by", "shape": { "role": "owner|staff|system", "user_hash": "string" } },
+    "rev":          { "type": "integer", "column": "revision" },
+    "created_at":   { "type": "datetime" },
+    "updated_at":   { "type": "datetime" },
+    "owner_user_id": { "type": "integer" }
+  },
+  "write_api": {
+    "function": "bizcity_journal_record( array $entry ) : array|WP_Error",
+    "class": "BizCity_Journal_Index::add() / file() / set_state() / register_row()",
+    "required": ["owner_user_id", "kind", "idempotency_key"],
+    "refuses": ["kind not declared in journal-kinds@1 (R-JN-17)", "state verified without flags.verified.by (R-JN-14)"],
+    "action_after_insert": "bizcity_journal_entry_added( array $entry )",
+    "action_after_state": "bizcity_journal_entry_state( array $entry, string $from, string $to )"
+  },
+  "projection": {
+    "doc-register@1": "BizCity_Journal_Index::register_row( $entry ) — one flat row for Sheet (sheet-ledger@1 docs_v1) / CSV / web; never carries URLs, hashes, phones, uids"
+  }
+}

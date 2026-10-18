@@ -60,6 +60,8 @@ final class BizCity_Schedule_Sync_MCP_Service {
 				'last_status' => array( 'type' => 'string', 'maxLength' => 32 ),
 				'run_count'   => array( 'type' => 'integer', 'minimum' => 0 ),
 				'number_ref'  => array( 'type' => 'string', 'maxLength' => 64 ),
+				// [2026-10-18 02:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A3-2 (W3) — a reminder about ONE document of the register ("nhắc trước khi hợp đồng TL-123 hết hạn")
+				'source_ref'  => array( 'type' => 'string', 'pattern' => '^(TL|JE)-[0-9]{1,12}$' ),
 				// [2026-10-06 11:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-7 — job handed over by the site (job_upsert): update THAT row.
 				'site_event_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 			) ),
@@ -125,6 +127,8 @@ final class BizCity_Schedule_Sync_MCP_Service {
 					'run_count'   => max( 0, (int) ( $args['run_count'] ?? 0 ) ),
 					'number_ref'  => sanitize_text_field( (string) ( $args['number_ref'] ?? '' ) ),
 				),
+				// [2026-10-18 02:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A3-2 (W3)
+				'source_ref' => 1 === preg_match( '/^(TL|JE)-[0-9]{1,12}$/', (string) ( $args['source_ref'] ?? '' ) ) ? (string) $args['source_ref'] : '',
 				'inbound'  => array( 'platform' => 'ZALO', 'intent_tag' => 'reminder' ),
 			);
 

@@ -171,6 +171,18 @@ require_once BIZCITY_MCP_DIR . 'includes/actions/class-memory-mcp-service.php';
 // [2026-10-16 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5/L6 — self_wp executors: cf7.form.create + wp.landing.draft (page-spec@1 compiler for Flatsome / Gutenberg; mode `content`).
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-page-compiler.php';
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-action-mcp-service.php';
+// [2026-10-17 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L14/L8 — wp.theme.info + wp.theme.update (mode `site_admin`, whitelist core/mcp/contracts/self-wp-theme-mods.json).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-theme-service.php';
+// [2026-10-17 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L6/L8 — cf7.form.update + cf7.form.set_recipient (needs the main service: change_entry / with_history / audit_change).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-form-service.php';
+// [2026-10-17 10:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L9 — wp.user.create + wp.user.set_role (R3, owner only, mode `site_admin`).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-user-service.php';
+// [2026-10-18 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L5 — wp.media.upload (one picture from the chat into the media library; bytes inline, no URL is ever fetched).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-media-service.php';
+// [2026-10-18 02:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-L8 — wp.menu.list + wp.menu.update (R2, mode `site_admin`).
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-menu-service.php';
+// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.118 S118-U1/U2 — REST of the "Website của tôi" page (Hoạt động · Hoàn tác · Kiểm tra 4 bước); calls the services above, so it loads after them.
+require_once BIZCITY_MCP_DIR . 'includes/actions/class-selfwp-ui-rest.php';
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.98 S98-M7 — site.content.search (posts / pages / public CPTs / media library, each with its https image; media-out@1).
 require_once BIZCITY_MCP_DIR . 'includes/actions/class-site-content-mcp-service.php';
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L4/L5/L13 — plugin tool libraries (mcp/tools.json loader), adapters for plugins

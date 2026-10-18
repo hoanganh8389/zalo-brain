@@ -93,11 +93,29 @@ Use only these (PHASE-0.104 added `bizcity_context_emit`); every other hook in `
 | Lifecycle | `zalo_brain_register` (action) · `zalo_brain_loaded` (action) · `zalo_brain_has_feature` · `zalo_brain_surfaces` · `zalo_brain_apps` · `zalo_brain_boot_dto` (filters) |
 | MCP | `bizcity_mcp_register_tools` (action) |
 | Data sources | `bizcity_context_emit` (action — you fire it with each record; `context-producer@1`) |
+| Journal (the register) | `bizcity_journal_record( $entry )` (function — ONE row per thing worth remembering, `journal-entry@1.1.0`) · `bizcity_journal_kinds` (filter) or manifest `journal_kinds` · actions `bizcity_journal_entry_added`, `bizcity_journal_entry_state` <!-- [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J1…J5/K2/K5 code --> |
 | Automation | `bizcity_automation_register_blocks` (action) · `bizcity_automation_blueprint_files` (filter) |
 | Channels | `bizcity_channel_normalized` · `bizcity_channel_outbound_logged` (actions) |
 | CRM | actions `bizcity_crm_contact_saved`, `bizcity_crm_event_create`, `bizcity_crm_install_migrate`, `bizcity_crm_magic_link_consumed`, `bizcity_crm_message_delivery_updated`, `bizcity_crm_message_inserted`, `bizcity_crm_message_persisted`, `bizcity_crm_spine_loaded` · filters `bizcity_crm_install_tables`, `bizcity_crm_pack_customer_row`, `bizcity_crm_register_adapters`, `bizcity_crm_spine_has_feature`, `bizcity_crm_staff_status`, `bizcity_crm_register_surfaces`, `bizcity_crm_inbox_actions`, `bizcity_crm_contact_card`, `bizcity_crm_conversation_dto` |
 
 Journal kinds (no code): filter `bizcity_journal_kinds` or a `journal_kinds` key, shape in `contracts/JOURNAL-KINDS-v1.json`.
+
+**Journal = the one register (R-JOURNAL v1.1, Tier 0).** Anything your plugin wants the assistant to remember, count, find or mirror to Google Sheets is ONE row in `bizcity_journal_entries` — never your own table. Declare your kinds (family = your slug, kinds `<slug>.<object>`), then:
+
+```php
+add_action( 'zalo_brain_register', fn() => BizCity_Zalo_Brain::register_from_manifest( __DIR__ . '/zalo-brain.json' ) ); // manifest: "journal_kinds": "journal-kinds.json"
+$entry = bizcity_journal_record( array(
+	'owner_user_id'   => $user_id,          // ZBC-3: every row has a WP user
+	'kind'            => 'booking.table',   // declared above, else WP_Error journal_kind_undeclared
+	'idempotency_key' => (string) $booking_id, // becomes plg:<slug>:<id> — a replay never adds a second row
+	'plugin'          => 'bizcity-booking',
+	'title'           => 'Bàn 4 người 19:00',
+	'summary'         => 'Khách Lan, 4 người, 19:00 thứ 6.',
+	'doc_date'        => '2026-10-24',
+	'card'            => array( 'guests' => 4, 'time' => '19:00' ),
+) );
+```
+The cell then answers "tối nay mấy bàn?" through MCP `journal.find` / `journal.summarize`; the Sheet mirror, CSV export and the register page come for free (`bizcity_journal_entry_added`). States: `captured · review · verified · failed · void` (`bizcity_journal_set_state()`; `verified` only by a person). <!-- [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J1…J5/K2/K5 code -->
 
 ## 6. Lifecycle and the one standard hook
 
@@ -144,3 +162,15 @@ Rules for every door:
 - Notebook text carries no phone, e-mail or address; mark sensitive kinds `sensitive`.
 - A block that writes gets a scenario created **switched off** (preview + confirm); a read-only block's scenario can be switched on at once.
 - Nothing your plugin ships may be read from `docs/` (except `docs/developer/`), `bin/` or `tests/` at runtime.
+
+## 10. Platform input is untrusted (R-ZBF-11, field lesson)
+
+<!-- [2026-10-18 02:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 — first real case: a Zalo file arrived with `propertyExt.ext` = `{"shouldParseLinkOrContact":0}`; the parser glued it onto the name (`x.docx. {…}`), the extension read as empty and a Word file was refused as "unsupported format". Additive to contract 1.x. -->
+
+| Rule | Why |
+|---|---|
+| Every field that comes from a platform (Zalo, Meta, Woo, a browser, a user upload) is **untrusted data**: check its shape before you use it. | The platform's field can carry something other than what its name says. |
+| Never concatenate an unchecked metadata field into a **name, path, extension, URL, key or SQL/JSON string**. Accept a value only if it matches the shape you expect (e.g. an extension: `^(?=.*[a-z])[a-z0-9]{1,8}$`) and otherwise fall back to what you already know. | One junk value turned a valid .docx into a refusal on both the cell and the site. |
+| A refusal such as "unsupported format" must show (in the log or the receipt) the **raw value that failed**, never only the label. | The owner's screenshot showed the junk name — that is how the cause was found in one step. |
+| A test with a payload you wrote yourself is not evidence about the platform. Capture one real payload per message type (mask phone, UID, URL, file hash) and keep it as a fixture; add a junk-value case next to it. | Our synthetic `share.file` fixture was well-formed, so 5,800 green tests missed it. |
+| The same check applies on both sides: the host validates what a plugin sends, a plugin validates what the host passes. | The cell and the site each refused the file on their own. |

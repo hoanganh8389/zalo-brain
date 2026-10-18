@@ -122,6 +122,12 @@ foreach ( array(
 	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
 	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
 	'class-context-producers.php'                 => 'kg_hub.context_producers', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 — context-producer@1 (after the journal index it writes to)
+	'journal-api.php'                             => 'kg_hub.journal_api', // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J5 (R-JN-17) — bizcity_journal_record() + friends, the ONE write door for plugins
+	'class-journal-ingest-listener.php'           => 'kg_hub.journal_ingest_listener',
+	'class-journal-learning-sync.php'             => 'kg_hub.journal_learning_sync',
+	'class-journal-output-listener.php'           => 'kg_hub.journal_output_listener',
+	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
+	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
 	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
 ) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
 	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
@@ -169,6 +175,24 @@ if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
 if ( class_exists( 'BizCity_Journal_REST', false ) ) {
 	BizCity_Journal_REST::init();
 }
+// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 — web / notebook uploads write their journal row (R-JN-13).
+if ( class_exists( 'BizCity_Journal_Ingest_Listener', false ) ) {
+	BizCity_Journal_Ingest_Listener::register();
+}
+// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 — embed / graph / error progress onto the journal row (R-JN-20/21).
+if ( class_exists( 'BizCity_Journal_Learning_Sync', false ) ) {
+	BizCity_Journal_Learning_Sync::register();
+}
+// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — what the machine MAKES for the owner gets one row; machine history stays in its own ledgers (R-JN-19).
+if ( class_exists( 'BizCity_Journal_Output_Listener', false ) ) {
+	BizCity_Journal_Output_Listener::register();
+}
+if ( class_exists( 'BizCity_Journal_Backfill', false ) ) {
+	BizCity_Journal_Backfill::register();
+}
+// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — private originals of owner-capture documents (before the bridge that uses them).
+require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-private-file-store.php';
+BizCity_KG_Private_File_Store::register();
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — one notebook workspace per Zalo number (Q96-13 = a).

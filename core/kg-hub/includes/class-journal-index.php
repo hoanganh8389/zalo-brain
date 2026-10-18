@@ -12,6 +12,11 @@
  * Biz Central Brain — Johnny Chu (Chu Hoàng Anh).
  *
  * [2026-10-12 10:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L19 — new file.
+ * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J2/J3 (R-JOURNAL v1.1 R-JN-12…18) — `journal-entry@1.1.0`
+ * (core/kg-hub/contracts/JOURNAL-ENTRY-v1.json): state · summary · original{doc_code, sha256…} · origin · error · mirror · learning;
+ * `set_state()` (verified = a person, never a model); `register_row()` = the doc-register@1 projection; action
+ * `bizcity_journal_entry_added` on a NEW row only (a replay on the same idempotency_key stays silent). This class is the ONE
+ * writer every entry point and every plugin goes through (`bizcity_journal_record()`): no second ledger anywhere.
  *
  * @package    Bizcity_Twin_AI
  * @subpackage Core\KG_Hub
@@ -24,6 +29,12 @@ if ( class_exists( 'BizCity_Journal_Index', false ) ) {
 }
 
 final class BizCity_Journal_Index {
+
+	const CONTRACT     = 'journal-entry@1.1.0';
+	const STATES       = array( 'captured', 'review', 'verified', 'failed', 'void' );
+	/** closed `source_type` set (R-JN-19); anything else ⇒ `plugin` */
+	const SOURCE_TYPES = array( 'owner_capture', 'web_upload', 'context_producer', 'derived', 'track', 'job', 'automation_run', 'cell_output', 'crm', 'plugin', 'file', 'menu' );
+	const LEARN_LEVELS = array( 'L0', 'L1', 'L2', 'L3' );
 
 	/**
 	 * Create one journal-entry@1 row. Idempotent on `idempotency_key` — a replay returns the existing row
@@ -61,23 +72,38 @@ final class BizCity_Journal_Index {
 		if ( '' !== $sensitive ) {
 			$flags['sensitive'] = $sensitive; // R-JN-11 — stamped from the kind, caller cannot downgrade it.
 		}
+		// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 — journal-entry@1.1.0 fields (all additive).
+		$state = self::sanitize_state( (string) ( $entry['state'] ?? '' ), 'captured' );
+		if ( 'verified' === $state && (int) ( $flags['verified']['by'] ?? 0 ) <= 0 ) {
+			return new WP_Error( 'journal_verified_needs_person', 'Trạng thái verified chỉ do người đặt (flags.verified.by).' ); // R-JN-14
+		}
+		$original = self::normalize_original( is_array( $entry['original'] ?? null ) ? $entry['original'] : array() );
+		$summary  = sanitize_textarea_field( (string) ( $entry['summary'] ?? ( $entry['card']['summary'] ?? '' ) ) );
 		$metadata = array(
 			'card'       => is_array( $entry['card'] ?? null ) ? $entry['card'] : array(),
 			'confidence' => $confidence,
-			'original'   => is_array( $entry['original'] ?? null ) ? $entry['original'] : array(),
+			'original'   => $original,
 			'subject'    => is_array( $entry['subject'] ?? null ) ? $entry['subject'] : array( 'type' => $subject_hash ? 'contact' : 'none', 'hash' => $subject_hash ),
 			'derived_from' => array_values( array_map( 'intval', (array) ( $entry['derived_from'] ?? array() ) ) ),
 			'flags'      => $flags,
 			'by'         => is_array( $entry['by'] ?? null ) ? $entry['by'] : array(),
+			'origin'     => self::normalize_origin( is_array( $entry['origin'] ?? null ) ? $entry['origin'] : array(), (string) ( $entry['source_type'] ?? '' ) ),
+			'mirror'     => array( 'sheet' => in_array( (string) ( $entry['mirror']['sheet'] ?? '' ), array( 'off', 'pending', 'ok', 'failed' ), true ) ? (string) $entry['mirror']['sheet'] : 'off', 'row_ref' => (string) ( $entry['mirror']['row_ref'] ?? '' ) ),
+			'learning'   => self::normalize_learning( is_array( $entry['learning'] ?? null ) ? $entry['learning'] : array(), $kind ),
 		);
+		if ( 'failed' === $state ) {
+			$metadata['error'] = array( 'code' => sanitize_key( (string) ( $entry['error']['code'] ?? 'store_failed' ) ), 'message' => sanitize_text_field( (string) ( $entry['error']['message'] ?? '' ) ) );
+		}
+		$key      = (string) ( $entry['idempotency_key'] ?? '' );
+		$existing = '' !== $key ? BizCity_Journal_Database::instance()->get_by_idempotency_key( $key ) : null;
 		$row = BizCity_Journal_Database::instance()->create( array(
 			'owner_user_id'   => $owner,
 			'workspace_id'    => (string) ( $entry['workspace_id'] ?? 'journal' ),
 			'title'           => $title,
-			'body'            => wp_strip_all_tags( (string) ( $entry['title'] ?? $title ) ) ?: $title, // body is NOT NULL legacy; title doubles as the human summary.
-			'status'          => 'captured',
-			'source_type'     => (string) ( $entry['source_type'] ?? 'file' ),
-			'source_ref'      => (string) ( $entry['source_ref'] ?? '' ),
+			'body'            => '' !== $summary ? $summary : $title, // body = summary (journal-entry@1.1.0); the title stands in when nobody wrote one.
+			'status'          => $state,
+			'source_type'     => self::sanitize_source_type( (string) ( $entry['source_type'] ?? 'file' ) ),
+			'source_ref'      => (string) ( $entry['source_ref'] ?? ( $original['doc_code'] ?? '' ) ),
 			'idempotency_key' => (string) ( $entry['idempotency_key'] ?? '' ),
 			'notebook_id'     => (int) ( $entry['notebook_id'] ?? 0 ),
 			'kg_source_id'    => (int) ( $entry['kg_source_id'] ?? 0 ),
@@ -91,7 +117,111 @@ final class BizCity_Journal_Index {
 			return $row;
 		}
 		self::flush_doc_index( $owner );
-		return self::to_journal_entry( $row );
+		$out = self::to_journal_entry( $row );
+		if ( null === $existing && function_exists( 'do_action' ) ) {
+			/**
+			 * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J5 (R-JN-15/R-JN-17) — ONE new journal row. The Sheet mirror, Automation and plugins listen here;
+			 * nobody polls the table. Not fired on an idempotent replay.
+			 *
+			 * @param array $out journal-entry@1.1.0
+			 */
+			do_action( 'bizcity_journal_entry_added', $out );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J3 (R-JN-14) — move a row along its life cycle: captured · review · verified · failed · void.
+	 * `verified` needs the PERSON who verified ($by_user_id > 0) — a model, a job or a cron can never set it. `void` keeps the
+	 * row (history). Fires `bizcity_journal_entry_state( entry, from, to )`.
+	 *
+	 * @return array|WP_Error journal-entry@1.1.0
+	 */
+	public static function set_state( int $id, int $owner_user_id, string $state, array $extra = array(), int $by_user_id = 0 ) {
+		if ( ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return new WP_Error( 'journal_unavailable', 'Chỉ mục nhật ký chưa sẵn sàng trên site này.' );
+		}
+		$state = self::sanitize_state( $state, '' );
+		if ( '' === $state ) {
+			return new WP_Error( 'journal_invalid_state', 'Trạng thái không hợp lệ (captured · review · verified · failed · void).' );
+		}
+		if ( 'verified' === $state && $by_user_id <= 0 ) {
+			return new WP_Error( 'journal_verified_needs_person', 'Trạng thái verified chỉ do người đặt.' );
+		}
+		$db  = BizCity_Journal_Database::instance();
+		$row = $db->get( $id, $owner_user_id );
+		if ( ! $row ) {
+			return new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' );
+		}
+		$from     = (string) ( $row['status'] ?? '' );
+		$metadata = is_array( json_decode( (string) ( $row['metadata'] ?? '' ), true ) ) ? json_decode( (string) $row['metadata'], true ) : array();
+		$flags    = is_array( $metadata['flags'] ?? null ) ? $metadata['flags'] : array();
+		if ( 'verified' === $state ) {
+			$flags['verified'] = array( 'by' => $by_user_id, 'at' => gmdate( 'c' ) );
+			$flags['review']   = false;
+		} elseif ( isset( $flags['verified'] ) && in_array( $state, array( 'captured', 'review' ), true ) ) {
+			unset( $flags['verified'] );
+		}
+		$metadata['flags'] = $flags;
+		if ( 'failed' === $state ) {
+			$metadata['error'] = array( 'code' => sanitize_key( (string) ( $extra['error']['code'] ?? 'store_failed' ) ), 'message' => sanitize_text_field( (string) ( $extra['error']['message'] ?? '' ) ) );
+		} else {
+			unset( $metadata['error'] );
+		}
+		if ( isset( $extra['mirror'] ) && is_array( $extra['mirror'] ) ) {
+			$metadata['mirror'] = array_merge( is_array( $metadata['mirror'] ?? null ) ? $metadata['mirror'] : array(), $extra['mirror'] );
+		}
+		$updated = $db->update( $id, $owner_user_id, array( 'status' => $state, 'metadata' => $metadata ) );
+		if ( is_wp_error( $updated ) ) {
+			return $updated;
+		}
+		self::flush_doc_index( $owner_user_id );
+		$out = self::to_journal_entry( $updated );
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_journal_entry_state', $out, $from, $state );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-R4 (doc 70 §3) — `doc-register@1`: ONE flat row for the Google Sheet mirror (`sheet-ledger@1`
+	 * docs_v1), CSV export and the web register. A projection of journal-entry@1.1.0, never a second source. Carries no URL,
+	 * no hash, no phone, no uid (R-JN-11, doc 30 §6). Pure.
+	 */
+	public static function register_row( array $entry ): array {
+		$kind      = (string) ( $entry['kind'] ?? '' );
+		$orig      = is_array( $entry['original'] ?? null ) ? $entry['original'] : array();
+		$flags     = is_array( $entry['flags'] ?? null ) ? $entry['flags'] : array();
+		$sensitive = '' !== (string) ( $flags['sensitive'] ?? '' );
+		$card      = is_array( $entry['card'] ?? null ) ? $entry['card'] : array();
+		$fields    = array();
+		$decl      = class_exists( 'BizCity_Journal_Kinds' ) ? BizCity_Journal_Kinds::get( $kind ) : null;
+		foreach ( (array) ( $decl['card_fields'] ?? array() ) as $k ) {
+			if ( 'summary' !== $k && isset( $card[ $k ] ) && is_scalar( $card[ $k ] ) ) {
+				$fields[] = $k . ': ' . mb_substr( (string) $card[ $k ], 0, 80 );
+			}
+		}
+		return array(
+			'contract'    => 'doc-register@1',
+			'doc_code'    => (string) ( $orig['doc_code'] ?? '' ),
+			'entry_id'    => (int) ( $entry['entry_id'] ?? 0 ),
+			'captured_at' => (string) ( $entry['created_at'] ?? '' ),
+			'doc_date'    => (string) ( $entry['doc_date'] ?? '' ),
+			'title'       => (string) ( $entry['title'] ?? '' ),
+			'file_name'   => (string) ( $orig['file_name'] ?? '' ),
+			'kind'        => $kind,
+			'kind_label'  => class_exists( 'BizCity_Journal_Kinds' ) ? BizCity_Journal_Kinds::label( $kind ) : $kind,
+			// Q121-16 default: a sensitive kind (finance / health / child / personal) mirrors name + date + state only.
+			'summary'     => $sensitive ? '' : mb_substr( (string) ( $entry['summary'] ?? '' ), 0, 300 ),
+			'key_fields'  => $sensitive ? '' : implode( '; ', $fields ),
+			'tags'        => implode( ',', array_map( 'strval', (array) ( $entry['tags'] ?? array() ) ) ),
+			'state'       => (string) ( $entry['state'] ?? '' ),
+			'verified'    => ! empty( $flags['verified']['by'] ) ? 'yes' : 'no',
+			'sender_role' => (string) ( $entry['by']['role'] ?? '' ),
+			'notebook'    => (string) ( $entry['kg']['notebook_ids'][0] ?? '' ),
+			'level'       => (string) ( $entry['learning']['level'] ?? 'L0' ),
+			'source_ref'  => (string) ( $orig['doc_code'] ?? '' ) !== '' ? (string) $orig['doc_code'] : 'JE-' . (int) ( $entry['entry_id'] ?? 0 ),
+		);
 	}
 
 	/**
@@ -172,6 +302,23 @@ final class BizCity_Journal_Index {
 		}
 		if ( $changed_meta ) {
 			$metadata['flags'] = $flags;
+		}
+		// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 — 1.1.0 patches: summary (body), learning progress (R-JN-20/21), original pointers added later (a set sha256 is never overwritten — R-JN-2).
+		if ( array_key_exists( 'summary', $patch ) ) {
+			$write['body'] = sanitize_textarea_field( (string) $patch['summary'] ) ?: (string) $row['title'];
+		}
+		if ( array_key_exists( 'learning', $patch ) && is_array( $patch['learning'] ) ) {
+			$metadata['learning'] = self::normalize_learning( array_merge( is_array( $metadata['learning'] ?? null ) ? $metadata['learning'] : array(), $patch['learning'] ), (string) ( $row['kind'] ?? '' ) );
+			$changed_meta = true;
+		}
+		if ( array_key_exists( 'original', $patch ) && is_array( $patch['original'] ) ) {
+			$cur = is_array( $metadata['original'] ?? null ) ? $metadata['original'] : array();
+			$new = self::normalize_original( array_merge( $cur, $patch['original'] ) );
+			if ( '' !== (string) ( $cur['sha256'] ?? '' ) ) {
+				$new['sha256'] = $cur['sha256'];
+			}
+			$metadata['original'] = $new;
+			$changed_meta = true;
 		}
 		if ( array_key_exists( 'card', $patch ) && is_array( $patch['card'] ) ) {
 			// [2026-10-12 10:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 — the owner-capture@1.2.0 follow-up "card"
@@ -294,7 +441,7 @@ final class BizCity_Journal_Index {
 		return $doc_date;
 	}
 
-	/** journal-entry@1.0.0 shape (doc 92 §2) from a raw `bizcity_journal_entries` row. */
+	/** journal-entry@1.1.0 shape (JOURNAL-ENTRY-v1.json; every 1.0.0 key unchanged, doc 92 §2) from a raw `bizcity_journal_entries` row. */
 	public static function to_journal_entry( array $row ): array {
 		$metadata = array();
 		if ( ! empty( $row['metadata'] ) ) {
@@ -302,11 +449,25 @@ final class BizCity_Journal_Index {
 			$metadata = is_array( $decoded ) ? $decoded : array();
 		}
 		$tags = class_exists( 'BizCity_Journal_Database' ) ? BizCity_Journal_Database::decode_tags( (string) ( $row['tags'] ?? '' ) ) : array();
+		$title    = (string) ( $row['title'] ?? '' );
+		$body     = trim( (string) ( $row['body'] ?? '' ) );
+		$status   = (string) ( $row['status'] ?? '' );
+		$learning = self::normalize_learning( is_array( $metadata['learning'] ?? null ) ? $metadata['learning'] : array(), (string) ( $row['kind'] ?? '' ) );
+		$learning['status'] = (string) ( $row['learning_status'] ?? 'not_queued' );
+		$learning['error']  = (string) ( $row['learning_error'] ?? '' );
 		return array(
-			'contract'     => 'journal-entry@1.0.0',
+			'contract'     => self::CONTRACT,
 			'entry_id'     => (int) $row['id'],
 			'kind'         => (string) ( $row['kind'] ?? '' ),
-			'title'        => (string) ( $row['title'] ?? '' ),
+			'title'        => $title,
+			'summary'      => '' !== $body && $body !== $title ? $body : '',
+			'state'        => in_array( $status, self::STATES, true ) ? $status : ( 'archived' === $status ? 'void' : 'captured' ),
+			'origin'       => is_array( $metadata['origin'] ?? null ) ? $metadata['origin'] : array( 'surface' => '', 'ref' => (string) ( $row['source_ref'] ?? '' ) ),
+			'source_type'  => (string) ( $row['source_type'] ?? '' ),
+			'source_ref'   => (string) ( $row['source_ref'] ?? '' ),
+			'error'        => is_array( $metadata['error'] ?? null ) ? $metadata['error'] : null,
+			'mirror'       => is_array( $metadata['mirror'] ?? null ) ? $metadata['mirror'] : array( 'sheet' => 'off', 'row_ref' => '' ),
+			'learning'     => $learning,
 			'doc_date'     => $row['doc_date'] ?? null,
 			'subject'      => is_array( $metadata['subject'] ?? null ) ? $metadata['subject'] : array( 'type' => 'none', 'hash' => (string) ( $row['subject_hash'] ?? '' ) ),
 			'tags'         => $tags,
@@ -321,6 +482,68 @@ final class BizCity_Journal_Index {
 			'created_at'   => (string) ( $row['created_at'] ?? '' ),
 			'updated_at'   => (string) ( $row['updated_at'] ?? '' ),
 			'owner_user_id'=> (int) ( $row['owner_user_id'] ?? 0 ),
+		);
+	}
+
+	// ── journal-entry@1.1.0 normalizers (pure) ───────────────────────────
+
+	/** One of STATES, else $default. */
+	public static function sanitize_state( string $state, string $default = 'captured' ): string {
+		$state = strtolower( trim( $state ) );
+		return in_array( $state, self::STATES, true ) ? $state : $default;
+	}
+
+	/** Closed set (R-JN-19): a known value is kept; anything else ⇒ `plugin`. */
+	public static function sanitize_source_type( string $type ): string {
+		$type = sanitize_key( $type );
+		return in_array( $type, self::SOURCE_TYPES, true ) ? $type : 'plugin';
+	}
+
+	/** `original{attachment_id, doc_code, file_name, mime, size, sha256}` — doc_code derived from attachment_id when absent. */
+	public static function normalize_original( array $o ): array {
+		$id  = (int) ( $o['attachment_id'] ?? $o['file_id'] ?? 0 );
+		$sha = strtolower( (string) ( $o['sha256'] ?? '' ) );
+		$out = array(
+			'attachment_id' => $id,
+			'doc_code'      => '' !== (string) ( $o['doc_code'] ?? '' ) ? (string) $o['doc_code'] : ( $id > 0 ? 'TL-' . $id : '' ),
+			'file_name'     => sanitize_text_field( (string) ( $o['file_name'] ?? '' ) ),
+			'mime'          => sanitize_text_field( (string) ( $o['mime'] ?? '' ) ),
+			'size'          => (int) ( $o['size'] ?? $o['bytes'] ?? 0 ),
+			'sha256'        => 1 === preg_match( '/^[0-9a-f]{64}$/', $sha ) ? $sha : '',
+		);
+		foreach ( $o as $k => $v ) { // keep extra scalar keys older writers set; never drop data
+			if ( ! array_key_exists( $k, $out ) && is_scalar( $v ) ) {
+				$out[ $k ] = $v;
+			}
+		}
+		return $out;
+	}
+
+	/** `origin{surface, ref}`; surface derived from source_type when the caller gave none. */
+	public static function normalize_origin( array $origin, string $source_type ): array {
+		$map     = array( 'owner_capture' => 'zalo_1_1', 'web_upload' => 'web_upload', 'context_producer' => 'plugin', 'derived' => 'cell', 'track' => 'cell', 'job' => 'job', 'automation_run' => 'automation', 'cell_output' => 'cell', 'crm' => 'crm' );
+		$surface = sanitize_text_field( (string) ( $origin['surface'] ?? '' ) );
+		if ( '' === $surface ) {
+			$surface = $map[ sanitize_key( $source_type ) ] ?? 'plugin';
+		}
+		return array( 'surface' => substr( $surface, 0, 64 ), 'ref' => substr( sanitize_text_field( (string) ( $origin['ref'] ?? '' ) ), 0, 191 ) );
+	}
+
+	/** `learning{level, allowed, text_ready, passages, embedded_at, graph_state, entities}` (R-JN-20); `allowed` = the kind's `learn`. */
+	public static function normalize_learning( array $l, string $kind ): array {
+		$level = strtoupper( (string) ( $l['level'] ?? '' ) );
+		if ( ! in_array( $level, self::LEARN_LEVELS, true ) ) {
+			$level = 'L0';
+		}
+		$graph = strtolower( (string) ( $l['graph_state'] ?? 'none' ) );
+		return array(
+			'level'       => $level,
+			'allowed'     => class_exists( 'BizCity_Journal_Kinds' ) ? BizCity_Journal_Kinds::learn( $kind ) : 'vector',
+			'text_ready'  => ! empty( $l['text_ready'] ),
+			'passages'    => (int) ( $l['passages'] ?? 0 ),
+			'embedded_at' => isset( $l['embedded_at'] ) && '' !== (string) $l['embedded_at'] ? (string) $l['embedded_at'] : null,
+			'graph_state' => in_array( $graph, array( 'none', 'pending', 'done', 'skipped' ), true ) ? $graph : 'none',
+			'entities'    => (int) ( $l['entities'] ?? 0 ),
 		);
 	}
 

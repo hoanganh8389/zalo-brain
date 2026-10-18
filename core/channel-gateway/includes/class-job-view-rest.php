@@ -70,6 +70,13 @@ final class BizCity_Job_View_REST {
 				$result = $e['p']['result'];
 			}
 		}
+		// [2026-10-17 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J6: the skill rides on every event; the finished result (when there is one) wins
+		$skill = is_array( $result ) ? (string) ( $result['skill']['id'] ?? '' ) : '';
+		foreach ( array_reverse( $by_seq, true ) as $e ) {
+			if ( '' === $skill && ! empty( $e['p']['skill'] ) ) {
+				$skill = (string) $e['p']['skill'];
+			}
+		}
 		$failure = '';
 		foreach ( array_reverse( $by_seq, true ) as $e ) {
 			if ( ! empty( $e['p']['failure_code'] ) ) {
@@ -83,6 +90,7 @@ final class BizCity_Job_View_REST {
 			'last_seq'     => $max,
 			'gaps'         => $gaps,
 			'failure_code' => $failure,
+			'skill'        => $skill,
 			'trail'        => $trail,
 			'result'       => $result,
 			'result_omitted' => ! empty( $last['p']['result_omitted'] ),
@@ -127,7 +135,7 @@ final class BizCity_Job_View_REST {
 			$jobs[] = array(
 				'job_id'       => $f['job_id'] ?: $id,
 				'status'       => $f['status'],
-				'skill'        => is_array( $f['result'] ) ? (string) ( $f['result']['skill']['id'] ?? '' ) : '',
+				'skill'        => (string) ( $f['skill'] ?? '' ),
 				'failure_code' => $f['failure_code'],
 				'updated_at'   => $f['updated_at'],
 			);

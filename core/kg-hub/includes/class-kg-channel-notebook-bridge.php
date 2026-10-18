@@ -1185,9 +1185,37 @@ class BizCity_KG_Channel_Notebook_Bridge {
 					'status'        => 'failed',
 					'reason'        => $this->extract_error_code( $ingest_payload ),
 				) ), 'warn' );
-				$failed[] = array( 'index' => $idx, 'kind' => $item_kind, 'error' => $ingest_payload->get_error_message() );
+				// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L3 — + code/file_name (additive) for the owner's receipt.
+				$failed[] = array( 'index' => $idx, 'kind' => $item_kind, 'error' => $ingest_payload->get_error_message(), 'code' => $this->extract_error_code( $ingest_payload ), 'file_name' => $item_file_name );
 				continue;
 			}
+			// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L2 — same bytes already kept in this workspace:
+			// no second original, no second notebook ingest, no second journal row (index_captured_items skips duplicates).
+			if ( ! empty( $ingest_payload['sb_duplicate'] ) ) {
+				$this->bridge_log( 'ingest_item_done', array_merge( $batch_ctx, array(
+					'item_index'    => $idx,
+					'item_kind'     => $item_kind,
+					'message_id'    => $item_message_id,
+					'file_name'     => $item_file_name,
+					'notebook_id'   => $notebook_id,
+					'attachment_id' => (int) $ingest_payload['attachment_id'],
+					'status'        => 'duplicate',
+					'reason'        => 'same_sha256',
+				) ) );
+				$succeeded[] = array(
+					'index'         => $idx,
+					'kind'          => $item_kind,
+					'message_id'    => $item_message_id,
+					'file_name'     => $item_file_name,
+					'source_id'     => 0,
+					'attachment_id' => (int) $ingest_payload['attachment_id'],
+					'duplicate'     => true,
+					'same_content'  => true,
+				);
+				continue;
+			}
+			unset( $ingest_payload['sb_duplicate'] );
+			$item_attach_id = (int) ( $ingest_payload['attachment_id'] ?? 0 );
 			// [2026-07-26 Johnny Chu] PHASE-0.46 W6 — index every attached WP Media
 			// file by notebook_id (see list_notebook_attachments()).
 			$this->maybe_tag_attachment_notebook_meta( $ingest_payload, $notebook_id );
@@ -1250,6 +1278,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 								'source_id'    => $source_id,
 								'kg_source_id' => (int) ( $sync_res['kg_source_id'] ?? 0 ),
 								'duplicate'    => (bool) ( $sync_res['duplicate'] ?? false ),
+								'attachment_id' => $item_attach_id, // PHASE-0.121 S121-L3 (additive)
 							);
 							continue;
 						}
@@ -1288,6 +1317,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 					'job_id'       => (string) ( $queue['job_id'] ?? '' ),
 					'source_id'    => (int) ( $queue['source_id'] ?? 0 ),
 					'kg_source_id' => (int) ( $queue['kg_source_id'] ?? 0 ),
+					'attachment_id' => $item_attach_id, // PHASE-0.121 S121-L3 (additive)
 				);
 				continue;
 			}
@@ -1334,6 +1364,7 @@ class BizCity_KG_Channel_Notebook_Bridge {
 				'source_id'    => $source_id,
 				'kg_source_id' => (int) ( $res['kg_source_id'] ?? 0 ),
 				'duplicate'    => (bool) ( $res['duplicate'] ?? false ),
+				'attachment_id' => $item_attach_id, // PHASE-0.121 S121-L3 (additive)
 			);
 		}
 
@@ -1686,7 +1717,8 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$force_remote  = ! empty( $meta['force_remote_evidence'] );
 		$remote_url    = (string) ( $meta['evidence_url'] ?? $meta['provider_url'] ?? '' );
 		if ( $remote_url === '' ) {
-			$remote_url = (string) wp_get_attachment_url( $attach_id );
+			// [2026-10-17 05:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 Q121-1 — a private original's public URL is the owner-only route; an R2-offloaded one is fetched from its real storage URL (server-side only).
+			$remote_url = class_exists( 'BizCity_KG_Private_File_Store' ) && BizCity_KG_Private_File_Store::is_private( $attach_id ) ? BizCity_KG_Private_File_Store::storage_url( $attach_id ) : (string) wp_get_attachment_url( $attach_id );
 		}
 		$source_path   = get_attached_file( $attach_id );
 		$source_local  = is_string( $source_path ) && $source_path !== '' && is_readable( $source_path );
@@ -1863,6 +1895,24 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		$url        = (string) ( $attachment['url'] ?? $attachment['source_url'] ?? '' );
 		$attach_id  = (int) ( $attachment['attachment_id'] ?? 0 );
 		$mime_hint  = (string) ( $attachment['mime'] ?? $attachment['mime_type'] ?? '' );
+		// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1/L2 — a document the owner sent in the Zalo 1-1
+		// (origin owner_capture) is kept as a PRIVATE original (checked, sha256, deduped per workspace), never a public upload.
+		$private = null;
+		if ( $attach_id <= 0 && $url !== '' && ( $kind === 'file' || $kind === 'audio' ) && self::is_private_capture( $source_meta ) ) {
+			$file_label = (string) ( $attachment['file_name'] ?? $attachment['name'] ?? '' );
+			if ( $file_label === '' ) {
+				$file_label = basename( (string) wp_parse_url( $url, PHP_URL_PATH ) );
+			}
+			$private = BizCity_KG_Private_File_Store::capture_remote( $url, $file_label, array(
+				'user_id'  => (int) ( $source_meta['inbound']['actor_user_id'] ?? 0 ),
+				'scope_id' => (string) ( $source_meta['scope_id'] ?? '' ),
+			) );
+			if ( is_wp_error( $private ) && $kind === 'file' ) {
+				return $private;
+			}
+			// [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — a voice file the private store refused (no extension on the Zalo link, too long, odd type) keeps today's media path
+			$attach_id = is_wp_error( $private ) ? 0 : (int) $private['attachment_id'];
+		}
 		if ( $attach_id <= 0 && $url !== '' ) {
 			$file_label = (string) ( $attachment['file_name'] ?? $attachment['name'] ?? '' );
 			if ( $file_label === '' ) {
@@ -1901,6 +1951,32 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		// permanently in the WP Media Library (`sideload_remote_file()` never
 		// deletes on success); this just makes that evidence pointer easy to
 		// find directly from a source's `metadata` without joining anywhere.
+		if ( is_array( $private ) ) {
+			// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — a private original has no public URL to
+			// "force remote" from (it is not on the CDN and its uploads path is denied): ingest reads the local file
+			// (get_attached_file), and the cell extractor gets a 15-minute signed link (BizCity_KG_Cell_Extract_Adapter).
+			// No Zalo CDN link is kept either (it carries a token). `sb_duplicate` = these bytes are already in this workspace.
+			// [2026-10-17 05:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 (chủ: "notebook lưu index") — the doc code rides in the
+			// source TITLE, so the notebook list, knowledge.search and the cell's owner_knowledge copy all show "… (TL-123)" and the
+			// owner/cell can quote it back to re-send the original (S121-L5). No schema change.
+			$doc_code = BizCity_KG_Private_File_Store::doc_code( $attach_id );
+			return array(
+				'type'          => 'file',
+				'title'         => false === strpos( $title, $doc_code ) ? $title . ' (' . $doc_code . ')' : $title,
+				'attachment_id' => $attach_id,
+				'sb_duplicate'  => ! empty( $private['duplicate'] ),
+				'metadata'      => array_merge( $source_meta, array(
+					'file_name'              => (string) ( $attachment['file_name'] ?? $attachment['name'] ?? '' ),
+					'mime'                   => (string) $private['mime'],
+					'force_remote_evidence'  => 0,
+					'evidence_attachment_id' => $attach_id,
+					'sb_private'             => 1,
+					'sb_doc_code'            => $doc_code,
+					'sb_sha256'              => (string) $private['sha256'],
+					'sb_size'                => (int) $private['size'],
+				) ),
+			);
+		}
 		return array(
 			'type'          => 'file',
 			'title'         => $title,
@@ -2667,6 +2743,16 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 *
 	 * @return int|WP_Error attachment_id
 	 */
+	/**
+	 * [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — owner-capture documents go to the private store
+	 * (unless switched off: filter `bizcity_second_brain_private_store`). Pure on the source meta.
+	 */
+	public static function is_private_capture( array $source_meta ): bool {
+		return 'owner_capture' === (string) ( $source_meta['inbound']['origin'] ?? '' )
+			&& class_exists( 'BizCity_KG_Private_File_Store' )
+			&& BizCity_KG_Private_File_Store::enabled();
+	}
+
 	private function sideload_remote_file( string $url, string $label, string $mime_hint = '' ) {
 		if ( $url === '' ) {
 			return new WP_Error( 'notebook_bridge_empty_url', 'URL tệp trống.' );

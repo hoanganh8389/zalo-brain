@@ -585,6 +585,8 @@ $_bzc_usage_files = array(
 	$gateway_dir . 'usage/class-usage-accounts-rest.php'    => 'channel.usage.accounts_rest',    // PHASE-0.109 — account desk + token ledger tabs
 	// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview (read only, one row per WP user).
 	$gateway_dir . 'usage/class-admin-users-overview-rest.php' => 'channel.usage.admin_users_overview',
+	// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — "Thêm người dùng" on the same page (admin-user-create@1, R-ADMIN-12).
+	$gateway_dir . 'usage/class-admin-users-create-rest.php' => 'channel.usage.admin_users_create',
 	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',        // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
 	$gateway_dir . 'usage/class-brain-standing-rules.php'   => 'channel.brain.standing_rules',   // cap20_customer_only@1 reference (shared fixture with the cell, T108-33)
 );
@@ -647,6 +649,10 @@ if ( class_exists( 'BizCity_Usage_Accounts_REST' ) && class_exists( 'BizCity_Usa
 // [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview; reads the same owners as the Accounts tab.
 if ( class_exists( 'BizCity_Admin_Users_Overview_REST' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
 	BizCity_Admin_Users_Overview_REST::init();
+	// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — its gate is the overview's can_manage(), so it loads only with it.
+	if ( class_exists( 'BizCity_Admin_Users_Create_REST' ) ) {
+		BizCity_Admin_Users_Create_REST::init();
+	}
 }
 
 // [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L1..L6 — menu "Sử dụng" → tab Thành tích: achievements/ROI

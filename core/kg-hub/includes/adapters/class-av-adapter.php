@@ -36,6 +36,17 @@ class BizCity_KG_AV_Adapter implements BizCity_KG_Source_Adapter {
     const AUDIO_EXTS = [ 'mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'flac', '3gp', 'amr' ];
     const VIDEO_EXTS = [ 'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi', 'mpeg', 'mpg', '3gpp' ];
 
+    /**
+     * [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-4 (GAP-121-13) — the URL an image / audio reader can fetch: a private
+     * original (BizCity_KG_Private_File_Store) gets its 15-minute signed link (its public URL is the owner-only route a provider cannot open).
+     */
+    public static function media_url_of( int $attachment_id ): string {
+        if ( $attachment_id > 0 && class_exists( 'BizCity_KG_Private_File_Store' ) && BizCity_KG_Private_File_Store::is_private( $attachment_id ) ) {
+            return BizCity_KG_Private_File_Store::signed_url( $attachment_id );
+        }
+        return (string) wp_get_attachment_url( $attachment_id );
+    }
+
     public static function id() {
         return 'av';
     }
@@ -128,7 +139,7 @@ class BizCity_KG_AV_Adapter implements BizCity_KG_Source_Adapter {
                 clean_attachment_cache( $attachment_id );
             }
             wp_cache_delete( $attachment_id, 'post_meta' );
-            $media_url = (string) wp_get_attachment_url( $attachment_id );
+            $media_url = self::media_url_of( (int) $attachment_id ); // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-4 (GAP-121-13)
         }
         if ( $media_url === '' ) {
             $sideloaded = $this->sideload_to_media( $file_path, $opts );
@@ -142,7 +153,7 @@ class BizCity_KG_AV_Adapter implements BizCity_KG_Source_Adapter {
                 clean_attachment_cache( $attachment_id );
             }
             wp_cache_delete( $attachment_id, 'post_meta' );
-            $media_url = (string) wp_get_attachment_url( $attachment_id );
+            $media_url = self::media_url_of( (int) $attachment_id ); // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-4 (GAP-121-13)
             if ( $media_url === '' ) {
                 $media_url = (string) $sideloaded['url'];
             }

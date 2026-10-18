@@ -11,6 +11,8 @@
   "checks": [],
   "executors": [
     "cf7.form.create",
+    "cf7.form.update",
+    "cf7.form.set_recipient",
     "cf7.form.list"
   ],
   "tab_components": {},

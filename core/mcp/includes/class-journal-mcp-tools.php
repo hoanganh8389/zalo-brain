@@ -7,6 +7,7 @@
  * | journal.find / journal.get / journal.summarize | read | owner, staff | never |
  * | journal.file | write, idempotent | owner, staff | never |
  * | journal.derive | write | owner, staff | always + preview |
+ * | journal.record / journal.mirror | write, idempotent — CELL-system tools (the model never sees them), PHASE-0.117 S117-K1a | owner, staff | never |
  * | track.get | read | owner, staff | never |
  * | track.set | write, idempotent (upsert) | owner, staff | never |
  *
@@ -134,6 +135,74 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_file',
+			'fallback_pack'  => null,
+			'since'          => self::SINCE,
+		) );
+
+		// [2026-10-17 08:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K1a (R-JN-15, doc 66 §4) — the door the CELL uses to put a Job's business result in the journal BEFORE it writes the Google Sheet mirror.
+		// @mcp bizcity-mcp-standard@1 tool journal.record
+		$R::register( 'journal.record', array(
+			'title'          => 'Ghi kết quả việc vào sổ (journal-first)',
+			'description'    => 'Việc của trợ lý (vd ghi sổ thu chi) ghi MỖI khoản một dòng vào sổ TRƯỚC khi ghi bảng tính Google (bảng tính chỉ là gương). Idempotent theo khoá job:<mã>; loại phải được khai báo; luôn state captured, không bao giờ verified. Công cụ hệ thống của cell — mô hình không gọi.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'entries' ), 'properties' => array(
+				'entries' => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => 20, 'items' => array( 'type' => 'object', 'required' => array( 'kind', 'idempotency_key' ), 'properties' => array(
+					'kind'            => array( 'type' => 'string', 'maxLength' => 48 ),
+					'title'           => array( 'type' => 'string', 'maxLength' => 255 ),
+					'summary'         => array( 'type' => 'string', 'maxLength' => 600 ),
+					'doc_date'        => array( 'type' => 'string', 'maxLength' => 10 ),
+					'card'            => array( 'type' => 'object' ),
+					'source_ref'      => array( 'type' => 'string', 'maxLength' => 120 ),
+					'idempotency_key' => array( 'type' => 'string', 'maxLength' => 110, 'pattern' => '^job:[A-Za-z0-9_.-]{3,100}$' ),
+					// [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — meeting cover / action items
+					'tags'            => array( 'type' => 'array', 'maxItems' => 10, 'items' => array( 'type' => 'string', 'maxLength' => 60 ) ),
+					'derived_from'    => array( 'type' => 'array', 'maxItems' => 30, 'items' => array( 'type' => 'integer', 'minimum' => 1 ) ),
+					'origin'          => array( 'type' => 'object' ),
+				) ) ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'entries' => array( 'type' => 'array' ),
+			), array( 'entries' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'record' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'journal_record',
+			'fallback_pack'  => null,
+			'since'          => self::SINCE,
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool journal.mirror
+		$R::register( 'journal.mirror', array(
+			'title'          => 'Báo gương bảng tính của dòng sổ',
+			'description'    => 'Sau khi cell ghi bảng tính Google và đọc lại: báo các dòng sổ (khoá job:<mã>) đã có gương ok (kèm dải ô) hay failed (kèm mã lỗi). Chỉ đổi metadata.mirror, không đổi trạng thái, không bao giờ verified. Công cụ hệ thống của cell.',
+			// [2026-10-18 01:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A2-3 / B2-3 (I-8) — the document register's mirror reports by entry_ids (its rows were made by the site, they carry no job key)
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'sheet' ), 'properties' => array(
+				'idempotency_keys' => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => 20, 'items' => array( 'type' => 'string', 'maxLength' => 110 ) ),
+				'entry_ids'        => array( 'type' => 'array', 'minItems' => 1, 'maxItems' => 20, 'items' => array( 'type' => 'integer', 'minimum' => 1 ) ),
+				'sheet'            => array( 'type' => 'string', 'enum' => array( 'ok', 'failed' ) ),
+				'row_ref'          => array( 'type' => 'string', 'maxLength' => 120 ),
+				'error_code'       => array( 'type' => 'string', 'maxLength' => 40 ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'updated' => array( 'type' => 'integer' ),
+			), array( 'updated' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'mirror' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'journal_mirror',
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -316,6 +385,128 @@ final class BizCity_Journal_MCP_Tools {
 			'by'              => array( 'role' => (string) ( $ctx['role'] ?? 'owner' ) ),
 		) );
 		return is_wp_error( $row ) ? self::err( $row ) : array( 'status' => 'done', 'entry_id' => (int) $row['entry_id'] );
+	}
+
+	/* ── journal.record / journal.mirror (PHASE-0.117 S117-K1a, doc 66 §4) ───────────── */
+
+	/** the cell's `job:<record id>` → the row key the site really stores: `job:<blog>:<record id>` ('' when the shape is wrong) */
+	/** [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — tags as the journal stores them: lowercase a-z 0-9 -, ≤ 10. Pure. */
+	public static function clean_tags( $raw ): array {
+		$out = array();
+		foreach ( array_slice( (array) $raw, 0, 10 ) as $t ) {
+			$t = strtolower( (string) preg_replace( '/[^a-z0-9\-]/', '', strtolower( trim( (string) $t ) ) ) );
+			if ( '' !== $t && ! in_array( $t, $out, true ) ) {
+				$out[] = substr( $t, 0, 60 );
+			}
+		}
+		return $out;
+	}
+
+	/** [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — keep only entry ids of THIS owner's book (a cover never points at someone else's row), ≤ 30. */
+	public static function own_entry_ids( $raw, int $owner ): array {
+		$out = array();
+		if ( $owner <= 0 || ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return $out;
+		}
+		$db = BizCity_Journal_Database::instance();
+		foreach ( array_slice( array_values( array_unique( array_map( 'intval', (array) $raw ) ) ), 0, 30 ) as $id ) {
+			if ( $id > 0 && $db->get( $id, $owner ) ) {
+				$out[] = $id;
+			}
+		}
+		return $out;
+	}
+
+	public static function job_key( string $raw ): string {
+		return 1 === preg_match( '/^job:([A-Za-z0-9_.-]{3,100})$/', $raw, $m ) ? 'job:' . get_current_blog_id() . ':' . $m[1] : '';
+	}
+
+	public static function record( array $args, array $ctx ) {
+		if ( ! function_exists( 'bizcity_journal_record' ) ) {
+			return self::err( new WP_Error( 'journal_unavailable', 'Sổ ghi chép Zalo Brain chưa sẵn sàng trên site này.' ) );
+		}
+		$owner   = self::owner( $ctx );
+		$entries = array_slice( array_values( (array) ( $args['entries'] ?? array() ) ), 0, 20 );
+		if ( $owner <= 0 || ! $entries ) {
+			return self::err( new WP_Error( 'journal_invalid_entry', 'Thiếu người chủ hoặc danh sách entries.' ) );
+		}
+		$out = array();
+		foreach ( $entries as $e ) {
+			$e    = is_array( $e ) ? $e : array();
+			$sent = (string) ( $e['idempotency_key'] ?? '' );
+			$key  = self::job_key( $sent );
+			if ( '' === $key ) {
+				return self::err( new WP_Error( 'journal_invalid_entry', 'idempotency_key phải dạng job:<mã>.' ) );
+			}
+			$had = BizCity_Journal_Index::get_by_idempotency_key( $key, $owner );
+			$row = bizcity_journal_record( array(
+				'owner_user_id'   => $owner,
+				'kind'            => (string) ( $e['kind'] ?? '' ),
+				'title'           => (string) ( $e['title'] ?? '' ),
+				'summary'         => (string) ( $e['summary'] ?? '' ),
+				'doc_date'        => (string) ( $e['doc_date'] ?? '' ),
+				'card'            => is_array( $e['card'] ?? null ) ? $e['card'] : array(),
+				'tags'            => self::clean_tags( $e['tags'] ?? array() ), // [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3)
+				'derived_from'    => self::own_entry_ids( $e['derived_from'] ?? array(), $owner ), // only rows of the caller's own book
+				'state'           => 'captured', // R-JN-14: a job never verifies
+				'source_type'     => 'job',
+				'source_ref'      => substr( (string) ( $e['source_ref'] ?? '' ), 0, 120 ),
+				'idempotency_key' => $key,
+				'origin'          => array( 'surface' => 'job', 'ref' => substr( (string) ( $e['origin']['ref'] ?? '' ), 0, 80 ) ),
+				'mirror'          => array( 'sheet' => 'pending' ),
+				'by'              => array( 'role' => (string) ( $ctx['role'] ?? 'owner' ) ),
+			) );
+			if ( is_wp_error( $row ) ) {
+				return self::err( $row );
+			}
+			$out[] = array( 'idempotency_key' => $sent, 'entry_id' => (int) $row['entry_id'], 'status' => $had ? 'exists' : 'created' );
+		}
+		return array( 'entries' => $out );
+	}
+
+	public static function mirror( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return self::err( new WP_Error( 'journal_unavailable', 'Sổ ghi chép Zalo Brain chưa sẵn sàng trên site này.' ) );
+		}
+		$owner = self::owner( $ctx );
+		$sheet = (string) ( $args['sheet'] ?? '' );
+		if ( $owner <= 0 || ! in_array( $sheet, array( 'ok', 'failed' ), true ) ) {
+			return self::err( new WP_Error( 'journal_invalid_entry', 'Thiếu người chủ hoặc sheet phải là ok / failed.' ) );
+		}
+		$mirror = array( 'sheet' => $sheet );
+		if ( is_string( $args['row_ref'] ?? null ) ) {
+			$mirror['row_ref'] = sanitize_text_field( substr( $args['row_ref'], 0, 120 ) );
+		}
+		if ( 'failed' === $sheet ) {
+			$code = (string) ( $args['error_code'] ?? '' );
+			$mirror['error_code'] = 1 === preg_match( '/^[a-z0-9_]{1,40}$/', $code ) ? $code : 'write_failed';
+		}
+		$db      = BizCity_Journal_Database::instance();
+		$updated = 0;
+		$rows    = array();
+		foreach ( array_slice( array_values( (array) ( $args['idempotency_keys'] ?? array() ) ), 0, 20 ) as $raw ) {
+			$key    = self::job_key( (string) $raw );
+			$rows[] = '' !== $key ? $db->get_by_idempotency_key( $key ) : null;
+		}
+		// [2026-10-18 01:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A2-3 / B2-3 (I-8) — by id, owner-checked by get() itself
+		foreach ( array_slice( array_values( array_unique( array_map( 'intval', (array) ( $args['entry_ids'] ?? array() ) ) ) ), 0, 20 ) as $id ) {
+			$rows[] = $id > 0 ? $db->get( $id, $owner ) : null;
+		}
+		foreach ( $rows as $row ) {
+			if ( ! $row || (int) $row['owner_user_id'] !== $owner ) {
+				continue; // never touches another person's row; an unknown key is not an error (the cell may report twice)
+			}
+			$meta = is_array( json_decode( (string) ( $row['metadata'] ?? '' ), true ) ) ? json_decode( (string) $row['metadata'], true ) : array();
+			$meta['mirror'] = array_merge( is_array( $meta['mirror'] ?? null ) ? $meta['mirror'] : array(), $mirror );
+			if ( 'ok' === $sheet ) {
+				unset( $meta['mirror']['error_code'] );
+			}
+			$r = $db->update( (int) $row['id'], $owner, array( 'metadata' => $meta ) );
+			if ( ! is_wp_error( $r ) ) {
+				$updated++;
+			}
+		}
+		return array( 'updated' => $updated );
 	}
 
 	/* ── track.* handlers (I-4: kind=track.point on the same index) ─── */

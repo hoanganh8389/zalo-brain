@@ -35,6 +35,7 @@ if ( ! defined( 'BIZCITY_SKILLS_VERSION' ) ) {
 $_bizcity_skills_files = array(
 	'includes/class-skill-manager.php'        => 'skills.manager',
 	'includes/class-skills-service.php'       => 'skills.service',
+	'includes/class-skills-samples.php'       => 'skills.samples', // [2026-10-17 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2
 	'includes/class-skill-rest-api.php'       => 'skills.rest',
 	'includes/class-skills-mcp-tools.php'     => 'skills.mcp_tools',
 	'includes/class-skills-pack-exporter.php' => 'skills.pack_exporter',
@@ -52,6 +53,10 @@ unset( $_bizcity_skills_files, $_bizcity_skills_rel, $_bizcity_skills_label, $_b
 
 if ( class_exists( 'BizCity_Skill_REST_API', false ) ) {
 	BizCity_Skill_REST_API::init();
+}
+// [2026-10-17 10:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — the shipped sample skills seed and update themselves (one admin_init hook; nothing runs at file scope)
+if ( is_admin() && class_exists( 'BizCity_Skills_Samples', false ) ) {
+	BizCity_Skills_Samples::init();
 }
 if ( class_exists( 'BizCity_Skills_MCP_Tools', false ) ) {
 	BizCity_Skills_MCP_Tools::init();

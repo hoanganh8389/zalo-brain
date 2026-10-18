@@ -85,6 +85,20 @@ final class BizCity_Skill_REST_API {
 		) );
 		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-K1 — GET ?name= ⇒ saved|notified|received|understood|failed|not_applicable
 		register_rest_route( self::API_NAMESPACE, '/sync-status', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'sync_status' ), 'permission_callback' => $read ) );
+		// [2026-10-17 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — the steps (twin-skill@1) of a skill: read (logged in) / save after the cell's check (edit_posts)
+		register_rest_route( self::API_NAMESPACE, '/twin', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_twin' ), 'permission_callback' => $read ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_twin' ), 'permission_callback' => $write ),
+		) );
+		// [2026-10-17 09:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — ready-made daily-assistant skills: list (logged in) / install = the owner's click (edit_posts)
+		register_rest_route( self::API_NAMESPACE, '/samples', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_samples' ), 'permission_callback' => $read ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'install_samples' ), 'permission_callback' => $write ),
+		) );
+		// [2026-10-17 10:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — one sample's text for the preview behind a card (read only)
+		register_rest_route( self::API_NAMESPACE, '/samples/(?P<name>[a-z0-9-]{2,63})', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_sample' ), 'permission_callback' => $read ) );
+		// [2026-10-17 04:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K6 — Editor ④ Xuất bản / Tắt: through set_status, so the check gate applies
+		register_rest_route( self::API_NAMESPACE, '/status', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_status' ), 'permission_callback' => $write ) );
 		register_rest_route( self::API_NAMESPACE, '/import-md',array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'import_md' ), 'permission_callback' => $write ) );
 	}
 
@@ -119,6 +133,14 @@ final class BizCity_Skill_REST_API {
 			return self::error( new WP_Error( 'path_required', 'Thiếu đường dẫn file.' ), 400 );
 		}
 		$raw = (string) preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $raw );
+		// [2026-10-17 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — a raw edit cannot publish around the check: a skill that has steps goes live only with steps checked green for that version and body
+		$next = class_exists( 'BizCity_Skills_Service', false ) ? BizCity_Skills_Service::from_raw( $raw, $path ) : null;
+		if ( $next && 'approved' === $next['status'] ) {
+			$twin = BizCity_Skills_Service::get_twin( $next['name'] );
+			if ( $twin && ! BizCity_Skills_Service::twin_publishable( $twin, (int) $next['version'], (string) $next['body_md'] ) ) {
+				return self::error( new WP_Error( 'skill_not_checked', 'Các bước của skill chưa được kiểm xanh cho bản này.' ), 409 );
+			}
+		}
 		$r   = BizCity_Skill_Manager::instance()->write_file( $path, $raw );
 		if ( is_wp_error( $r ) ) {
 			return self::error( $r, 400 );
@@ -238,6 +260,143 @@ final class BizCity_Skill_REST_API {
 			'compiled_at' => $b['compiled_at'] ?? null,
 			'summary'     => array_values( array_map( 'strval', (array) ( $b['summary'] ?? array() ) ) ),
 			'plan'        => is_array( $b['plan'] ?? null ) ? $b['plan'] : null,
+		), 200 );
+	}
+
+	/* ── twin-skill@1 steps of a skill (PHASE-0.117 D117-24, Skill Editor ②③④) ── */
+
+	const HUB_TWIN_CHECK = '/zalo-hub/composio/skills/check';
+
+	/** [2026-10-17 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — GET /twin?name= ⇒ the stored steps, the last check and whether this version may be published */
+	public static function get_twin( WP_REST_Request $req ): WP_REST_Response {
+		$name  = BizCity_Skills_Service::clean_name( (string) $req->get_param( 'name' ) );
+		$skill = '' !== $name ? BizCity_Skills_Service::get( $name ) : null;
+		if ( ! $skill ) {
+			return self::error( new WP_Error( 'skill_not_found', 'Không có skill này.' ), 404 );
+		}
+		$twin = BizCity_Skills_Service::get_twin( $name );
+		return new WP_REST_Response( array(
+			'ok'          => true,
+			'name'        => $name,
+			'version'     => (int) $skill['version'],
+			'status'      => (string) $skill['status'],
+			'twin'        => $twin ? $twin['skill'] : null,
+			'check'       => $twin ? $twin['check'] : null,
+			'publishable' => $twin ? BizCity_Skills_Service::twin_publishable( $twin, (int) $skill['version'] ) : true,
+		), 200 );
+	}
+
+	/** [2026-10-17 09:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — GET /samples ⇒ the shipped samples + whether this blog already has each */
+	public static function get_samples(): WP_REST_Response {
+		$all = class_exists( 'BizCity_Skills_Samples', false ) ? BizCity_Skills_Samples::all() : array();
+		return new WP_REST_Response( array(
+			'ok'        => true,
+			'samples'   => $all,
+			'total'     => count( $all ),
+			'installed' => count( array_filter( array_column( $all, 'installed' ) ) ),
+			// [2026-10-17 10:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — seeds and updates by itself; this is the one switch + what the last run did
+			'auto'      => class_exists( 'BizCity_Skills_Samples', false ) && BizCity_Skills_Samples::auto_enabled(),
+			'last'      => class_exists( 'BizCity_Skills_Samples', false ) ? BizCity_Skills_Samples::last_report() : null,
+		), 200 );
+	}
+
+	/** GET /samples/<name> — the shipped text of one sample */
+	public static function get_sample( WP_REST_Request $req ): WP_REST_Response {
+		$p = class_exists( 'BizCity_Skills_Samples', false ) ? BizCity_Skills_Samples::preview( (string) $req->get_param( 'name' ) ) : null;
+		return $p ? new WP_REST_Response( array( 'ok' => true ) + $p, 200 ) : self::error( new WP_Error( 'skill_not_found', 'Không có skill mẫu này.' ), 404 );
+	}
+
+	/** POST /samples {names: string[] | ["*"], approve?: bool (default true)} — never overwrites an existing skill */
+	public static function install_samples( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Skills_Samples', false ) ) {
+			return self::error( new WP_Error( 'unavailable', 'Thư viện skill mẫu chưa sẵn sàng.' ), 503 );
+		}
+		$p     = (array) $req->get_json_params();
+		// the one switch (auto seed + update); sending it alone does not install anything by hand
+		if ( array_key_exists( 'auto', $p ) ) {
+			BizCity_Skills_Samples::set_auto( (bool) $p['auto'] );
+			if ( ! array_key_exists( 'names', $p ) ) {
+				return new WP_REST_Response( array( 'ok' => true, 'auto' => BizCity_Skills_Samples::auto_enabled() ), 200 );
+			}
+		}
+		$names = array_values( array_filter( array_map( 'sanitize_text_field', array_map( 'strval', (array) ( $p['names'] ?? array() ) ) ), 'strlen' ) );
+		if ( ! $names ) {
+			return self::error( new WP_Error( 'skill_invalid', 'Chọn ít nhất một skill mẫu để cài.' ), 400 );
+		}
+		$res = BizCity_Skills_Samples::install( $names, ! array_key_exists( 'approve', $p ) || (bool) $p['approve'] );
+		if ( $res['installed'] ) {
+			self::changed();
+		}
+		return new WP_REST_Response( array( 'ok' => true ) + $res, 200 );
+	}
+
+	/** [2026-10-17 04:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K6 — POST /status {name, status}; someone else's skill needs manage_options */
+	public static function post_status( WP_REST_Request $req ): WP_REST_Response {
+		$p    = (array) $req->get_json_params();
+		$name = BizCity_Skills_Service::clean_name( (string) ( $p['name'] ?? '' ) );
+		$twin = '' !== $name ? BizCity_Skills_Service::get_twin( $name ) : null;
+		$ref  = class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::user_ref( get_current_user_id() ) : '';
+		$own  = $twin ? (string) ( $twin['skill']['owner']['user_ref'] ?? '' ) : '';
+		if ( '' !== $own && $own !== $ref && ! current_user_can( 'manage_options' ) ) {
+			return self::error( new WP_Error( 'skill_not_owner', 'Skill này của người khác.' ), 403 );
+		}
+		$r = BizCity_Skills_Service::set_status( array( 'name' => $name, 'status' => (string) ( $p['status'] ?? '' ) ) );
+		if ( is_wp_error( $r ) ) {
+			$code = $r->get_error_code();
+			return self::error( $r, 'skill_not_found' === $code ? 404 : ( 'skill_not_checked' === $code ? 409 : 400 ) );
+		}
+		self::changed();
+		return new WP_REST_Response( array( 'ok' => true ) + $r, 200 );
+	}
+
+	/**
+	 * [2026-10-17 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — POST /twin {name, twin}: the cell checks (no model), the site stores
+	 * what the cell answered (approvals completed) with a new version. Cell away ⇒ still saved as unchecked (a draft may wait), never publishable.
+	 * The owner is the person saving; someone else's skill needs manage_options.
+	 */
+	public static function post_twin( WP_REST_Request $req ): WP_REST_Response {
+		$p     = (array) $req->get_json_params();
+		$name  = BizCity_Skills_Service::clean_name( (string) ( $p['name'] ?? '' ) );
+		$twin  = $p['twin'] ?? null;
+		$skill = '' !== $name ? BizCity_Skills_Service::get( $name ) : null;
+		if ( ! $skill ) {
+			return self::error( new WP_Error( 'skill_not_found', 'Tạo skill trước (tên + mô tả), rồi mới lưu các bước.' ), 404 );
+		}
+		if ( ! is_array( $twin ) ) {
+			return self::error( new WP_Error( 'skill_invalid', 'Thiếu các bước (twin-skill@1).' ), 400 );
+		}
+		$uid = get_current_user_id();
+		$ref = class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::user_ref( $uid ) : '';
+		$old = BizCity_Skills_Service::get_twin( $name );
+		$was = $old ? (string) ( $old['skill']['owner']['user_ref'] ?? '' ) : '';
+		if ( '' !== $was && $was !== $ref && ! current_user_can( 'manage_options' ) ) {
+			return self::error( new WP_Error( 'skill_not_owner', 'Skill này của người khác.' ), 403 );
+		}
+		$twin['owner'] = array(
+			'user_ref'   => '' !== $was ? $was : $ref,
+			'visibility' => ( 'shop' === ( $twin['owner']['visibility'] ?? '' ) && current_user_can( 'manage_options' ) ) ? 'shop' : 'private',
+		);
+		$r     = self::hub( 'POST', self::HUB_TWIN_CHECK, array( 'skill' => $twin ) );
+		$valid = $r['ok'] && ! empty( $r['body']['valid'] );
+		$errs  = $r['ok'] && is_array( $r['body']['errors'] ?? null ) ? $r['body']['errors'] : array();
+		if ( $r['ok'] && is_array( $r['body']['skill'] ?? null ) ) {
+			$twin = $r['body']['skill']; // approvals completed by the checker — store THAT, never the unchecked input
+		}
+		$saved = BizCity_Skills_Service::save( array( 'name' => $name, 'twin' => $twin, 'twin_check' => array( 'valid' => $valid, 'degraded' => ! $r['ok'], 'errors' => count( $errs ) ) ) );
+		if ( is_wp_error( $saved ) ) {
+			return self::error( $saved, 'skill_check_failed' === $saved->get_error_code() ? 409 : 400 );
+		}
+		self::changed();
+		return new WP_REST_Response( array(
+			'ok'        => true,
+			'name'      => $name,
+			'version'   => (int) $saved['version'],
+			'changed'   => $saved['changed'],
+			'valid'     => $valid,
+			'errors'    => array_slice( $errs, 0, 30 ),
+			'warnings'  => $r['ok'] && is_array( $r['body']['warnings'] ?? null ) ? array_slice( $r['body']['warnings'], 0, 30 ) : array(),
+			'_degraded' => ! $r['ok'],
+			'hint'      => $r['ok'] ? '' : 'Đã lưu nháp; chưa kiểm được vì trợ lý đang vắng — bấm Lưu lại sau ít phút để kiểm trước khi xuất bản.',
 		), 200 );
 	}
 
@@ -474,6 +633,11 @@ final class BizCity_Skill_REST_API {
 			'skill_invalid' => 'Thêm dòng name: <ten-skill> vào đầu file.',
 			'title_required' => 'Gõ tên skill, ví dụ "Nghiên cứu Facebook".',
 			'skill_limit'   => 'Tắt hoặc xoá bớt skill cũ rồi tạo lại.',
+			// [2026-10-17 04:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24
+			'skill_not_found'    => 'Tải lại danh sách skill rồi chọn lại.',
+			'skill_not_checked'  => 'Mở Editor, bấm Lưu để trợ lý kiểm các bước, sửa lỗi đỏ rồi xuất bản.',
+			'skill_check_failed' => 'Chuyển skill về nháp, sửa các bước cho xanh rồi xuất bản lại.',
+			'skill_not_owner'    => 'Nhờ người tạo skill hoặc quản trị viên sửa.',
 		);
 		$code = (string) $e->get_error_code();
 		return new WP_REST_Response( array(

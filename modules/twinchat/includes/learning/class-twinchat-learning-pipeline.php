@@ -184,6 +184,17 @@ class BizCity_TwinChat_Learning_Pipeline {
 	}
 
 	/**
+	 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B0-2 (S121-X1) — pure: run passage workers inline in this process? Yes when the loopback is
+	 * proven dead (old behaviour) OR this is the cron lane (no browser) and the filter allows it (default yes).
+	 */
+	public static function should_run_sync( string $lane, bool $loopback_dead ): bool {
+		if ( $loopback_dead ) {
+			return true;
+		}
+		return 'cron' === $lane && (bool) apply_filters( 'bizcity_twinchat_learning_cron_sync', true );
+	}
+
+	/**
 	 * Cron / Action Scheduler entry point. Drains as much of the job as we
 	 * can within CRON_TIME_BUDGET_S, then yields.
 	 *
@@ -531,6 +542,13 @@ class BizCity_TwinChat_Learning_Pipeline {
 			update_option( 'bizcity_tc_loopback_dead_ts', time(), false );
 		}
 
+		// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B0-2 (S121-X1) — the cron lane (nobody's browser drives ticks: every Zalo capture,
+		// every unattended ingest) runs workers INLINE from the first tick instead of firing loopback HTTP through the public
+		// URL (Cloudflare) and waiting for the 3-round "dead" heuristic. The ajax lane (TwinChat open) keeps the parallel
+		// loopback fan-out. Way back: filter `bizcity_twinchat_learning_cron_sync` => false.
+		$lane      = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
+		$sync_mode = self::should_run_sync( $lane, $loopback_dead );
+
 		// Noisy every-tick status log — commented out 2026-05-09 (normal behaviour, not an error).
 		// bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d nb=%d owner=%s batches_done=%d passages_processed=%d gap=%d loopback_dead=%s',
 		// 	$job_id, $nb, (string) $owner, $dispatched_rounds, $counter_progress,
@@ -552,7 +570,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 			$nb, $orphan_timeout_s
 		) );
 
-		if ( $inflight > 0 && ! $loopback_dead ) {
+		if ( $inflight > 0 && ! $sync_mode ) {
 			// Workers still running — yield back to caller, retry on next tick.
 			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d → yield (in_flight=%d, orphan_in=%ds, not dead yet)', $job_id, $inflight, $orphan_timeout_s ) );
 			$queue->extend_lease( $job_id, $owner, self::LEASE_TTL_S );
@@ -569,7 +587,7 @@ class BizCity_TwinChat_Learning_Pipeline {
 		// in another tick/process.
 		// NOTE: race-safe — atomic UPDATE returns affected rows, only one tick
 		// wins the reclaim. Subsequent ticks see processing_count=0.
-		if ( $inflight > 0 && $loopback_dead ) {
+		if ( $inflight > 0 && $sync_mode ) {
 			// [2026-07-23 Johnny Chu] PHASE-0.44 — grace window avoids duplicate
 			// sync_worker START on the same passage (observed on job=13 passage=6660).
 			$reclaim_min_age_s = (int) apply_filters( 'bizcity_twinchat_learning_reclaim_min_age_s', 5 );
@@ -600,8 +618,8 @@ class BizCity_TwinChat_Learning_Pipeline {
 		$parallel = (int) apply_filters( 'bizcity_twinchat_learning_parallel_workers', self::PARALLEL_WORKERS, $nb );
 		// [2026-08-03 Johnny Chu] HOTFIX — prevent a filter/site override from reopening the FPM fan-out storm.
 		$parallel = max( 1, min( self::MAX_PARALLEL_WORKERS, $parallel ) );
-		if ( $loopback_dead ) {
-			// Sync mode — process exactly 1 passage per tick.
+		if ( $sync_mode ) {
+			// Sync mode — process exactly 1 passage per tick (run() loops ticks inside CRON_TIME_BUDGET_S).
 			$parallel = 1;
 		}
 
@@ -785,15 +803,13 @@ class BizCity_TwinChat_Learning_Pipeline {
 		// up-front and stamp it into every dispatch-level log line so the persisted
 		// daily file log (not just the ephemeral SSE stream) shows whether cron or
 		// admin-ajax drove this batch. See PHASE-0.48-LEARNING-LOG-TRACE.md.
-		$lane = ( strpos( (string) $owner, 'ajax' ) === 0 ) ? 'ajax' : 'cron';
-		if ( $loopback_dead ) {
-			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d lane=%s owner=%s → SYNC fallback, %d passage(s): [%s]', $job_id, $lane, $owner, count( $ids ), implode( ',', $ids ) ) );
+		if ( $sync_mode ) {
+			bizcity_tc_learning_debug_log( sprintf( 'tick_extract job=%d lane=%s owner=%s → SYNC (%s), %d passage(s): [%s]', $job_id, $lane, $owner, $loopback_dead ? 'loopback dead' : 'cron lane', count( $ids ), implode( ',', $ids ) ) );
 			$events->push( $nb, 'log', [
-				'level' => 'warn',
-				'msg'   => sprintf(
-					'[fallback] Loopback workers chưa tăng counter sau %d batch — chuyển sang chạy đồng bộ trong tick.',
-					$dispatched_rounds
-				),
+				'level' => $loopback_dead ? 'warn' : 'info',
+				'msg'   => $loopback_dead
+					? sprintf( '[fallback] Loopback workers chưa tăng counter sau %d batch — chuyển sang chạy đồng bộ trong tick.', $dispatched_rounds )
+					: '[cron] Học nền: chạy đồng bộ trong tick (không cần trình duyệt).',
 			], $job_id );
 			$dispatched = self::run_workers_sync( $job_id, $ids, $nb, (int) $job['user_id'], $owner );
 		} else {
@@ -1252,6 +1268,12 @@ class BizCity_TwinChat_Learning_Pipeline {
 			'batches_done'       => (int) $job['batches_done'] + 1,
 			'finished_at'        => current_time( 'mysql', true ),
 		] );
+
+		/**
+		 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — the graph pass of this job is done: the journal row(s) record graph_state done
+		 * (BizCity_Journal_Learning_Sync). $job = the job row before this update (notebook_id, source_id).
+		 */
+		do_action( 'bizcity_twinchat_learning_job_done', $job, (int) $count_appr );
 
 		$events->push( $nb, 'log', [
 			'level' => 'ok',

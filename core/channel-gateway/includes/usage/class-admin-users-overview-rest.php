@@ -37,11 +37,15 @@ defined( 'ABSPATH' ) || exit;
 final class BizCity_Admin_Users_Overview_REST {
 
 	const NS          = 'bizcity-channel/v1';
-	const CONTRACT    = 'admin-users-overview@1.0.0';
+	// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 (doc 81 §4.1) — 1.1.0: sort (num|name), filter no_numbers, activity route.
+	const CONTRACT    = 'admin-users-overview@1.1.0';
 	const CACHE_GROUP = 'cg_admin_users';
 	const CACHE_TTL   = 30;
 	const RANGES      = array( '24h', '7d', '30d' );
-	const FILTERS     = array( 'all', 'attention', 'has_numbers', 'unverified_owner', 'auto_user', 'stale' );
+	const FILTERS     = array( 'all', 'attention', 'has_numbers', 'no_numbers', 'unverified_owner', 'auto_user', 'stale' );
+	// [2026-10-18 02:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — last (newest ledger row first) + tok (most billed tokens in the range first).
+	const SORTS       = array( 'num', 'name', 'last', 'tok' ); // R-ADMIN-11: num (people with an assistant number first) is the default
+	const ORDER_CAP   = 5000;                   // most user IDs ordered in one request (IDs only)
 	const PER_PAGE    = 25;
 	const MAX_PAGE    = 50;
 	const STALE_SECS  = 259200; // 3 days, same as Sử dụng → Tài khoản
@@ -73,6 +77,156 @@ final class BizCity_Admin_Users_Overview_REST {
 			'callback'            => array( __CLASS__, 'route_view_as' ),
 			'permission_callback' => array( __CLASS__, 'can_manage' ),
 		) );
+		// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 (R-ADMIN-14) — "Hoạt động": per-day counts, top tools, last ledger rows (no content).
+		register_rest_route( self::NS, '/admin/users-overview/(?P<id>\d+)/activity', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'route_activity' ),
+			'permission_callback' => array( __CLASS__, 'can_manage' ),
+		) );
+	}
+
+	/**
+	 * [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — GET admin/users-overview/{id}/activity (admin-user-activity@1.0.0).
+	 * Read only, bounded: one person, one range, three indexed queries (daily by bound_user_id + day, ledger by bound_user_id + time).
+	 */
+	public static function route_activity( WP_REST_Request $request ) {
+		$target = (int) $request->get_param( 'id' );
+		$blog   = (int) get_current_blog_id();
+		if ( $target <= 0 || ! get_userdata( $target ) || ( function_exists( 'is_user_member_of_blog' ) && ! is_user_member_of_blog( $target, $blog ) ) ) {
+			return new WP_REST_Response( array( 'success' => false, 'code' => 'user_not_found', 'message' => 'Không tìm thấy người dùng này trên website.', 'hint' => 'Tải lại danh sách rồi chọn lại.', 'help_code' => 'admin_users_not_found' ), 404 );
+		}
+		$range = self::range_of( $request->get_param( 'range' ) );
+		$r     = class_exists( 'BizCity_Usage_View_REST' ) ? BizCity_Usage_View_REST::range( $range, time(), wp_timezone() ) : null;
+		if ( ! $r || ! class_exists( 'BizCity_Usage_Schema' ) ) {
+			return new WP_REST_Response( array( 'success' => false, '_degraded' => true, 'code' => 'activity_unavailable', 'message' => 'Chưa đọc được hoạt động của người này.', 'hint' => 'Cập nhật plugin rồi thử lại.', 'help_code' => 'admin_users_activity' ), 200 );
+		}
+		global $wpdb;
+		try {
+			$daily = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL
+				'SELECT day, COALESCE(SUM(turns),0) AS replies, COALESCE(SUM(tool_calls),0) AS tool_calls, COALESCE(SUM(billed_tokens),0) AS billed_tokens FROM '
+				. BizCity_Usage_Schema::daily_table() . ' WHERE bound_user_id = %d AND day >= %s AND day <= %s GROUP BY day',
+				$target, $r['day_from'], $r['day_to']
+			), ARRAY_A );
+			$errs  = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL
+				'SELECT occurred_day AS day, COALESCE(SUM(is_error),0) AS errors FROM ' . BizCity_Usage_Schema::ledger_table()
+				. ' WHERE bound_user_id = %d AND occurred_at >= %s AND occurred_at < %s GROUP BY occurred_day',
+				$target, $r['from'], $r['to']
+			), ARRAY_A );
+			$tools = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL
+				'SELECT tool, COUNT(*) AS calls, COALESCE(SUM(is_error),0) AS errors FROM ' . BizCity_Usage_Schema::ledger_table()
+				. " WHERE bound_user_id = %d AND occurred_at >= %s AND occurred_at < %s AND tool <> '' GROUP BY tool ORDER BY calls DESC LIMIT 8",
+				$target, $r['from'], $r['to']
+			), ARRAY_A );
+			$recent = (array) $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.PreparedSQL
+				'SELECT occurred_at, kind, tool, is_error FROM ' . BizCity_Usage_Schema::ledger_table()
+				. ' WHERE bound_user_id = %d ORDER BY occurred_at DESC LIMIT 10',
+				$target
+			), ARRAY_A );
+		} catch ( Throwable $e ) {
+			return new WP_REST_Response( array( 'success' => false, '_degraded' => true, 'code' => 'activity_unavailable', 'message' => 'Chưa đọc được hoạt động của người này.', 'hint' => 'Thử lại sau ít phút.', 'help_code' => 'admin_users_activity' ), 200 );
+		}
+		$out = array(
+			'contract' => 'admin-user-activity@1.0.0',
+			'range'    => $range,
+			'as_of'    => gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'series'   => self::activity_series( (string) $r['day_from'], (string) $r['day_to'], $daily, $errs ),
+			'tools'    => array_map( static function ( $t ) {
+				return array( 'tool' => substr( sanitize_key( (string) $t['tool'] ), 0, 80 ), 'calls' => (int) $t['calls'], 'errors' => (int) $t['errors'] );
+			}, $tools ),
+			'recent'   => array_map( static function ( $x ) {
+				return array(
+					'at'       => gmdate( 'Y-m-d\TH:i:s\Z', (int) strtotime( (string) $x['occurred_at'] . ' UTC' ) ),
+					'kind'     => sanitize_key( (string) $x['kind'] ),
+					'tool'     => substr( sanitize_key( (string) $x['tool'] ), 0, 80 ),
+					'is_error' => ! empty( $x['is_error'] ),
+				);
+			}, $recent ),
+		);
+		$bad = self::assert_clean( $out );
+		if ( '' !== $bad ) {
+			return new WP_REST_Response( array( 'success' => false, 'code' => 'admin_users_leak_blocked', 'message' => 'Máy chủ chặn một trường có thể lộ thông tin cá nhân.', 'hint' => 'Báo đội kỹ thuật.', 'help_code' => 'admin_users_leak_blocked', 'blocked_field' => $bad ), 200 );
+		}
+		return new WP_REST_Response( $out, 200 );
+	}
+
+	/**
+	 * [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — one row per day from $day_from to $day_to (inclusive, site dates);
+	 * a day without rows is a TRUE zero (the site ledger answered). Capped at 31 days. Pure.
+	 *
+	 * @param array $daily [{day, replies, tool_calls, billed_tokens}]
+	 * @param array $errs  [{day, errors}]
+	 */
+	public static function activity_series( string $day_from, string $day_to, array $daily, array $errs ): array {
+		$by = array();
+		foreach ( $daily as $d ) {
+			$by[ (string) $d['day'] ] = array( 'replies' => (int) $d['replies'], 'tool_calls' => (int) $d['tool_calls'], 'billed_tokens' => (int) $d['billed_tokens'] );
+		}
+		$er = array();
+		foreach ( $errs as $e ) {
+			$er[ (string) $e['day'] ] = (int) $e['errors'];
+		}
+		$out = array();
+		$t   = strtotime( $day_from . ' 00:00:00 UTC' );
+		$end = strtotime( $day_to . ' 00:00:00 UTC' );
+		if ( false === $t || false === $end ) {
+			return $out;
+		}
+		for ( $i = 0; $t <= $end && $i < 31; $i++, $t += 86400 ) {
+			$day   = gmdate( 'Y-m-d', $t );
+			$row   = $by[ $day ] ?? array( 'replies' => 0, 'tool_calls' => 0, 'billed_tokens' => 0 );
+			$out[] = array( 'day' => $day ) + $row + array( 'errors' => $er[ $day ] ?? 0 );
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 (R-ADMIN-11) — people with an assistant number first, each group keeps
+	 * the incoming order (display_name). Applied to ALL matching IDs before paging, so page 2 never mixes the groups. Pure.
+	 *
+	 * @param int[] $ids_in_name_order
+	 * @param int[] $holder_ids users that own or operate a number
+	 */
+	public static function order_ids( array $ids_in_name_order, array $holder_ids ): array {
+		$hold  = array_flip( array_map( 'intval', $holder_ids ) );
+		$first = array();
+		$rest  = array();
+		foreach ( $ids_in_name_order as $id ) {
+			$id = (int) $id;
+			if ( isset( $hold[ $id ] ) ) {
+				$first[] = $id;
+			} else {
+				$rest[] = $id;
+			}
+		}
+		return array_merge( $first, $rest );
+	}
+
+	/**
+	 * [2026-10-18 02:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — order ids by a metric, biggest first; ties and ids without a metric keep
+	 * the incoming (display_name) order, so people with no activity sink to the end in name order. Pure, stable.
+	 *
+	 * @param int[]              $ids_in_name_order
+	 * @param array<int,int|float> $metric user_id => number (missing ⇒ 0)
+	 */
+	public static function order_by_metric( array $ids_in_name_order, array $metric ): array {
+		$pos = array();
+		foreach ( array_values( $ids_in_name_order ) as $i => $id ) {
+			$pos[ (int) $id ] = $i;
+		}
+		$ids = array_keys( $pos );
+		usort( $ids, static function ( $a, $b ) use ( $metric, $pos ) {
+			$ma = (float) ( $metric[ $a ] ?? 0 );
+			$mb = (float) ( $metric[ $b ] ?? 0 );
+			if ( $ma === $mb ) {
+				return $pos[ $a ] <=> $pos[ $b ];
+			}
+			return $mb <=> $ma;
+		} );
+		return $ids;
+	}
+
+	public static function sort_of( $raw ): string {
+		return in_array( (string) $raw, self::SORTS, true ) ? (string) $raw : 'num';
 	}
 
 	/**
@@ -405,8 +559,9 @@ final class BizCity_Admin_Users_Overview_REST {
 		$q        = trim( sanitize_text_field( (string) $request->get_param( 'q' ) ) );
 		$page     = max( 1, (int) $request->get_param( 'page' ) );
 		$per_page = self::per_page_of( $request->get_param( 'per_page' ) );
+		$sort     = self::sort_of( $request->get_param( 'sort' ) ); // [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — R-ADMIN-11
 		$blog     = (int) get_current_blog_id();
-		$key      = md5( implode( '|', array( $blog, $range, $q, $f, $page, $per_page ) ) );
+		$key      = md5( implode( '|', array( $blog, $range, $q, $f, $page, $per_page, $sort ) ) );
 
 		if ( ! $request->get_param( 'fresh' ) && class_exists( 'BizCity_Cache' ) ) {
 			$hit = BizCity_Cache::get( self::CACHE_GROUP, $key );
@@ -416,7 +571,7 @@ final class BizCity_Admin_Users_Overview_REST {
 		}
 
 		try {
-			$data = self::build( $range, $f, $q, $page, $per_page, $blog );
+			$data = self::build( $range, $f, $q, $page, $per_page, $blog, $sort );
 		} catch ( Throwable $e ) {
 			if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
 				BizCity_Channel_File_Logger::write( 'channel_gateway', 'error', 'admin_users_overview_failed', 'Admin users overview failed', array( 'error' => substr( $e->getMessage(), 0, 160 ) ) );
@@ -443,15 +598,15 @@ final class BizCity_Admin_Users_Overview_REST {
 	}
 
 	/** Gathers the page. All SQL is bounded: accounts of this blog (tens), users of one page, usage of those users only. */
-	public static function build( string $range, string $f, string $q, int $page, int $per_page, int $blog ): array {
+	public static function build( string $range, string $f, string $q, int $page, int $per_page, int $blog, string $sort = 'num' ): array {
 		$now      = time();
 		$r        = class_exists( 'BizCity_Usage_View_REST' ) ? BizCity_Usage_View_REST::range( $range, $now, wp_timezone() ) : null;
 		$accounts = self::accounts();
 		$roster   = self::roster( $accounts );
 		$by_user  = self::numbers_by_user( $accounts, $roster );
 		$auto_ids = self::auto_user_ids();
-		$all_last = 'all' === $f ? array() : self::last_activity( array_keys( $by_user ) );
-		$include  = self::filter_ids( $f, $by_user, $auto_ids, $all_last, $now );
+		$all_last = in_array( $f, array( 'all', 'no_numbers' ), true ) ? array() : self::last_activity( array_keys( $by_user ) );
+		$include  = 'no_numbers' === $f ? null : self::filter_ids( $f, $by_user, $auto_ids, $all_last, $now );
 
 		$args = array(
 			'blog_id'     => $blog,
@@ -469,8 +624,46 @@ final class BizCity_Admin_Users_Overview_REST {
 		if ( null !== $include ) {
 			$args['include'] = $include ? $include : array( 0 ); // empty filter ⇒ no row, not "everyone"
 		}
-		$query = new WP_User_Query( $args );
-		$users = (array) $query->get_results();
+		// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — filter "Chưa có số" = everyone minus number holders.
+		if ( 'no_numbers' === $f && $by_user ) {
+			$args['exclude'] = array_map( 'intval', array_keys( $by_user ) );
+		}
+		// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 (R-ADMIN-11) — sort=num: order ALL matching IDs (holders first) and
+		// page that list, so the groups never mix across pages. IDs only, capped; the page itself is then read in that exact order.
+		$by_num    = 'num' === $sort && $by_user && 'no_numbers' !== $f && 'has_numbers' !== $f;
+		$by_metric = in_array( $sort, array( 'last', 'tok' ), true ); // [2026-10-18 02:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2
+		if ( $by_num || $by_metric ) {
+			$id_args = $args;
+			unset( $id_args['paged'] );
+			$id_args['number']      = self::ORDER_CAP;
+			$id_args['fields']      = 'ID';
+			$id_args['count_total'] = false;
+			$all_ids = array_map( 'intval', (array) ( new WP_User_Query( $id_args ) )->get_results() );
+			if ( $by_metric ) {
+				// One grouped read for ALL matching ids (indexed: bound_user_id + day / ledger bound_user_id), then page the ordered list.
+				if ( 'tok' === $sort ) {
+					$metric = array();
+					foreach ( $r ? self::usage_by_user( $r['day_from'], $r['day_to'], $all_ids ) : array() as $uid => $u2 ) {
+						$metric[ (int) $uid ] = (int) $u2['tokens'];
+					}
+				} else {
+					$metric = array();
+					foreach ( self::last_activity( $all_ids ) as $uid => $at ) {
+						$metric[ (int) $uid ] = (int) strtotime( (string) $at . ' UTC' );
+					}
+				}
+				$ordered = self::order_by_metric( $all_ids, $metric );
+			} else {
+				$ordered = self::order_ids( $all_ids, array_keys( $by_user ) );
+			}
+			$total   = count( $ordered );
+			$slice   = array_slice( $ordered, ( $page - 1 ) * $per_page, $per_page );
+			$users   = $slice ? (array) ( new WP_User_Query( array( 'blog_id' => $blog, 'include' => $slice, 'orderby' => 'include', 'number' => count( $slice ), 'count_total' => false, 'fields' => array( 'ID', 'display_name', 'user_login' ) ) ) )->get_results() : array();
+		} else {
+			$query = new WP_User_Query( $args );
+			$users = (array) $query->get_results();
+			$total = (int) $query->get_total();
+		}
 		$ids   = array_map( static function ( $u ) { return (int) $u->ID; }, $users );
 
 		// [2026-10-17 12:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M6 — one cell call per page (not per row); null when unreachable.
@@ -525,12 +718,14 @@ final class BizCity_Admin_Users_Overview_REST {
 			'as_of'    => gmdate( 'Y-m-d\TH:i:s\Z', $now ),
 			'range'    => $range,
 			'filter'   => $f,
+			'sort'     => $sort, // [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2
 			'sources'  => array( 'site' => true, 'cell' => null !== $rollup ), // S117-M6: false ⇒ cell fields are null ("—"), never 0
 			'system'   => array(
 				'step1'                 => $step1,
 				'step2'                 => null,
 				'users_total'           => (int) ( $counts['total_users'] ?? 0 ),
 				'numbers_total'         => count( $accounts ),
+				'users_with_numbers'    => count( $by_user ), // [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — KPI "Có số trợ lý"
 				'numbers_without_owner' => $no_owner,
 				'connections_failing'   => null === $rollup ? null : (int) ( $rollup['connections_failing'] ?? 0 ), // S117-M6
 				'shop_connections'      => null === $rollup ? null : count( (array) ( $rollup['shop']['connections'] ?? array() ) ),
@@ -538,7 +733,7 @@ final class BizCity_Admin_Users_Overview_REST {
 				'unassigned_logins'     => null === $rollup ? null : (int) ( $rollup['shop']['unassigned'] ?? 0 ),
 			),
 			'rows'     => $rows,
-			'paging'   => array( 'page' => $page, 'per_page' => $per_page, 'total' => (int) $query->get_total() ),
+			'paging'   => array( 'page' => $page, 'per_page' => $per_page, 'total' => (int) $total ), // [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — total from either path
 		);
 		return class_exists( 'BizCity_Usage_View_REST' ) ? (array) BizCity_Usage_View_REST::clean( $out ) : $out;
 	}

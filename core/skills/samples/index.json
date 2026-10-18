@@ -1,0 +1,120 @@
+{
+  "contract": "skill-samples@1",
+  "categories": {
+    "so-sach": "Sổ sách",
+    "ke-hoach": "Kế hoạch & checklist",
+    "hoc-tap": "Học tập"
+  },
+  "samples": {
+    "ghi-so-thu-chi": {
+      "category": "so-sach",
+      "icon": "🧾",
+      "title": "Ghi sổ thu chi",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "bfe7a357c36d6437",
+      "version": 1
+    },
+    "bao-cao-thu-chi": {
+      "category": "so-sach",
+      "icon": "📊",
+      "title": "Báo cáo thu chi",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "eba10c0a82836f62",
+      "version": 1
+    },
+    "cong-no": {
+      "category": "so-sach",
+      "icon": "🤝",
+      "title": "Công nợ: ghi và nhắc",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "9c83c0396384c4bf",
+      "version": 1
+    },
+    "ke-hoach-ngan-sach": {
+      "category": "so-sach",
+      "icon": "🎯",
+      "title": "Mục tiêu thu chi theo tháng",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "eb35499dc6370972",
+      "version": 1
+    },
+    "viec-can-lam": {
+      "category": "ke-hoach",
+      "icon": "✅",
+      "title": "Việc cần làm (checklist)",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "cce29ba4a02685ad",
+      "version": 1
+    },
+    "bao-cao-tien-do": {
+      "category": "ke-hoach",
+      "icon": "📈",
+      "title": "Báo cáo tiến độ dự án",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "d28d4d14866a093f",
+      "version": 1
+    },
+    "ke-hoach-ngay": {
+      "category": "ke-hoach",
+      "icon": "🗓️",
+      "title": "Kế hoạch trong ngày",
+      "needs": [],
+      "file_hash": "f717dc3742d4a4a2",
+      "version": 1
+    },
+    "tong-ket-cuoi-ngay": {
+      "category": "ke-hoach",
+      "icon": "🌙",
+      "title": "Tổng kết cuối ngày",
+      "needs": [],
+      "file_hash": "9e875cf423ceaa8f",
+      "version": 1
+    },
+    "hoc-tu-vung": {
+      "category": "hoc-tap",
+      "icon": "📚",
+      "title": "Học từ vựng",
+      "needs": [],
+      "file_hash": "01bb66405bc1ed67",
+      "version": 1
+    },
+    "tom-tat-tai-lieu": {
+      "category": "hoc-tap",
+      "icon": "📝",
+      "title": "Tóm tắt tài liệu vừa gửi",
+      "needs": [],
+      "file_hash": "16274f5ec52b7f7a",
+      "version": 1
+    },
+    "on-bai-cach-quang": {
+      "category": "hoc-tap",
+      "icon": "🔁",
+      "title": "Ôn bài cách quãng 1 · 3 · 7 ngày",
+      "needs": [],
+      "file_hash": "40734f1bf8e71919",
+      "version": 1
+    },
+    "ke-hoach-hoc-tap": {
+      "category": "hoc-tap",
+      "icon": "🎓",
+      "title": "Kế hoạch học tập theo tuần",
+      "needs": [
+        "sheets"
+      ],
+      "file_hash": "a4add707ac975897",
+      "version": 1
+    }
+  }
+}

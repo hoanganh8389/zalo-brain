@@ -158,12 +158,22 @@ final class BizCity_Skills_Service {
 		if ( is_wp_error( $plan ) ) {
 			return $plan;
 		}
+		// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — a skill already in use (approved) only takes steps the cell checked green; otherwise set it back to draft first
+		if ( $plan['twin'] && $plan['existing'] && 'approved' === $plan['status'] && empty( $plan['twin']['check']['valid'] ) ) {
+			return new WP_Error( 'skill_check_failed', 'Skill đang dùng nên chỉ lưu được các bước đã kiểm xanh.' );
+		}
 		if ( $plan['existing'] ) {
 			self::keep_previous( $plan['existing'] );
 		}
 		$w = self::mgr()->write_file( $plan['path'], $plan['raw'] );
 		if ( is_wp_error( $w ) ) {
 			return $w;
+		}
+		if ( $plan['twin'] ) {
+			$w = self::mgr()->write_sidecar( self::twin_path( $plan['name'] ), (string) wp_json_encode( $plan['twin'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT ) );
+			if ( is_wp_error( $w ) ) {
+				return $w;
+			}
 		}
 		do_action( 'bizcity_skills_changed', $plan['name'], $plan['status'], 'save' );
 		if ( 'approved' === $plan['status'] ) {
@@ -240,9 +250,73 @@ final class BizCity_Skills_Service {
 		if ( is_wp_error( $w ) ) {
 			return $w;
 		}
+		// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — the steps of that version come back with it
+		$prev_twin = self::mgr()->read_file( '/' . self::HISTORY . '/' . $s['name'] . '.v' . max( 1, (int) $s['version'] - 1 ) . '.twin.json' );
+		if ( ! is_wp_error( $prev_twin ) ) {
+			self::mgr()->write_sidecar( self::twin_path( $s['name'] ), (string) $prev_twin['raw'] );
+		}
 		do_action( 'bizcity_skills_changed', $s['name'], $s['status'], 'undo' );
 		self::invalidate_pack();
 		return array( 'name' => $s['name'], 'version' => $s['version'] - 1 );
+	}
+
+	/* ── twin-skill@1 sidecar (PHASE-0.117 D117-24) ───────────────────── */
+	// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — `skills/<name>.twin.json` = {skill, check}; the cell checks, this class only stores
+
+	const TWIN_CONTRACT = 'twin-skill@1.0.0';
+
+	/** @return array{skill: array, check: array}|null */
+	public static function get_twin( string $name ) {
+		$name = self::clean_name( $name );
+		if ( '' === $name ) {
+			return null;
+		}
+		$f = self::mgr()->read_file( self::twin_path( $name ) );
+		if ( is_wp_error( $f ) ) {
+			return null;
+		}
+		$j = json_decode( (string) $f['raw'], true );
+		return ( is_array( $j ) && is_array( $j['skill'] ?? null ) && is_array( $j['check'] ?? null ) ) ? $j : null;
+	}
+
+	/** Stored and checked green for THIS version (and this body, when given), bytes unchanged since the check. */
+	public static function twin_publishable( array $twin, int $version, ?string $body_md = null ): bool {
+		$c = (array) ( $twin['check'] ?? array() );
+		return ! empty( $c['valid'] )
+			&& ( null === $body_md || self::body_hash( $body_md ) === (string) ( $twin['skill']['body_hash'] ?? '' ) )
+			&& (int) ( $twin['skill']['version'] ?? 0 ) === $version
+			&& hash_equals( (string) ( $c['skill_hash'] ?? '' ), self::twin_hash( (array) $twin['skill'] ) );
+	}
+
+	public static function twin_hash( array $skill ): string {
+		return hash( 'sha256', (string) wp_json_encode( $skill, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+	}
+
+	/** The file written next to the .md: skill pinned to this name / version / body, and the check result. */
+	private static function twin_file( array $skill, string $name, int $version, string $body_hash, array $check ): array {
+		$skill['skill_id']  = $name;
+		$skill['version']   = $version;
+		$skill['body_hash'] = $body_hash;
+		return array(
+			'skill' => $skill,
+			'check' => array(
+				'valid'      => ! empty( $check['valid'] ),
+				'degraded'   => ! empty( $check['degraded'] ),
+				'errors'     => max( 0, (int) ( $check['errors'] ?? 0 ) ),
+				'at'         => gmdate( 'Y-m-d\TH:i:s\Z' ),
+				'skill_hash' => self::twin_hash( $skill ),
+			),
+		);
+	}
+
+	/** What decides "the steps changed": everything but the fields this class pins. */
+	private static function twin_core( array $skill ): string {
+		unset( $skill['skill_id'], $skill['version'], $skill['body_hash'], $skill['status'] );
+		return (string) wp_json_encode( $skill );
+	}
+
+	private static function twin_path( string $name ): string {
+		return '/' . self::FOLDER . '/' . $name . '.twin.json';
 	}
 
 	/* ── Plans (shared by write + preview) ─────────────────────────────── */
@@ -275,10 +349,25 @@ final class BizCity_Skills_Service {
 		} else {
 			$changed[] = 'tạo mới';
 		}
+		// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — the steps (twin-skill@1) are part of the version: a change bumps it like the body does
+		$twin = null;
+		if ( array_key_exists( 'twin', $in ) ) {
+			if ( ! is_array( $in['twin'] ) || self::TWIN_CONTRACT !== ( $in['twin']['contract'] ?? '' ) || ! is_array( $in['twin']['steps'] ?? null ) ) {
+				return new WP_Error( 'skill_invalid', 'Các bước của skill không đúng dạng twin-skill@1.' );
+			}
+			$twin = $in['twin'];
+			$old  = $existing ? self::get_twin( $name ) : null;
+			if ( $existing && ( ! $old || self::twin_core( $old['skill'] ) !== self::twin_core( $twin ) ) ) {
+				$changed[] = 'các bước';
+			} elseif ( ! $existing ) {
+				$changed[] = 'các bước';
+			}
+		}
 		$meta = array(
 			'scope'    => $scope,
 			'tools'    => $tools,
-			'source'   => $existing ? $existing['source'] : 'manual',
+			// [2026-10-17 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — a NEW skill may say where it came from (template); an existing one keeps its source
+			'source'   => $existing ? $existing['source'] : ( isset( $in['source'] ) && in_array( (string) $in['source'], self::SOURCES, true ) ? (string) $in['source'] : 'manual' ),
 			'status'   => $existing ? $existing['status'] : 'draft',
 			'version'  => $existing ? ( $changed ? (int) $existing['version'] + 1 : (int) $existing['version'] ) : 1,
 			'from_job' => $existing ? $existing['from_job'] : '',
@@ -291,6 +380,7 @@ final class BizCity_Skills_Service {
 			'status'   => $meta['status'],
 			'version'  => $meta['version'],
 			'changed'  => $changed,
+			'twin'     => null === $twin ? null : self::twin_file( $twin, $name, (int) $meta['version'], self::body_hash( $body ), (array) ( $in['twin_check'] ?? array() ) ),
 		);
 	}
 
@@ -306,6 +396,13 @@ final class BizCity_Skills_Service {
 		}
 		if ( $existing['status'] === $st ) {
 			return new WP_Error( 'skill_unchanged', 'Skill "' . $name . '" đã ở trạng thái ' . $st . '.' );
+		}
+		// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — publish only the version the cell checked green (same version, same bytes as the check)
+		if ( 'approved' === $st ) {
+			$twin = self::get_twin( $name );
+			if ( $twin && ! self::twin_publishable( $twin, (int) $existing['version'], (string) $existing['body_md'] ) ) {
+				return new WP_Error( 'skill_not_checked', 'Các bước của skill chưa được kiểm xanh cho bản đang lưu.' );
+			}
 		}
 		return array( 'existing' => $existing, 'status' => $st );
 	}
@@ -577,6 +674,14 @@ final class BizCity_Skills_Service {
 		$old = (int) $existing['version'] - 3;
 		if ( $old >= 1 ) {
 			self::mgr()->delete_file( self::history_path( $existing['name'], $old ) );
+		}
+		// [2026-10-17 03:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 D117-24 — the steps go to history on the same beat as the .md
+		$twin = self::mgr()->read_file( self::twin_path( (string) $existing['name'] ) );
+		if ( ! is_wp_error( $twin ) ) {
+			self::mgr()->write_sidecar( '/' . self::HISTORY . '/' . $existing['name'] . '.v' . max( 1, (int) $existing['version'] ) . '.twin.json', (string) $twin['raw'] );
+			if ( $old >= 1 ) {
+				self::mgr()->delete_file( '/' . self::HISTORY . '/' . $existing['name'] . '.v' . $old . '.twin.json' );
+			}
 		}
 	}
 

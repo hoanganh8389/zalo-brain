@@ -46,7 +46,7 @@ class BizCity_KG_Triplet_Extractor {
 		$db = BizCity_KG_Database::instance();
 
 		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, notebook_id, content, content_hash, extraction_status,
+			"SELECT id, notebook_id, source_id, content, content_hash, extraction_status,
 			        storage_ver, file_shard, file_offset, file_length
 			 FROM {$db->tbl_passages()} WHERE id = %d",
 			(int) $passage_id
@@ -61,6 +61,15 @@ class BizCity_KG_Triplet_Extractor {
 		$claim_token = wp_generate_uuid4();
 		if ( $row['extraction_status'] === 'done' ) {
 			return new WP_Error( 'passage_already_done', 'Passage already extracted.' );
+		}
+		// [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — ONE gate before the billable triplet LLM, on every path (the learning pipeline
+		// too, which never passed the number-notebook check of extract_notebook_pending). Closed ⇒ skipped, 0 triplets, no cost.
+		if ( class_exists( 'BizCity_KG_Learn_Gate' ) ) {
+			$gate = BizCity_KG_Learn_Gate::check_passage( $row );
+			if ( ! $gate['allowed'] ) {
+				$wpdb->update( $db->tbl_passages(), array( 'extraction_status' => 'skipped', 'extraction_error' => 'l2_gate:' . $gate['reason'] ), array( 'id' => (int) $passage_id ) );
+				return 0;
+			}
 		}
 		// [2026-07-24 Johnny Chu] PHASE-0.46-PASSAGE-CLAIM — only one worker may own a processing passage and make the billable LLM call.
 		$claimed = (int) $wpdb->query( $wpdb->prepare(

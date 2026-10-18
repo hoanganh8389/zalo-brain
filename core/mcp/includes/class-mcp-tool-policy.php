@@ -59,6 +59,22 @@ final class BizCity_MCP_Tool_Policy {
 		'content.get_templates',
 		'content.create_draft',
 		'content.update_draft',
+		// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.118 (chủ: "go live luôn", client MCP trước — Claude Code dựng website): công cụ dựng/sửa/đăng trang của self_wp mở sẵn cho client ngoài.
+		// Vẫn bị chặn bởi scope của khoá (content.read / content.write), quyền WordPress của người dùng, và bước xem trước → xác nhận của wp.page.publish / update_live / restore.
+		// KHÔNG mở sẵn: wp.theme.* · wp.user.* · wp.menu.* · wp.media.upload · cf7.form.update / set_recipient (đổi giao diện, tài khoản, nơi nhận khách) — quản trị bật tay ở Chính sách MCP.
+		'wp.site.info',
+		'wp.content.list',
+		'wp.page.read',
+		'wp.page.history',
+		'wp.landing.draft',
+		'wp.page.draft',
+		'wp.page.edit',
+		'wp.page.attach_form',
+		'wp.page.publish',
+		'wp.page.update_live',
+		'wp.page.restore',
+		'cf7.form.create',
+		'cf7.form.list',
 	);
 
 	/**

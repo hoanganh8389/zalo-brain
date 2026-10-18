@@ -19,6 +19,9 @@
  * Silent by construction (D-H7, Bot Studio owns the turn): the `inbound{}` handed to the bridge has no `chat_id` and
  * `notify => false`, so BizCity_KG_Channel_Progress_Notifier never replies into Zalo — the agent's own turn already
  * confirmed the save.
+ * [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L3 — one exception, still through the cell (single sender):
+ * after the documents of a batch are really kept, a `job_result` receipt ("✅ Đã lưu an toàn … TL-…" / "đã có sẵn" /
+ * "chưa lưu được …") goes back to the sender's own 1-1 chat via BizCity_Scheduler_Hub_Pipe. Off with the private store.
  *
  * This class never attaches a notebook to a Guru and never touches `scope.knowledge` (R-GP-6 / R-GS-3: notebooks are
  * opt-in, off by default) — binding is CL-D3.
@@ -165,7 +168,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				continue;
 			}
 			$key   = 'oc:' . $idempotency_key . ':' . $index;
-			$patch = array( 'card' => $card, 'review' => false ); // a card now exists — no longer "cần xem lại" by default.
+			// [2026-10-18 02:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M2 — a card now exists ⇒ no longer "cần xem lại", UNLESS the cell itself was unsure (handwriting / blurry photo: confidence < 0.6, same threshold as BizCity_Journal_Index::record)
+			$patch = array( 'card' => $card, 'review' => isset( $card['confidence'] ) && (float) $card['confidence'] < 0.6 );
 			if ( '' !== (string) ( $card['kind'] ?? '' ) ) {
 				$patch['kind'] = (string) $card['kind'];
 			}
@@ -177,6 +181,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 			if ( '' !== (string) ( $card['doc_date'] ?? '' ) ) {
 				$patch['doc_date'] = (string) $card['doc_date'];
+			}
+			// [2026-10-18 02:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 A2-4 (S121-R2) — the cell's 1-3 sentence summary (from content it read) becomes the row's summary (T1 of the answer ladder)
+			if ( is_string( $card['summary'] ?? null ) && '' !== trim( $card['summary'] ) ) {
+				$patch['summary'] = mb_substr( trim( $card['summary'] ), 0, 300 );
 			}
 			// owner_user_id 0: the Bearer gate on the REST route already proved this account's callback token;
 			// the row's own owner stays whatever the original file event wrote it as (R-JN-2: never reassigned here).
@@ -437,8 +445,15 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 
 		if ( is_wp_error( $res ) ) {
 			self::done( 'knowledge_capture_failed', array( 'account_id' => $bridge_id, 'reason' => $res->get_error_code(), 'items' => count( $items ) ), 'invalid_param', 'error' );
+			// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L3 — the whole batch failed: the documents in it get a "chưa lưu được" receipt.
+			$all_failed = array();
+			foreach ( $items as $i => $row ) {
+				$all_failed[] = array( 'index' => $i, 'kind' => (string) $row['kind'], 'code' => 'store_failed', 'file_name' => (string) ( $row['attachment']['file_name'] ?? '' ) );
+			}
+			self::send_receipt( $job, $owner, $bridge_id, array( 'failed' => $all_failed ) );
 			return;
 		}
+		self::send_receipt( $job, $owner, $bridge_id, $res );
 		// [2026-10-12 01:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L17 (R-JOURNAL R-JN-1/R-JN-3/R-JN-6) —
 		// K4 "đánh chỉ mục": every item the bridge actually captured (succeeded now, or queued for async KG ingest)
 		// gets one journal-entry@1 row, then K3 "xếp ngăn" files it into the day inbox (already done by the bridge
@@ -504,27 +519,82 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				? BizCity_Journal_Kinds::resolve( (string) ( $card['kind'] ?? '' ), (string) $meta['kind_hint'] )
 				: 'common.document';
 			$title = sanitize_text_field( (string) ( $card['title'] ?? '' ) );
+			if ( '' === $title && '' !== (string) ( $r['file_name'] ?? '' ) ) {
+				$title = sanitize_text_field( (string) $r['file_name'] ); // the file name beats a bare kind label in the register
+			}
+			// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J1 (R-JN-2, R-JN-16, doc 76 §2) — the row points at the original: attachment, doc code, size, sha256
+			// (private store postmeta `_bizcity_sb_*`), so the cell registry can quote TL-… and re-send / deep-search ONE document.
+			$attach_id = (int) ( $r['attachment_id'] ?? 0 );
+			$original  = array( 'mime' => (string) $meta['kind_hint'], 'attachment_id' => $attach_id, 'file_name' => (string) ( $r['file_name'] ?? '' ) );
+			if ( $attach_id > 0 && function_exists( 'get_post_meta' ) ) {
+				$original['sha256'] = (string) get_post_meta( $attach_id, '_bizcity_sb_sha256', true );
+				$original['size']   = (int) get_post_meta( $attach_id, '_bizcity_sb_size', true );
+				$mime_real          = (string) get_post_meta( $attach_id, '_bizcity_sb_mime', true );
+				if ( '' !== $mime_real ) {
+					$original['mime'] = $mime_real;
+				}
+			}
 			$entry = BizCity_Journal_Index::add( array(
 				'owner_user_id'   => $owner,
 				'kind'            => $kind,
 				'title'           => $title,
+				'summary'         => (string) ( $card['summary'] ?? ( $card['fields']['summary'] ?? '' ) ),
+				'origin'          => array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
+				'learning'        => array( 'level' => $attach_id > 0 || (int) ( $r['kg_source_id'] ?? 0 ) > 0 ? 'L1' : 'L0', 'text_ready' => (int) ( $r['kg_source_id'] ?? 0 ) > 0 ),
 				'doc_date'        => $card['doc_date'] ?? null,
 				'subject'         => is_array( $card['subject'] ?? null ) ? $card['subject'] : array(),
 				'tags'            => (array) ( $card['tags'] ?? array() ),
 				'card'            => is_array( $card['fields'] ?? null ) ? $card['fields'] : array(),
 				'confidence'      => isset( $card['confidence'] ) ? (float) $card['confidence'] : ( empty( $card ) ? 0.0 : 1.0 ),
-				'original'        => array( 'mime' => (string) $meta['kind_hint'] ),
+				'original'        => $original,
 				'notebook_id'     => $notebook_id,
 				'kg_source_id'    => (int) ( $r['kg_source_id'] ?? 0 ),
 				'source_type'     => 'owner_capture',
 				'idempotency_key' => (string) $meta['idempotency_key'],
 				'by'              => array( 'role' => $role ),
 			) );
-			if ( is_wp_error( $entry ) || ! class_exists( 'BizCity_Journal_Filer' ) ) {
+			if ( is_wp_error( $entry ) ) {
+				continue;
+			}
+			if ( 'failed' === (string) ( $entry['state'] ?? '' ) ) {
+				// an earlier attempt on this key failed (Q121-13 row); this one kept the file ⇒ reopen the same row, never a second one
+				BizCity_Journal_Index::file( (int) $entry['entry_id'], $owner, array( 'original' => $original, 'learning' => array( 'level' => 'L1' ) ) );
+				$entry = BizCity_Journal_Index::set_state( (int) $entry['entry_id'], $owner, 'captured' );
+				if ( is_wp_error( $entry ) ) {
+					continue;
+				}
+			}
+			if ( ! class_exists( 'BizCity_Journal_Filer' ) ) {
 				continue;
 			}
 			$decision = BizCity_Journal_Filer::place( $entry );
 			BizCity_Journal_Filer::apply( $decision, $owner, $bridge_id, (int) ( $r['kg_source_id'] ?? 0 ), $day_key );
+		}
+		// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J3 (R-JN-14, Q121-13 chủ chốt) — a file that could not be kept still gets a row (state failed +
+		// error code) so the owner can follow it on the register; a later successful retry on the same key is a replay of
+		// this row, so the success loop above flips it back to captured (same row, never a second one).
+		foreach ( (array) ( $res['failed'] ?? array() ) as $f ) {
+			if ( ! is_array( $f ) ) {
+				continue;
+			}
+			$idx = isset( $f['index'] ) ? (int) $f['index'] : -1;
+			if ( $idx < 0 || ! isset( $card_meta[ $idx ] ) ) {
+				continue;
+			}
+			$meta = $card_meta[ $idx ];
+			$name = sanitize_text_field( (string) ( $f['file_name'] ?? '' ) );
+			BizCity_Journal_Index::add( array(
+				'owner_user_id'   => $owner,
+				'kind'            => class_exists( 'BizCity_Journal_Kinds' ) ? BizCity_Journal_Kinds::resolve( '', (string) $meta['kind_hint'] ) : 'common.document',
+				'title'           => '' !== $name ? $name : 'Tài liệu chưa lưu được',
+				'state'           => 'failed',
+				'error'           => array( 'code' => (string) ( $f['code'] ?? 'store_failed' ), 'message' => (string) ( $f['error'] ?? '' ) ),
+				'original'        => array( 'mime' => (string) $meta['kind_hint'], 'file_name' => $name ),
+				'origin'          => array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
+				'source_type'     => 'owner_capture',
+				'idempotency_key' => (string) $meta['idempotency_key'],
+				'by'              => array( 'role' => $role ),
+			) );
 		}
 	}
 
@@ -543,6 +613,186 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			$out[] = array( 'kind' => (string) ( $f['kind'] ?? '' ), 'error' => substr( (string) ( $f['error'] ?? '' ), 0, 200 ) );
 		}
 		return $out;
+	}
+
+	// ── PHASE-0.121 S121-L3 — "Đã lưu an toàn" receipt ────────────────────
+
+	/**
+	 * The owner's receipt for the DOCUMENTS (kind `file`) of one capture batch, or null when the batch had none.
+	 * Pure. Never carries a URL, a hash or a path — only file names, the short code and a reason in words.
+	 *
+	 * @param array $res capture_batch() return (items[], queued_jobs[], failed[]) or {failed[]} for a batch-level failure
+	 * @return array{event_type:string,text:string,stored:int,duplicate:int,failed:int}|null
+	 */
+	public static function receipt( array $res ): ?array {
+		$stored = array();
+		$dups   = array();
+		$failed = array();
+		$name   = static function ( array $r ): string {
+			$n = trim( wp_strip_all_tags( (string) ( $r['file_name'] ?? '' ) ) );
+			return '' !== $n ? mb_substr( $n, 0, 80 ) : 'tài liệu';
+		};
+		$code   = static function ( array $r ): string {
+			$id = (int) ( $r['attachment_id'] ?? 0 );
+			return $id > 0 ? ' (' . ( class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::doc_code( $id ) : 'TL-' . $id ) . ')' : '';
+		};
+		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
+			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) ) {
+				continue;
+			}
+			if ( ! empty( $r['duplicate'] ) ) {
+				$dups[] = '- ' . $name( $r ) . $code( $r );
+			} else {
+				$stored[] = '- ' . $name( $r ) . $code( $r );
+			}
+		}
+		foreach ( (array) ( $res['failed'] ?? array() ) as $r ) {
+			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) ) {
+				continue;
+			}
+			$why      = class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::reason_text( (string) ( $r['code'] ?? '' ) ) : 'lỗi khi lưu trên trang';
+			$failed[] = '- ' . $name( $r ) . ' — ' . $why;
+		}
+		if ( ! $stored && ! $dups && ! $failed ) {
+			return null;
+		}
+		$parts = array();
+		if ( $stored ) {
+			$parts[] = '✅ Đã lưu an toàn ' . count( $stored ) . ' tài liệu vào Bộ não thứ hai (bản gốc chỉ anh/chị xem được):' . "\n" . implode( "\n", $stored );
+		}
+		if ( $dups ) {
+			$parts[] = '📎 Đã có sẵn, em không lưu lại lần nữa:' . "\n" . implode( "\n", $dups );
+		}
+		if ( $failed ) {
+			$parts[] = '⚠️ Chưa lưu được:' . "\n" . implode( "\n", $failed );
+		}
+		return array(
+			'event_type' => ( $stored || $dups ) ? 'second_brain.stored' : 'second_brain.failed',
+			'text'       => implode( "\n\n", $parts ),
+			'stored'     => count( $stored ),
+			'duplicate'  => count( $dups ),
+			'failed'     => count( $failed ),
+		);
+	}
+
+	/**
+	 * The `channel-inbound@1.1.0` `job_result` letter carrying a receipt (same envelope as BizCity_Scheduler_Report_Back).
+	 * `status` is always "done": the cell wraps a "failed" letter in automation wording ("Kế hoạch … dừng ở bước …"); the
+	 * real outcome is `event_type` (second_brain.stored|failed). Pure.
+	 */
+	public static function receipt_letter( array $receipt, string $dedupe_key, string $user_hash, int $key_id, string $instance, int $blog_id ): array {
+		$event_id = (int) ( sprintf( '%u', crc32( $dedupe_key ) ) % 2147483646 ) + 1;
+		$channel  = array( 'platform' => 'scheduler', 'channel_ref' => $instance );
+		return array(
+			'contract'   => 'channel-inbound@1.1.0',
+			'kind'       => 'job_result',
+			'trace_id'   => 'sb.' . $blog_id . '.' . $event_id,
+			'idem'       => 'sb_' . $blog_id . '_' . substr( hash( 'sha256', $dedupe_key ), 0, 32 ),
+			'thread_key' => 'sb:' . $event_id,
+			'tenant'     => array( 'key_id' => $key_id ),
+			'channel'    => $channel,
+			'contact'    => $channel + array( 'platform_uid' => $user_hash ),
+			'job'        => array(
+				'event_type'     => (string) $receipt['event_type'],
+				'event_id'       => $event_id,
+				'status'         => 'done',
+				'compose'        => false,
+				'origin_surface' => 'zalo_1_1',
+				'data'           => array( 'text' => (string) $receipt['text'], 'artifacts' => array() ),
+			),
+		);
+	}
+
+	/**
+	 * [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-2 (S121-R5, I-5) — `doc-register@1` rows of the documents KEPT in this capture (stored, not duplicates), looked up
+	 * by their doc code. Pure apart from the injected lookup. ≤ 20 rows (one receipt).
+	 *
+	 * @param array    $res    capture_batch() return
+	 * @param callable $lookup fn( string $doc_code ): ?array journal-entry@1.1.0
+	 */
+	public static function register_rows_for( array $res, callable $lookup ): array {
+		$out = array();
+		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
+			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) || ! empty( $r['duplicate'] ) || (int) ( $r['attachment_id'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			$entry = $lookup( 'TL-' . (int) $r['attachment_id'] );
+			if ( is_array( $entry ) && class_exists( 'BizCity_Journal_Index' ) ) {
+				$out[] = BizCity_Journal_Index::register_row( $entry );
+			}
+			if ( count( $out ) >= 20 ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-2 (S121-R5, I-5) — does this person keep a `docs_v1` book? Reads the raw binding meta (the site TEMPLATES list
+	 * learns docs_v1 together with the cell template, lane A2-3), or the filter `bizcity_second_brain_register_rows`.
+	 */
+	public static function wants_register_rows( int $user_id ): bool {
+		$has = false;
+		if ( $user_id > 0 && function_exists( 'get_user_meta' ) ) {
+			$raw  = get_user_meta( $user_id, 'bizcity_sheet_bindings', true );
+			$list = is_string( $raw ) && '' !== $raw ? json_decode( $raw, true ) : $raw;
+			foreach ( is_array( $list ) ? $list : array() as $b ) {
+				if ( is_array( $b ) && 'docs_v1' === (string) ( $b['template'] ?? '' ) ) {
+					$has = true;
+					break;
+				}
+			}
+		}
+		return (bool) apply_filters( 'bizcity_second_brain_register_rows', $has, $user_id );
+	}
+
+	/** Best effort: a receipt that cannot be sent is logged, never retried in W1 (the notebook still has the file). */
+	private static function send_receipt( array $job, int $owner, string $bridge_id, array $res ): void {
+		if ( 'owner_capture' !== (string) ( $job['origin'] ?? '' ) || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::enabled() ) {
+			return;
+		}
+		$receipt = self::receipt( $res );
+		if ( null === $receipt ) {
+			return;
+		}
+		$ctx = array( 'account_id' => $bridge_id, 'event_type' => $receipt['event_type'], 'stored' => $receipt['stored'], 'duplicate' => $receipt['duplicate'], 'failed' => $receipt['failed'] );
+		try {
+			$hash = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::user_hash( $owner ) : '';
+			if ( '' === $hash || ! class_exists( 'BizCity_Scheduler_Hub_Pipe' ) ) {
+				self::log( 'second_brain_receipt_skipped', $ctx + array( 'reason' => '' === $hash ? 'no_user_hash' : 'hub_pipe_missing' ), 'warn' );
+				return;
+			}
+			$target   = BizCity_Scheduler_Hub_Pipe::target();
+			$key_id   = BizCity_Scheduler_Hub_Pipe::key_id();
+			$instance = BizCity_Scheduler_Hub_Pipe::client_instance();
+			if ( null === $target || $key_id <= 0 || '' === $instance ) {
+				self::log( 'second_brain_receipt_skipped', $ctx + array( 'reason' => 'hub_not_ready' ), 'warn' );
+				return;
+			}
+			BizCity_Scheduler_Hub_Pipe::ensure_registered( $target, $instance );
+			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ) );
+			// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-2 (S121-R5, I-5) — the sender keeps a docs_v1 book ("Sổ của tôi" › TaiLieu): the cell mirrors these rows
+			// AFTER the journal rows exist (R-JN-15) and reports back with journal.mirror. No book ⇒ no key (older cells ignore it anyway).
+			if ( self::wants_register_rows( $owner ) ) {
+				$rows = self::register_rows_for( $res, static function ( string $code ) {
+					$row = class_exists( 'BizCity_Journal_Database' ) ? BizCity_Journal_Database::instance()->get_by_source_ref( $code ) : null;
+					return $row && class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::to_journal_entry( $row ) : null;
+				} );
+				if ( array() !== $rows ) {
+					$letter['job']['register_rows'] = $rows;
+				}
+			}
+			$out    = BizCity_Scheduler_Hub_Pipe::post_letter( $target, $letter );
+			$ack    = is_array( $out['body'] ?? null ) ? $out['body'] : array();
+			self::log( 'second_brain_receipt_sent', $ctx + array(
+				'http'        => (int) $out['status'],
+				'ack'         => substr( sanitize_key( (string) ( $ack['status'] ?? $ack['code'] ?? '' ) ), 0, 40 ),
+				'delivered'   => ! empty( $ack['delivered'] ),
+				'skip_reason' => substr( sanitize_key( (string) ( $ack['skip_reason'] ?? '' ) ), 0, 40 ),
+			), (int) $out['status'] >= 200 && (int) $out['status'] < 300 ? 'info' : 'warn' );
+		} catch ( \Throwable $e ) {
+			self::log( 'second_brain_receipt_failed', $ctx + array( 'reason' => get_class( $e ) ), 'error' );
+		}
 	}
 
 	/** Job result: channel JSONL record + cron run meta (R-CRON-META §4 reason buckets). */

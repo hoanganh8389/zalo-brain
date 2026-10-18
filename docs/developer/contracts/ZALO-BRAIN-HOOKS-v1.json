@@ -842,7 +842,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/knowledge/includes/class-character-quick-edit-rest.php"
+        "core/guru/profile/includes/class-character-quick-edit-rest.php"
       ]
     },
     {
@@ -2901,7 +2901,7 @@
       "status": "internal",
       "subscribers": 2,
       "fired_in": [
-        "core/knowledge/includes/class-guru-service.php"
+        "core/guru/profile/includes/class-guru-service.php"
       ]
     },
     {
@@ -2910,7 +2910,7 @@
       "status": "internal",
       "subscribers": 1,
       "fired_in": [
-        "core/knowledge/views/character-edit.php"
+        "core/guru/admin/views/character-edit.php"
       ]
     },
     {
@@ -2919,7 +2919,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/knowledge/bootstrap.php"
+        "core/guru/profile/bootstrap.php"
       ]
     },
     {
@@ -2928,8 +2928,8 @@
       "status": "internal",
       "subscribers": 4,
       "fired_in": [
-        "core/knowledge/includes/class-admin-menu.php",
-        "core/knowledge/includes/class-guru-service.php"
+        "core/guru/admin/includes/class-admin-menu.php",
+        "core/guru/profile/includes/class-guru-service.php"
       ]
     },
     {
@@ -2938,7 +2938,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/knowledge/includes/class-guru-service.php"
+        "core/guru/profile/includes/class-guru-service.php"
       ]
     },
     {
@@ -2947,7 +2947,7 @@
       "status": "internal",
       "subscribers": 1,
       "fired_in": [
-        "core/knowledge/includes/class-guru-service.php"
+        "core/guru/profile/includes/class-guru-service.php"
       ]
     },
     {
@@ -2956,7 +2956,7 @@
       "status": "internal",
       "subscribers": 1,
       "fired_in": [
-        "core/knowledge/lib/class-knowledge-fabric.php"
+        "core/guru/profile/lib/class-knowledge-fabric.php"
       ]
     },
     {
@@ -3104,8 +3104,8 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/knowledge/includes/class-admin-menu.php",
-        "core/memory/includes/class-user-memory.php",
+        "core/guru/admin/includes/class-admin-menu.php",
+        "core/guru/memory/includes/class-user-memory.php",
         "core/twinbrain/includes/class-twinbrain-rest-memory-me.php",
         "modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php"
       ]
@@ -3116,9 +3116,9 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/memory/includes/class-episodic-memory.php",
-        "core/memory/includes/class-rolling-memory.php",
-        "core/memory/includes/class-user-memory.php",
+        "core/guru/memory/includes/class-episodic-memory.php",
+        "core/guru/memory/includes/class-rolling-memory.php",
+        "core/guru/memory/includes/class-user-memory.php",
         "modules/twinchat/notebooklm/includes/class-twinchat-notes-service.php"
       ]
     },
@@ -3166,8 +3166,8 @@
       "fired_in": [
         "../bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php",
         "../bizcity-twin-crm/includes/class-sprint-diagnostic.php",
-        "core/persona/includes/class-guru-skill-bridge.php",
-        "core/persona/includes/class-persona-registry.php",
+        "core/guru/runtime/includes/class-guru-skill-bridge.php",
+        "core/guru/runtime/includes/class-persona-registry.php",
         "core/twinbrain/includes/class-twinbrain-tool-intent-matcher.php"
       ]
     },
@@ -3188,7 +3188,7 @@
       "fired_in": [
         "../bizcity-twin-crm/includes/class-sprint-diagnostic-phase-cd.php",
         "../bizcity-twin-crm/includes/class-sprint-diagnostic.php",
-        "core/persona/includes/class-guru-skill-bridge.php",
+        "core/guru/runtime/includes/class-guru-skill-bridge.php",
         "core/runtime/agents/class-twin-agent-registry.php",
         "core/twinbrain/includes/class-twinbrain-tool-intent-matcher.php"
       ]
@@ -3253,7 +3253,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/persona/includes/class-persona-registry.php"
+        "core/guru/runtime/includes/class-persona-registry.php"
       ]
     },
     {
@@ -3766,7 +3766,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/knowledge/views/notebook-notes-panel.php",
+        "core/guru/admin/views/notebook-notes-panel.php",
         "modules/twinchat/includes/class-twinchat-rest-controller.php"
       ]
     },
@@ -5057,7 +5057,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/memory/includes/class-user-memory.php"
+        "core/guru/memory/includes/class-user-memory.php"
       ]
     },
     {

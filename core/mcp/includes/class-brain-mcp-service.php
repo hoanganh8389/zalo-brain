@@ -296,6 +296,11 @@ final class BizCity_Brain_MCP_Service {
 		if ( strlen( (string) $day_key ) !== 8 ) {
 			$day_key = '';
 		}
+		// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 (I-2) — document scope: kg source ids + journal entries mapped to their kg source.
+		$src_scope = self::scope_source_ids(
+			isset( $args['source_ids'] ) ? (array) $args['source_ids'] : array(),
+			isset( $args['entry_ids'] ) ? (array) $args['entry_ids'] : array()
+		);
 		// A day question wants the day's notes, not the 8 most similar lines of it.
 		$top_k       = isset( $args['top_k'] ) ? max( 1, min( 50, (int) $args['top_k'] ) ) : ( $day_key !== '' ? 20 : 8 );
 		$graph_depth = isset( $args['graph_depth'] ) ? max( 1, min( 3, (int) $args['graph_depth'] ) ) : 2;
@@ -310,7 +315,8 @@ final class BizCity_Brain_MCP_Service {
 			. '|relations:' . (int) $include_relations
 			. '|full:' . (int) $include_full_content
 			. '|fast:' . (int) $fast
-			. '|day:' . $day_key; // PHASE-0.99 S99-P43 — a day-scoped answer must never be served from the unscoped snapshot
+			. '|day:' . $day_key // PHASE-0.99 S99-P43 — a day-scoped answer must never be served from the unscoped snapshot
+			. '|src:' . implode( ',', $src_scope ); // PHASE-0.121 B1-3 — nor a document-scoped one
 		$cache_key   = BizCity_MCP_Retrieval_Snapshot_Store::build_cache_key(
 			(string) $ctx['client_id'] . '|user:' . (int) $ctx['user_id'], $norm['normalized'], $notebook_ids,
 			$profile_key, $kg_revision, $top_k, $graph_depth
@@ -347,7 +353,19 @@ final class BizCity_Brain_MCP_Service {
 			}
 		}
 
-		foreach ( $day_key !== '' ? array() : $notebook_ids as $nb_id ) {
+		// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 (I-2) — a document-scoped question ranks only that document's passages (lexical,
+		// deterministic, no embedding call); notebooks the caller may not read are already excluded by $notebook_ids.
+		if ( $day_key === '' && array() !== $src_scope ) {
+			$src_rows = self::source_passages( $notebook_ids, $src_scope, $norm['original'], $top_k );
+			$total    = count( $src_rows );
+			$rank     = 0;
+			foreach ( $src_rows as $p ) {
+				$rank++;
+				$all_passages[] = $this->map_passage( $p, (int) ( $p['notebook_id'] ?? 0 ), $rank, $total );
+			}
+		}
+
+		foreach ( ( $day_key !== '' || array() !== $src_scope ) ? array() : $notebook_ids as $nb_id ) {
 			$res = $retriever->ask( $nb_id, $norm['original'], array(
 				'seed_entities'  => 4,
 				'seed_relations' => $top_k * 2,
@@ -662,6 +680,115 @@ final class BizCity_Brain_MCP_Service {
 	 *
 	 * [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P43.
 	 */
+	/**
+	 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 (I-2) — kg source ids to search inside: `source_ids` as given + `entry_ids` mapped through the
+	 * journal (`kg_source_id` of each row). Positive, unique, ≤ 10. The notebook filter (allowed_notebook_ids) still applies later.
+	 *
+	 * @return int[]
+	 */
+	public static function scope_source_ids( array $source_ids, array $entry_ids ): array {
+		$out = array();
+		foreach ( $source_ids as $id ) {
+			if ( (int) $id > 0 ) {
+				$out[] = (int) $id;
+			}
+		}
+		$entry_ids = array_values( array_filter( array_map( 'intval', $entry_ids ) ) );
+		if ( $entry_ids && class_exists( 'BizCity_Journal_Database' ) ) {
+			$db = BizCity_Journal_Database::instance();
+			foreach ( array_slice( $entry_ids, 0, 10 ) as $eid ) {
+				$row = $db->get( $eid, 0, true );
+				if ( $row && (int) ( $row['kg_source_id'] ?? 0 ) > 0 ) {
+					$out[] = (int) $row['kg_source_id'];
+				}
+				// [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — a meeting cover (task.minutes) has no text: its materials (derived_from, same owner) are what to search
+				$meta = $row ? json_decode( (string) ( $row['metadata'] ?? '' ), true ) : null;
+				foreach ( array_slice( (array) ( is_array( $meta ) ? ( $meta['derived_from'] ?? array() ) : array() ), 0, 20 ) as $cid ) {
+					$child = (int) $cid > 0 ? $db->get( (int) $cid, (int) $row['owner_user_id'] ) : null;
+					if ( $child && (int) ( $child['kg_source_id'] ?? 0 ) > 0 ) {
+						$out[] = (int) $child['kg_source_id'];
+					}
+				}
+			}
+		}
+		$out = array_values( array_unique( $out ) );
+		sort( $out );
+		return array_slice( $out, 0, 30 );
+	}
+
+	/**
+	 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 — rank passages by word overlap with the query, accent-insensitive ("hd thue nha" finds
+	 * "Hợp đồng thuê nhà"). Deterministic; ties keep the document order. Returns ≤ $k rows with score / score_source. Pure.
+	 */
+	public static function rank_by_overlap( array $rows, string $query, int $k ): array {
+		$fold  = array( __CLASS__, 'fold_vi' );
+		$words = array_values( array_unique( array_filter( preg_split( '/[^a-z0-9]+/', $fold( $query ) ), static function ( $w ) { return strlen( $w ) >= 2; } ) ) );
+		$scored = array();
+		foreach ( array_values( $rows ) as $i => $r ) {
+			$text  = ' ' . preg_replace( '/[^a-z0-9]+/', ' ', $fold( (string) ( $r['content'] ?? '' ) ) ) . ' ';
+			$score = 0;
+			foreach ( $words as $w ) {
+				if ( false !== strpos( $text, ' ' . $w . ' ' ) ) {
+					$score++;
+				}
+			}
+			$r['score']        = $words ? round( $score / count( $words ), 4 ) : 0.0;
+			$r['score_source'] = 'keyword';
+			$scored[] = array( $score, $i, $r );
+		}
+		usort( $scored, static function ( $a, $b ) { return $b[0] <=> $a[0] ?: $a[1] <=> $b[1]; } );
+		return array_map( static function ( $x ) { return $x[2]; }, array_slice( $scored, 0, max( 1, $k ) ) );
+	}
+
+	/**
+	 * [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 — lower-case, Vietnamese accents removed with a fixed table
+	 * (same result on every host: iconv TRANSLIT turns accented letters into '?' on some builds). Pure.
+	 */
+	public static function fold_vi( string $s ): string {
+		static $map = null;
+		if ( null === $map ) {
+			$map = array();
+			foreach ( array(
+				'a' => 'àáạảãâầấậẩẫăằắặẳẵ',
+				'e' => 'èéẹẻẽêềếệểễ',
+				'i' => 'ìíịỉĩ',
+				'o' => 'òóọỏõôồốộổỗơờớợởỡ',
+				'u' => 'ùúụủũưừứựửữ',
+				'y' => 'ỳýỵỷỹ',
+				'd' => 'đ',
+			) as $base => $chars ) {
+				foreach ( preg_split( '//u', $chars, -1, PREG_SPLIT_NO_EMPTY ) as $c ) {
+					$map[ $c ] = $base;
+				}
+			}
+		}
+		return strtr( mb_strtolower( $s, 'UTF-8' ), $map );
+	}
+
+	/** [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 — passages of the given kg sources inside the allowed notebooks, ranked by rank_by_overlap(). */
+	private static function source_passages( array $notebook_ids, array $source_ids, string $query, int $limit ): array {
+		global $wpdb;
+		$notebook_ids = array_values( array_filter( array_map( 'intval', $notebook_ids ) ) );
+		$source_ids   = array_values( array_filter( array_map( 'intval', $source_ids ) ) );
+		if ( ! $notebook_ids || ! $source_ids || ! isset( $wpdb ) || ! class_exists( 'BizCity_KG_Database' ) ) {
+			return array();
+		}
+		$passages = BizCity_KG_Database::instance()->tbl_passages();
+		$nb_sql   = implode( ',', $notebook_ids );
+		$src_sql  = implode( ',', $source_ids );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ids are intval'd above.
+		$rows = $wpdb->get_results( "SELECT p.* FROM `{$passages}` p WHERE p.notebook_id IN ({$nb_sql}) AND p.source_id IN ({$src_sql}) ORDER BY p.id ASC LIMIT 400", ARRAY_A );
+		$rows = is_array( $rows ) ? $rows : array();
+		if ( ! $rows ) {
+			return array();
+		}
+		if ( class_exists( 'BizCity_KG_Content_Router' ) ) {
+			BizCity_KG_Content_Router::instance()->hydrate_passages( $rows );
+		}
+		$rows = array_values( array_filter( $rows, static function ( $r ) { return '' !== (string) ( $r['content'] ?? '' ); } ) );
+		return self::rank_by_overlap( $rows, $query, max( 1, min( 50, $limit ) ) );
+	}
+
 	private static function day_passages( array $notebook_ids, string $day_key, int $limit ): array {
 		global $wpdb;
 		$notebook_ids = array_values( array_filter( array_map( 'intval', $notebook_ids ) ) );
@@ -726,9 +853,11 @@ final class BizCity_Brain_MCP_Service {
 			'source_id'    => BizCity_MCP_Citation::resolve_source_id( $source_id, $pid ),
 			'passage_id'   => $pid,
 			'citation_id'  => BizCity_MCP_Citation::format( $source_id, $pid ),
+			'doc_code'     => self::doc_code_of_source( $source_id ), // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-5 (I-6) — "TL-123 · đoạn n" in the cell; '' when not a document
 			'notebook_id'  => (int) $notebook_id,
 			'title'        => $source_id > 0 ? $this->source_title( $source_id ) : '(chat memory)',
 			'heading_path' => array(), // TODO Wave C: derive from passage metadata when available.
+			'page'         => self::page_of_passage( $p, $pid ), // [2026-10-18 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L4 (I-6) — 0 = unknown (never guessed)
 			'snippet'      => function_exists( 'mb_substr' ) ? mb_substr( $content, 0, 320 ) : substr( $content, 0, 320 ),
 			'content'      => $content,
 			'content_hash' => 'sha256:' . hash( 'sha256', $content ),
@@ -738,6 +867,54 @@ final class BizCity_Brain_MCP_Service {
 				'origin_kind'   => $source_id > 0 ? 'file' : 'chat_memory',
 			),
 		);
+	}
+
+	/**
+	 * [2026-10-18 12:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L4 — the page a passage starts on, written into its metadata when the chunk was mirrored
+	 * (BizCity_KG::chunk_pages). Reads the passage's own metadata when the retrieval row carries it, else one cached lookup by id. 0 = unknown.
+	 */
+	public static function page_of_passage( array $p, int $passage_id ): int {
+		static $cache = array();
+		$meta = $p['metadata'] ?? null;
+		if ( is_string( $meta ) ) {
+			$meta = json_decode( $meta, true );
+		}
+		if ( ! is_array( $meta ) && $passage_id > 0 ) {
+			if ( ! array_key_exists( $passage_id, $cache ) ) {
+				global $wpdb;
+				$raw = ( isset( $wpdb ) && is_object( $wpdb ) && class_exists( 'BizCity_KG_Database' ) )
+					? $wpdb->get_var( $wpdb->prepare( 'SELECT metadata FROM ' . BizCity_KG_Database::instance()->tbl_passages() . ' WHERE id = %d', $passage_id ) )
+					: null;
+				$cache[ $passage_id ] = is_string( $raw ) ? json_decode( $raw, true ) : array();
+			}
+			$meta = $cache[ $passage_id ];
+		}
+		$page = is_array( $meta ) ? (int) ( $meta['page'] ?? 0 ) : 0;
+		return $page > 0 && $page < 100000 ? $page : 0;
+	}
+
+	/** [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-5 (I-6) — the journal row's doc code for a kg source ('' when none). Cached per request. */
+	public static function doc_code_of_source( int $kg_source_id ): string {
+		static $cache = array();
+		if ( $kg_source_id <= 0 ) {
+			return '';
+		}
+		if ( isset( $cache[ $kg_source_id ] ) ) {
+			return $cache[ $kg_source_id ];
+		}
+		$code = '';
+		if ( class_exists( 'BizCity_Journal_Database' ) ) {
+			$row = BizCity_Journal_Database::instance()->get_by_kg_source_id( $kg_source_id );
+			if ( $row ) {
+				$meta = json_decode( (string) ( $row['metadata'] ?? '' ), true );
+				$code = is_array( $meta ) ? (string) ( $meta['original']['doc_code'] ?? '' ) : '';
+				if ( '' === $code ) {
+					$code = 'JE-' . (int) $row['id'];
+				}
+			}
+		}
+		$cache[ $kg_source_id ] = $code;
+		return $code;
 	}
 
 	private function source_title( $source_id ) {

@@ -23,6 +23,13 @@
     "toolkit": "googlecalendar"
   },
   "desc": "Đặt, đổi lịch hẹn; nhắc trước giờ hẹn.",
+  "panel": {
+    "say": [
+      "nối lịch google",
+      "đồng bộ lịch",
+      "kết nối calendar"
+    ]
+  },
   "ui": {
     "glyph": "31",
     "color": "#1a73e8"

@@ -347,7 +347,6 @@ class BizCity_TwinChat_Settings_Page {
 			array( 'id' => 'bizcity-tarot',        'label' => '🔮 BizCity Tarot',                            'desc' => 'Tarot + astrology tool.',                                'status' => 'ok' ),
 			array( 'id' => 'bizcity-tool-content', 'label' => '✍ BizCity Tool — Content',                   'desc' => 'Content generation tool.',                               'status' => 'ok' ),
 			array( 'id' => 'bizcity-content-creator','label' => '📝 BizCity Content Creator',                'desc' => 'Long-form content via BizCity_LLM_Client.',              'status' => 'ok' ),
-			array( 'id' => 'bizgpt-custom-flows',  'label' => '🛠 BizGPT Custom Flows',                      'desc' => 'Flow runner gọi LLM qua BizCity_LLM_Client.',           'status' => 'ok' ),
 			array( 'id' => 'bizcity-doc',          'label' => '📄 BizCity Doc',                              'desc' => 'Tiện ích Pro cho document/export; framework hoạt động độc lập khi thiếu plugin.', 'status' => 'pro' ),
 			array( 'id' => 'bizcity-openrouter-mu','label' => '🔌 BizCity OpenRouter (mu-plugin)',           'desc' => 'Thin proxy: BizCity_LLM/Search/Video Client.',           'status' => 'ok' ),
 			array( 'id' => 'bizcity-tool-image',   'label' => '🎨 BizCity Tool — Image',                     'desc' => 'Tiện ích Pro cho Image Studio; không thuộc framework must-load.', 'status' => 'pro' ),

@@ -159,6 +159,31 @@
     "availability": "connector_status"
   },
   "desc": "Tự trả lời Messenger, soạn trả lời bình luận, soạn bài đăng chờ duyệt.",
+  "panel": {
+    "label": "Kết nối Fanpage",
+    "say": [
+      "kết nối facebook",
+      "nối fanpage",
+      "kết nối trang facebook"
+    ]
+  },
+  "chat_suggestions": [
+    {
+      "text": "Có bình luận nào mới trên Fanpage không",
+      "executor": "fb.comment.list",
+      "risk": "R0"
+    },
+    {
+      "text": "Tóm tắt tin nhắn Messenger hôm nay",
+      "executor": "fb.conversation.list",
+      "risk": "R0"
+    },
+    {
+      "text": "Soạn bài đăng giới thiệu sản phẩm mới, chờ anh duyệt",
+      "executor": "fb.post.create",
+      "risk": "R2"
+    }
+  ],
   "ui": {
     "glyph": "f",
     "color": "#1877f2"

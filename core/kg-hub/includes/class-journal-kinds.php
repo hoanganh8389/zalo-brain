@@ -93,7 +93,8 @@ final class BizCity_Journal_Kinds {
 	public static function learn( string $kind ): string {
 		$k     = self::get( $kind );
 		$learn = $k ? strtolower( (string) ( $k['learn'] ?? '' ) ) : '';
-		if ( ! in_array( $learn, array( 'index', 'vector', 'graph' ), true ) ) {
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 (journal-kinds@1.3) — `none`: a ledger row (job, skill, notebook pointer, sheet definition) is never embedded or graphed.
+		if ( ! in_array( $learn, array( 'none', 'index', 'vector', 'graph' ), true ) ) {
 			$learn = 'vector';
 		}
 		if ( 'graph' === $learn && '' !== self::sensitive( $kind ) ) {
@@ -110,6 +111,66 @@ final class BizCity_Journal_Kinds {
 	/** Test seam: forget the merged catalog (a plugin declared kinds after the first read). */
 	public static function reset(): void {
 		self::$memo = null;
+	}
+
+	/**
+	 * [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1 (doc 05 §3, R-BRAIN-SKELETON) — the layer of a kind
+	 * (journal-entry@1.2 `layer`): document · notebook · twin_sheet · skill · job · output, from the contract's `layers` table
+	 * (by_kind, then by_prefix, then by_suffix, then default). Pure once the contract is read.
+	 */
+	public static function layer_of( string $kind ): string {
+		$kind = BizCity_Journal_Database::sanitize_kind( $kind );
+		$l    = self::raw()['layers'] ?? array();
+		if ( isset( $l['by_kind'][ $kind ] ) ) {
+			return (string) $l['by_kind'][ $kind ];
+		}
+		foreach ( (array) ( $l['by_prefix'] ?? array() ) as $p => $layer ) {
+			if ( 0 === strpos( $kind, (string) $p ) ) {
+				return (string) $layer;
+			}
+		}
+		foreach ( (array) ( $l['by_suffix'] ?? array() ) as $s => $layer ) {
+			if ( '' !== (string) $s && substr( $kind, -strlen( (string) $s ) ) === (string) $s ) {
+				return (string) $layer;
+			}
+		}
+		return (string) ( $l['default'] ?? 'document' );
+	}
+
+	/** Layers that carry a tier (L1 · L2 · L3): documents and notebook sources only (doc 05 §4). */
+	public static function layer_has_tier( string $layer ): bool {
+		$l = self::raw()['layers'] ?? array();
+		return in_array( $layer, (array) ( $l['tiers_only_for'] ?? array( 'document', 'notebook' ) ), true );
+	}
+
+	/** The two-letter ref prefix of a kind (`ref_codes` table), '' when the kind has none (documents use the TL file code). */
+	public static function ref_prefix( string $kind ): string {
+		$kind = BizCity_Journal_Database::sanitize_kind( $kind );
+		$r    = self::raw()['ref_codes'] ?? array();
+		return isset( $r[ $kind ] ) && is_string( $r[ $kind ] ) ? (string) $r[ $kind ] : '';
+	}
+
+	/** kind ⇒ prefix for every kind that has one (the MCP void / parse helpers read this). */
+	public static function ref_prefixes(): array {
+		$out = array();
+		foreach ( (array) ( self::raw()['ref_codes'] ?? array() ) as $kind => $p ) {
+			if ( is_string( $p ) && false !== strpos( (string) $kind, '.' ) ) {
+				$out[ (string) $kind ] = $p;
+			}
+		}
+		return $out;
+	}
+
+	/** @var array|null the raw contract (layers, ref_codes) — not merged with plugin kinds */
+	private static $raw = null;
+
+	private static function raw(): array {
+		if ( null === self::$raw ) {
+			$path      = self::contract_path();
+			$decoded   = is_readable( $path ) ? json_decode( (string) file_get_contents( $path ), true ) : null;
+			self::$raw = is_array( $decoded ) ? $decoded : array();
+		}
+		return self::$raw;
 	}
 
 	/** Vietnamese shelf label for a kind, else the kind itself. */

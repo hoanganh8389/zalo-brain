@@ -145,9 +145,20 @@ final class BizCity_Brain_ROI {
 		}
 		global $wpdb;
 		$table = BizCity_Journal_Database::instance()->get_table();
+		// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R108-03 (BS-2/BS-5) — "được dạy" = what a person TAUGHT (documents, notebook sources, skills, instructions):
+		// job headers, products of the assistant and ledger rows (twin_sheet) are machine work, never teaching; void rows are gone.
+		$skip = array();
+		if ( class_exists( 'BizCity_Journal_Kinds' ) ) {
+			foreach ( array_keys( (array) ( BizCity_Journal_Kinds::all()['kinds'] ?? array() ) ) as $k ) {
+				if ( in_array( BizCity_Journal_Kinds::layer_of( (string) $k ), array( 'job', 'output', 'twin_sheet' ), true ) ) {
+					$skip[] = (string) $k;
+				}
+			}
+		}
+		$not_in = array() === $skip ? '' : ' AND kind NOT IN (' . implode( ',', array_fill( 0, count( $skip ), '%s' ) ) . ')';
 		return (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$table} WHERE workspace_id = %s AND status <> 'archived'",
-			'ws_zalo_' . $account_id
+			"SELECT COUNT(*) FROM {$table} WHERE workspace_id = %s AND status NOT IN ('archived','void'){$not_in}",
+			array_merge( array( 'ws_zalo_' . $account_id ), $skip )
 		) );
 	}
 

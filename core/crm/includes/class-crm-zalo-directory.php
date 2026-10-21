@@ -124,6 +124,43 @@ final class BizCity_CRM_Zalo_Directory {
 		return $stats;
 	}
 
+	/**
+	 * [2026-10-20 08:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — tên nhóm THẬT về CRM, tự động: cell đã đọc tên bằng zca (danh bạ, PHASE-0.120) ⇒ kéo qua Hub rồi nhập vào CRM
+	 * (cùng đường rest_sync, không thêm route). Chống dồn: tối đa một lần / số / giờ (hỏng: 10 phút). Không ném.
+	 *
+	 * @return array{ran:bool,imported?:int,reason?:string}
+	 */
+	public static function refresh_for_bridge( string $bridge, bool $force = false ): array {
+		$bridge = preg_replace( '/[^0-9]/', '', $bridge );
+		if ( '' === $bridge ) {
+			return array( 'ran' => false, 'reason' => 'no_bridge' );
+		}
+		$key = 'bizcity_crm_dir_refresh_' . $bridge;
+		if ( ! $force && function_exists( 'get_transient' ) && false !== get_transient( $key ) ) {
+			return array( 'ran' => false, 'reason' => 'throttled' );
+		}
+		foreach ( self::zalo_inboxes() as $inbox ) {
+			if ( (string) $inbox['channel_ref_id'] !== $bridge ) {
+				continue;
+			}
+			self::hub( 'POST', 'directory/sync', $inbox );
+			$d  = self::hub( 'GET', 'directory', $inbox );
+			$ok = ! empty( $d['ok'] ) && ! empty( $d['enabled'] );
+			if ( function_exists( 'set_transient' ) ) {
+				set_transient( $key, 1, $ok ? HOUR_IN_SECONDS : 10 * MINUTE_IN_SECONDS );
+			}
+			if ( ! $ok ) {
+				return array( 'ran' => true, 'imported' => 0, 'reason' => empty( $d['ok'] ) ? 'hub_degraded' : 'directory_disabled' );
+			}
+			$groups = array_values( array_filter( (array) ( $d['entries'] ?? array() ), static function ( $e ) {
+				return 'group' === (string) ( $e['kind'] ?? '' );
+			} ) );
+			$stats = self::import_entries( $inbox, $groups );
+			return array( 'ran' => true, 'imported' => (int) $stats['created'] + (int) $stats['updated'] );
+		}
+		return array( 'ran' => false, 'reason' => 'inbox_not_found' );
+	}
+
 	/* ---------------------------------------------------------------- REST */
 
 	public static function can_manage(): bool {

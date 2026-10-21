@@ -133,6 +133,11 @@ BizCity_Zalo_MCP_Bridge_REST::init(); // [2026-10-01 Claude Opus 5.5] PHASE-0.88
 BizCity_Zalo_Pack_Invalidate::boot(); // [2026-09-30] PHASE-0.87 CL-2 / CL-D4 — notebook change ⇒ Hub packs/invalidate (60 s debounce)
 BizCity_Zalo_Agent_Principals::boot(); // [2026-10-01] PHASE-0.87 W2-1 — CRM suspend/reactivate re-projects the bundle
 BizCity_Zalo_Staff_Principals_REST::init(); // [2026-10-01] PHASE-0.87 W2-1 — bot/policy/{binding_id}/staff routes
+// [2026-10-19 11:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 B10 — bot/policy/{binding_id}/groups (ma trận Nhóm của số). Nạp có điều kiện: file mới thiếu khi deploy ⇒ chỉ thiếu màn nhóm, không làm plugin trơ.
+if ( is_readable( __DIR__ . '/includes/shared/class-zalo-group-secretary-rest.php' ) ) {
+	require_once __DIR__ . '/includes/shared/class-zalo-group-secretary-rest.php';
+	BizCity_Zalo_Group_Secretary_REST::init();
+}
 BizCity_Zalo_Uid_Verify::init(); // [2026-10-01] PHASE-0.87 CL-14 — POST bot/policy/{binding_id}/verify-uid + ?bizcity_uid_verify= landing
 BizCity_Zalo_Owner_Uid_Claim::init(); // [2026-10-07 02:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92-S92-SC-21 — zalo-personal/{bridge}/owner-uid[/claim]
 BizCity_Zalo_Deep_Analysis::init(); // [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-8 — POST zalo-bridge/deep-analysis + cron worker → Hub zalo-hub/deep-analysis/result

@@ -299,7 +299,9 @@ final class BizCity_Brain_MCP_Service {
 		// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-3 (I-2) — document scope: kg source ids + journal entries mapped to their kg source.
 		$src_scope = self::scope_source_ids(
 			isset( $args['source_ids'] ) ? (array) $args['source_ids'] : array(),
-			isset( $args['entry_ids'] ) ? (array) $args['entry_ids'] : array()
+			isset( $args['entry_ids'] ) ? (array) $args['entry_ids'] : array(),
+			// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P2 (brain-access@1, BS-6) — a journal row scopes the search only when THIS principal may search.vector it (before: any owner's row).
+			class_exists( 'BizCity_Brain_Access' ) ? BizCity_Brain_Access::principal( $ctx ) : null
 		);
 		// A day question wants the day's notes, not the 8 most similar lines of it.
 		$top_k       = isset( $args['top_k'] ) ? max( 1, min( 50, (int) $args['top_k'] ) ) : ( $day_key !== '' ? 20 : 8 );
@@ -686,7 +688,7 @@ final class BizCity_Brain_MCP_Service {
 	 *
 	 * @return int[]
 	 */
-	public static function scope_source_ids( array $source_ids, array $entry_ids ): array {
+	public static function scope_source_ids( array $source_ids, array $entry_ids, ?array $principal = null ): array {
 		$out = array();
 		foreach ( $source_ids as $id ) {
 			if ( (int) $id > 0 ) {
@@ -698,6 +700,17 @@ final class BizCity_Brain_MCP_Service {
 			$db = BizCity_Journal_Database::instance();
 			foreach ( array_slice( $entry_ids, 0, 10 ) as $eid ) {
 				$row = $db->get( $eid, 0, true );
+				// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P2 — brain-access@1 search.vector on the row (a denied row is silently dropped: no existence leak)
+				if ( $row && null !== $principal && class_exists( 'BizCity_Brain_Access' ) && class_exists( 'BizCity_Journal_Index' ) ) {
+					$entry = BizCity_Journal_Index::to_journal_entry( $row );
+					// Q121-8: a staff document sent into THIS number is the number owner's team row (read only)
+					if ( 'owner' === (string) $principal['type'] && (int) $row['owner_user_id'] !== (int) $principal['user_id'] && '' !== (string) $principal['account_id'] ) {
+						$entry['team'] = array() !== $db->number_rows( array( (string) $principal['account_id'] ), (int) $principal['user_id'], 1, $eid );
+					}
+					if ( ! BizCity_Brain_Access::decide( $principal, $entry, 'search.vector' )['allow'] ) {
+						continue;
+					}
+				}
 				if ( $row && (int) ( $row['kg_source_id'] ?? 0 ) > 0 ) {
 					$out[] = (int) $row['kg_source_id'];
 				}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://bizcity.vn/schema/job-link-v1.json",
+  "contract": "job-link@1.0.0",
+  "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J1 (doc 15 §2-3, R-BRAIN-SKELETON BS-5/BS-6) — the join keys every journal row written inside ONE job carries, and the one header row `job.run` (JB-) the site upserts from job-event@1.1. Runtime JSON (core/kg-hub/contracts): read by BizCity_Journal_Job_Link; docs/ is never read at runtime.",
+  "rule": "docs/rules/PHASE-0-RULE-BRAIN-SKELETON.md (BS-5 header row rule, BS-6 join keys)",
+  "block": "journal-entry@1.2.metadata.job",
+  "keys": {
+    "job_id":           { "type": "string", "pattern": "^job_[0-9A-Za-z]{10,40}$", "note": "the cell's id (machine). Site resolves job_id → job_ref." },
+    "job_ref":          { "type": "string", "pattern": "^JB-\\d+$", "note": "the header row's code (human; R-JN-25) = JB-<entry_id of the job.run row>" },
+    "role":             { "type": "enum", "values": ["header", "input", "output", "evidence", "lesson"], "note": "which box the Job screen draws this row in" },
+    "step_ref":         { "type": "string|null", "pattern": "^[a-z][a-z0-9_]{0,39}$", "note": "plan@1.steps[].id this row belongs to; null = the whole job" },
+    "version_ref":      { "type": "string|null", "pattern": "^[A-Z]{2}-\\d+@(v|s)\\d+$", "note": "the exact version used: TL-47@v2 (file-version@1) · SO-cash@s3 (sheet schema)" },
+    "actor":            { "type": "object", "shape": { "kind": "owner|staff|group_member|customer|cell|executor|automation", "ref": "hash or principal ref, never a raw uid / phone", "executor": "executor id when kind = executor" } },
+    "parent_job_ref":   { "type": "string|null", "pattern": "^JB-\\d+$", "note": "a sub-job delegated to another assistant / number (Zalo Brain → Zalo Brain)" },
+    "conversation_ref": { "type": "string|null", "max": 120, "note": "the chat thread to report progress back to" }
+  },
+  "on_the_row_itself": {
+    "source_ref":   "column source_ref — where this row came from (TL-47, msg:…, another row's code)",
+    "derived_from": "metadata.derived_from — entry ids used as input (R-JN-10)",
+    "output_refs":  "HEADER ONLY (card.output_refs on the job.run row) — codes of the products; the site appends when a child row with role output is written",
+    "evidence_refs":"HEADER ONLY (card.evidence_refs) — evidence ids / codes"
+  },
+  "required_on_rows_in_a_job": ["job_id", "job_ref", "role"],
+  "query": {
+    "tag": "jb-<header entry_id>",
+    "note": "the site stamps the tag on every row of the job (tags column, LIKE index — same trick as grp-<gid>); journal.find{job: JB-31} = every row of the job, no JSON scan, no new column"
+  },
+  "header_row": {
+    "kind": "job.run",
+    "ref_prefix": "JB",
+    "idempotency_key": "jb:<blog>:<job_id>",
+    "when": "steps >= 2 OR writes >= 1 journal row OR approval / schedule / automation / delivery to another person (Q126-17, BS-5). A one-turn answer never opens one.",
+    "title": "plan.goal (or 'Việc <id>' until the goal is known)",
+    "status": { "values": ["pending", "running", "reviewing", "blocked", "done", "failed"], "from_cell": { "queued": "pending", "running": "running", "retryable_failed": "running", "waiting_approval": "reviewing", "blocked_permission": "blocked", "completed_verified": "done", "completed_partial": "done", "failed": "failed", "cancelled": "failed" }, "to_state": { "pending": "captured", "running": "captured", "reviewing": "review", "blocked": "review", "done": "captured", "failed": "failed" }, "note": "never verified — verified is a person's act (R-JN-14)" },
+    "card": ["status", "requested_by", "skill", "steps_total", "steps_done", "due_at", "delivered_at", "output_refs", "evidence_refs", "cancelled"],
+    "writer": "site: BizCity_Journal_Job_Link::on_job_event (job-event@1.1 via bizcity_twin_job_event) and ::attach (journal.record with job)"
+  },
+  "not_here": "step rows (the machine ledger stays in the cell assistant_jobs + the event stream, R-JN-19); no second job table (R-LEAN-4)"
+}

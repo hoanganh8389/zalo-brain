@@ -30,10 +30,13 @@ if ( class_exists( 'BizCity_Journal_Index', false ) ) {
 
 final class BizCity_Journal_Index {
 
-	const CONTRACT     = 'journal-entry@1.1.0';
+	// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1 (doc 20 §1, R-BRAIN-SKELETON) — 1.2.0: layer · tier · audience/access · belongs · version · job · ref_code (all additive).
+	const CONTRACT     = 'journal-entry@1.2.0';
+	const LAYERS       = array( 'document', 'notebook', 'twin_sheet', 'skill', 'job', 'output' );
 	const STATES       = array( 'captured', 'review', 'verified', 'failed', 'void' );
 	/** closed `source_type` set (R-JN-19); anything else ⇒ `plugin` */
-	const SOURCE_TYPES = array( 'owner_capture', 'web_upload', 'context_producer', 'derived', 'track', 'job', 'automation_run', 'cell_output', 'crm', 'plugin', 'file', 'menu' );
+	// [2026-10-19 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W2 (R-JN-27) — + group_capture (tệp nhóm Zalo lưu theo lệnh / khi theo dõi), group_brief (sổ ghi chép nhóm, W3)
+	const SOURCE_TYPES = array( 'owner_capture', 'web_upload', 'context_producer', 'derived', 'track', 'job', 'automation_run', 'cell_output', 'crm', 'plugin', 'file', 'menu', 'group_capture', 'group_brief' );
 	const LEARN_LEVELS = array( 'L0', 'L1', 'L2', 'L3' );
 
 	/**
@@ -55,6 +58,11 @@ final class BizCity_Journal_Index {
 			return new WP_Error( 'journal_invalid_entry', 'Thiếu owner_user_id.' );
 		}
 		$kind  = BizCity_Journal_Kinds::resolve( (string) ( $entry['kind'] ?? '' ), (string) ( $entry['original']['mime'] ?? '' ) );
+		// [2026-10-21 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — seam: a module that closes a period (Twin Sheet "Khóa kỳ") may refuse a new row. Return a WP_Error to refuse; null / anything else lets it through.
+		$guard = apply_filters( 'bizcity_journal_pre_add', null, $owner, $kind, (string) ( $entry['doc_date'] ?? '' ), (string) ( $entry['idempotency_key'] ?? '' ) ); // [2026-10-21 07:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W4 — + idempotency key: a retry of a row that already exists must not be refused
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
+		}
 		$title = sanitize_text_field( (string) ( $entry['title'] ?? '' ) );
 		if ( '' === $title ) {
 			$title = BizCity_Journal_Kinds::label( $kind ) . ' ' . gmdate( 'd/m' );
@@ -91,8 +99,29 @@ final class BizCity_Journal_Index {
 			'mirror'     => array( 'sheet' => in_array( (string) ( $entry['mirror']['sheet'] ?? '' ), array( 'off', 'pending', 'ok', 'failed' ), true ) ? (string) $entry['mirror']['sheet'] : 'off', 'row_ref' => (string) ( $entry['mirror']['row_ref'] ?? '' ) ),
 			'learning'   => self::normalize_learning( is_array( $entry['learning'] ?? null ) ? $entry['learning'] : array(), $kind ),
 		);
+		// [2026-10-19 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W2 — tài liệu thuộc nhóm nào (cộng thêm): khoá truy vấn là tag `grp-<gid>` (encode_tags bỏ dấu ":") (cột tags), khối này chỉ để hiển thị.
+		if ( is_array( $entry['group'] ?? null ) ) {
+			$g = $entry['group'];
+			$metadata['group'] = array(
+				'ref'          => substr( sanitize_text_field( (string) ( $g['ref'] ?? '' ) ), 0, 40 ),
+				'gid'          => preg_match( '/^[0-9]{3,30}$/', (string) ( $g['gid'] ?? '' ) ) ? (string) $g['gid'] : '',
+				'name'         => substr( sanitize_text_field( (string) ( $g['name'] ?? '' ) ), 0, 120 ),
+				'sender_label' => substr( sanitize_text_field( (string) ( $g['sender_label'] ?? '' ) ), 0, 60 ),
+				'sender_role'  => in_array( (string) ( $g['sender_role'] ?? '' ), array( 'owner', 'staff', 'member', 'bot' ), true ) ? (string) $g['sender_role'] : 'member',
+				'msg_ref'      => substr( sanitize_text_field( (string) ( $g['msg_ref'] ?? '' ) ), 0, 40 ),
+				'trigger'      => 'follow' === (string) ( $g['trigger'] ?? '' ) ? 'follow' : 'command',
+			);
+		}
 		if ( 'failed' === $state ) {
 			$metadata['error'] = array( 'code' => sanitize_key( (string) ( $entry['error']['code'] ?? 'store_failed' ) ), 'message' => sanitize_text_field( (string) ( $entry['error']['message'] ?? '' ) ) );
+		}
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1/J1/P1 — 1.2.0 blocks: access (customer switch forced off on a sensitive kind — R-JN-11), version (R-FILE-VERSION), job (job-link@1).
+		$metadata['access'] = self::normalize_access( is_array( $entry['access'] ?? null ) ? $entry['access'] : array(), '' !== $sensitive );
+		if ( is_array( $entry['version'] ?? null ) ) {
+			$metadata['version'] = self::normalize_version( $entry['version'] );
+		}
+		if ( is_array( $entry['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) ) {
+			$metadata['job'] = BizCity_Journal_Job_Link::normalize( $entry['job'] );
 		}
 		$key      = (string) ( $entry['idempotency_key'] ?? '' );
 		$existing = '' !== $key ? BizCity_Journal_Database::instance()->get_by_idempotency_key( $key ) : null;
@@ -152,6 +181,11 @@ final class BizCity_Journal_Index {
 		$row = $db->get( $id, $owner_user_id );
 		if ( ! $row ) {
 			return new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' );
+		}
+		// [2026-10-21 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — same seam for a state change (void / re-open) of an existing row.
+		$guard = apply_filters( 'bizcity_journal_pre_state', null, $owner_user_id, (string) ( $row['kind'] ?? '' ), (string) ( $row['doc_date'] ?? '' ), $state );
+		if ( is_wp_error( $guard ) ) {
+			return $guard;
 		}
 		$from     = (string) ( $row['status'] ?? '' );
 		$metadata = is_array( json_decode( (string) ( $row['metadata'] ?? '' ), true ) ) ? json_decode( (string) $row['metadata'], true ) : array();
@@ -220,7 +254,147 @@ final class BizCity_Journal_Index {
 			'sender_role' => (string) ( $entry['by']['role'] ?? '' ),
 			'notebook'    => (string) ( $entry['kg']['notebook_ids'][0] ?? '' ),
 			'level'       => (string) ( $entry['learning']['level'] ?? 'L0' ),
+			// [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID — which Zalo group (name) / CRM contact (id, a number — no name, no phone) the document belongs to.
+			'group'       => (string) ( $entry['group']['name'] ?? '' ),
+			'contact_id'  => (int) ( $entry['contact_id'] ?? 0 ),
 			'source_ref'  => (string) ( $orig['doc_code'] ?? '' ) !== '' ? (string) $orig['doc_code'] : 'JE-' . (int) ( $entry['entry_id'] ?? 0 ),
+		);
+	}
+
+	/** The journal subject of one CRM contact (same builder every caller shares, R-JN-7). */
+	public static function contact_subject_hash( int $contact_id ): string {
+		return $contact_id > 0 ? BizCity_Journal_Database::subject_hash( 'contact', (string) $contact_id ) : '';
+	}
+
+	/** `grp-<gid>` — the journal tag of a Zalo group (PHASE-0.124; encode_tags drops ":" so the prefix uses a hyphen). '' when gid is not a Zalo group id. */
+	public static function group_tag( string $gid ): string {
+		return 1 === preg_match( '/^[0-9]{3,30}$/', $gid ) ? 'grp-' . $gid : '';
+	}
+
+	/**
+	 * Can this WP user attach documents to / read documents of this CRM contact? Exists, and the contact sits in an inbox the user may view
+	 * (tenant admin ⇒ all). Never trusts an id from the client (R-CID-11).
+	 */
+	public static function contact_visible( int $contact_id, int $user_id ): bool {
+		if ( $contact_id <= 0 || $user_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			return false;
+		}
+		if ( ! is_array( BizCity_CRM_Repository::get_contact( $contact_id ) ) ) {
+			return false;
+		}
+		$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids( $user_id );
+		if ( null === $allowed ) {
+			return true;
+		}
+		if ( array() === $allowed ) {
+			return false;
+		}
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$in  = implode( ',', array_map( 'intval', $allowed ) );
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl} WHERE contact_id = %d AND inbox_id IN ({$in})", $contact_id ) ) > 0; // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- ints only
+	}
+
+	/** @var array|null */
+	private static $register_sheet = null;
+
+	/**
+	 * [2026-10-19 09:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-R4 + PHASE-0.123 D123-14 — `doc-register@1.0.0` (twin-sheet@1 shape):
+	 * core/kg-hub/contracts/DOC-REGISTER-v1.json, read once per request. Columns, labels, views and projections live there only.
+	 */
+	public static function register_sheet(): array {
+		if ( null === self::$register_sheet ) {
+			$raw = (string) file_get_contents( dirname( __DIR__ ) . '/contracts/DOC-REGISTER-v1.json' );
+			$doc = json_decode( $raw, true );
+			self::$register_sheet = is_array( $doc ) ? $doc : array();
+		}
+		return self::$register_sheet;
+	}
+
+	/** Column keys of one projection (`csv` · `row`) as the contract orders them. */
+	public static function register_columns( string $projection ): array {
+		$p = self::register_sheet()['projections'][ $projection ] ?? array();
+		return array_values( array_map( 'strval', (array) ( $p['columns'] ?? $p['keys'] ?? array() ) ) );
+	}
+
+	/** One view of the contract by key (`overview` · `store` · `contracts` · `detail`), or []. */
+	public static function register_view( string $key ): array {
+		foreach ( (array) ( self::register_sheet()['views'] ?? array() ) as $v ) {
+			if ( is_array( $v ) && $key === (string) ( $v['key'] ?? '' ) ) {
+				return $v;
+			}
+		}
+		return array();
+	}
+
+	/** Card keys a person may edit on the web for `$kind` (views.detail.editable_card). */
+	public static function register_editable_card( string $kind ): array {
+		$map = (array) ( self::register_view( 'detail' )['editable_card'] ?? array() );
+		return array_values( array_map( 'strval', (array) ( $map[ $kind ] ?? array() ) ) );
+	}
+
+	/** Fields of one built-in Twin Sheet (core/kg-hub/contracts/TWIN-SHEET-BUILTIN-v1.json, PHASE-0.123 W1), keyed by field key; [] when absent. */
+	public static function builtin_sheet_fields( string $sheet_key ): array {
+		static $builtin = null;
+		if ( null === $builtin ) {
+			$path    = dirname( __DIR__ ) . '/contracts/TWIN-SHEET-BUILTIN-v1.json';
+			$doc     = is_readable( $path ) ? json_decode( (string) file_get_contents( $path ), true ) : null;
+			$builtin = is_array( $doc['sheets'] ?? null ) ? $doc['sheets'] : array();
+		}
+		$out = array();
+		foreach ( (array) ( $builtin[ $sheet_key ]['fields'] ?? array() ) as $f ) {
+			if ( is_array( $f ) && '' !== (string) ( $f['key'] ?? '' ) ) {
+				$out[ (string) $f['key'] ] = $f;
+			}
+		}
+		return $out;
+	}
+
+	/** What the web reads (the shape `twinsheet.describe` returns, PHASE-0.123 doc 20 §4): no projections, no privacy internals. */
+	public static function register_describe(): array {
+		$keep   = array_flip( array( 'key', 'label', 'type', 'options', 'max', 'list', 'filter', 'sort', 'search', 'editable', 'readonly' ) );
+		$s      = self::register_sheet();
+		$fields = array();
+		foreach ( (array) ( $s['fields'] ?? array() ) as $f ) {
+			$fields[] = array_intersect_key( (array) $f, $keep );
+		}
+		$views = array();
+		foreach ( (array) ( $s['views'] ?? array() ) as $v ) {
+			if ( ! is_array( $v ) ) {
+				continue;
+			}
+			// card.* columns take label + type from the kind's built-in Twin Sheet; editable = views.detail.editable_card.
+			if ( '' !== (string) ( $v['kind'] ?? '' ) ) {
+				$builtin  = self::builtin_sheet_fields( (string) $v['kind'] );
+				$editable = self::register_editable_card( (string) $v['kind'] );
+				$card     = array();
+				foreach ( (array) ( $v['columns'] ?? array() ) as $col ) {
+					if ( 0 !== strpos( (string) $col, 'card.' ) ) {
+						continue;
+					}
+					$k      = substr( (string) $col, 5 );
+					$f      = $builtin[ $k ] ?? array( 'key' => $k, 'label' => $k, 'type' => 'text' );
+					$f      = array_intersect_key( $f, $keep );
+					$f['source'] = 'card';
+					if ( in_array( $k, $editable, true ) ) {
+						$f['editable'] = true;
+					}
+					$card[] = $f;
+				}
+				$v['card_fields'] = $card;
+				unset( $v['card_fields_from'] );
+			}
+			$views[] = $v;
+		}
+		return array(
+			'contract'       => (string) ( $s['contract'] ?? '' ),
+			'conforms_to'    => (string) ( $s['conforms_to'] ?? '' ),
+			'sheet_key'      => (string) ( $s['sheet_key'] ?? '' ),
+			'display_name'   => (string) ( $s['display_name'] ?? '' ),
+			'schema_version' => (int) ( $s['schema_version'] ?? 1 ),
+			'edit_policy'    => (string) ( $s['edit_policy'] ?? 'rev' ),
+			'fields'         => $fields,
+			'views'          => $views,
 		);
 	}
 
@@ -244,6 +418,37 @@ final class BizCity_Journal_Index {
 		}
 		$row = BizCity_Journal_Database::instance()->get( $id, $owner_user_id, $all );
 		return $row ? self::to_journal_entry( $row ) : null;
+	}
+
+	/**
+	 * [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96) — the code a person reads back ("TL-47", "jb-31", " NB-12 ") ⇒ {prefix, n}; else null. Pure.
+	 * The model and the person speak in codes; no tool should make them convert a code to a database id.
+	 */
+	public static function parse_ref( string $ref ): ?array {
+		if ( 1 !== preg_match( '/^\s*([A-Za-z]{2})-(\d{1,12})\s*$/', $ref, $m ) || (int) $m[2] <= 0 ) {
+			return null;
+		}
+		return array( 'prefix' => strtoupper( $m[1] ), 'n' => (int) $m[2] );
+	}
+
+	/**
+	 * The owner's row behind one code: `TL-<n>` = the file code (source_ref of the row that keeps that original); `JE-<n>` = entry n whatever its kind;
+	 * any other prefix (JB · NB · SO · KN · TC · CN · TD · VC · KH · EV) = entry n only when its own code carries that prefix. null = none / not theirs.
+	 */
+	public static function find_by_ref( string $ref, int $owner_user_id ): ?array {
+		$p = self::parse_ref( $ref );
+		if ( null === $p || $owner_user_id <= 0 || ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return null;
+		}
+		if ( 'TL' === $p['prefix'] ) {
+			$row = BizCity_Journal_Database::instance()->get_by_source_ref( 'TL-' . $p['n'] );
+			return $row && (int) $row['owner_user_id'] === $owner_user_id ? self::to_journal_entry( $row ) : null;
+		}
+		$e = self::get( $p['n'], $owner_user_id );
+		if ( ! $e ) {
+			return null;
+		}
+		return ( 'JE' === $p['prefix'] || strtoupper( (string) ( $e['ref_code'] ?? '' ) ) === $p['prefix'] . '-' . $p['n'] ) ? $e : null;
 	}
 
 	public static function get_by_idempotency_key( string $key, int $owner_user_id = 0 ) {
@@ -281,7 +486,12 @@ final class BizCity_Journal_Index {
 			$write['kind'] = (string) $patch['kind'];
 		}
 		if ( array_key_exists( 'tags', $patch ) ) {
-			$write['tags'] = (array) $patch['tags'];
+			// [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID — `grp-<gid>` is the document's Zalo-group link, not a label a person types: editing labels keeps it.
+			// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J1 — `jb-<id>` (job link) is kept the same way; both are keys, not labels.
+			$is_link = static function ( $t ): bool { return 0 === strpos( (string) $t, 'grp-' ) || 0 === strpos( (string) $t, 'jb-' ); };
+			$keep = array_values( array_filter( BizCity_Journal_Database::decode_tags( (string) ( $row['tags'] ?? '' ) ), $is_link ) );
+			$new  = array_values( array_filter( array_map( 'strval', (array) $patch['tags'] ), static function ( $t ) use ( $is_link ) { return ! $is_link( $t ) || 0 === strpos( $t, 'jb-' ); } ) );
+			$write['tags'] = array_values( array_unique( array_merge( $keep, $new ) ) ); // the links first: a 12-tag cap never drops them
 		}
 		if ( array_key_exists( 'subject_hash', $patch ) ) {
 			$write['subject_hash'] = (string) $patch['subject_hash'];
@@ -292,6 +502,20 @@ final class BizCity_Journal_Index {
 		$metadata = is_array( json_decode( (string) ( $row['metadata'] ?? '' ), true ) ) ? json_decode( (string) $row['metadata'], true ) : array();
 		$flags    = is_array( $metadata['flags'] ?? null ) ? $metadata['flags'] : array();
 		$changed_meta = false;
+		// [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID — a document belongs to ONE CRM contact: subject{type:contact} + column subject_hash (indexed)
+		// + metadata.contact{id}. `contact_id:0` unlinks. The caller (REST / MCP) has already checked the contact exists and is visible to this person.
+		if ( array_key_exists( 'contact_id', $patch ) ) {
+			$cid = max( 0, (int) $patch['contact_id'] );
+			$hash = $cid > 0 ? self::contact_subject_hash( $cid ) : '';
+			$write['subject_hash'] = $hash;
+			$metadata['subject']   = $cid > 0 ? array( 'type' => 'contact', 'hash' => $hash ) : array( 'type' => 'none', 'hash' => '' );
+			if ( $cid > 0 ) {
+				$metadata['contact'] = array( 'id' => $cid );
+			} else {
+				unset( $metadata['contact'] );
+			}
+			$changed_meta = true;
+		}
 		if ( array_key_exists( 'pinned', $patch ) ) {
 			$flags['pinned'] = (bool) $patch['pinned'];
 			$changed_meta = true;
@@ -327,8 +551,47 @@ final class BizCity_Journal_Index {
 			$metadata['card']      = array_merge( is_array( $metadata['card'] ?? null ) ? $metadata['card'] : array(), $patch['card'] );
 			$changed_meta = true;
 		}
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P3 (brain-access@1 row switch, Q126-16) — `customer` off · view · download is set by a PERSON (REST);
+		// a sensitive row refuses it (audience_locked). `delivered_to` adds / removes one customer ref (BS-7: the recipient of a product may fetch it).
+		if ( array_key_exists( 'customer', $patch ) || array_key_exists( 'delivered_to', $patch ) || array_key_exists( 'undeliver', $patch ) ) {
+			$sensitive = '' !== (string) ( $flags['sensitive'] ?? '' );
+			$cur       = is_array( $metadata['access'] ?? null ) ? $metadata['access'] : array();
+			if ( array_key_exists( 'customer', $patch ) ) {
+				if ( $sensitive && 'off' !== (string) $patch['customer'] ) {
+					return new WP_Error( 'audience_locked', 'Dòng này thuộc loại nhạy cảm (tài chính · sức khoẻ · trẻ em · cá nhân): không mở cho khách được.' );
+				}
+				$cur['customer'] = (string) $patch['customer'];
+			}
+			$list = array_map( 'strval', (array) ( $cur['delivered_to'] ?? array() ) );
+			if ( array_key_exists( 'delivered_to', $patch ) ) {
+				$list = array_merge( $list, array_map( 'strval', (array) $patch['delivered_to'] ) );
+			}
+			if ( array_key_exists( 'undeliver', $patch ) ) {
+				$list = array_diff( $list, array_map( 'strval', (array) $patch['undeliver'] ) );
+			}
+			$cur['delivered_to'] = $list;
+			$metadata['access'] = self::normalize_access( $cur, $sensitive );
+			$changed_meta = true;
+		}
+		// R-FILE-VERSION: a person names a checkpoint ("bản gửi khách 20/10"); version numbers come from the writer, never from the web.
+		if ( array_key_exists( 'checkpoint_label', $patch ) ) {
+			$metadata['version'] = self::normalize_version( array_merge( is_array( $metadata['version'] ?? null ) ? $metadata['version'] : array(), array( 'checkpoint_label' => (string) $patch['checkpoint_label'] ) ) );
+			$changed_meta = true;
+		} elseif ( array_key_exists( 'version', $patch ) && is_array( $patch['version'] ) ) {
+			$metadata['version'] = self::normalize_version( array_merge( is_array( $metadata['version'] ?? null ) ? $metadata['version'] : array(), $patch['version'] ) );
+			$changed_meta = true;
+		}
+		// job-link@1: the job block is merged (a row joins a job once; later calls may add step_ref / version_ref).
+		if ( array_key_exists( 'job', $patch ) && is_array( $patch['job'] ) && class_exists( 'BizCity_Journal_Job_Link' ) ) {
+			$metadata['job'] = BizCity_Journal_Job_Link::normalize( array_merge( is_array( $metadata['job'] ?? null ) ? $metadata['job'] : array(), $patch['job'] ) );
+			$changed_meta = true;
+		}
 		if ( $changed_meta ) {
 			$write['metadata'] = $metadata;
+		}
+		// [2026-10-19 09:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-R6 / PHASE-0.123 doc 20 §6 — a web editor's rev: stale ⇒ journal_revision_conflict, nothing written.
+		if ( (int) ( $patch['expected_revision'] ?? 0 ) > 0 ) {
+			$write['expected_revision'] = (int) $patch['expected_revision'];
 		}
 		if ( empty( $write ) ) {
 			return self::to_journal_entry( $row );
@@ -455,7 +718,7 @@ final class BizCity_Journal_Index {
 		$learning = self::normalize_learning( is_array( $metadata['learning'] ?? null ) ? $metadata['learning'] : array(), (string) ( $row['kind'] ?? '' ) );
 		$learning['status'] = (string) ( $row['learning_status'] ?? 'not_queued' );
 		$learning['error']  = (string) ( $row['learning_error'] ?? '' );
-		return array(
+		$out = array(
 			'contract'     => self::CONTRACT,
 			'entry_id'     => (int) $row['id'],
 			'kind'         => (string) ( $row['kind'] ?? '' ),
@@ -470,6 +733,7 @@ final class BizCity_Journal_Index {
 			'learning'     => $learning,
 			'doc_date'     => $row['doc_date'] ?? null,
 			'subject'      => is_array( $metadata['subject'] ?? null ) ? $metadata['subject'] : array( 'type' => 'none', 'hash' => (string) ( $row['subject_hash'] ?? '' ) ),
+			'contact_id'   => is_array( $metadata['contact'] ?? null ) ? (int) ( $metadata['contact']['id'] ?? 0 ) : 0,
 			'tags'         => $tags,
 			'card'         => is_array( $metadata['card'] ?? null ) ? $metadata['card'] : array(),
 			'confidence'   => isset( $metadata['confidence'] ) ? (float) $metadata['confidence'] : 1.0,
@@ -482,6 +746,93 @@ final class BizCity_Journal_Index {
 			'created_at'   => (string) ( $row['created_at'] ?? '' ),
 			'updated_at'   => (string) ( $row['updated_at'] ?? '' ),
 			'owner_user_id'=> (int) ( $row['owner_user_id'] ?? 0 ),
+		);
+		// [2026-10-19 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W2 — chỉ dòng thuộc nhóm mới có khoá này (hình dạng dòng cũ không đổi)
+		if ( is_array( $metadata['group'] ?? null ) ) {
+			$out['group'] = $metadata['group'];
+		}
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1/J1/P1 — 1.2.0 (doc 20 §1): layer · tier (documents / notebook only) · audience + access · belongs · version · job · ref_code.
+		$layer            = self::layer_of( $out['kind'] );
+		$out['layer']     = $layer;
+		$out['tier']      = 'brain.notebook' === (string) ( $row['kind'] ?? '' ) ? null : self::tier_of( $layer, $learning ); // [2026-10-21 11:23 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — the notebook's own row is a container: the tier belongs to its sources
+		$out['access']    = self::normalize_access( is_array( $metadata['access'] ?? null ) ? $metadata['access'] : array(), '' !== (string) ( $out['flags']['sensitive'] ?? '' ) );
+		$out['audience']  = 'off' === $out['access']['customer'] ? 'owner' : 'customer';
+		$out['belongs']   = array(
+			'notebook_id' => (int) ( $row['notebook_id'] ?? 0 ),
+			'group'       => isset( $out['group'] ) ? array( 'gid' => (string) ( $out['group']['gid'] ?? '' ), 'name' => (string) ( $out['group']['name'] ?? '' ) ) : null,
+			'contact_id'  => (int) $out['contact_id'],
+		);
+		$out['version']   = self::normalize_version( is_array( $metadata['version'] ?? null ) ? $metadata['version'] : array() );
+		$out['job']       = is_array( $metadata['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) ? BizCity_Journal_Job_Link::normalize( $metadata['job'] ) : null;
+		$out['ref_code']  = self::ref_code( $out['kind'], (int) $row['id'], $out['original'] );
+		return $out;
+	}
+
+	// ── journal-entry@1.2.0 derived fields (pure) ─────────────────────────
+
+	// [2026-10-20 11:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — method_exists, not class_exists: a partial upload (new index + old kinds file) degrades to the 1.1 shape instead of a fatal.
+	/** The layer of a row (doc 05 §3): from journal-kinds@1.3 `layers`; `document` when the kinds class is absent. */
+	public static function layer_of( string $kind ): string {
+		$l = method_exists( 'BizCity_Journal_Kinds', 'layer_of' ) ? BizCity_Journal_Kinds::layer_of( $kind ) : 'document';
+		return in_array( $l, self::LAYERS, true ) ? $l : 'document';
+	}
+
+	/** L1 · L2 · L3 for documents / notebook sources (graph done ⇒ L3 · embedded ⇒ L2 · else L1); null for every other layer (doc 05 §4). */
+	public static function tier_of( string $layer, array $learning ): ?string {
+		$has = method_exists( 'BizCity_Journal_Kinds', 'layer_has_tier' ) ? BizCity_Journal_Kinds::layer_has_tier( $layer ) : in_array( $layer, array( 'document', 'notebook' ), true );
+		if ( ! $has ) {
+			return null;
+		}
+		if ( 'done' === (string) ( $learning['graph_state'] ?? '' ) ) {
+			return 'L3';
+		}
+		return '' !== (string) ( $learning['embedded_at'] ?? '' ) ? 'L2' : 'L1';
+	}
+
+	/**
+	 * The code a person reads and types back (R-JN-25): the file code (TL-…) for a document row with an original; the kind's
+	 * prefix (TC · CN · TD · VC · KH · JB · EV · NB · SO · KN) + entry id; else JE-<entry id>. Pure.
+	 */
+	public static function ref_code( string $kind, int $entry_id, array $original = array() ): string {
+		if ( $entry_id <= 0 ) {
+			return '';
+		}
+		$prefix = method_exists( 'BizCity_Journal_Kinds', 'ref_prefix' ) ? BizCity_Journal_Kinds::ref_prefix( $kind ) : '';
+		if ( '' !== $prefix ) {
+			return $prefix . '-' . $entry_id;
+		}
+		$code = (string) ( $original['doc_code'] ?? '' );
+		return 1 === preg_match( '/^TL-\d+$/', $code ) ? $code : 'JE-' . $entry_id;
+	}
+
+	/** `access{customer: off|view|download, delivered_to: ref[]}` — a sensitive row is always `off` (R-JN-11). Pure. */
+	public static function normalize_access( array $a, bool $sensitive ): array {
+		$sw = strtolower( (string) ( $a['customer'] ?? 'off' ) );
+		if ( $sensitive || ! in_array( $sw, array( 'off', 'view', 'download' ), true ) ) {
+			$sw = 'off';
+		}
+		$to = array();
+		foreach ( (array) ( $a['delivered_to'] ?? array() ) as $r ) {
+			$r = strtolower( trim( (string) $r ) );
+			if ( 1 === preg_match( '/^[hp]:[0-9a-f]{16}$/', $r ) && ! in_array( $r, $to, true ) ) {
+				$to[] = $r;
+			}
+			if ( count( $to ) >= 50 ) {
+				break;
+			}
+		}
+		return array( 'customer' => $sw, 'delivered_to' => $to );
+	}
+
+	/** `version{n, root_ref, checkpoint_label, prev_entry_id}` (R-FILE-VERSION). Pure. */
+	public static function normalize_version( array $v ): array {
+		$root  = strtoupper( trim( (string) ( $v['root_ref'] ?? '' ) ) );
+		$label = trim( strip_tags( (string) ( $v['checkpoint_label'] ?? '' ) ) ); // pure: no WP function (readers run without WordPress)
+		return array(
+			'n'                => max( 1, (int) ( $v['n'] ?? 1 ) ),
+			'root_ref'         => 1 === preg_match( '/^[A-Z]{2}-\d{1,12}$/', $root ) ? $root : '',
+			'checkpoint_label' => mb_substr( (string) preg_replace( '/[\r\n\t]+/', ' ', $label ), 0, 40 ),
+			'prev_entry_id'    => max( 0, (int) ( $v['prev_entry_id'] ?? 0 ) ),
 		);
 	}
 
@@ -521,7 +872,7 @@ final class BizCity_Journal_Index {
 
 	/** `origin{surface, ref}`; surface derived from source_type when the caller gave none. */
 	public static function normalize_origin( array $origin, string $source_type ): array {
-		$map     = array( 'owner_capture' => 'zalo_1_1', 'web_upload' => 'web_upload', 'context_producer' => 'plugin', 'derived' => 'cell', 'track' => 'cell', 'job' => 'job', 'automation_run' => 'automation', 'cell_output' => 'cell', 'crm' => 'crm' );
+		$map     = array( 'owner_capture' => 'zalo_1_1', 'group_capture' => 'zalo_group', 'group_brief' => 'zalo_group', 'web_upload' => 'web_upload', 'context_producer' => 'plugin', 'derived' => 'cell', 'track' => 'cell', 'job' => 'job', 'automation_run' => 'automation', 'cell_output' => 'cell', 'crm' => 'crm' );
 		$surface = sanitize_text_field( (string) ( $origin['surface'] ?? '' ) );
 		if ( '' === $surface ) {
 			$surface = $map[ sanitize_key( $source_type ) ] ?? 'plugin';

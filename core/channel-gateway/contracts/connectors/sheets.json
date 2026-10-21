@@ -34,6 +34,30 @@
     "shared": "connect_composio"
   },
   "desc": "Ghi đơn, khách, lịch hẹn vào bảng tính; đọc bảng giá khi khách hỏi.",
+  "panel": {
+    "say": [
+      "kết nối google sheets",
+      "nối bảng tính",
+      "sổ thu chi google"
+    ]
+  },
+  "chat_suggestions": [
+    {
+      "text": "Thu khách A 5 triệu, ghi giúp anh",
+      "executor": "sheets.values.append",
+      "risk": "R1"
+    },
+    {
+      "text": "Tóm tắt sổ thu chi tháng này",
+      "executor": "sheets.values.get",
+      "risk": "R0"
+    },
+    {
+      "text": "Gửi anh link Google Sheet sổ của anh",
+      "executor": "sheets.spreadsheet.get",
+      "risk": "R0"
+    }
+  ],
   "ui": {
     "glyph": "S",
     "color": "#188038"

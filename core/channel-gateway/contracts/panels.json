@@ -1,0 +1,92 @@
+{
+  "contract": "owner-panel@1.0.0",
+  "_comment": "[2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P4 — core panels the assistant may send its owner (doc 30 §3). connect.<toolkit> panels come from the connector manifests (auth.kind oauth_composio). `say` = examples for the model, never a match table (R-INTENT-MIN). [2026-10-18 08:00 PM] S122-F2/F3: jobs.next, brain.docs, brain.notes. [2026-10-18 09:05 PM] S122-F5: users (chỉ xem; thêm / đổi quyền / xoá = nhắn trợ lý). [2026-10-20 03:30 AM] PHASE-0.125 Q1: jobs.quest (Bản đồ việc — the background job's Quest Map; the cell sends it with job_id when a planned job starts).",
+  "panels": [
+    {
+      "id": "connect.all",
+      "label": "Kết nối của tôi",
+      "body": "list",
+      "risk_max": "R1",
+      "say": [
+        "tôi đã nối những gì",
+        "xem các kết nối",
+        "kết nối ứng dụng"
+      ]
+    },
+    {
+      "id": "jobs.done",
+      "label": "Việc trợ lý đã làm",
+      "body": "list",
+      "risk_max": "R0",
+      "say": [
+        "hôm nay em làm được gì",
+        "việc đã làm",
+        "xem việc của trợ lý"
+      ]
+    },
+    {
+      "id": "jobs.next",
+      "label": "Lịch và việc sắp tới",
+      "body": "list",
+      "risk_max": "R0",
+      "say": [
+        "mai có lịch gì",
+        "việc sắp tới",
+        "tuần này có hẹn gì"
+      ]
+    },
+    {
+      "id": "jobs.quest",
+      "label": "Bản đồ việc",
+      "body": "detail",
+      "risk_max": "R0",
+      "say": [
+        "việc em đang làm tới đâu",
+        "xem bản đồ việc",
+        "tiến độ việc nền"
+      ]
+    },
+    {
+      "id": "brain.docs",
+      "label": "Bộ não thứ hai",
+      "body": "list",
+      "risk_max": "R1",
+      "say": [
+        "xem não 2 của tôi",
+        "sổ tài liệu",
+        "tài liệu tuần này"
+      ]
+    },
+    {
+      "id": "brain.notes",
+      "label": "Ghi chú của tôi",
+      "body": "list",
+      "risk_max": "R1",
+      "say": [
+        "ghi chú của tôi",
+        "xem ghi chú"
+      ]
+    },
+    {
+      "id": "users",
+      "label": "Người dùng và quyền",
+      "body": "matrix",
+      "risk_max": "R0",
+      "say": [
+        "xem nhân viên",
+        "ai được làm gì",
+        "danh sách người dùng"
+      ]
+    },
+    {
+      "id": "key",
+      "label": "Khoá bảo mật",
+      "body": "list",
+      "risk_max": "R0",
+      "say": [
+        "xem link đang mở",
+        "khoá bảo mật"
+      ]
+    }
+  ]
+}

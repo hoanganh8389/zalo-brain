@@ -93,6 +93,7 @@ class BizCity_Admin_Menu {
 		add_action( 'admin_menu', [ __CLASS__, 'place_twin_crm_above_setting' ], 999999 );
 		// [2026-10-12 10:00 AM Johnny Chu - Chu Hoàng Anh] Owner: "Link chỗ zalo brain => admin.php?page=bizchat-gateway-spa và bỏ toàn bộ menu" — runs last.
 		add_action( 'admin_menu', [ __CLASS__, 'collapse_zalo_brain_to_gateway_link' ], 1000001 );
+		add_action( 'admin_menu', [ __CLASS__, 'relink_setting_item' ], 1000002 );
 	}
 
 	/**
@@ -119,7 +120,7 @@ class BizCity_Admin_Menu {
 					: array();
 				usort( $children, static function ( $a, $b ) {
 					$is_gw = static function ( $child ) {
-						return isset( $child[2] ) && false !== strpos( (string) $child[2], 'page=bizchat-gateway-spa' );
+						return isset( $child[2] ) && ( false !== strpos( (string) $child[2], 'page=bizchat-gateway-spa' ) || false !== strpos( (string) $child[2], 'plugin=gateway' ) );
 					};
 					return (int) $is_gw( $b ) <=> (int) $is_gw( $a ); // stable on PHP 8: other items keep their order
 				} );
@@ -414,13 +415,6 @@ class BizCity_Admin_Menu {
 				__( 'Twin Workflow', $td ), __( 'Twin Workflow', $td ),
 				$automation_cap, 'bizcity-automation',
 				[ BizCity_Automation_Admin_SPA::instance(), 'render_page' ] );
-		}
-
-		if ( class_exists( 'BizCity_CG_Flow_Admin_Page', false ) ) {
-			add_submenu_page( self::SLUG_WORKSPACE,
-				__( 'CG · Flows (Kịch bản trả lời)', $td ), __( 'Flows (Kịch bản)', $td ),
-				self::menu_cap(), 'bizcity-cg-flows',
-				[ 'BizCity_CG_Flow_Admin_Page', 'render' ] );
 		}
 
 		/* ── Channel submenus → moved to SLUG_CHANNELS (T-S4.1) ── */
@@ -740,10 +734,11 @@ class BizCity_Admin_Menu {
 		$labels = array(
 			'gpt'       => __( 'Trợ lý', 'bizcity-twin-ai' ),
 			'gateway'   => __( 'Cấu hình Zalo', 'bizcity-twin-ai' ),
-			'crm'       => __( 'Đội Zalo', 'bizcity-twin-ai' ),
-			'twinchat'  => __( 'Sổ tay', 'bizcity-twin-ai' ),
+			// [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 (owner: menu names + admin.php?page=bizcity-twinchat&plugin=<id> links) — renamed: Đội Zalo → Đội ngũ Zalo Brain, Sổ tay → Zalo Second Brain, Kịch bản → Workflow
+			'crm'       => __( 'Đội ngũ Zalo Brain', 'bizcity-twin-ai' ),
+			'twinchat'  => __( 'Zalo Second Brain', 'bizcity-twin-ai' ),
 			'scheduler' => __( 'Lịch & nhiệm vụ', 'bizcity-twin-ai' ),
-			'flow'      => __( 'Kịch bản', 'bizcity-twin-ai' ),
+			'flow'      => __( 'Workflow', 'bizcity-twin-ai' ),
 		);
 		foreach ( BizCity_Zalo_Brain::surfaces() as $id => $surface ) {
 			if ( 'setting' === $id || empty( $surface['available'] ) || ! isset( $labels[ $id ] ) ) {
@@ -753,7 +748,29 @@ class BizCity_Admin_Menu {
 			$cap = 'gateway' === $id ? self::menu_cap() : 'read';
 			add_submenu_page( self::SLUG_CONTROL_PANEL, $labels[ $id ], $labels[ $id ], $cap, $url );
 		}
-		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Cài đặt', 'bizcity-twin-ai' ), __( 'Cài đặt', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );
+		// [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — Skills sits after Workflow (only where the TwinShell registry has the entry, i.e. core/skills is loaded)
+		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) && is_array( BizCity_Twin_Shell_Registry::instance()->get( 'skills' ) ) ) {
+			add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Skills', 'bizcity-twin-ai' ), __( 'Skills', 'bizcity-twin-ai' ), self::menu_cap(), self::surface_admin_url( 'skills', '/skills/' ) );
+		}
+		// The root's own page keeps its slug (page=bizcity-twin-control-panel stays reachable); relink_setting_item() shows it as "Setting" → plugin=settings
+		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Setting', 'bizcity-twin-ai' ), __( 'Setting', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );
+	}
+
+	/**
+	 * [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — the "Setting" item of the Zalo Brain flyout opens admin.php?page=bizcity-twinchat&plugin=settings.
+	 * Only the flyout copy is rewritten ($submenu[ target ]); $submenu[ SLUG_CONTROL_PANEL ] is untouched so the old page URL keeps working.
+	 */
+	public static function relink_setting_item(): void {
+		global $submenu;
+		$key = 'admin.php?page=bizchat-gateway-spa';
+		if ( ! is_array( $submenu ) || empty( $submenu[ $key ] ) ) {
+			return;
+		}
+		foreach ( $submenu[ $key ] as $i => $item ) {
+			if ( isset( $item[2] ) && self::SLUG_CONTROL_PANEL === $item[2] ) {
+				$submenu[ $key ][ $i ][2] = self::surface_admin_url( 'settings', '/setting/' );
+			}
+		}
 	}
 
 	/**
@@ -775,23 +792,15 @@ class BizCity_Admin_Menu {
 		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) ) {
 			$entry = BizCity_Twin_Shell_Registry::instance()->get( $shell_id );
 			if ( is_array( $entry ) ) {
-				if ( 'link' === ( $entry['mode'] ?? '' ) && ! empty( $entry['target_url'] ) ) {
-					return (string) $entry['target_url'];
-				}
+				// [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] owner: ONE form for every item — the shell opens a 'link' entry (gateway, workflow, skills) in its own frame
 				return admin_url( 'admin.php?page=bizcity-twinchat&plugin=' . rawurlencode( $shell_id ) );
 			}
 		}
 		// [2026-10-11 03:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 fix (owner: "flow, crm, twin vẫn chưa thay") — the registry lookup above is
 		// skipped when the TwinShell module is not loaded yet at admin_menu time, and the fallback used to be the PUBLIC slug for every surface.
 		// Fixed map instead: same admin.php?page=… targets the registry would give; only `gpt` (no TwinShell entry) keeps its public slug.
-		if ( 'gateway' === $id ) {
-			return admin_url( 'admin.php?page=bizchat-gateway-spa' );
-		}
-		if ( 'flow' === $id ) {
-			return admin_url( 'admin.php?page=bizcity-automation' );
-		}
-		if ( in_array( $id, array( 'crm', 'twinchat', 'scheduler' ), true ) ) {
-			return admin_url( 'admin.php?page=bizcity-twinchat&plugin=' . rawurlencode( $id ) );
+		if ( in_array( $id, array( 'gateway', 'flow', 'crm', 'twinchat', 'scheduler', 'skills', 'settings' ), true ) ) {
+			return admin_url( 'admin.php?page=bizcity-twinchat&plugin=' . rawurlencode( $shell_id ) );
 		}
 		return home_url( $slug );
 	}

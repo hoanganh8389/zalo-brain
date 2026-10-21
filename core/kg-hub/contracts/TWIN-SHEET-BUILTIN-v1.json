@@ -1,0 +1,128 @@
+{
+    "contract": "twin-sheet-builtin@1.0.0",
+    "_stamp": "[2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 (D123-3, B1) — new file: typed columns of the built-in Twin Sheets (\"Sổ\"). One sheet per journal kind; rows are bizcity_journal_entries rows, never a second store (D123-1). Every `source: card` field must be one of the kind's card_fields in JOURNAL-KINDS-v1.json or listed in `system_fields` (tests/unit/TwinSheetS123Test.php). Field values match what the cell writes today (zalo-hub/src/sheets/journal-map.ts).",
+    "field_types": ["text", "long_text", "integer", "money", "decimal", "boolean", "date", "datetime", "select", "percent", "ref_code"],
+    "sheets": {
+        "fin.cash": {
+            "label": "Sổ thu chi",
+            "icon": "cash",
+            "folder": "Tài chính",
+            "edit_policy": "void_reenter",
+            "create_defaults": { "currency": "VND" },
+            "system_fields": ["status"],
+            "pair_cancel": { "marker_field": "status", "marker": "reversal", "link_field": "reverses" },
+            "fields": [
+                { "key": "doc_date", "label": "Ngày", "type": "date", "source": "column", "filter": true, "sort": true },
+                { "key": "type", "label": "Thu / Chi", "type": "select", "options": [ { "v": "income", "label": "Thu" }, { "v": "expense", "label": "Chi" } ], "required": true, "filter": true, "group": true },
+                { "key": "amount", "label": "Số tiền", "type": "money", "currency_field": "currency", "required": true, "min": 1, "max": 500000000, "sort": true, "aggregate": ["sum", "min", "max", "avg"] },
+                { "key": "category", "label": "Hạng mục", "type": "text", "filter": true, "group": true, "search": true },
+                { "key": "counterparty", "label": "Người / nơi", "type": "text", "filter": true, "group": true, "search": true },
+                { "key": "description", "label": "Ghi chú", "type": "long_text", "search": true },
+                { "key": "currency", "label": "Tiền tệ", "type": "select", "options": [ { "v": "VND", "label": "₫" } ], "hidden": true },
+                { "key": "reverses", "label": "Đảo của", "type": "text", "hidden": true },
+                { "key": "status", "label": "Loại dòng", "type": "select", "options": [ { "v": "active", "label": "Thường" }, { "v": "reversal", "label": "Bút toán đảo" } ], "hidden": true },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [
+                { "key": "month", "label": "Tháng này", "period": "month", "sort": [ { "field": "doc_date", "dir": "desc" } ], "totals": [ { "field": "amount", "fn": "sum", "split_by": "type" } ] },
+                { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "doc_date", "dir": "desc" } ], "totals": [ { "field": "amount", "fn": "sum", "split_by": "type" } ] }
+            ],
+            "headline": { "field": "amount", "fn": "sum", "where": { "type": "expense" }, "period": "month", "label": "Chi tháng này" }
+        },
+        "fin.debt": {
+            "label": "Sổ công nợ",
+            "icon": "debt",
+            "folder": "Tài chính",
+            "edit_policy": "void_reenter",
+            "create_defaults": { "currency": "VND" },
+            "fields": [
+                { "key": "doc_date", "label": "Ngày", "type": "date", "source": "column", "filter": true, "sort": true },
+                { "key": "party", "label": "Người", "type": "text", "required": true, "filter": true, "group": true, "search": true },
+                { "key": "direction", "label": "Chiều", "type": "select", "options": [ { "v": "receivable", "label": "Họ nợ mình" }, { "v": "payable", "label": "Mình nợ họ" } ], "required": true, "filter": true, "group": true },
+                { "key": "type", "label": "Loại", "type": "select", "options": [ { "v": "open", "label": "Phát sinh nợ" }, { "v": "settle", "label": "Trả nợ" } ], "required": true, "filter": true, "group": true },
+                { "key": "amount", "label": "Số tiền", "type": "money", "currency_field": "currency", "required": true, "min": 1, "max": 500000000, "sort": true, "aggregate": ["sum", "min", "max", "avg"] },
+                { "key": "due_date", "label": "Hạn", "type": "date", "filter": true, "sort": true },
+                { "key": "note", "label": "Ghi chú", "type": "long_text", "search": true },
+                { "key": "currency", "label": "Tiền tệ", "type": "select", "options": [ { "v": "VND", "label": "₫" } ], "hidden": true },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [
+                { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "doc_date", "dir": "desc" } ], "totals": [ { "field": "amount", "fn": "sum", "split_by": "type" } ] }
+            ],
+            "headline": { "field": "amount", "fn": "count", "where": { "type": "open" }, "period": "all", "label": "Khoản nợ" }
+        },
+        "fin.plan": {
+            "label": "Kế hoạch thu chi",
+            "icon": "plan",
+            "folder": "Tài chính",
+            "edit_policy": "void_reenter",
+            "create_defaults": { "status": "active" },
+            "fields": [
+                { "key": "name", "label": "Kế hoạch", "type": "text", "required": true, "filter": true, "search": true },
+                { "key": "metric", "label": "Chỉ tiêu", "type": "select", "options": [ { "v": "income", "label": "Thu" }, { "v": "expense", "label": "Chi tối đa" }, { "v": "net", "label": "Lãi" } ], "required": true, "filter": true, "group": true },
+                { "key": "target", "label": "Mục tiêu", "type": "money", "required": true, "min": 1, "max": 100000000000, "sort": true, "aggregate": ["sum"] },
+                { "key": "period_start", "label": "Từ", "type": "date", "required": true, "sort": true },
+                { "key": "period_end", "label": "Đến", "type": "date", "required": true, "sort": true },
+                { "key": "status", "label": "Trạng thái", "type": "select", "options": [ { "v": "active", "label": "Đang áp dụng" }, { "v": "void", "label": "Đã hủy" } ], "filter": true },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [ { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "period_start", "dir": "desc" } ] } ]
+        },
+        "task.progress": {
+            "label": "Sổ tiến độ",
+            "icon": "progress",
+            "folder": "Công việc",
+            "edit_policy": "rev",
+            "fields": [
+                { "key": "doc_date", "label": "Ngày", "type": "date", "source": "column", "filter": true, "sort": true },
+                { "key": "subject", "label": "Việc / dự án", "type": "text", "required": true, "filter": true, "group": true, "search": true },
+                { "key": "percent", "label": "Tiến độ", "type": "percent", "required": true, "sort": true, "aggregate": ["avg", "max", "min"] },
+                { "key": "status", "label": "Trạng thái", "type": "select", "options": [ { "v": "planned", "label": "Chưa bắt đầu" }, { "v": "doing", "label": "Đang làm" }, { "v": "blocked", "label": "Đang vướng" }, { "v": "done", "label": "Xong" } ], "required": true, "filter": true, "group": true },
+                { "key": "assignee", "label": "Người làm", "type": "text", "filter": true, "group": true },
+                { "key": "due_date", "label": "Hạn", "type": "date", "filter": true, "sort": true },
+                { "key": "note", "label": "Ghi chú", "type": "long_text", "search": true },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [ { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "doc_date", "dir": "desc" } ] } ]
+        },
+        "task.todo": {
+            "label": "Việc cần làm",
+            "icon": "todo",
+            "folder": "Công việc",
+            "edit_policy": "rev",
+            "title_rule": "todo",
+            "create_defaults": { "done": 0, "version": 1, "priority": "normal", "status": "active" },
+            "latest_by": { "key": "source_ref", "order_field": "version" },
+            "fields": [
+                { "key": "title", "label": "Việc", "type": "text", "required": true, "search": true, "sort": true },
+                { "key": "done", "label": "Xong", "type": "boolean", "filter": true, "group": true },
+                { "key": "priority", "label": "Ưu tiên", "type": "select", "options": [ { "v": "high", "label": "Cao" }, { "v": "normal", "label": "Thường" }, { "v": "low", "label": "Thấp" } ], "filter": true, "group": true },
+                { "key": "assignee", "label": "Người làm", "type": "text", "filter": true, "group": true },
+                { "key": "due_date", "label": "Hạn", "type": "date", "filter": true, "sort": true },
+                { "key": "note", "label": "Ghi chú", "type": "long_text", "search": true },
+                { "key": "status", "label": "Trạng thái", "type": "select", "options": [ { "v": "active", "label": "Đang có" }, { "v": "void", "label": "Đã bỏ" } ], "filter": true, "hidden": true },
+                { "key": "version", "label": "Bản", "type": "integer", "hidden": true },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [ { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "due_date", "dir": "asc" } ] } ],
+            "headline": { "field": "title", "fn": "count", "where": { "done": false }, "period": "all", "label": "Việc chưa xong" }
+        },
+        "biz.contract": {
+            "label": "Hợp đồng",
+            "icon": "contract",
+            "folder": "Tài liệu",
+            "edit_policy": "rev",
+            "title_rule": "card:ref",
+            "fields": [
+                { "key": "title", "label": "Hợp đồng", "type": "text", "source": "column", "required": true, "search": true, "sort": true },
+                { "key": "parties", "label": "Các bên", "type": "text", "search": true },
+                { "key": "ref", "label": "Số hợp đồng", "type": "text", "filter": true, "search": true },
+                { "key": "date", "label": "Ngày ký", "type": "date", "sort": true },
+                { "key": "end_date", "label": "Hết hạn", "type": "date", "filter": true, "sort": true },
+                { "key": "total", "label": "Giá trị", "type": "money", "sort": true, "aggregate": ["sum", "max"] },
+                { "key": "ref_code", "label": "Mã", "type": "ref_code", "source": "computed" }
+            ],
+            "views": [ { "key": "all", "label": "Tất cả", "period": "all", "sort": [ { "field": "end_date", "dir": "asc" } ] } ]
+        }
+    }
+}

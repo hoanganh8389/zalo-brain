@@ -32,6 +32,13 @@ final class BizCity_Twin_Cell_Output_Store {
 	/** PHASE-0.110 S110-L3: the cell's `cm_…` media id of the copy — the public `/outputs/<cm_…>/go` link finds the attachment by it. */
 	const META_MEDIA   = '_bizcity_cell_output_media';
 	const PULL_KINDS   =array( 'image', 'audio', 'video' );
+	/**
+	 * [2026-10-18 05:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 doc 82 §13 (R-FILE-VERSION FV-9) — tài liệu cell tạo CÓ phiên bản (cell-output@1.1.0 `version`) được kéo vào
+	 * KHO RIÊNG TƯ (BizCity_KG_Private_File_Store: tên có token, không liệt kê được, chỉ chủ tải qua link ký) — không vào thư viện công khai, không bao giờ bị hạn mức xoá ⇒
+	 * mỗi phiên bản trên web giữ mãi (Q106-4 giữ nguyên cho tài liệu KHÔNG có phiên bản).
+	 */
+	const PRIVATE_KINDS = array( 'document', 'spreadsheet', 'presentation', 'pdf', 'text' );
+	const META_PRIVATE  = '_bizcity_cell_output_private';
 	const MAX_BYTES    = 52428800; // 50 MB = the cell's own per-file cap
 	const MAX_TRIES    = 3;
 	/** Q106-8 (default): the copies of cell outputs a site keeps. Over it, the OLDEST copies go (the cell's 7-day file and the event stay; the list then shows them expired). */
@@ -220,8 +227,16 @@ final class BizCity_Twin_Cell_Output_Store {
 	}
 
 	/** Whether this kind is copied to the media library (pure). */
-	public static function should_pull( string $kind, int $bytes ): bool {
-		return in_array( $kind, self::PULL_KINDS, true ) && $bytes > 0 && $bytes <= self::MAX_BYTES;
+	public static function should_pull( string $kind, int $bytes, bool $versioned = false ): bool {
+		if ( $bytes <= 0 || $bytes > self::MAX_BYTES ) {
+			return false;
+		}
+		return in_array( $kind, self::PULL_KINDS, true ) || ( $versioned && in_array( $kind, self::PRIVATE_KINDS, true ) );
+	}
+
+	/** Versioned document ⇒ private store (pure). */
+	public static function is_private_pull( string $kind, bool $versioned ): bool {
+		return $versioned && in_array( $kind, self::PRIVATE_KINDS, true );
 	}
 
 	/**
@@ -232,7 +247,8 @@ final class BizCity_Twin_Cell_Output_Store {
 	public static function schedule( $job ): void {
 		$job = is_array( $job ) ? $job : array();
 		$o   = (array) ( $job['output'] ?? array() );
-		if ( empty( $job['event_uuid'] ) || (int) ( $job['user_id'] ?? 0 ) <= 0 || ! self::should_pull( (string) ( $o['kind'] ?? '' ), (int) ( $o['bytes'] ?? 0 ) ) ) {
+		$versioned = ! empty( $o['version'] ) || ! empty( $o['versioned'] );
+		if ( empty( $job['event_uuid'] ) || (int) ( $job['user_id'] ?? 0 ) <= 0 || ! self::should_pull( (string) ( $o['kind'] ?? '' ), (int) ( $o['bytes'] ?? 0 ), $versioned ) ) {
 			self::note( 'schedule_skipped', 0, empty( $job['event_uuid'] ) ? 'no_event' : ( (int) ( $job['user_id'] ?? 0 ) <= 0 ? 'no_user' : 'kind_' . (string) ( $o['kind'] ?? '' ) ) );
 			return;
 		}
@@ -243,7 +259,7 @@ final class BizCity_Twin_Cell_Output_Store {
 			'account_id' => (string) ( $job['account_id'] ?? '' ),
 			'session_id' => (string) ( $job['session_id'] ?? '' ),
 			'trace_id'   => (string) ( $job['trace_id'] ?? '' ),
-			'output'     => array_intersect_key( $o, array_flip( array( 'output_id', 'kind', 'name', 'mime', 'bytes', 'media_id' ) ) ),
+			'output'     => array_intersect_key( $o, array_flip( array( 'output_id', 'kind', 'name', 'mime', 'bytes', 'media_id' ) ) ) + ( $versioned ? array( 'versioned' => 1 ) : array() ),
 			'tries'      => 0,
 		) );
 		if ( isset( self::$readers['schedule'] ) ) {
@@ -268,11 +284,13 @@ final class BizCity_Twin_Cell_Output_Store {
 		if ( ! preg_match( '/^co_[a-f0-9]{24}$/', $id ) || ! preg_match( '/^cm_[a-f0-9]{24}$/', (string) ( $o['media_id'] ?? '' ) ) ) {
 			return 0;
 		}
-		$user_id = (int) ( $job['user_id'] ?? 0 );
-		if ( $user_id <= 0 || ! self::should_pull( (string) ( $o['kind'] ?? '' ), (int) ( $o['bytes'] ?? 0 ) ) ) {
+		$user_id   = (int) ( $job['user_id'] ?? 0 );
+		$versioned = ! empty( $o['versioned'] );
+		if ( $user_id <= 0 || ! self::should_pull( (string) ( $o['kind'] ?? '' ), (int) ( $o['bytes'] ?? 0 ), $versioned ) ) {
 			return 0;
 		}
-		$have = self::existing( $id );
+		$private = self::is_private_pull( (string) ( $o['kind'] ?? '' ), $versioned );
+		$have    = $private ? self::existing_private( $id ) : self::existing( $id );
 		if ( $have > 0 ) {
 			return $have;
 		}
@@ -287,6 +305,24 @@ final class BizCity_Twin_Cell_Output_Store {
 				self::note( 'fetch_failed', (int) $r['status'] );
 				self::retry( $job, (int) $r['status'] );
 				return 0;
+			}
+			if ( $private ) {
+				// §13 FV-9: phiên bản tài liệu ⇒ kho riêng tư (cùng kho với tệp chủ gửi, mã TL-…), không hạn mức xoá
+				$att = self::store_private( $tmp, (string) ( $o['name'] ?? '' ), $user_id, (string) ( $job['account_id'] ?? '' ) );
+				if ( $att <= 0 ) {
+					self::note( 'private_store_failed', 0, self::$last_error );
+					return 0;
+				}
+				if ( function_exists( 'update_post_meta' ) ) {
+					update_post_meta( $att, self::META_PRIVATE, $id );
+					update_post_meta( $att, self::META_MEDIA, (string) $o['media_id'] );
+				}
+				self::note( 'stored_private', 200 );
+				self::record_stored( $job, $att );
+				if ( function_exists( 'do_action' ) ) {
+					do_action( 'bizcity_cell_output_stored', $job, $att );
+				}
+				return $att;
 			}
 			$name = self::file_name( (string) ( $o['name'] ?? '' ), $id, (string) ( $o['mime'] ?? '' ) );
 			$att  = self::sideload(
@@ -436,6 +472,31 @@ final class BizCity_Twin_Cell_Output_Store {
 		}
 		global $wpdb;
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1", self::META, $output_id ) );
+	}
+
+	private static function existing_private( string $output_id ): int {
+		if ( isset( self::$readers['existing_private'] ) ) {
+			return (int) call_user_func( self::$readers['existing_private'], $output_id );
+		}
+		global $wpdb;
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s LIMIT 1", self::META_PRIVATE, $output_id ) );
+	}
+
+	/** §13 FV-9 — a versioned document into the private store (same store as the owner's own files). Test seam `store_private(tmp,name,user,account): int`. */
+	private static function store_private( string $tmp, string $name, int $user_id, string $account_id ): int {
+		if ( isset( self::$readers['store_private'] ) ) {
+			return (int) call_user_func( self::$readers['store_private'], $tmp, $name, $user_id, $account_id );
+		}
+		if ( ! class_exists( 'BizCity_KG_Private_File_Store' ) ) {
+			self::$last_error = 'private_store_missing';
+			return 0;
+		}
+		$r = BizCity_KG_Private_File_Store::store_file( $tmp, $name, array( 'user_id' => $user_id, 'scope_id' => '' !== $account_id ? 'zalo_account:' . $account_id : '' ) );
+		if ( is_wp_error( $r ) ) {
+			self::$last_error = substr( (string) $r->get_error_code() . ': ' . (string) $r->get_error_message(), 0, 160 );
+			return 0;
+		}
+		return (int) ( $r['attachment_id'] ?? 0 );
 	}
 
 	/** @return int|WP_Error */

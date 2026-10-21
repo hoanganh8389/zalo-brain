@@ -41,6 +41,30 @@
     "shared": "connect_composio"
   },
   "desc": "Tìm thư khi bạn hỏi; sáng tóm tắt thư quan trọng gửi Zalo.",
+  "panel": {
+    "say": [
+      "kết nối gmail",
+      "nối email",
+      "cho em đọc mail"
+    ]
+  },
+  "chat_suggestions": [
+    {
+      "text": "Tóm tắt 5 email mới nhất của anh",
+      "executor": "gmail.list",
+      "risk": "R0"
+    },
+    {
+      "text": "Tìm email của khách A tuần này",
+      "executor": "gmail.get",
+      "risk": "R0"
+    },
+    {
+      "text": "Soạn trả lời email của khách A, chưa gửi",
+      "executor": "gmail.draft",
+      "risk": "R1"
+    }
+  ],
   "ui": {
     "glyph": "G",
     "color": "#ea4335"

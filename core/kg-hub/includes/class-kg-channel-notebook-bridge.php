@@ -2748,7 +2748,9 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * (unless switched off: filter `bizcity_second_brain_private_store`). Pure on the source meta.
 	 */
 	public static function is_private_capture( array $source_meta ): bool {
-		return 'owner_capture' === (string) ( $source_meta['inbound']['origin'] ?? '' )
+		// [2026-10-20 11:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — tệp NHÓM (origin group_capture) cũng vào kho riêng của chủ: trước đây rơi xuống thư viện media công khai và
+		// media_handle_sideload từ chối ("lưu lỗi", notebook_bridge_sideload_failed) trong khi chat riêng cùng loại tệp lưu được.
+		return in_array( (string) ( $source_meta['inbound']['origin'] ?? '' ), array( 'owner_capture', 'group_capture' ), true )
 			&& class_exists( 'BizCity_KG_Private_File_Store' )
 			&& BizCity_KG_Private_File_Store::enabled();
 	}

@@ -191,7 +191,7 @@ require_once BIZCITY_MCP_DIR . 'includes/actions/class-site-content-mcp-service.
 // track.set/get (doc 92 §6, lanes/INTERFACES.md I-5). class_exists guard inside the file itself (needs
 // BizCity_Journal_Index from core/kg-hub — both modules load from bizcity-twin-ai.php, order not guaranteed, so
 // the registration runs lazily on `bizcity_mcp_register_tools`, by which point every module has loaded).
-foreach ( array( 'includes/class-mcp-library.php' => 'mcp.library', 'includes/class-mcp-plugin-adapter.php' => 'mcp.plugin_adapter', 'includes/actions/class-crm-tasks-mcp-service.php' => 'mcp.crm_tasks', 'includes/class-journal-mcp-tools.php' => 'mcp.journal_tools' ) as $_bizcity_mcp_rel => $_bizcity_mcp_label ) {
+foreach ( array( 'includes/class-mcp-library.php' => 'mcp.library', 'includes/class-mcp-plugin-adapter.php' => 'mcp.plugin_adapter', 'includes/actions/class-crm-tasks-mcp-service.php' => 'mcp.crm_tasks', 'includes/class-journal-mcp-tools.php' => 'mcp.journal_tools', 'includes/class-group-mcp-tools.php' => 'mcp.group_tools' ) as $_bizcity_mcp_rel => $_bizcity_mcp_label ) { // [2026-10-19 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W1 — + group.list / group.messages / group.settings.set
 	$_bizcity_mcp_file = BIZCITY_MCP_DIR . $_bizcity_mcp_rel;
 	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 		BizCity_Safe_Loader::require_file( $_bizcity_mcp_file, $_bizcity_mcp_label ); // R-SAFE-LOADER

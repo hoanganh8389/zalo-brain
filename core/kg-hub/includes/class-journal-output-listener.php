@@ -52,7 +52,7 @@ final class BizCity_Journal_Output_Listener {
 	}
 
 	/**
-	 * journal-entry@1.1 input for one cell output, or null when the payload is not usable. Pure.
+	 * journal-entry@1.2 input for one cell output, or null when the payload is not usable. Pure.
 	 *
 	 * @param array $job {event_uuid, user_id, account_id, session_id, trace_id, output{output_id, kind, name, mime, bytes, media_id}}
 	 */
@@ -63,8 +63,8 @@ final class BizCity_Journal_Output_Listener {
 		if ( $uid <= 0 || ! preg_match( '/^co_[a-f0-9]{24}$/', $oid ) ) {
 			return null;
 		}
-		$name = trim( (string) ( $o['name'] ?? '' ) );
-		return array(
+		$name  = trim( (string) ( $o['name'] ?? '' ) );
+		$entry = array(
 			'owner_user_id'   => $uid,
 			'kind'            => self::kind_for_output( (string) ( $o['kind'] ?? '' ) ),
 			'title'           => '' !== $name ? mb_substr( $name, 0, 255 ) : 'Sản phẩm của trợ lý',
@@ -78,10 +78,43 @@ final class BizCity_Journal_Output_Listener {
 			'by'              => array( 'role' => 'system' ),
 			'confidence'      => 1.0,
 		);
+		// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R106-04 / R110-01 / R111b-01 (job-link@1) — a file a Job made belongs to that Job (role output); the listener attaches it after the add
+		$jid = (string) ( $job['job_id'] ?? '' );
+		if ( 1 !== preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $jid ) && 1 === preg_match( '/^job_[0-9A-Za-z]{10,40}$/', (string) ( $job['trace_id'] ?? '' ) ) ) {
+			$jid = (string) $job['trace_id'];
+		}
+		if ( 1 === preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $jid ) ) {
+			$entry['job'] = array( 'job_id' => $jid, 'role' => 'output' );
+		} elseif ( 1 === preg_match( '/^pv_([0-9a-z]{8,38})$/', (string) ( $job['job_id'] ?? '' ), $pv ) ) {
+			// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 doc 90 R110-01 / R111b-01 — a photo→video job of the cell (`pv_…`, no job-event): a one-shot Job closed when its video arrives.
+			// A single picture (`img_…`) is a one-turn answer, never a Job (BS-5).
+			$entry['job'] = array( 'job_id' => 'job_pv' . $pv[1], 'role' => 'output', 'status' => 'done', 'goal' => 'Dựng video từ ảnh' . ( '' !== $name ? ': ' . mb_substr( $name, 0, 80 ) : '' ) );
+		}
+		// [2026-10-18 05:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 doc 82 §13 (R-FILE-VERSION FV-7) — mỗi phiên bản là MỘT dòng sổ có ghi chú: summary = đã sửa gì,
+		// card = họ + số bản + bản cha, tag `fv:<họ>` để web nhóm các bản của cùng một tài liệu và xem theo phiên bản. Dòng sổ không bao giờ bị xoá theo hạn của cell.
+		$ver = is_array( $o['version'] ?? null ) ? $o['version'] : null;
+		if ( null !== $ver && preg_match( '/^fv_[a-f0-9]{12}$/', (string) ( $ver['family'] ?? '' ) ) && (int) ( $ver['v'] ?? 0 ) >= 1 ) {
+			$entry['summary']                 = mb_substr( (string) ( $ver['note'] ?? '' ), 0, 600 );
+			$entry['card']['version_family']  = (string) $ver['family'];
+			$entry['card']['version']         = (int) $ver['v'];
+			$entry['card']['version_parent']  = isset( $ver['parent_v'] ) ? (int) $ver['parent_v'] : 0;
+			$entry['card']['version_at']      = (string) ( $ver['at'] ?? '' );
+			$entry['tags']                    = array( 'fv:' . (string) $ver['family'], 'v' . (int) $ver['v'] );
+			// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 (journal-entry@1.2 version, R-FILE-VERSION) — the version block the BrainLedger and journal/versions read
+			$entry['version'] = array( 'n' => (int) $ver['v'] );
+			// [2026-10-19 11:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W4 (R-FILE-VERSION FV-12) — bản thuộc một nhóm Zalo ⇒ tag grp-<gid> (tab "Sản phẩm" của Sổ nhóm) + khối nhóm
+			$grp = is_array( $ver['group'] ?? null ) ? $ver['group'] : null;
+			if ( null !== $grp && preg_match( '/^[0-9]{3,30}$/', (string) ( $grp['gid'] ?? '' ) ) ) {
+				$entry['tags'][]          = 'grp-' . (string) $grp['gid'];
+				$entry['group']           = array( 'gid' => (string) $grp['gid'], 'ref' => (string) ( $grp['ref'] ?? '' ) );
+				$entry['origin']['surface'] = 'zalo_group';
+			}
+		}
+		return $entry;
 	}
 
 	/**
-	 * journal-entry@1.1 input for a finished Automation run row (scheduler run ledger), or null when it produced nothing. Pure.
+	 * journal-entry@1.2 input for a finished Automation run row (scheduler run ledger), or null when it produced nothing. Pure.
 	 *
 	 * @param array $row run ledger row {id, user_id, title, status, event_type, metadata{run_id, reply_text, artifacts[], scenario_ref}}
 	 */
@@ -119,7 +152,11 @@ final class BizCity_Journal_Output_Listener {
 		}
 		$entry = self::entry_for_output( self::blog(), $job );
 		if ( null !== $entry ) {
-			BizCity_Journal_Index::add( $entry );
+			$row = BizCity_Journal_Index::add( $entry );
+			// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R110-01 — under its JB- header (tag jb-, output_refs on the header)
+			if ( is_array( $row ) && is_array( $entry['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) ) {
+				BizCity_Journal_Job_Link::attach( $row, (int) $entry['owner_user_id'], $entry['job'] );
+			}
 		}
 	}
 
@@ -129,7 +166,9 @@ final class BizCity_Journal_Output_Listener {
 		if ( '' === $oid || (int) $attachment_id <= 0 || ! class_exists( 'BizCity_Journal_Index' ) ) {
 			return;
 		}
-		BizCity_Journal_Index::file_by_idempotency_key( 'out:' . self::blog() . ':' . $oid, 0, array( 'original' => array( 'attachment_id' => (int) $attachment_id, 'doc_code' => 'OUT-' . (int) $attachment_id ) ) );
+		// [2026-10-18 05:17 PM Johnny Chu - Chu Hoàng Anh] doc 82 §13 FV-9 — phiên bản tài liệu nằm ở kho riêng tư ⇒ mã TL-… (đọc/gửi lại như tệp chủ gửi); còn lại OUT-…
+		$code = class_exists( 'BizCity_KG_Private_File_Store' ) && BizCity_KG_Private_File_Store::is_private( (int) $attachment_id ) ? BizCity_KG_Private_File_Store::doc_code( (int) $attachment_id ) : 'OUT-' . (int) $attachment_id;
+		BizCity_Journal_Index::file_by_idempotency_key( 'out:' . self::blog() . ':' . $oid, 0, array( 'original' => array( 'attachment_id' => (int) $attachment_id, 'doc_code' => $code ) ) );
 	}
 
 	public static function on_event_completed( $id, $event = null ): void {

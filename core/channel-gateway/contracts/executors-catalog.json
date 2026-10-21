@@ -1,0 +1,1848 @@
+{
+ "contract": "executors-catalog@1.0.0",
+ "source": "executor-registry@1 + connector manifests",
+ "count": 127,
+ "connectors": [
+  {
+   "id": "fb_dev",
+   "label": "Facebook cho Dev",
+   "section": "dev",
+   "transport": "dev_api",
+   "plan_gate": "connector.fb_dev",
+   "cell_platforms": [
+    "messenger",
+    "fb"
+   ],
+   "executors": []
+  },
+  {
+   "id": "gmail",
+   "label": "Gmail",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.gmail",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "gmail.get",
+     "label": "Đọc một thư Gmail",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "gmail.list",
+     "label": "Tìm / liệt kê thư Gmail",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "gmail.draft",
+     "label": "Soạn nháp thư Gmail",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "planned"
+    },
+    {
+     "id": "gmail.send",
+     "label": "Gửi thư Gmail",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "verified"
+    }
+   ]
+  },
+  {
+   "id": "zalo_personal",
+   "label": "Zalo cá nhân",
+   "section": "own",
+   "transport": "cell",
+   "plan_gate": "connector.zalo_personal",
+   "cell_platforms": [
+    "zalo_personal"
+   ],
+   "executors": [
+    {
+     "id": "notebook.search",
+     "label": "Tìm trong sổ tay (có trích nguồn)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.directory.read",
+     "label": "Tìm người / nhóm trong danh bạ và hội thoại của số (chat riêng với chủ)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.brief",
+     "label": "Đọc và tóm tắt nhóm Zalo (thư ký nhóm)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.info",
+     "label": "Xem thông tin nhóm Zalo",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.pending",
+     "label": "Xem người chờ duyệt vào nhóm",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.thread.read",
+     "label": "Đọc danh sách và nội dung hội thoại (chat riêng với chủ)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "deep_analysis.request",
+     "label": "Yêu cầu phân tích sâu",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.sheet.create",
+     "label": "Tạo bảng tính (Excel, CSV)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.slides.create",
+     "label": "Tạo bài trình chiếu",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.write.create",
+     "label": "Tạo tài liệu (Word, Markdown, HTML, văn bản)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "journal.note",
+     "label": "Ghi nhật ký",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.image.create",
+     "label": "Vẽ ảnh",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.music.create",
+     "label": "Tạo nhạc",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.photo_video.create",
+     "label": "Tạo video từ ảnh",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.video.create",
+     "label": "Tạo video",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.voice.create",
+     "label": "Tạo giọng nói",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "notebook.remember",
+     "label": "Ghi vào sổ tay",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "schedule.task",
+     "label": "Đặt lịch / nhắc việc",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.compile",
+     "label": "Tổng hợp nhóm Zalo thành Excel / Word có nguồn và phiên bản",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.save",
+     "label": "Lưu bản gốc tệp gửi trong nhóm Zalo vào sổ của chủ",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.track",
+     "label": "Ghi việc của nhóm Zalo vào sổ sau khi xác nhận",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.file.send",
+     "label": "Gửi tệp vào cuộc trò chuyện",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.manage",
+     "label": "Quản trị nhóm theo lệnh chủ (mời, đuổi, chặn, đặt phó nhóm, đổi tên / ảnh, ghim)",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.secretary",
+     "label": "Thư ký nhóm: bật / tắt theo dõi, giao người được giao",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.member.tag",
+     "label": "Gắn thẻ thành viên trong nhóm",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.message.reply",
+     "label": "Trả lời trong cuộc trò chuyện Zalo (chặng giao)",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.message.send_other",
+     "label": "Gửi tin thay chủ sang người / nhóm khác (nháp → chủ duyệt)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.message.undo",
+     "label": "Thu hồi tin đã gửi",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.poll.create",
+     "label": "Tạo bình chọn",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.poll.lock",
+     "label": "Khoá bình chọn",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.reaction.add",
+     "label": "Thả cảm xúc vào tin",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.sticker.send",
+     "label": "Gửi nhãn dán",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "zalo.group.transfer",
+     "label": "Chuyển quyền chủ nhóm",
+     "risk": "R3",
+     "confirm": "always",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "money",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "drive",
+   "label": "Google Drive",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.drive",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "drive.find",
+     "label": "Tìm tệp Google Drive",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "drive.meta",
+     "label": "Thông tin một tệp Drive",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "zalo_bot",
+   "label": "Zalo Bot",
+   "section": "own",
+   "transport": "dev_api",
+   "plan_gate": "connector.zalo_bot",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "zalo_oa",
+   "label": "Zalo Official Account",
+   "section": "dev",
+   "transport": "dev_api",
+   "plan_gate": "connector.zalo_oa",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "calendar",
+   "label": "Google Calendar",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.calendar",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "telegram",
+   "label": "Telegram",
+   "section": "own",
+   "transport": "cell",
+   "plan_gate": "connector.telegram",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "self_wp",
+   "label": "Website của tôi",
+   "section": "dev",
+   "transport": "site_mcp",
+   "plan_gate": "connector.self_wp",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "wp.content.list",
+     "label": "Danh sách trang / bài viết",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.menu.list",
+     "label": "Các menu của website",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.history",
+     "label": "Lịch sử thay đổi của một trang",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.read",
+     "label": "Đọc cấu trúc một trang",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.site.info",
+     "label": "Thông tin website",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.theme.info",
+     "label": "Giao diện website và các mục chỉnh được",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "wp.landing.draft",
+     "label": "Dựng landing page (bản nháp)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "wp.media.upload",
+     "label": "Đưa một ảnh vào thư viện media",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.attach_form",
+     "label": "Gắn form liên hệ vào trang nháp",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.draft",
+     "label": "Dựng trang thường (bản nháp)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.edit",
+     "label": "Sửa từng phần của trang nháp",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "wp.menu.update",
+     "label": "Sửa menu website (xem trước diff → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.publish",
+     "label": "Đăng trang landing (xem trước → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.restore",
+     "label": "Hoàn tác trang về bản cũ (xem trước → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    },
+    {
+     "id": "wp.page.update_live",
+     "label": "Sửa trang đang công khai (xem trước diff → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    },
+    {
+     "id": "wp.theme.update",
+     "label": "Đổi giao diện website (xem trước cũ → mới → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    },
+    {
+     "id": "wp.user.create",
+     "label": "Tạo tài khoản website (R3: xem trước → xác nhận từng lần)",
+     "risk": "R3",
+     "confirm": "always",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "account_access",
+     "status": "coded"
+    },
+    {
+     "id": "wp.user.set_role",
+     "label": "Đổi vai trò tài khoản website (R3: xem trước → xác nhận từng lần)",
+     "risk": "R3",
+     "confirm": "always",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "account_access",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "meet",
+   "label": "Google Meet",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.meet",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "twinweb",
+   "label": "TwinWeb",
+   "section": "dev",
+   "transport": "site_mcp",
+   "plan_gate": "connector.twinweb",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "fb_composio",
+   "label": "Facebook Page",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.fb_composio",
+   "cell_platforms": [
+    "messenger",
+    "fb"
+   ],
+   "executors": [
+    {
+     "id": "fb.comment.list",
+     "label": "Bình luận của một bài / bình luận",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "fb.conversation.list",
+     "label": "Hội thoại Messenger của Fanpage",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "verified"
+    },
+    {
+     "id": "fb.message.list",
+     "label": "Tin nhắn trong một hội thoại Messenger",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "verified"
+    },
+    {
+     "id": "fb.page.list",
+     "label": "Liệt kê Fanpage tài khoản quản lý",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "verified"
+    },
+    {
+     "id": "fb.page.permissions",
+     "label": "Quyền tài khoản Facebook đã cấp",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "fb.post.list",
+     "label": "Bài viết mới của Fanpage",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "fb.comment.reply",
+     "label": "Trả lời bình luận Fanpage",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "fb.messenger.send",
+     "label": "Gửi tin Messenger",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "verified"
+    },
+    {
+     "id": "fb.messenger.send_media",
+     "label": "Gửi ảnh Messenger (thẻ sản phẩm, QR)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "fb.post.create",
+     "label": "Đăng bài lên Fanpage",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "fb.post.create_photo",
+     "label": "Đăng bài kèm ảnh lên Fanpage",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "webchat",
+   "label": "WebChat",
+   "section": "dev",
+   "transport": "site_mcp",
+   "plan_gate": "connector.webchat",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "canva",
+   "label": "Canva",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.canva",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "cf7",
+   "label": "Contact Form 7",
+   "section": "dev",
+   "transport": "site_mcp",
+   "plan_gate": "connector.cf7",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "cf7.form.list",
+     "label": "Danh sách form liên hệ",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "cf7.form.create",
+     "label": "Tạo form liên hệ (Contact Form 7)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "cf7.form.update",
+     "label": "Sửa form liên hệ đã dựng (không đổi người nhận)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "cf7.form.set_recipient",
+     "label": "Đổi người nhận thư của form (xem trước đã che → xác nhận)",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "publish",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "sheets",
+   "label": "Google Sheets",
+   "section": "composio",
+   "transport": "composio",
+   "plan_gate": "connector.sheets",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "sheets.report.summarize",
+     "label": "Tổng hợp thu chi từ sổ",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "sheets.spreadsheet.get",
+     "label": "Xem bảng tính (tên, các tab)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "sheets.values.get",
+     "label": "Đọc ô trong Google Sheets",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "sheets.checklist.revise",
+     "label": "Cập nhật việc trong sổ việc (Google Sheets)",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "sheets.spreadsheet.create",
+     "label": "Tạo sổ hoặc thêm tab sổ (Google Sheets)",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "sheets.values.append",
+     "label": "Ghi sổ (thu chi, công nợ — Google Sheets)",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "google_own",
+   "label": "Google (Gmail + Lịch)",
+   "section": "dev",
+   "transport": "dev_api",
+   "plan_gate": "connector.google_own",
+   "cell_platforms": [],
+   "executors": []
+  },
+  {
+   "id": "cell",
+   "label": "Năng lực sẵn của trợ lý",
+   "section": "cell",
+   "transport": "",
+   "plan_gate": "",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "astro.self.read",
+     "label": "Tử vi / chiêm tinh của chính chủ",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "contract.template.list",
+     "label": "Xem các hợp đồng mẫu",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "document.file.read",
+     "label": "Đọc lại file đã gửi trong cuộc trò chuyện",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "document.ocr.read",
+     "label": "Đọc chữ trong ảnh / tài liệu",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "document.text.read",
+     "label": "Đọc tài liệu trong sổ theo mã",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "media.image.read",
+     "label": "Đọc / mô tả ảnh khách gửi",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "notebook.digest",
+     "label": "Tóm tắt sổ tay",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "profile.list",
+     "label": "Xem các đề xuất hồ sơ",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "research.code.search",
+     "label": "Tìm mã nguồn và hỏi đáp kỹ thuật (GitHub, StackExchange)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "research.news.search",
+     "label": "Đọc tin Hacker News",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "research.paper.search",
+     "label": "Tìm bài báo khoa học (arXiv, Scholar)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "research.wiki.search",
+     "label": "Tra Wikipedia",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "social.data.scrape",
+     "label": "Thu thập dữ liệu mạng xã hội",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "util.time.read",
+     "label": "Xem ngày giờ hiện tại",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "web.page.fetch",
+     "label": "Đọc một trang web",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "web.search.run",
+     "label": "Tìm trên web",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "book.export",
+     "label": "Xuất sổ ra bảng tính",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "connector.report.send",
+     "label": "Báo cáo Fanpage hằng ngày: xem, đổi giờ, hủy, gửi thử",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "contract.draft.compose",
+     "label": "Soạn hợp đồng cho khách mới từ mẫu",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "contract.template.save",
+     "label": "Lưu hợp đồng mẫu",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.file.capture",
+     "label": "Lưu bản gốc tài liệu chủ gửi",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.file.send",
+     "label": "Gửi lại tài liệu đã lưu",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "document.learn.set",
+     "label": "Đổi mức học tài liệu trong sổ",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "harness.job.request",
+     "label": "Yêu cầu chạy harness (skill + executor)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "journal.entry.purge",
+     "label": "Xoá hẳn một mục Bộ não thứ hai",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "journal.entry.record",
+     "label": "Ghi sổ (journal)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "journal.entry.void",
+     "label": "Hủy dòng sổ",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "media.recording.transcribe",
+     "label": "Chuyển chữ tệp ghi âm",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "meeting.minutes.save",
+     "label": "Ghi cuộc họp - biên bản, việc cần làm, nhắc việc",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "memory.save",
+     "label": "Ghi nhớ điều về người đang trò chuyện",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "panel.key.reset",
+     "label": "Đổi khoá Bảng nhanh",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "panel.link.issue",
+     "label": "Gửi chủ link Bảng nhanh",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "profile.propose",
+     "label": "Đề xuất hồ sơ để chủ duyệt",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "channel.card.send",
+     "label": "Gửi thẻ vào kênh khách (Messenger…)",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "channel.media.send",
+     "label": "Gửi ảnh từ website vào cuộc trò chuyện",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "profile.policy.set",
+     "label": "Đặt chính sách trả lời / hồ sơ cho tài khoản",
+     "risk": "R3",
+     "confirm": "always",
+     "audience": [
+      "owner"
+     ],
+     "schedulable": false,
+     "side_effect": "money",
+     "status": "coded"
+    }
+   ]
+  },
+  {
+   "id": "site",
+   "label": "Dữ liệu website (đơn, khách, kho)",
+   "section": "site",
+   "transport": "",
+   "plan_gate": "",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "commerce.search_products",
+     "label": "Tìm sản phẩm của website",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": true,
+     "side_effect": "read",
+     "status": "verified"
+    },
+    {
+     "id": "crm.customer.find",
+     "label": "Tìm khách trong CRM của website",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "inventory.stock.read",
+     "label": "Tồn kho của website",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "journal.entry.find",
+     "label": "Tra sổ cái: dòng, mã, việc đang làm",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "order.pay_info",
+     "label": "Thông tin thanh toán đơn (QR, số tài khoản)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "verified"
+    },
+    {
+     "id": "order.status",
+     "label": "Trạng thái đơn hàng",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "sales.summary.read",
+     "label": "Doanh số (từ website)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "twinsheet.read",
+     "label": "Xem và tính số liệu trong Sổ (Twin Sheet)",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded"
+    },
+    {
+     "id": "twinsheet.create",
+     "label": "Tạo hoặc đổi tên Sổ mới (Twin Sheet)",
+     "risk": "R1",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "twinsheet.snapshot",
+     "label": "Chốt sổ (và khóa kỳ) trong Sổ (Twin Sheet)",
+     "risk": "R1",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "draft",
+     "status": "coded"
+    },
+    {
+     "id": "commerce.payment.send",
+     "label": "Gửi thông tin thanh toán của đơn (chữ, QR, nút)",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "commerce.product_card.send",
+     "label": "Gửi thẻ sản phẩm vào cuộc trò chuyện",
+     "risk": "R2",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded"
+    },
+    {
+     "id": "order.place",
+     "label": "Tạo đơn hàng (xem trước → xác nhận)",
+     "risk": "R3",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff",
+      "customer"
+     ],
+     "schedulable": false,
+     "side_effect": "money",
+     "status": "verified"
+    }
+   ]
+  }
+ ]
+}

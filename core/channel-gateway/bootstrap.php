@@ -74,7 +74,6 @@ $_bzc_stub_adapters = array(
 	// it sent through the global twf_bot_token and its inbound was the unverified base stub (verify_webhook() === true).
 	$webchat_dir  . 'class-webchat-adapter.php'       => 'channel.adapter.webchat',
 	$adapters_dir . 'class-adminchat-adapter.php'     => 'channel.adapter.adminchat',
-	$adapters_dir . 'class-email-smtp-adapter.php'    => 'channel.adapter.email_smtp',
 	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — zalo_hotline adapter retired with the Hotline channel (R-ONE-AXIS D-29).
 );
 foreach ( $_bzc_stub_adapters as $_bzc_stub_file => $_bzc_stub_label ) {
@@ -87,16 +86,7 @@ foreach ( $_bzc_stub_adapters as $_bzc_stub_file => $_bzc_stub_label ) {
 }
 unset( $_bzc_stub_adapters, $_bzc_stub_file, $_bzc_stub_label );
 
-// [2026-06-10 Johnny Chu] PHASE-CG-SMTP-INTEGRATION — Full Email SMTP channel integration + REST.
-// [2026-06-11 Johnny Chu] HOTFIX — file_exists guard: files deployed via rsync; guard prevents fatal on stale server.
-$_bzc_smtp_integ = $adapters_dir . 'class-email-smtp-integration.php';
-$_bzc_smtp_rest  = $gateway_dir  . 'class-email-smtp-rest.php';
-if ( file_exists( $_bzc_smtp_integ ) && file_exists( $_bzc_smtp_rest ) ) {
-	require_once $_bzc_smtp_integ;
-	require_once $_bzc_smtp_rest;
-	BizCity_Email_SMTP_REST::init();
-}
-unset( $_bzc_smtp_integ, $_bzc_smtp_rest );
+// [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — the Gmail + SMTP channel left the Channel Gateway: Gmail goes through the cell + Composio (PHASE-0.93), plain site mail through BizCity_SMTP.
 
 // [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — the PHASE 0.36 W1 webchat auto-binding helper
 // (BizCity_WebChat_Binding_Bootstrap) had no hook and no caller anywhere; moved to core/_archived/z8a-20261010/.
@@ -157,6 +147,14 @@ add_action( 'init', static function () { if ( class_exists( 'BizCity_Job_View_RE
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Sheet_Bindings' ) ) { BizCity_Sheet_Bindings::init(); } }, 20 ); // [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7 — adopt a book the cell created // [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
 require_once $gateway_dir . 'connect/class-connect-widget.php';
 BizCity_Connect_Widget::init();
+// [2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P1…P4 — panel-link@1: the assistant sends its owner a one-time Bảng nhanh link over Zalo (gate · narrow session · bizcity-panel/v1 · MCP panel.link.issue / panel.key.reset)
+require_once $gateway_dir . 'panel/class-panel-link.php';
+require_once $gateway_dir . 'panel/class-panel-gate.php';
+require_once $gateway_dir . 'panel/class-panel-rest.php';
+require_once $gateway_dir . 'panel/class-panel-mcp.php';
+BizCity_Panel_Gate::init();
+BizCity_Panel_REST::init();
+BizCity_Panel_MCP::init();
 
 // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-18 C-5 (R-LEAN-4) — ZA-3's 3 routes (recent-users, conversation,
 // admin-send) are superseded by the JSONL-based Zalo OA Inbox (`zalo-oa-inbox`, class-channel-rest-api.php);
@@ -271,84 +269,8 @@ require_once $gateway_dir . 'class-fb-chat-widget.php';
 // by the owner. The option `bizcity_cg_notify_settings` is deliberately kept: TwinBrain's progress-notice
 // policy still reads its twin_progress_* keys (deleting it would switch notices back on for tenants).
 
-// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel.
-$_bzc_cf7_dir = $gateway_dir . 'cf7/';
-if ( is_dir( $_bzc_cf7_dir ) ) {
-	require_once $_bzc_cf7_dir . 'class-cf7-installer.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-submissions-log.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-crm-sync.php';
-	// [2026-08-04 Johnny Chu] PHASE-CG-CF7-BIGLEAD — load BigLead client before CF7 hooks.
-	require_once $_bzc_cf7_dir . 'class-cf7-biglead.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-channel-listener.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-rest.php';
-	// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — per-form custom success message
-	require_once $_bzc_cf7_dir . 'class-cf7-response-config.php';
-	// [2026-06-25 Johnny Chu] PHASE-CG-CF7-ZNS — Zalo ZNS auto-reply via eSMS
-	require_once $_bzc_cf7_dir . 'class-cf7-zns-config.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-zns-sender.php';
-	// [2026-06-28 Johnny Chu] PHASE-CG-ZNS-TEMPLATE-CATALOG — ZNS template catalog (options-based)
-	require_once $_bzc_cf7_dir . 'class-cf7-zns-templates.php';
-	require_once $_bzc_cf7_dir . 'class-cf7-zns-templates-rest.php';
-	BizCity_CF7_ZNS_Templates_REST::init();
-	// [2026-06-27 Johnny Chu] PHASE-PB-LEADFORM Wave 4 — CF7 client-side tracking event injector
-	require_once $_bzc_cf7_dir . 'class-cf7-tracking-frontend.php';
-	BizCity_CF7_Tracking_Frontend::init();
-	// [2026-07-02 Johnny Chu] PHASE-0.46 M1 — Lead source tracker (UTM/referrer/device)
-	// Loaded here (inside CF7 block, unconditional) so the JS is injected on all public pages.
-	require_once $gateway_dir . 'class-lead-source-tracker.php';
-	BizCity_Lead_Source_Tracker::init();
-	// Install table on first load (idempotent: skips if version matches).
-	BizCity_CF7_Installer::maybe_install();
-	// Register Schema for diagnostics (R-CR.2).
-	if ( class_exists( 'BizCity_Schema_Registry' ) ) {
-		BizCity_Schema_Registry::register(
-			'bizcity_cf7_submissions',
-			'modules.cf7-channel',
-			BizCity_CF7_Installer::SCHEMA_VERSION,
-			BizCity_CF7_Installer::VERSION_OPTION,
-			array( 'BizCity_CF7_Installer', 'install' )
-		);
-	}
-	// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — defer listener init to plugins_loaded:20 so CF7
-	// (which registers at plugins_loaded:10) is guaranteed available when we check class_exists.
-	add_action( 'plugins_loaded', function () {
-		if ( class_exists( 'BizCity_CF7_BigLead' ) ) {
-			BizCity_CF7_BigLead::init();
-		}
-		// [2026-08-05 Johnny Chu] PHASE-CG-CF7-BIGLEAD — register CF7 hooks unconditionally after loading the class.
-		// CF7 can expose its runtime classes lazily; checking WPCF7 here can skip
-		// wpcf7_mail_sent even though the hook fires later in the request.
-		if ( class_exists( 'BizCity_CF7_Channel_Listener' ) ) {
-			BizCity_CF7_Channel_Listener::init();
-		}
-		// [2026-06-24 Johnny Chu] PHASE-CF7-RESP — hook wpcf7_ajax_json_echo
-		if ( class_exists( 'BizCity_CF7_Response_Config' ) ) {
-			BizCity_CF7_Response_Config::init();
-		}
-	}, 20 );
-	BizCity_CF7_REST::init();
-}
-unset( $_bzc_cf7_dir );
-
-// [2026-06-27 Johnny Chu] PHASE-CG-ZNS-AUTO — ZNS Automation Hub (event-driven rules).
-$_bzc_zns_dir = $gateway_dir . 'zns/';
-if ( is_dir( $_bzc_zns_dir ) ) {
-	require_once $_bzc_zns_dir . 'class-zns-event-registry.php';
-	require_once $_bzc_zns_dir . 'class-zns-rules-repo.php';
-	require_once $_bzc_zns_dir . 'class-zns-general-sender.php';
-	require_once $_bzc_zns_dir . 'class-zns-send-tracker.php';
-	require_once $_bzc_zns_dir . 'class-zns-dispatcher.php';
-	// REST class chỉ load khi cần (REST/admin context) theo R-PERF.
-	if ( $_bizcity_admin_ctx ) {
-		require_once $_bzc_zns_dir . 'class-zns-automation-rest.php';
-		add_action( 'rest_api_init', array( 'BizCity_ZNS_Automation_REST', 'register_routes' ) );
-	}
-	// Dispatcher hooks đăng ký lúc init:20 (sau WooCommerce init:10).
-	add_action( 'init', function () {
-		BizCity_ZNS_Dispatcher::init();
-	}, 20 );
-}
-unset( $_bzc_zns_dir );
+// [2026-10-20 09:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C (ZBC-12) — Contact Form 7 lead capture, ZNS automation and the lead-source tracker moved to bizcity-twin-crm
+// (includes/marketing/, same classes, REST namespace bizcity-channel/v1, options and tables). The Zalo Brain axis does not need them; schema in bizcity-twin-crm/schema/changelog/.
 // [2026-06-30 Johnny Chu] HOTFIX — guard against double init() when the class was already
 // loaded unconditionally from bizcity-twin-ai.php (frontend context). require_once prevents
 // double-include but init() would still fire twice without this check.
@@ -406,9 +328,9 @@ if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) ) {
 require_once $gateway_dir . 'class-cg-debug-logger.php';
 if ( class_exists( 'BizCity_CG_Debug_Logger' ) ) { BizCity_CG_Debug_Logger::init(); }
 
-// PHASE-N (2026-05-25) — Flows sub-module (port of bizgpt-custom-flows).
-// Schema: core/diagnostics/changelog/modules.flows.json
-require_once $gateway_dir . 'flows/bootstrap.php';
+// [2026-10-20 09:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-B2 (owner: bizgpt-custom-flows không còn dùng, bỏ hoàn toàn) — the Flows port (REST bizcity-channel/v1/flows*,
+// admin page, installer, ref codec) is removed from core; table `bizcity_crm_flows` is quarantined (rows stay, never dropped).
+// "Build lại" goes through Automation / skills (R-BRAIN-SKELETON BS-9), not CRM flows.
 
 // PHASE 0.33 M1 — Webhook Router + daily-partition log + Guru bindings.
 require_once $gateway_dir . 'class-webhook-log.php';
@@ -450,6 +372,7 @@ $_bzc_bot_files = array(
 	// [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 — "Việc đã làm": the person's assistant Jobs folded from the twin event stream.
 	$gateway_dir . 'class-job-view-rest.php'            => 'channel.job_view_rest',
 	$gateway_dir . 'class-user-workspace-builder.php'   => 'channel.user_workspace_builder',
+	$gateway_dir . 'class-executor-policy.php'            => 'channel.executor_policy', // [2026-10-18 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-MX / Q117-MX-1
 	// [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — sends that packet to the cell (login / role change / profile save; newer rev only).
 	$gateway_dir . 'class-user-workspace-pusher.php'    => 'channel.user_workspace_pusher',
 	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-W1 (R-NB-11) — every number works as a WP user; step ③ default "tạo tài khoản tự động" lands here.
@@ -560,6 +483,7 @@ $_bzc_usage_files = array(
 	$gateway_dir . 'usage/class-usage-schema.php'    => 'channel.usage.schema',
 	$gateway_dir . 'usage/class-usage-prices.php'    => 'channel.usage.prices',
 	$gateway_dir . 'usage/class-usage-ingest.php'    => 'channel.usage.ingest',
+	$gateway_dir . 'usage/class-usage-ops-day.php' => 'channel.usage.ops_day', // [2026-10-21 09:29 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C2 — the owner copy of the cell's day as an Orchestrator (ops-day@1, counts only)
 	$gateway_dir . 'usage/class-usage-activity-day.php' => 'channel.usage.activity_day', // [2026-10-15 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1 — the cell's daily activity counts (activity-day@1)
 	$gateway_dir . 'usage/class-usage-view-rest.php' => 'channel.usage.view_rest',
 	// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 round 4 (L14–L18): wallet proxy, client plans, site-side enforcement (AI switch + owner notice), Woo Pro, REST.
@@ -606,6 +530,9 @@ if ( class_exists( 'BizCity_Usage_Ingest' ) && class_exists( 'BizCity_Usage_Pric
 }
 if ( class_exists( 'BizCity_Usage_Activity_Day' ) && class_exists( 'BizCity_Usage_Schema' ) ) {
 	BizCity_Usage_Activity_Day::init(); // PHASE-0.112 S112-L1
+}
+if ( class_exists( 'BizCity_Usage_Ops_Day' ) ) {
+	BizCity_Usage_Ops_Day::init(); // PHASE-0.127 S127-C2
 }
 if ( class_exists( 'BizCity_Usage_View_REST' ) && class_exists( 'BizCity_Usage_Ingest' ) ) {
 	BizCity_Usage_View_REST::init();
@@ -779,9 +706,6 @@ add_action( 'bizcity_register_channel', function ( $bridge ) {
 	if ( class_exists( 'BizCity_AdminChat_Adapter' ) ) {
 		$bridge->register_adapter( new BizCity_AdminChat_Adapter() );
 	}
-	if ( class_exists( 'BizCity_Email_SMTP_Adapter' ) ) {
-		$bridge->register_adapter( new BizCity_Email_SMTP_Adapter() );
-	}
 }, 20 );
 
 // PHASE 0.37 M4 — Register full BizCity_Channel_Integration adapters.
@@ -791,8 +715,6 @@ add_action( 'bizcity_register_integrations', function ( $registry ) {
 	( new BizCity_Zalo_Bot_OA_Integration() )->register_with_gateway( $registry );
 	// [2026-06-19 Johnny Chu] PHASE-0.39 — Zalo OA direct PHP (Zone 1, no bridge).
 	( new BizCity_CG_Zalo_OA_Integration() )->register_with_gateway( $registry );
-	// [2026-06-10 Johnny Chu] PHASE-CG-SMTP-INTEGRATION — Email SMTP full integration.
-	( new BizCity_Email_SMTP_Integration() )->register_with_gateway( $registry );
 }, 20 );
 
 // Inject channel-binding pills into Twin Guru character cards (admin-only).

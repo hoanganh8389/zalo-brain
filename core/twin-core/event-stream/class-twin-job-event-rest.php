@@ -26,6 +26,7 @@ final class BizCity_Twin_Job_Event_REST {
 	const NS            = 'bizcity-twin/v1';
 	const CONTRACT      = 'job-event@1';
 	const MAX_RESULT_KB = 60;
+	const MAX_QUEST_KB  = 40; // [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — quest-view@1 snapshot of the Quest Map
 
 	/** @var array<string,callable> test seams: user_ref(int $user_id): string */
 	public static $readers = array();
@@ -75,7 +76,8 @@ final class BizCity_Twin_Job_Event_REST {
 		$seq      = (int) ( $body['seq'] ?? 0 );
 		$kind     = sanitize_key( (string) ( $body['kind'] ?? '' ) );
 		$status   = sanitize_key( (string) ( $body['status'] ?? '' ) );
-		if ( 0 !== strpos( $contract, self::CONTRACT ) || '' === $key || ! preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $job_id ) || $seq <= 0 || ! in_array( $kind, array( 'requested', 'approval_requested', 'progressed', 'completed' ), true ) || '' === $status ) {
+		// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1.7 / PHASE-0.126 (job-event@1.2.0, doc 30 §8) — + owner_asked · owner_answered (the job waits on the owner / got the answer)
+		if ( 0 !== strpos( $contract, self::CONTRACT ) || '' === $key || ! preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $job_id ) || $seq <= 0 || ! in_array( $kind, array( 'requested', 'approval_requested', 'progressed', 'completed', 'owner_asked', 'owner_answered' ), true ) || '' === $status ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'contract, idempotency_key, job_id, seq, kind and status are required.' ), 400 );
 		}
 		if ( 'owner' !== (string) ( $body['role'] ?? '' ) ) {
@@ -106,6 +108,22 @@ final class BizCity_Twin_Job_Event_REST {
 		if ( ! empty( $body['skill'] ) && preg_match( '/^[a-z]{2,20}\.[a-z]{2,20}$/', (string) $body['skill'] ) ) {
 			$payload['skill'] = (string) $body['skill'];
 		}
+		// [2026-10-18 06:16 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K2h: the draft an approval_requested event waits on — the Job page approves / rejects it in place
+		if ( 'approval_requested' === $kind && ! empty( $body['draft_id'] ) && preg_match( '/^act_[A-Za-z0-9_-]{8,40}$/', (string) $body['draft_id'] ) ) {
+			$payload['draft_id'] = (string) $body['draft_id'];
+		}
+		// [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — job-event@1.1.0: the quest-view@1 snapshot (derived from the cell's job rows; references only). Kept only when it says what it is and fits one event row.
+		if ( isset( $body['quest'] ) && is_array( $body['quest'] ) && 0 === strpos( (string) ( $body['quest']['contract'] ?? '' ), 'quest-view@1' ) && (string) ( $body['quest']['job_id'] ?? '' ) === $job_id ) {
+			$qj = wp_json_encode( $body['quest'] );
+			if ( is_string( $qj ) && strlen( $qj ) <= self::MAX_QUEST_KB * 1024 ) {
+				$payload['quest'] = $body['quest'];
+			}
+		}
+		// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] job-event@1.2.0 — the `gate` of an owner_asked / owner_answered event, normalised; malformed ⇒ dropped, the event is kept
+		$gate = self::normalize_gate( $kind, $body['gate'] ?? null );
+		if ( null !== $gate ) {
+			$payload['gate'] = $gate;
+		}
 		$result_omitted = false;
 		if ( 'completed' === $kind && isset( $body['result'] ) && is_array( $body['result'] ) ) {
 			$json = wp_json_encode( $body['result'] );
@@ -134,7 +152,66 @@ final class BizCity_Twin_Job_Event_REST {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'event_invalid', 'message' => substr( $e->getMessage(), 0, 300 ) ), 422 );
 		}
 		// [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7: the hook also carries the result snapshot (references + hashes) so the site can ADOPT a book the cell created for this person
-		do_action( 'bizcity_twin_job_event', array( 'event_uuid' => $uuid, 'user_id' => $owner_id, 'job_id' => $job_id, 'seq' => $seq, 'kind' => $kind, 'status' => $status, 'result' => isset( $payload['result'] ) ? $payload['result'] : null ) );
+		do_action( 'bizcity_twin_job_event', array( 'event_uuid' => $uuid, 'user_id' => $owner_id, 'job_id' => $job_id, 'seq' => $seq, 'kind' => $kind, 'status' => $status, 'result' => isset( $payload['result'] ) ? $payload['result'] : null, 'gate' => $gate ) );
 		return new WP_REST_Response( array( 'ok' => true, 'duplicate' => false, 'result_omitted' => $result_omitted ), 200 );
+	}
+
+	const GATE_KINDS  = array( 'approve', 'decide', 'info' );
+	const MAX_GATE_KB = 4;
+
+	/**
+	 * [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1.7 (job-event@1.2.0, doc 30 §8) — the gate block. Pure.
+	 * owner_asked: {ask_id, kind approve|decide|info, step_id, question ≤ 400, options[≤ 4]{n, label ≤ 80}, default, asked_at, expires_at}
+	 * owner_answered: {ask_id, answer{n, text ≤ 500}, by, at}. Anything malformed / too big / on another kind ⇒ null (the event itself stays).
+	 */
+	public static function normalize_gate( string $kind, $gate ): ?array {
+		if ( ! is_array( $gate ) || ! in_array( $kind, array( 'owner_asked', 'owner_answered' ), true ) ) {
+			return null;
+		}
+		$ask = (string) ( $gate['ask_id'] ?? '' );
+		if ( 1 !== preg_match( '/^ask_[0-9A-Za-z_.-]{3,120}$/', $ask ) ) {
+			return null;
+		}
+		$txt = static function ( $v, int $max ): string {
+			$v = trim( (string) preg_replace( '/[\x00-\x1F\x7F]+/u', ' ', strip_tags( is_scalar( $v ) ? (string) $v : '' ) ) );
+			return mb_substr( $v, 0, $max );
+		};
+		$when = static function ( $v ): string {
+			$v = is_scalar( $v ) ? (string) $v : '';
+			return 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})?$/', $v ) ? $v : '';
+		};
+		if ( 'owner_asked' === $kind ) {
+			$gk = (string) ( $gate['kind'] ?? '' );
+			$q  = $txt( $gate['question'] ?? '', 400 );
+			if ( ! in_array( $gk, self::GATE_KINDS, true ) || '' === $q ) {
+				return null;
+			}
+			$opts = array();
+			foreach ( array_slice( (array) ( $gate['options'] ?? array() ), 0, 4 ) as $o ) {
+				if ( is_array( $o ) && is_numeric( $o['n'] ?? null ) && '' !== $txt( $o['label'] ?? '', 80 ) ) {
+					$opts[] = array( 'n' => (int) $o['n'], 'label' => $txt( $o['label'], 80 ) );
+				}
+			}
+			$out = array(
+				'ask_id'     => $ask,
+				'kind'       => $gk,
+				'step_id'    => 1 === preg_match( '/^[a-z][a-z0-9_]{0,39}$/', (string) ( $gate['step_id'] ?? '' ) ) ? (string) $gate['step_id'] : '',
+				'question'   => $q,
+				'options'    => $opts,
+				'default'    => is_numeric( $gate['default'] ?? null ) ? (int) $gate['default'] : null,
+				'asked_at'   => $when( $gate['asked_at'] ?? '' ),
+				'expires_at' => $when( $gate['expires_at'] ?? '' ),
+			);
+		} else {
+			$a   = is_array( $gate['answer'] ?? null ) ? $gate['answer'] : array();
+			$out = array(
+				'ask_id' => $ask,
+				'answer' => array( 'n' => is_numeric( $a['n'] ?? null ) ? (int) $a['n'] : null, 'text' => $txt( $a['text'] ?? '', 500 ) ),
+				'by'     => in_array( (string) ( $gate['by'] ?? '' ), array( 'owner', 'staff', 'default', 'timeout' ), true ) ? (string) $gate['by'] : 'owner',
+				'at'     => $when( $gate['at'] ?? '' ),
+			);
+		}
+		$json = wp_json_encode( $out );
+		return is_string( $json ) && strlen( $json ) <= self::MAX_GATE_KB * 1024 ? $out : null;
 	}
 }

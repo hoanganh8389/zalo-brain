@@ -4,7 +4,7 @@
  *
  * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-2.2 — split from plugins/bizcity-twin-crm/includes/class-db-installer.php.
  * Core owns: inboxes, contacts, contact_inboxes, conversations, messages, attachments, labels, conversation_labels,
- * teams, team_members, inbox_members, archive_receipts, chat_magic_links, admin_chat_grants (+ gmail_smtp_accounts for
+ * teams, team_members, inbox_members, archive_receipts, chat_magic_links (admin_chat_grants moved to bizcity-twin-crm and gmail_smtp_accounts retired, PHASE-0.126 G-C; the latter was for
  * the Email channel). The extension plugin (Zalo Brain CRM) appends its own CREATE statements through the
  * `bizcity_crm_install_tables` filter and runs its migrations on `bizcity_crm_install_migrate`, so there is still
  * exactly one dbDelta pass. Every tbl_*() accessor stays here on purpose: callers compile whether or not the plugin
@@ -71,7 +71,6 @@ class BizCity_CRM_DB_Installer_V2 {
 	public static function tbl_crm_email_messages(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_email_messages'; }
 
 	/* ── PHASE 0.37.1 — Gmail SMTP + Email automation rules ── */
-	public static function tbl_gmail_smtp_accounts(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_gmail_smtp_accounts'; }
 	public static function tbl_email_event_rules(): string   { global $wpdb; return $wpdb->prefix . 'bizcity_crm_email_event_rules'; }
 
 	/* ── PHASE 0.35 M-CRM.M8.W2 — Contact unification (legacy biz_contacts → contacts) ── */
@@ -83,9 +82,6 @@ class BizCity_CRM_DB_Installer_V2 {
 
 	/* ── PHASE 3.5 Wave A — Admin Chat magic links ── */
 	public static function tbl_chat_magic_links(): string   { global $wpdb; return $wpdb->prefix . 'bizcity_crm_chat_magic_links'; }
-
-	/* ── PHASE 3.5 Wave B — Admin Chat grants (3-axis delegation) ── */
-	public static function tbl_admin_chat_grants(): string  { global $wpdb; return $wpdb->prefix . 'bizcity_crm_admin_chat_grants'; }
 
 	/* ── PHASE 0.35 M-CRM.M1.W3 — Audit log ── */
 	public static function tbl_crm_audit_log(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_audit_log'; }
@@ -125,7 +121,7 @@ class BizCity_CRM_DB_Installer_V2 {
 	public static function tbl_pipeline_deadlines(): string { global $wpdb; return $wpdb->prefix . 'bizcity_crm_pipeline_deadlines'; }
 
 	/**
-	 * Spine tables only (14 + gmail_smtp_accounts). Extension tables are listed by BizCity_CRM_DB_Installer_Ext.
+	 * Spine tables only (14). Extension tables are listed by BizCity_CRM_DB_Installer_Ext.
 	 * [2026-10-04] 'crm_events' is owned by core/scheduler, not created here.
 	 */
 	public static function all_tables(): array {
@@ -143,8 +139,6 @@ class BizCity_CRM_DB_Installer_V2 {
 			'crm_inbox_members'   => self::tbl_inbox_members(),
 			'archive_receipts'    => self::tbl_archive_receipts(),
 			'chat_magic_links'    => self::tbl_chat_magic_links(),
-			'admin_chat_grants'   => self::tbl_admin_chat_grants(),
-			'gmail_smtp_accounts' => self::tbl_gmail_smtp_accounts(),
 		);
 	}
 
@@ -265,8 +259,6 @@ class BizCity_CRM_DB_Installer_V2 {
 		$labels = self::tbl_labels();
 		$cl = self::tbl_conversation_labels();
 		$chat_magic_links = self::tbl_chat_magic_links();
-		$admin_chat_grants = self::tbl_admin_chat_grants();
-		$gmail_smtp = self::tbl_gmail_smtp_accounts();
 
 		$sql = array();
 		$sql[] = "CREATE TABLE `{$inboxes}` (
@@ -460,60 +452,6 @@ class BizCity_CRM_DB_Installer_V2 {
 			UNIQUE KEY uniq_token (token_hash),
 			KEY idx_chat_lookup (platform, chat_id, expires_at),
 			KEY idx_blog_consumed (blog_id, consumed_at)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$admin_chat_grants}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			user_id BIGINT UNSIGNED NOT NULL,
-			character_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-			channel_binding_id BIGINT UNSIGNED NULL,
-			blog_id BIGINT UNSIGNED NOT NULL,
-			platform VARCHAR(32) NOT NULL DEFAULT '',
-			chat_id VARCHAR(190) NOT NULL DEFAULT '',
-			status VARCHAR(16) NOT NULL DEFAULT 'active',
-			allow_producer TINYINT(1) NOT NULL DEFAULT 1,
-			allow_retriever TINYINT(1) NOT NULL DEFAULT 0,
-			allow_distributor TINYINT(1) NOT NULL DEFAULT 0,
-			tool_overrides_json LONGTEXT NULL,
-			inbox_notebook_id BIGINT UNSIGNED NULL,
-			quota_per_day INT NOT NULL DEFAULT 50,
-			quota_used_today INT NOT NULL DEFAULT 0,
-			quota_reset_at DATETIME NULL,
-			granted_by_user_id BIGINT UNSIGNED NULL,
-			granted_at DATETIME NOT NULL,
-			revoked_at DATETIME NULL,
-			revoked_by BIGINT UNSIGNED NULL,
-			expires_at DATETIME NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			UNIQUE KEY uniq_user_guru_binding (user_id, character_id, channel_binding_id),
-			KEY idx_chat (platform, chat_id, status),
-			KEY idx_status (status),
-			KEY idx_blog (blog_id, status)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$gmail_smtp}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			label VARCHAR(190) NOT NULL DEFAULT '',
-			from_email VARCHAR(190) NOT NULL DEFAULT '',
-			from_name VARCHAR(190) NOT NULL DEFAULT '',
-			smtp_host VARCHAR(190) NOT NULL DEFAULT 'smtp.gmail.com',
-			smtp_port SMALLINT UNSIGNED NOT NULL DEFAULT 587,
-			smtp_secure VARCHAR(8) NOT NULL DEFAULT 'tls',
-			smtp_user VARCHAR(190) NOT NULL DEFAULT '',
-			smtp_pass_enc TEXT NULL,
-			is_default TINYINT(1) NOT NULL DEFAULT 0,
-			is_active TINYINT(1) NOT NULL DEFAULT 1,
-			last_test_at DATETIME NULL,
-			last_test_ok TINYINT(1) NULL,
-			last_test_msg TEXT NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			deleted_at DATETIME NULL,
-			PRIMARY KEY  (id),
-			KEY idx_default (is_default, is_active),
-			KEY idx_user (smtp_user)
 		) {$charset};";
 
 		/**

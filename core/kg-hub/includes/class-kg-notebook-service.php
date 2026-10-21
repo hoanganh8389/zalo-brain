@@ -182,7 +182,12 @@ class BizCity_KG_Notebook_Service {
 			}
 		}
 
-		return $this->get( $notebook_id );
+		// [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — additive hook: the notebook gets its NB- row in the ledger (BizCity_Journal_Layer_Rows).
+		$saved = $this->get( $notebook_id );
+		if ( is_array( $saved ) ) {
+			do_action( 'bizcity_kg_notebook_saved', $saved );
+		}
+		return $saved;
 	}
 
 	public function update( $id, array $data ) {
@@ -220,7 +225,12 @@ class BizCity_KG_Notebook_Service {
 			return $this->get( $id );
 		}
 		$wpdb->update( $db->tbl_notebooks(), $update, [ 'id' => (int) $id ] );
-		return $this->get( $id );
+		// [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — a rename / description change refreshes the NB- row.
+		$saved = $this->get( $id );
+		if ( is_array( $saved ) ) {
+			do_action( 'bizcity_kg_notebook_saved', $saved );
+		}
+		return $saved;
 	}
 
 	public function delete( $id ) {

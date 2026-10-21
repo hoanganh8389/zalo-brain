@@ -39,6 +39,30 @@
     "shared": "connect_composio"
   },
   "desc": "Tìm hợp đồng, báo giá trong Drive khi bạn hỏi.",
+  "panel": {
+    "say": [
+      "kết nối drive",
+      "nối google drive",
+      "lưu vào drive"
+    ]
+  },
+  "chat_suggestions": [
+    {
+      "text": "Tìm file hợp đồng trong Drive của anh",
+      "executor": "drive.find",
+      "risk": "R0"
+    },
+    {
+      "text": "Báo giá mới nhất trong Drive là file nào",
+      "executor": "drive.find",
+      "risk": "R0"
+    },
+    {
+      "text": "File này sửa lần cuối khi nào",
+      "executor": "drive.meta",
+      "risk": "R0"
+    }
+  ],
   "ui": {
     "glyph": "D",
     "color": "#0f9d58"

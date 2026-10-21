@@ -670,7 +670,8 @@ class BizCity_CRM_Repository {
 				$existing_name_source = sanitize_key( (string) ( $existing_attrs['contact_name_source'] ?? '' ) );
 				$old_name        = (string) ( $existing_contact['name'] ?? '' );
 				$old_is_stub     = ( $old_name === '' )
-					|| (bool) preg_match( '/^(FB|Zalo|Web|TG|Hotline)\s+[A-Za-z0-9_]{1,8}$/u', $old_name );
+					|| (bool) preg_match( '/^(FB|Zalo|Web|TG|Hotline)\s+[A-Za-z0-9_]{1,8}$/u', $old_name )
+					|| (bool) preg_match( '/^Nhóm Zalo [0-9]{4,12}$/u', $old_name ); // [2026-10-20 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — tên tạm của nhóm Zalo
 				$old_is_unreliable = 'self_echo_unreliable' === $existing_name_source;
 				if ( ! empty( $contact_data['name'] ) && ( $old_is_stub || ( $old_is_unreliable && 'customer_provided' === $incoming_name_source ) ) && $contact_data['name'] !== $old_name ) {
 					$update['name'] = $contact_data['name'];

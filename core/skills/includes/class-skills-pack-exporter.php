@@ -80,6 +80,13 @@ final class BizCity_Skills_Pack_Exporter {
 					'updated_at'  => (string) $s['updated_at'],
 					'hash'        => (string) ( $s['hash'] ?? '' ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 — cell biết kế hoạch đã dịch còn đúng thân không
 				);
+				// [2026-10-21 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — the KN- code of the skill's definition row in the client's journal (the cell may cite it; it pins `version` from this pack)
+				if ( class_exists( 'BizCity_Journal_Index' ) && class_exists( 'BizCity_Journal_Skill_Link' ) && function_exists( 'get_current_blog_id' ) ) {
+					$def = BizCity_Journal_Database::instance()->get_by_idempotency_key( BizCity_Journal_Skill_Link::define_key( (int) get_current_blog_id(), (string) $s['name'] ) );
+					if ( is_array( $def ) ) {
+						$item['ref'] = BizCity_Journal_Index::ref_code( (string) $def['kind'], (int) $def['id'] );
+					}
+				}
 				$len = strlen( (string) wp_json_encode( $item ) ) + 1;
 				if ( count( $items ) >= self::MAX_ITEMS || $bytes + $len > self::MAX_BYTES ) {
 					$truncated = true;

@@ -587,6 +587,8 @@ class BizCity_TwinChat_Admin_Menu {
 		$forward = array(
 			'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
 			'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
+			// [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE, owner approved) — `ledger` = the whole query of the Sổ cái / Sổ screen (mode=sheets&sheet=…&period=…) in ONE key, so the shell carries it to the TwinChat iframe and back to the address bar without opening a prefix allowlist
+			'ledger',
 		);
 		foreach ( $forward as $key ) {
 			if ( isset( $_GET[ $key ] ) && '' !== $_GET[ $key ] ) {
@@ -653,6 +655,8 @@ class BizCity_TwinChat_Admin_Menu {
 			var FORWARD_KEYS = [
 				'notebook_id', 'notebook', 'session', 'session_id', 'thread', 'tab',
 				'id', 'task_id', 'inbox', 'contact_id', 'doc', 'instance_id',
+				// [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE) — the Sổ cái / Sổ screen state in one key (see render_page)
+				'ledger',
 			];
 			window.addEventListener( 'message', function ( event ) {
 				if ( event.origin !== window.location.origin ) { return; }

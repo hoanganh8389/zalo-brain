@@ -405,10 +405,6 @@ if ( ! isset( $_bizcity_admin_ctx ) ) {
                 || false !== strpos( $_SERVER['REQUEST_URI'], '/qr-studio/' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'biz_fb_oauth' )
 				|| false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fb_callback=1' )
-				// [2026-07-02 Johnny Chu] HOTFIX R-PERF — CF7 old-style submission POSTs to
-				// the page URL (not /wp-admin/ajax or /wp-json/). Detect via _wpcf7 POST field
-				// so channel-gateway loads and BizCity_CF7_Submissions_Log is available.
-				|| ( ! empty( $_POST['_wpcf7'] ) )
 			)
 		);
 }
@@ -549,10 +545,6 @@ $_bizcity_admin_ctx =
             // [2026-06-12 Johnny Chu] HOTFIX — support legacy callback style ?fb_callback=1
             // so frontend callback requests still load channel-gateway/facebook handlers.
             || false !== strpos( (string) ( $_SERVER['QUERY_STRING'] ?? '' ), 'fb_callback=1' )
-            // [2026-07-02 Johnny Chu] HOTFIX R-PERF — CF7 old-style submission POSTs to
-            // the page URL (not /wp-admin/ajax or /wp-json/). Detect via _wpcf7 POST field
-            // so channel-gateway loads and BizCity_CF7_Submissions_Log is available.
-            || ( ! empty( $_POST['_wpcf7'] ) )
         )
     );
 
@@ -716,10 +708,13 @@ unset( $_bzc_tracking_file );
 // bootstrap, so without CG on its own URL WordPress dropped the unknown query var and the page could never render.
 $_bizcity_gateway_public_request = ! empty( $_SERVER['REQUEST_URI'] )
     && preg_match( '#/gateway(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
-if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request || $_bizcity_gateway_public_request ) && ! $_bizcity_twinchat_admin_page ) {
+// [2026-10-20 Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 / PHASE-0.122 — the Bảng nhanh link the assistant sends over Zalo is `https://<site>/?bzpanel=<ticket>`: a PLAIN front-end request, so without this the gate
+// (BizCity_Panel_Gate, template_redirect) was never loaded and the link showed the home page. Only the exact query var, only a short token-shaped value (open / go / pl1_…).
+$_bizcity_panel_request = isset( $_GET['bzpanel'] ) && is_string( $_GET['bzpanel'] ) && 1 === preg_match( '/^(?:open|go|pl1_[A-Za-z0-9_-]{40,60})$/', (string) $_GET['bzpanel'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+if ( ( $_bizcity_admin_ctx || $_bizcity_zalo_personal_public_request || $_bizcity_gateway_public_request || $_bizcity_panel_request ) && ! $_bizcity_twinchat_admin_page ) {
     require_once __DIR__ . '/core/channel-gateway/bootstrap.php';
 }
-unset( $_bizcity_gateway_public_request );
+unset( $_bizcity_gateway_public_request, $_bizcity_panel_request );
 
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 (D96-16) — Zalo Brain framework registry (zalo-brain-extension@1):
 // 7 surfaces, extensions, features, standard feature_unavailable error. Loaded before core/crm so the spine can mirror into it.

@@ -219,6 +219,8 @@ final class BizCity_Commerce_Action_MCP_Service {
 			'scopes'         => array( 'commerce.order.guest' ),
 			'confirm'        => 'always',
 			'llm_alias'      => 'order_place',
+			// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 doc 90 R115-01 (BS-3/5) — a confirmed order is a biz.order row (finance: closed to customers, R115-02) under a one-shot Job; Woo keeps the order itself
+			'journal'        => array( 'kind' => 'biz.order', 'source_ref' => 'woo_order:{order_id}', 'title' => 'Đơn hàng #{order_id}', 'card' => array( 'order_id', 'total', 'status', 'hold_expires_at' ), 'job' => 'synthetic', 'job_prefix' => 'wo', 'goal' => 'Khách đặt hàng #{order_id}' ),
 			'fallback_pack'  => null,
 			'since'          => '0.115.0',
 		) );

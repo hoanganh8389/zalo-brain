@@ -326,8 +326,6 @@ JS;
 			// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel tile.
 			[ 'code' => 'cf7',            'label' => 'Contact Form 7',      'platform' => 'CF7',          'icon' => 'form',      'group' => 'web',       'zone' => 'customer', 'ready' => class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ), 'desc' => 'Tự động đưa lead từ CF7 vào CRM Contacts.' ],
 			// [2026-06-12 Johnny Chu] HOTFIX — adminchat removed from catalog (internal-only, no user-facing tile).
-			// [2026-06-12 Johnny Chu] HOTFIX — email_smtp renamed Gmail + SMTP (same backend, Gmail is the SMTP provider).
-			[ 'code' => 'email_smtp',     'label' => 'Gmail + SMTP',        'platform' => 'EMAIL',        'icon' => 'mail',      'group' => 'email',     'zone' => 'customer', 'ready' => true,                                        'desc' => 'Gửi mail outbound qua Gmail / SMTP server.' ],
 			// ── ZONE 2 — Kênh Quản Trị ──────────────────────────────────────────────
 			[ 'code' => 'zalo_bot',       'label' => 'Zalo Bot',            'platform' => 'ZALO_BOT',     'icon' => 'zalo',      'group' => 'admin',     'zone' => 'admin',    'ready' => $has( 'zalo_bot' ),                          'desc' => 'Bot Zalo — admin/NV giao việc cho AI, automation chạy nền.' ],
 			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — 'zalo_hotline' (Zalo Hotline PA) tile removed; channel retired (R-ONE-AXIS D-29).

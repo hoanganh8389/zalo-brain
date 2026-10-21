@@ -297,10 +297,14 @@ final class BizCity_Journal_Database {
 			$params[] = '%' . $wpdb->esc_like( '"attachment_id":' ) . '%';
 			$params[] = '%' . $wpdb->esc_like( '"attachment_id":0' ) . '%';
 		}
-		// `q` narrows the already-structured-filtered set (title only — R-JN-5: semantic search is a separate pass).
-		if ( '' !== trim( (string) ( $filter['q'] ?? '' ) ) ) {
-			$where[]  = 'title LIKE %s';
-			$params[] = '%' . $wpdb->esc_like( trim( (string) $filter['q'] ) ) . '%';
+		// `q` narrows the already-structured-filtered set (R-JN-5: semantic search is a separate pass — knowledge.search).
+		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-3) — word by word, title OR summary: "hợp đồng thuê Cty A" finds
+		// "Cty A - HĐ thuê kho" (was one exact substring of the title, so any other word order found nothing).
+		foreach ( self::query_words( (string) ( $filter['q'] ?? '' ) ) as $w ) {
+			$like     = '%' . $wpdb->esc_like( $w ) . '%';
+			$where[]  = '(title LIKE %s OR body LIKE %s)';
+			$params[] = $like;
+			$params[] = $like;
 		}
 		$where_sql = implode( ' AND ', $where );
 		$total = (int) $wpdb->get_var( $params ? $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}", $params ) : "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}" );
@@ -309,6 +313,33 @@ final class BizCity_Journal_Database {
 		$list_params = array_merge( $params, array( $limit, $offset ) );
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE {$where_sql} ORDER BY doc_date DESC, id DESC LIMIT %d OFFSET %d", $list_params ), ARRAY_A ) ?: array();
 		return array( 'items' => $rows, 'total' => $total );
+	}
+
+	/**
+	 * [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-3) — the words of a free-text `q`: split on spaces / punctuation,
+	 * at most 6 (each one must match). Filler words a person types around the real words are dropped. Pure.
+	 *
+	 * @return string[]
+	 */
+	public static function query_words( string $q ): array {
+		$q = trim( $q );
+		if ( '' === $q ) {
+			return array();
+		}
+		$filler = array( 'cho', 'của', 'cua', 'và', 'va', 'các', 'cac', 'những', 'nhung', 'cái', 'cai', 'về', 've', 'tìm', 'tim', 'xem', 'file', 'tài', 'liệu', 'the', 'and', 'of' );
+		$out    = array();
+		foreach ( preg_split( '/[\s,.;:!?"\'()\[\]{}\/\\\\|]+/u', $q ) ?: array() as $w ) {
+			$w = trim( (string) $w );
+			if ( '' === $w || in_array( mb_strtolower( $w ), $filler, true ) || in_array( $w, $out, true ) ) { // one letter stays: "Cty A", "kho B"
+				continue;
+			}
+			$out[] = mb_substr( $w, 0, 40 );
+			if ( count( $out ) >= 6 ) {
+				break;
+			}
+		}
+		// a query made only of filler words still searches for itself (never an unfiltered page)
+		return $out ?: array( mb_substr( $q, 0, 40 ) );
 	}
 
 	/** Shelf rows for `doc_index` (doc 92 §5): one row per `kind` the owner has, with count/date range/top tags/review count. */
@@ -386,6 +417,49 @@ final class BizCity_Journal_Database {
 			 ORDER BY j.updated_at DESC, j.id DESC LIMIT %d",
 			$params
 		), ARRAY_A ) ?: array();
+	}
+
+	/**
+	 * [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 (B4) — ids of one Twin Sheet slice: one owner, one kind, an optional
+	 * doc_date range. Reads idx_owner_kind_date only (integers, newest id first), capped at $max so a sheet scan is bounded; the
+	 * archived/void filter happens on the full rows (status is not in the index).
+	 *
+	 * @return int[]
+	 */
+	public function slice_ids( int $owner_user_id, string $kind, string $from, string $to, int $max ): array {
+		global $wpdb;
+		$kind = self::sanitize_kind( $kind );
+		if ( $owner_user_id <= 0 || '' === $kind ) {
+			return array();
+		}
+		$where  = array( 'owner_user_id = %d', 'kind = %s' );
+		$params = array( $owner_user_id, $kind );
+		if ( null !== self::sanitize_doc_date( $from ) ) {
+			$where[]  = 'doc_date >= %s';
+			$params[] = $from;
+		}
+		if ( null !== self::sanitize_doc_date( $to ) ) {
+			$where[]  = 'doc_date <= %s';
+			$params[] = $to;
+		}
+		$params[] = max( 1, min( 100000, $max ) );
+		$ids = $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$this->table} WHERE " . implode( ' AND ', $where ) . ' ORDER BY id DESC LIMIT %d', $params ) ) ?: array();
+		return array_map( 'intval', $ids );
+	}
+
+	/**
+	 * [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 (B4) — full rows for ids already scoped by slice_ids() (≤ 500 per call,
+	 * the caller batches). Owner re-checked in SQL: a stray id of another person returns nothing.
+	 */
+	public function rows_by_ids( array $ids, int $owner_user_id ): array {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'intval', $ids ), static function ( $i ) { return $i > 0; } ) ) );
+		$ids = array_slice( $ids, 0, 500 );
+		if ( array() === $ids || $owner_user_id <= 0 ) {
+			return array();
+		}
+		$in = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE owner_user_id = %d AND status <> 'archived' AND id IN ({$in})", array_merge( array( $owner_user_id ), $ids ) ), ARRAY_A ) ?: array();
 	}
 
 	public function recent_rows( int $owner_user_id, int $max = 20 ): array {
@@ -652,10 +726,11 @@ final class BizCity_Journal_Database {
 	}
 }
 
+// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-G3 (GAP-123-5) — the spine table is owned by core/kg-hub: changelog core.knowledge.kg-hub.json (was core.skills).
 if ( class_exists( 'BizCity_Schema_Registry' ) ) {
 	BizCity_Schema_Registry::register(
 		'bizcity_journal_entries',
-		'core.skills',
+		'core.knowledge.kg-hub',
 		BizCity_Journal_Database::SCHEMA_VERSION,
 		BizCity_Journal_Database::SCHEMA_VERSION_KEY,
 		array( 'BizCity_Journal_Database', 'maybe_install' )

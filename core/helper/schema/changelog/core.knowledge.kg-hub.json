@@ -254,6 +254,159 @@
         "idx_object": { "cols": ["object_type", "object_id", "created_at"], "since": "0.31.0" },
         "idx_actor":  { "cols": ["actor_id", "created_at"], "since": "0.31.0" }
       }
+    },
+    "bizcity_journal_entries": {
+      "since": "1.5.0",
+      "purpose": "Canonical user/team Journal authoring entries. KG sources are derived learning projections.",
+      "engine": "InnoDB",
+      "charset": "utf8mb4",
+      "collate": "utf8mb4_unicode_ci",
+      "columns": {
+        "id": {
+          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          "since": "1.5.0",
+          "pk": true
+        },
+        "owner_user_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.5.0"
+        },
+        "workspace_id": {
+          "type": "VARCHAR(64) NOT NULL DEFAULT 'notion'",
+          "since": "1.5.0"
+        },
+        "title": {
+          "type": "VARCHAR(255) NOT NULL DEFAULT ''",
+          "since": "1.5.0"
+        },
+        "body": {
+          "type": "LONGTEXT NOT NULL",
+          "since": "1.5.0"
+        },
+        "status": {
+          "type": "ENUM('draft','captured','published','archived','review','verified','failed','void') NOT NULL DEFAULT 'draft'",
+          "since": "1.7.0",
+          "comment": "journal-entry@1.1.0 state: captured/review/verified/failed/void (+ legacy draft/published/archived). failed = file not kept (Q121-13); verified only by a person (R-JN-14); void = removed from the register, row kept."
+        },
+        "source_type": {
+          "type": "VARCHAR(32) NOT NULL DEFAULT 'menu'",
+          "since": "1.5.0"
+        },
+        "source_ref": {
+          "type": "VARCHAR(191) NOT NULL DEFAULT ''",
+          "since": "1.5.0"
+        },
+        "idempotency_key": {
+          "type": "VARCHAR(191) NOT NULL DEFAULT ''",
+          "since": "1.5.0"
+        },
+        "revision": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 1",
+          "since": "1.5.0"
+        },
+        "learning_status": {
+          "type": "ENUM('not_queued','queued','processing','learned','failed','retryable') NOT NULL DEFAULT 'not_queued'",
+          "since": "1.5.0"
+        },
+        "learning_error": {
+          "type": "VARCHAR(500) NOT NULL DEFAULT ''",
+          "since": "1.5.0"
+        },
+        "notebook_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.5.0"
+        },
+        "kg_source_id": {
+          "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0",
+          "since": "1.5.0"
+        },
+        "kind": {
+          "type": "VARCHAR(48) NOT NULL DEFAULT ''",
+          "since": "1.6.0",
+          "comment": "<family>.<type> (journal-kinds@1, docs/contracts/JOURNAL-KINDS-v1.json). Backfilled from source_type on upgrade; never empty after S100-L15."
+        },
+        "subject_hash": {
+          "type": "CHAR(18) NOT NULL DEFAULT ''",
+          "since": "1.6.0",
+          "comment": "'s-' + 16 hex (R-CID-11 hashed subject). '' = no subject."
+        },
+        "doc_date": {
+          "type": "DATE NULL DEFAULT NULL",
+          "since": "1.6.0",
+          "comment": "The document's own date (meal day, contract date), not created_at."
+        },
+        "tags": {
+          "type": "VARCHAR(400) NOT NULL DEFAULT ''",
+          "since": "1.6.0",
+          "comment": "Stored ',a,b,c,' so LIKE '%,tag,%' matches a whole tag."
+        },
+        "metadata": {
+          "type": "LONGTEXT DEFAULT NULL",
+          "since": "1.5.0",
+          "comment": "journal-entry@1 card/confidence/original/subject/derived_from/flags/by (R-FILESTORE-BUSINESS query-requirement exception: query columns above, body here)."
+        },
+        "created_at": {
+          "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+          "since": "1.5.0"
+        },
+        "updated_at": {
+          "type": "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+          "since": "1.5.0"
+        }
+      },
+      "indexes": {
+        "uniq_idempotency_key": {
+          "cols": [
+            "idempotency_key"
+          ],
+          "since": "1.5.0",
+          "unique": true
+        },
+        "idx_owner_status": {
+          "cols": [
+            "owner_user_id",
+            "status"
+          ],
+          "since": "1.5.0"
+        },
+        "idx_workspace_updated": {
+          "cols": [
+            "workspace_id",
+            "updated_at"
+          ],
+          "since": "1.5.0"
+        },
+        "idx_learning_status": {
+          "cols": [
+            "learning_status"
+          ],
+          "since": "1.5.0"
+        },
+        "idx_kg_source": {
+          "cols": [
+            "kg_source_id"
+          ],
+          "since": "1.5.0"
+        },
+        "idx_owner_kind_date": {
+          "cols": [
+            "owner_user_id",
+            "kind",
+            "doc_date"
+          ],
+          "since": "1.6.0"
+        },
+        "idx_subject_date": {
+          "cols": [
+            "subject_hash",
+            "doc_date"
+          ],
+          "since": "1.6.0"
+        }
+      },
+      "_moved": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-G3 (GAP-123-5, R-BRAIN-SKELETON) — moved from core.skills (its since values 1.5.0…1.7.0 are core.skills versions; the table is unchanged: installer BizCity_Journal_Database SCHEMA_VERSION 1.2.0, option bizcity_journal_db_version). The spine of the brain belongs to core/kg-hub.",
+      "version_option": "bizcity_journal_db_version",
+      "installer": "BizCity_Journal_Database::maybe_install (SCHEMA_VERSION 1.2.0)"
     }
   },
   "history": [
@@ -274,5 +427,6 @@
     { "version": "0.23.0", "date": "2026-05-19", "change": "R-DCL history backfill: declare the original Skeleton-First notebook columns and indexes already present in the active installer." },
     { "version": "0.20.0", "date": "2026-05-12", "change": "R-DCL history backfill: declare notebook UUID and artifact columns and indexes already present in the active installer." },
     { "version": "0.1.0",  "date": "2026-04-01", "change": "R-DCL history backfill: declare the original notebook identity and metadata columns and indexes already present in the active installer." }
-  ]
+  ],
+  "_stamp_126": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-G3 — + bizcity_journal_entries (the journal spine, moved from core.skills; R-JOURNAL / R-BRAIN-SKELETON)."
 }

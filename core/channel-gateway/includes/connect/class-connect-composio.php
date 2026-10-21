@@ -101,13 +101,19 @@ final class BizCity_Connect_Composio_REST {
 	}
 
 	public static function post_connect( WP_REST_Request $request ): WP_REST_Response {
-		$p       = $request->get_json_params();
-		$toolkit = is_array( $p ) ? (string) ( $p['toolkit'] ?? '' ) : '';
+		$p = $request->get_json_params();
+		return self::start_connect( is_array( $p ) ? (string) ( $p['toolkit'] ?? '' ) : '', self::callback_url() );
+	}
+
+	/**
+	 * [2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P3 — one connect start for both doors: the Channel Gateway screen
+	 * (callback = this admin screen) and the owner panel sent over Zalo (callback = the panel page, no WP login needed there).
+	 */
+	public static function start_connect( string $toolkit, string $url ): WP_REST_Response {
 		if ( ! in_array( $toolkit, array( 'gmail', 'googledrive', 'facebook', 'googlesheets', 'googlecalendar', 'googlemeet', 'canva' ), true ) ) {
 			return self::error( 400, 'invalid_param', 'Chọn ứng dụng cần kết nối.', 'gmail | googledrive | facebook | googlesheets | googlecalendar | googlemeet | canva' );
 		}
 		self::ensure_web_home( true ); // [2026-10-15 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.114 S114-L2: a site that only ever used Kết nối nhanh must be known to the Hub too
-		$url = self::callback_url();
 		// the cell refuses non-https callbacks (an http dev site still connects: Composio then shows its own "done" page)
 		return self::send( 'POST', '/connect', array(), array( 'toolkit' => $toolkit, 'callback_url' => 0 === strpos( $url, 'https://' ) ? $url : '' ) );
 	}

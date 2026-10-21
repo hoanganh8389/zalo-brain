@@ -41,6 +41,27 @@ final class BizCity_Diagnostics_Changelog_Loader {
 		return __DIR__ . '/changelog';
 	}
 
+	/** @var string[] extra changelog folders owned by add-on plugins (their own tables live in THEIR repo). */
+	private static $extra_dirs = [];
+
+	/**
+	 * [2026-10-20 09:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-A (ZBC-12) — an add-on plugin (bizcity-twin-crm) declares its own tables in its
+	 * own `schema/changelog/` folder and registers it here; the core folder keeps only the tables the Zalo Brain axis needs. Idempotent; drops the memo.
+	 */
+	public static function add_dir( string $dir ): void {
+		$dir = rtrim( str_replace( '\\', '/', $dir ), '/' );
+		if ( '' === $dir || in_array( $dir, self::$extra_dirs, true ) ) {
+			return;
+		}
+		self::$extra_dirs[] = $dir;
+		self::$cache        = null;
+	}
+
+	/** @return string[] every folder the loader reads: core first, then add-on folders. */
+	public static function dirs(): array {
+		return array_merge( [ self::dir() ], self::$extra_dirs );
+	}
+
 	/**
 	 * Register the bridge filter once. Idempotent.
 	 */
@@ -65,11 +86,17 @@ final class BizCity_Diagnostics_Changelog_Loader {
 		if ( is_dir( $stray ) && glob( $stray . '/*.json' ) ) {
 			error_log( '[BizCity_Schema] stray_changelog_dir core/diagnostics/changelog has JSON files; the loader reads core/helper/schema/changelog only.' );
 		}
-		if ( ! is_dir( $dir ) ) {
-			return self::$cache = $out;
+		$files = [];
+		foreach ( self::dirs() as $d ) {
+			if ( ! is_dir( $d ) ) {
+				continue;
+			}
+			$g = glob( $d . '/*.json' );
+			if ( is_array( $g ) ) {
+				$files = array_merge( $files, $g );
+			}
 		}
-		$files = glob( $dir . '/*.json' );
-		if ( ! is_array( $files ) ) {
+		if ( ! $files ) {
 			return self::$cache = $out;
 		}
 		foreach ( $files as $file ) {

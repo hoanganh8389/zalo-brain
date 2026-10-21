@@ -181,6 +181,7 @@ final class BizCity_KG_Private_File_Store {
 				'entry_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'offset'   => array( 'type' => 'integer', 'minimum' => 0 ),
 				'limit'    => array( 'type' => 'integer', 'minimum' => 200, 'maximum' => self::TEXT_PAGE_MAX ),
+				'want_file' => array( 'type' => 'boolean' ), // [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.120 K2 — kèm link ký 15 phút của file gốc dù chữ đã sẵn (cell lấy file mẫu hợp đồng)
 			) ),
 			'output_schema'  => $R::envelope_schema( array(
 				'doc_code'    => array( 'type' => 'string' ),
@@ -260,7 +261,7 @@ final class BizCity_KG_Private_File_Store {
 		} else {
 			return new WP_Error( class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::QUERY_INVALID : 'query_invalid', 'Cần doc_code hoặc entry_id.', array( 'status' => 400 ) );
 		}
-		$title = $row ? (string) $row['title'] : ( $attach > 0 ? (string) get_the_title( $attach ) : '' );
+		$title = $row ? (string) $row['title'] : ( $attach > 0 ? (string) self::raw_title( $attach ) : '' );
 		$text  = self::kg_text( $row ? (int) $row['kg_source_id'] : 0, $attach );
 		if ( '' === trim( $text ) ) {
 			$url = $attach > 0 ? self::signed_url( $attach ) : '';
@@ -270,7 +271,14 @@ final class BizCity_KG_Private_File_Store {
 			return array( 'doc_code' => $code, 'title' => $title, 'text_ready' => false, 'text' => '', 'offset' => 0, 'next_offset' => null, 'total_chars' => 0, 'url' => $url );
 		}
 		$page = self::slice_text( $text, (int) ( $args['offset'] ?? 0 ), (int) ( $args['limit'] ?? self::TEXT_PAGE_MAX ) );
-		return array( 'doc_code' => $code, 'title' => $title, 'text_ready' => true ) + $page;
+		$out = array( 'doc_code' => $code, 'title' => $title, 'text_ready' => true ) + $page;
+		if ( ! empty( $args['want_file'] ) && $attach > 0 ) {
+			$link = self::signed_url( $attach );
+			if ( '' !== $link ) {
+				$out['url'] = $link;
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -377,6 +385,10 @@ final class BizCity_KG_Private_File_Store {
 	 * @param string $account_id the Zalo number of the turn
 	 */
 	public static function may_read( int $file_owner, string $workspace, int $user_id, string $role, string $account_id ): bool {
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P2 (brain-access@1, BS-7) — one decision point for file.get: BizCity_Brain_Access::decide_file (same rule, same tests).
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			return BizCity_Brain_Access::decide_file( $file_owner, $workspace, BizCity_Brain_Access::principal( array( 'role' => $role, 'user_id' => $user_id, 'account_id' => $account_id ) ), $account_id );
+		}
 		if ( $user_id <= 0 || ! in_array( $role, array( 'owner', 'staff' ), true ) ) {
 			return false;
 		}
@@ -411,7 +423,7 @@ final class BizCity_KG_Private_File_Store {
 		$ext = self::ext_of( (string) get_post_meta( $id, '_wp_attached_file', true ) );
 		return array(
 			'doc_code'   => self::doc_code( $id ),
-			'file_name'  => sanitize_file_name( get_the_title( $id ) ) . ( '' !== $ext ? '.' . $ext : '' ),
+			'file_name'  => sanitize_file_name( self::raw_title( $id ) ) . ( '' !== $ext ? '.' . $ext : '' ),
 			'mime'       => (string) get_post_meta( $id, self::META_MIME, true ),
 			'size'       => (int) get_post_meta( $id, self::META_SIZE, true ),
 			'url'        => self::signed_url( $id ),
@@ -606,7 +618,10 @@ final class BizCity_KG_Private_File_Store {
 		), $dest, 0, true );
 		if ( is_wp_error( $attach_id ) || (int) $attach_id <= 0 ) {
 			@unlink( $dest );
-			return new WP_Error( 'store_failed', 'Không tạo được bản ghi tài liệu.' );
+			// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.120 — nói LÝ DO THẬT của WordPress (biên nhận + log), không chỉ "không tạo được"
+			$why = is_wp_error( $attach_id ) ? $attach_id->get_error_code() . ': ' . $attach_id->get_error_message() : 'wp_insert_attachment trả 0 (có hook chặn hoặc DB từ chối)';
+			error_log( '[kg-private-file] store_failed ext=' . $info['ext'] . ' mime=' . $info['mime'] . ' ' . $why );
+			return new WP_Error( 'store_failed', 'Không tạo được bản ghi tài liệu: ' . $why );
 		}
 		$attach_id = (int) $attach_id;
 		update_post_meta( $attach_id, self::META_PRIVATE, 1 );
@@ -724,7 +739,7 @@ final class BizCity_KG_Private_File_Store {
 			$path = (string) $tmp;
 		}
 		$mime = (string) get_post_meta( $id, self::META_MIME, true );
-		$name = sanitize_file_name( get_the_title( $id ) . '.' . self::ext_of( (string) get_post_meta( $id, '_wp_attached_file', true ) ) );
+		$name = sanitize_file_name( self::raw_title( $id ) . '.' . self::ext_of( (string) get_post_meta( $id, '_wp_attached_file', true ) ) );
 		nocache_headers();
 		header( 'Content-Type: ' . ( '' !== $mime ? $mime : 'application/octet-stream' ) );
 		header( 'Content-Length: ' . (string) filesize( $path ) );
@@ -736,6 +751,17 @@ final class BizCity_KG_Private_File_Store {
 			@unlink( $tmp );
 		}
 		exit;
+	}
+
+	/**
+	 * [2026-10-18 07:16 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 — tiêu đề THÔ của tệp: `get_the_title()` của bài `private` tự thêm "Riêng tư: " ⇒ tên tải về
+	 * thành "Rieng-tu-hop-dong-….docx" và lan sang tên phiên bản (ca thật 18/10 19:10, TL-7215). Đọc thẳng `post_title`.
+	 */
+	private static function raw_title( int $id ): string {
+		if ( isset( self::$readers['title'] ) ) {
+			return (string) call_user_func( self::$readers['title'], $id );
+		}
+		return function_exists( 'get_post_field' ) ? (string) get_post_field( 'post_title', $id, 'raw' ) : '';
 	}
 
 	/** Vietnamese line for a reason code (receipt + WP_Error message). Pure. */
@@ -751,6 +777,11 @@ final class BizCity_KG_Private_File_Store {
 				return 'file rỗng';
 			case 'download_failed':
 				return 'không tải được file từ Zalo (link có thể đã hết hạn) — anh gửi lại giúp em';
+			// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.120 — hai mã lưu của website nói đúng nguyên nhân (trước đây rơi vào câu chung "lỗi khi lưu trên trang")
+			case 'store_unwritable':
+				return 'website chưa ghi được file vào thư mục media (quyền thư mục hoặc ổ đĩa) — báo kỹ thuật kiểm tra thư mục uploads';
+			case 'store_failed':
+				return 'website không tạo được bản ghi tài liệu — báo kỹ thuật xem log PHP';
 			default:
 				return 'lỗi khi lưu trên trang';
 		}
@@ -767,10 +798,28 @@ final class BizCity_KG_Private_File_Store {
 			if ( $f ) {
 				$m = finfo_file( $f, $path );
 				finfo_close( $f );
-				return is_string( $m ) ? strtolower( $m ) : '';
+				return is_string( $m ) ? self::clean_mime( $m ) : '';
 			}
 		}
-		return function_exists( 'mime_content_type' ) ? strtolower( (string) @mime_content_type( $path ) ) : '';
+		return function_exists( 'mime_content_type' ) ? self::clean_mime( (string) @mime_content_type( $path ) ) : '';
+	}
+
+	/**
+	 * [2026-10-18 04:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 — libmagic (PHP finfo) trả loại file của .docx/.xlsx bị LẶP ĐÔI
+	 * ("…wordprocessingml.documentapplication/vnd…document", 142 ký tự) ⇒ vượt cột `post_mime_type` varchar(100) ⇒ wp_insert_attachment
+	 * báo db_insert_error ("Không thể chèn đính kèm vào cơ sở dữ liệu") ⇒ store_failed. Ca thật tranghana.vn 18/10 15:58. Lấy nửa đầu khi lặp; còn thừa ⇒ chỉ giữ
+	 * `type/subtype` đầu tiên; cắt ≤ 100. Thuần hàm.
+	 */
+	public static function clean_mime( string $mime ): string {
+		$m   = strtolower( trim( $mime ) );
+		$len = strlen( $m );
+		if ( $len > 0 && 0 === $len % 2 && substr( $m, 0, $len / 2 ) === substr( $m, $len / 2 ) ) {
+			$m = substr( $m, 0, $len / 2 );
+		}
+		if ( preg_match( '#^([a-z0-9][a-z0-9!\#$&^_.+-]*/[a-z0-9][a-z0-9!\#$&^_.+-]*?)(?:application|text|image|audio|video|font|model|multipart|message)/#', $m, $mm ) ) {
+			$m = $mm[1];
+		}
+		return substr( $m, 0, 100 );
 	}
 
 	/** 24 hex = 96 random bits in the stored name. */

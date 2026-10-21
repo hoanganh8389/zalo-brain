@@ -284,6 +284,117 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	}
 
 	/**
+	 * [2026-10-19 10:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W2 (B7, R-JN-27) — tệp của một nhóm Zalo vào SỔ CỦA CHỦ SỐ, cùng đường cron
+	 * như owner-capture (tải từ URL CRM → kho riêng tư / R2 → journal). Người gọi (BizCity_CRM_Group_Secretary) đã kiểm bậc quyền / công tắc
+	 * theo dõi; ở đây chỉ kiểm số, chủ, bật / tắt và dựng job. Mỗi tệp một khoá `gc:<blog>:<crm_attachment_id>` ⇒ lưu lại / gửi lại không thêm dòng.
+	 *
+	 * @param array $files [{kind:image|file, url, file_name, crm_attachment_id, crm_message_id, sender_label, sender_role, msg_ref}]
+	 * @param array $group {gid, conv_id, name, trigger: command|follow}
+	 * @return array { ok:bool, code:string, queued?:int, duplicate?:bool }
+	 */
+	public static function from_group_files( string $bridge_id, array $files, array $group ): array {
+		if ( self::in_diagnostics_cli() ) {
+			return array( 'ok' => false, 'code' => 'cli_isolated' );
+		}
+		$bridge_id = sanitize_text_field( $bridge_id );
+		$gid       = preg_match( '/^[0-9]{3,30}$/', (string) ( $group['gid'] ?? '' ) ) ? (string) $group['gid'] : '';
+		if ( '' === $bridge_id || '' === $gid ) {
+			return array( 'ok' => false, 'code' => 'invalid_param' );
+		}
+		if ( ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) ) {
+			return array( 'ok' => false, 'code' => 'mapping_unavailable' );
+		}
+		$db_account = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $bridge_id );
+		if ( ! is_array( $db_account ) ) {
+			return array( 'ok' => false, 'code' => 'account_not_found' );
+		}
+		$job = self::group_job( $bridge_id, $db_account, $files, $group );
+		$reason = self::owner_capture_skip_reason( array(
+			'enabled'       => (bool) apply_filters( self::FILTER_ENABLED, true, $bridge_id ),
+			'provider'      => class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::provider( $bridge_id ) : '',
+			'owner_user_id' => (int) $job['owner_user_id'],
+			'has_items'     => ! empty( $job['items'] ),
+		) );
+		if ( '' !== $reason ) {
+			self::log( 'group_capture_skipped', array( 'account_id' => $bridge_id, 'reason' => $reason, 'trigger' => $job['trigger'] ) );
+			return array( 'ok' => false, 'code' => $reason );
+		}
+		$already   = (bool) wp_next_scheduled( self::CRON_HOOK, array( $job ) );
+		$scheduled = $already ? true : wp_schedule_single_event( time(), self::CRON_HOOK, array( $job ) );
+		if ( false === $scheduled ) {
+			self::log( 'knowledge_capture_schedule_failed', array( 'account_id' => $bridge_id, 'origin' => 'group_capture', 'items' => count( $job['items'] ) ), 'error' );
+			return array( 'ok' => false, 'code' => 'schedule_failed' );
+		}
+		if ( ! $already ) {
+			self::log( 'knowledge_capture_queued', array( 'account_id' => $bridge_id, 'origin' => 'group_capture', 'items' => count( $job['items'] ), 'thread' => 'group', 'trigger' => $job['trigger'] ) );
+			if ( function_exists( 'spawn_cron' ) ) {
+				spawn_cron(); // URL CDN Zalo hết hạn: chạy ngay, không đợi lượt xem trang
+			}
+		}
+		return array( 'ok' => true, 'code' => '', 'queued' => count( $job['items'] ), 'duplicate' => $already );
+	}
+
+	/**
+	 * PHASE-0.124 W2 — job cron của tệp nhóm (thuần, test được). Tệp hỏng URL / thiếu mã tệp CRM bị bỏ riêng.
+	 *
+	 * @param array $db_account {owner_user_id, label}
+	 */
+	public static function group_job( string $bridge_id, array $db_account, array $files, array $group ): array {
+		$blog    = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$gid     = (string) ( $group['gid'] ?? '' );
+		$conv_id = (int) ( $group['conv_id'] ?? 0 );
+		$trigger = 'follow' === (string) ( $group['trigger'] ?? '' ) ? 'follow' : 'command';
+		$name    = substr( sanitize_text_field( (string) ( $group['name'] ?? '' ) ), 0, 120 );
+		$items   = array();
+		foreach ( array_values( $files ) as $i => $fl ) {
+			$url = trim( (string) ( $fl['url'] ?? '' ) );
+			$att = (int) ( $fl['crm_attachment_id'] ?? 0 );
+			if ( '' === $url || ! preg_match( '#^https?://#i', $url ) || $att <= 0 ) {
+				continue;
+			}
+			$kind  = 'image' === (string) ( $fl['kind'] ?? '' ) ? 'image' : 'file';
+			$a     = array( 'kind' => $kind, 'url' => $url, 'source_url' => $url );
+			$fname = sanitize_text_field( (string) ( $fl['file_name'] ?? '' ) );
+			if ( '' !== $fname ) {
+				$a['file_name'] = $fname;
+			}
+			$items[] = array(
+				'kind'              => $kind,
+				'attachment'        => $a,
+				'raw_index'         => $i,
+				'card'              => array( 'tags' => array( 'grp-' . $gid ) ),
+				'item_key'          => 'gc:' . $blog . ':' . $att,
+				'crm_attachment_id' => $att,
+				'group'             => array(
+					'ref'          => $conv_id > 0 ? 'NH-' . $conv_id : '',
+					'gid'          => $gid,
+					'name'         => $name,
+					'sender_label' => (string) ( $fl['sender_label'] ?? '' ),
+					'sender_role'  => (string) ( $fl['sender_role'] ?? 'member' ),
+					'msg_ref'      => (string) ( $fl['msg_ref'] ?? '' ),
+					'trigger'      => $trigger,
+				),
+			);
+		}
+		return array(
+			'blog_id'        => $blog,
+			'bridge_id'      => $bridge_id,
+			'owner_user_id'  => (int) ( $db_account['owner_user_id'] ?? 0 ),
+			'label'          => (string) ( $db_account['label'] ?? '' ),
+			'day_key'        => function_exists( 'wp_date' ) ? wp_date( 'Ymd', time() ) : gmdate( 'Ymd' ),
+			'dedupe_key'     => 'gc:' . $blog . ':' . $gid,
+			'origin'         => 'group_capture',
+			'thread_kind'    => 'group',
+			'crm_message_id' => (int) ( $files[0]['crm_message_id'] ?? 0 ),
+			'actor_user_id'  => (int) ( $db_account['owner_user_id'] ?? 0 ),
+			'role'           => 'owner',
+			'trigger'        => $trigger,
+			'group_name'     => $name,
+			'items'          => $items,
+		);
+	}
+
+	/**
 	 * Wave 2 (W2-4): who receives an owner-capture@1.1 item. The owner by hash (or `role: owner` with no staff match), or an
 	 * active staff member of THIS number whose `notebook` mode + matching capture switch are on. null = refuse (403).
 	 *
@@ -393,6 +504,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			$raw_index = isset( $item['raw_index'] ) ? (int) $item['raw_index'] : $i;
 			// One message id per item: the bridge dedupes on it, so a retried job never adds the same item twice.
 			$mid = (string) ( $job['dedupe_key'] ?? '' ) . ':' . $raw_index;
+			// [2026-10-19 10:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W2 — tệp nhóm mang khoá riêng theo tệp CRM (lưu theo lệnh rồi lại theo dõi ⇒ vẫn một dòng)
+			if ( '' !== (string) ( $item['item_key'] ?? '' ) ) {
+				$mid = (string) $item['item_key'];
+			}
 			$row = array(
 				'kind'       => (string) ( $item['kind'] ?? 'file' ),
 				'title_hint' => $title,
@@ -409,6 +524,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				'card'             => is_array( $item['card'] ?? null ) ? $item['card'] : array(),
 				'idempotency_key'  => $mid,
 				'kind_hint'        => (string) ( $item['kind'] ?? 'file' ),
+				'group'            => is_array( $item['group'] ?? null ) ? $item['group'] : null,
+				'crm_attachment_id'=> (int) ( $item['crm_attachment_id'] ?? 0 ),
 			);
 			$items[] = $row;
 		}
@@ -506,10 +623,15 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		$role        = (string) ( $job['role'] ?? 'owner' );
 		$rows        = array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) );
 		foreach ( $rows as $r ) {
-			if ( ! is_array( $r ) || ! empty( $r['duplicate'] ) ) {
-				continue; // already indexed by the capture that first wrote this item.
+			if ( ! is_array( $r ) ) {
+				continue;
 			}
 			$idx = isset( $r['index'] ) ? (int) $r['index'] : -1;
+			// [2026-10-21 12:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — một tin NHÓM trùng nội dung (sha256) với tệp đã lưu từ chỗ khác vẫn được ghi một dòng sổ riêng (khoá theo tin):
+			// trước đây bị bỏ qua nên tệp gửi vào nhóm "biến mất" khỏi sổ, tin CRM không nhận mã TL-, dòng "lưu lỗi" cũ không được mở lại. Chat riêng giữ luật cũ (đã có dòng).
+			if ( ! empty( $r['duplicate'] ) && ! ( $idx >= 0 && isset( $card_meta[ $idx ] ) && is_array( $card_meta[ $idx ]['group'] ?? null ) ) ) {
+				continue; // already indexed by the capture that first wrote this item.
+			}
 			if ( $idx < 0 || ! isset( $card_meta[ $idx ] ) ) {
 				continue;
 			}
@@ -534,12 +656,14 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 					$original['mime'] = $mime_real;
 				}
 			}
+			$grp   = is_array( $meta['group'] ?? null ) ? $meta['group'] : null; // PHASE-0.124 W2: tệp nhóm
 			$entry = BizCity_Journal_Index::add( array(
 				'owner_user_id'   => $owner,
 				'kind'            => $kind,
 				'title'           => $title,
 				'summary'         => (string) ( $card['summary'] ?? ( $card['fields']['summary'] ?? '' ) ),
-				'origin'          => array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
+				'origin'          => null !== $grp ? array( 'surface' => 'zalo_group', 'ref' => '' !== (string) $grp['ref'] ? (string) $grp['ref'] : 'g:' . (string) $grp['gid'] ) : array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
+				'group'           => $grp,
 				'learning'        => array( 'level' => $attach_id > 0 || (int) ( $r['kg_source_id'] ?? 0 ) > 0 ? 'L1' : 'L0', 'text_ready' => (int) ( $r['kg_source_id'] ?? 0 ) > 0 ),
 				'doc_date'        => $card['doc_date'] ?? null,
 				'subject'         => is_array( $card['subject'] ?? null ) ? $card['subject'] : array(),
@@ -549,12 +673,16 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				'original'        => $original,
 				'notebook_id'     => $notebook_id,
 				'kg_source_id'    => (int) ( $r['kg_source_id'] ?? 0 ),
-				'source_type'     => 'owner_capture',
+				'source_type'     => null !== $grp ? 'group_capture' : 'owner_capture',
 				'idempotency_key' => (string) $meta['idempotency_key'],
 				'by'              => array( 'role' => $role ),
 			) );
 			if ( is_wp_error( $entry ) ) {
 				continue;
+			}
+			// PHASE-0.124 W2: tin nhóm trên CRM trỏ về bản gốc đã giữ (group-transcript@1 `file_ref` = mã TL-)
+			if ( null !== $grp && (int) ( $meta['crm_attachment_id'] ?? 0 ) > 0 && class_exists( 'BizCity_CRM_Group_Secretary', false ) ) {
+				BizCity_CRM_Group_Secretary::mark_attachment_kept( (int) $meta['crm_attachment_id'], (string) ( $entry['original']['doc_code'] ?? '' ), (int) $entry['entry_id'] );
 			}
 			if ( 'failed' === (string) ( $entry['state'] ?? '' ) ) {
 				// an earlier attempt on this key failed (Q121-13 row); this one kept the file ⇒ reopen the same row, never a second one
@@ -590,8 +718,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				'state'           => 'failed',
 				'error'           => array( 'code' => (string) ( $f['code'] ?? 'store_failed' ), 'message' => (string) ( $f['error'] ?? '' ) ),
 				'original'        => array( 'mime' => (string) $meta['kind_hint'], 'file_name' => $name ),
-				'origin'          => array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
-				'source_type'     => 'owner_capture',
+				'origin'          => is_array( $meta['group'] ?? null ) ? array( 'surface' => 'zalo_group', 'ref' => 'g:' . (string) $meta['group']['gid'] ) : array( 'surface' => 'zalo_1_1', 'ref' => (string) ( $job['dedupe_key'] ?? '' ) ),
+				'group'           => is_array( $meta['group'] ?? null ) ? $meta['group'] : null,
+				'tags'            => is_array( $meta['group'] ?? null ) ? array( 'grp-' . (string) $meta['group']['gid'] ) : array(),
+				'source_type'     => is_array( $meta['group'] ?? null ) ? 'group_capture' : 'owner_capture',
 				'idempotency_key' => (string) $meta['idempotency_key'],
 				'by'              => array( 'role' => $role ),
 			) );
@@ -651,7 +781,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				continue;
 			}
 			$why      = class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::reason_text( (string) ( $r['code'] ?? '' ) ) : 'lỗi khi lưu trên trang';
-			$failed[] = '- ' . $name( $r ) . ' — ' . $why;
+			// [2026-10-18 Johnny Chu - Chu Hoàng Anh] PHASE-0.120 — mã lỗi thật đi kèm lý do chung ("lỗi khi lưu trên trang" không cho biết gì): để chủ/kỹ thuật thấy ngay nguyên nhân.
+			$rc       = preg_replace( '/[^a-z0-9_]/i', '', (string) ( $r['code'] ?? '' ) );
+			$detail   = trim( mb_substr( wp_strip_all_tags( (string) ( $r['error'] ?? '' ) ), 0, 160 ) );
+			$failed[] = '- ' . $name( $r ) . ' — ' . $why . ( '' !== $rc ? ' [' . $rc . ( '' !== $detail ? ': ' . $detail : '' ) . ']' : '' );
 		}
 		if ( ! $stored && ! $dups && ! $failed ) {
 			return null;
@@ -748,12 +881,18 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 
 	/** Best effort: a receipt that cannot be sent is logged, never retried in W1 (the notebook still has the file). */
 	private static function send_receipt( array $job, int $owner, string $bridge_id, array $res ): void {
-		if ( 'owner_capture' !== (string) ( $job['origin'] ?? '' ) || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::enabled() ) {
+		// PHASE-0.124 W2: tệp nhóm lưu THEO LỆNH ⇒ chủ nhận biên nhận (kèm tên nhóm); tự lưu khi theo dõi ⇒ im lặng (không spam chủ)
+		$origin    = (string) ( $job['origin'] ?? '' );
+		$group_cmd = 'group_capture' === $origin && 'command' === (string) ( $job['trigger'] ?? '' );
+		if ( ( 'owner_capture' !== $origin && ! $group_cmd ) || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::enabled() ) {
 			return;
 		}
 		$receipt = self::receipt( $res );
 		if ( null === $receipt ) {
 			return;
+		}
+		if ( $group_cmd ) {
+			$receipt['text'] = '📁 Nhóm ' . ( '' !== (string) ( $job['group_name'] ?? '' ) ? '"' . (string) $job['group_name'] . '"' : 'Zalo' ) . "\n" . $receipt['text'];
 		}
 		$ctx = array( 'account_id' => $bridge_id, 'event_type' => $receipt['event_type'], 'stored' => $receipt['stored'], 'duplicate' => $receipt['duplicate'], 'failed' => $receipt['failed'] );
 		try {

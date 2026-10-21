@@ -204,7 +204,7 @@ final class BizCity_Twin_Agent_Turn_Complete_REST {
 			if ( ! preg_match( '/^cm_[a-f0-9]{24}$/', $media ) || ! preg_match( '/^co_[a-f0-9]{24}$/', $output ) || '' === $name || ! preg_match( '#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $mime ) || ! in_array( $kind, $kinds, true ) ) {
 				continue;
 			}
-			$out[] = array(
+			$row = array(
 				'output_id'  => $output,
 				'kind'       => $kind,
 				'name'       => mb_substr( $name, 0, 200 ),
@@ -214,8 +214,38 @@ final class BizCity_Twin_Agent_Turn_Complete_REST {
 				'expires_at' => substr( sanitize_text_field( (string) ( $f['expires_at'] ?? '' ) ), 0, 40 ),
 				'via'        => 'zalo' === ( $f['via'] ?? '' ) ? 'zalo' : 'cell_chat',
 			);
+			$version = self::file_version( $f['version'] ?? null );
+			if ( null !== $version ) {
+				$row['version'] = $version;
+			}
+			$out[] = $row;
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-18 05:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 doc 82 §13 (R-FILE-VERSION FV-7, `cell-output@1.1.0` field `version`) — file này là bản thứ mấy của
+	 * tài liệu nào + ghi chú đã sửa gì. Sai hình dạng ⇒ null (file vẫn được nhận như 1.0.0). Pure.
+	 *
+	 * @return array{family:string,v:int,parent_v:?int,at:string,note:string}|null
+	 */
+	public static function file_version( $v ): ?array {
+		if ( ! is_array( $v ) ) {
+			return null;
+		}
+		$family = (string) ( $v['family'] ?? '' );
+		$n      = (int) ( $v['v'] ?? 0 );
+		if ( ! preg_match( '/^fv_[a-f0-9]{12}$/', $family ) || $n < 1 || $n > 999 ) {
+			return null;
+		}
+		$parent = isset( $v['parent_v'] ) && is_numeric( $v['parent_v'] ) && (int) $v['parent_v'] >= 1 ? (int) $v['parent_v'] : null;
+		return array(
+			'family'   => $family,
+			'v'        => $n,
+			'parent_v' => $parent,
+			'at'       => substr( sanitize_text_field( (string) ( $v['at'] ?? '' ) ), 0, 40 ),
+			'note'     => mb_substr( sanitize_text_field( (string) ( $v['note'] ?? '' ) ), 0, 600 ),
+		);
 	}
 
 	/** Deterministic UUID (version-5 shape) from the cell's idempotency key: the same turn always maps to the same row. */

@@ -10,8 +10,8 @@
     {
       "path": "contracts/BIZCITY-MCP-STANDARD-v1.json",
       "source": "docs/contracts/BIZCITY-MCP-STANDARD-v1.json",
-      "sha256": "ca836e7afbec73a070cb10ef7e0da45c82dc2f1a81c3399196dcb43e1de07c45",
-      "bytes": 84078
+      "sha256": "025758353e71bde8a1b38072449a27b6fa8705dfdea7cc26187a73fdbfa09a65",
+      "bytes": 91788
     },
     {
       "path": "contracts/BIZCITY-MCP-TOOL-CONTRACT-v1.md",
@@ -20,10 +20,28 @@
       "bytes": 3799
     },
     {
+      "path": "contracts/BRAIN-ACCESS-v1.json",
+      "source": "core/kg-hub/contracts/BRAIN-ACCESS-v1.json",
+      "sha256": "300b0c9bb10cbfaa27393f254c6807c599e483615bd1611f1a52802e195ed521",
+      "bytes": 4225
+    },
+    {
+      "path": "contracts/JOB-LINK-v1.json",
+      "source": "core/kg-hub/contracts/JOB-LINK-v1.json",
+      "sha256": "e89790a82e6a1000623c382dce284ec0562bfce4f6444affa56a15793978d914",
+      "bytes": 4075
+    },
+    {
+      "path": "contracts/JOURNAL-ENTRY-v1.json",
+      "source": "core/kg-hub/contracts/JOURNAL-ENTRY-v1.json",
+      "sha256": "46d0dc1f5b3dc3fdf95c28564d8a394b9b2977982811eb1aaa4295a9c2e42760",
+      "bytes": 11255
+    },
+    {
       "path": "contracts/JOURNAL-KINDS-v1.json",
       "source": "core/kg-hub/contracts/JOURNAL-KINDS-v1.json",
-      "sha256": "49ec2b0f8829cec72685adb5d5d68d7ea8ab4a290b362b5df9399614e051a3cc",
-      "bytes": 17537
+      "sha256": "53477921b1598ed80af49dafdf93d9d19888c19afa859724caae4c0711548417",
+      "bytes": 28517
     },
     {
       "path": "contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.json",

@@ -111,7 +111,8 @@ final class BizCity_Twin_Cell_Output_Ready_REST {
 					'payload'          => $f + array( 'account_id' => $account, 'state' => 'pending', 'source' => sanitize_key( (string) ( $body['source'] ?? '' ) ), 'job_id' => substr( sanitize_text_field( (string) ( $body['job_id'] ?? '' ) ), 0, 64 ) ),
 				) );
 				++$stored;
-				do_action( 'bizcity_cell_output_created', array( 'event_uuid' => $row['uuid'], 'user_id' => $owner_id, 'account_id' => $account, 'session_id' => '', 'trace_id' => $trace, 'output' => $f ) );
+				// [2026-10-20 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-R110-01 (job-link@1) — the Job that made the file rides along: the journal listener links the output row under its JB- header
+				do_action( 'bizcity_cell_output_created', array( 'event_uuid' => $row['uuid'], 'user_id' => $owner_id, 'account_id' => $account, 'session_id' => '', 'trace_id' => $trace, 'output' => $f, 'job_id' => preg_match( '/^(job|pv|img)_[0-9A-Za-z]{6,40}$/', (string) ( $body['job_id'] ?? '' ) ) ? (string) $body['job_id'] : '' ) );
 			}
 		} catch ( \Throwable $e ) {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'event_invalid', 'message' => substr( $e->getMessage(), 0, 300 ) ), 422 );

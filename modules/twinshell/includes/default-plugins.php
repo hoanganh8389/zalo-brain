@@ -94,7 +94,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			// twin-shell forward param này khi rebuild iframe URL + sync address
 			// bar (admin.php?page=bizcity-twinchat&plugin=twinchat&session_id=…),
 			// y như cách `notebook_id` đang hoạt động cho notebook deep-link.
-			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread' ],
+			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread', 'ledger' ], // [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE, owner approved) — `ledger` = the whole query of the Sổ cái / Sổ screen (mode=sheets&sheet=…&period=…) in ONE key, so the shell carries it to the TwinChat iframe and back to the address bar without opening a prefix allowlist
 			'desc'        => __( 'Central business brain for chat, knowledge and work.', $td ),
 		],
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — channels are the

@@ -38,7 +38,8 @@ final class BizCity_Zalo_Pack_Invalidate {
 	// [2026-10-06 09:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.92 S92-CL-6 — + `automation` (scenario cards, BizCity_Automation_Cell_Pack_Exporter).
 	// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F1 — + `catalog_map` (product category tree, moves with categories / products / advice meta).
 	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L6 — + `skills` (approved SKILL.md labels, BizCity_Skills_Pack_Exporter; moves on skills.save / set_status / editor write).
-	const ALL_KINDS      = array( 'owner_knowledge', 'notebook_meta', 'sales', 'orders', 'customers', 'stock', 'astro_self', 'catalog', 'automation', 'catalog_map', 'skills' );
+	// [2026-10-20 06:01 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 G0 — + `doc_index` (its notices were dropped here: cells only caught up on the 10-min reconcile) + `group_index`.
+	const ALL_KINDS      = array( 'owner_knowledge', 'notebook_meta', 'sales', 'orders', 'customers', 'stock', 'astro_self', 'catalog', 'automation', 'catalog_map', 'skills', 'doc_index', 'group_index' );
 	/** Reason priority when several kinds of change share one call. */
 	const REASONS        = array( 'access_changed', 'source_changed', 'notebook_changed' );
 	const MAX_ITEMS      = 200;

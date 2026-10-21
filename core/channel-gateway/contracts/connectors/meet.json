@@ -23,6 +23,12 @@
     "toolkit": "googlemeet"
   },
   "desc": "Gắn link họp vào lịch hẹn khi khách đặt.",
+  "panel": {
+    "say": [
+      "kết nối google meet",
+      "nối meet"
+    ]
+  },
   "ui": {
     "glyph": "M",
     "color": "#00897b"

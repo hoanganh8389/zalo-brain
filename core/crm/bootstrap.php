@@ -86,6 +86,20 @@ if ( is_readable( $bizcity_crm_inc . 'class-crm-zalo-directory.php' ) ) {
 	require_once $bizcity_crm_inc . 'class-crm-zalo-directory.php';
 	BizCity_CRM_Zalo_Directory::init();
 }
+// [2026-10-19 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W1 — thư ký nhóm Zalo: cài đặt nhóm một chỗ + bậc quyền + group-transcript@1 (guarded: new file).
+if ( is_readable( $bizcity_crm_inc . 'class-crm-group-secretary.php' ) ) {
+	require_once $bizcity_crm_inc . 'class-crm-group-secretary.php';
+	BizCity_CRM_Group_Secretary::init(); // W2: tự lưu tệp nhóm đang theo dõi (hook bizcity_crm_message_persisted)
+	if ( is_readable( $bizcity_crm_inc . 'class-crm-group-index-pack.php' ) ) { // [2026-10-20 06:01 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 G0 — gói group_index cho cell
+		require_once $bizcity_crm_inc . 'class-crm-group-index-pack.php';
+		BizCity_CRM_Group_Index_Pack::register();
+	}
+	// [2026-10-19 11:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 B13 — tab Sổ nhóm (bizcity-crm/v1/conversations/{id}/group-notebook)
+	if ( is_readable( $bizcity_crm_inc . 'rest/class-crm-group-notebook-rest.php' ) ) {
+		require_once $bizcity_crm_inc . 'rest/class-crm-group-notebook-rest.php';
+		BizCity_CRM_Group_Notebook_REST::init();
+	}
+}
 foreach ( array( 'class-crm-actor.php', 'class-crm-authority.php', 'class-crm-zone-registry.php', 'crm-surfaces.php', 'class-crm-agent-mode-delegate.php' ) as $bizcity_crm_contract ) {
 	require_once $bizcity_crm_inc . 'contracts/' . $bizcity_crm_contract;
 }
@@ -106,15 +120,13 @@ foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'we
 unset( $bizcity_crm_adapter );
 require_once $bizcity_crm_inc . 'inbox/class-fb-ingestor.php';
 require_once $bizcity_crm_inc . 'class-crm-inbox-bridge.php';
-require_once $bizcity_crm_inc . 'class-gmail-smtp-repo.php';
+// [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — BizCity_CRM_Gmail_SMTP_Repo retired (Gmail goes through the cell + Composio); table bizcity_crm_gmail_smtp_accounts is quarantined, rows stay.
 require_once $bizcity_crm_inc . 'class-email-send-log.php';
 
 // ── Staff ↔ Zalo Bot magic links + admin-chat grants ──────────────────────────────────────────────────────────
 require_once $bizcity_crm_inc . 'admin-chat/class-magic-link.php';
 require_once $bizcity_crm_inc . 'admin-chat/class-magic-link-handler.php';
-require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-grants.php';
-require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-policy.php';
-require_once $bizcity_crm_inc . 'admin-chat/class-admin-chat-confirm.php';
+// [2026-10-20 10:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — Admin_Chat_Grants / Policy / Confirm + the /admin-chat-grants REST moved to bizcity-twin-crm.
 
 // ── /crm/ "Đội Zalo" when the Zalo Brain CRM plugin is not active (PHASE-0.96 S96-7.4) ───────────────────────
 require_once $bizcity_crm_inc . 'class-crm-core-page.php';
@@ -167,12 +179,6 @@ final class BizCity_CRM_Spine_Boot {
 		add_action( 'rest_api_init', array( 'BizCity_CRM_Spine', 'register_rest' ), 9 );
 		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): /crm-settings/personal-phone-quota is registered by bizcity-twin-crm now
 
-		// Grants version bump on mutation.
-		$bump = array( 'BizCity_CRM_Spine_REST', 'bump_grants_version' );
-		add_action( 'bizcity_crm_admin_chat_grant_issued', $bump );
-		add_action( 'bizcity_crm_admin_chat_grant_approved', $bump );
-		add_action( 'bizcity_crm_admin_chat_grant_revoked', $bump );
-
 		// Identity, contracts, enrichment, owner.
 		if ( class_exists( 'BizCity_CRM_Agent_Mode_Delegate' ) ) {
 			BizCity_CRM_Agent_Mode_Delegate::register();
@@ -192,7 +198,6 @@ final class BizCity_CRM_Spine_Boot {
 		if ( class_exists( 'BizCity_CRM_Magic_Link_Handler' ) ) {
 			BizCity_CRM_Magic_Link_Handler::register();
 		}
-		BizCity_CRM_Admin_Chat_Grants::register();
 		// [2026-10-17 10:59 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-X4 (C1, doc 97): the grants admin screen is registered by bizcity-twin-crm now
 
 		// Module access: the CRM authority answers the 'crm' module for TwinShell.

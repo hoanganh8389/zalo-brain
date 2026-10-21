@@ -114,6 +114,9 @@ final class BizCity_MCP_Tool_Registry {
 			// [2026-10-16 04:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-B2 — executor-registry@1 id (`<miền>.<đối tượng>.<động từ>`) this tool is the site-side way to call; null = not declared yet.
 			// Kept OFF the wire (not in `_meta.bizcity`) until the tools/list fixture is bumped; read it with executor_of().
 			'executor'       => null,
+			// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 (R-BRAIN-SKELETON BS-3, doc 90 R103-01 / R116-03) — how a WRITE tool sits on the journal spine:
+			// {kind, source_ref '<type>:{key}', title, card[], job: turn|synthetic|none, job_prefix, goal}; BizCity_Journal_Tool_Axis writes the row after a success. null = not brain data.
+			'journal'        => null,
 		), $descriptor );
 		$reason = self::registry_keys_error( $name, $tool );
 		if ( null !== $reason ) {
@@ -638,7 +641,16 @@ final class BizCity_MCP_Tool_Registry {
 			$envelope['meta']['duration_ms'] = $duration;
 		}
 		self::write_audit( $name, $args, $ctx, $envelope, $duration );
+		// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — a successful WRITE of a tool that declares its journal axis feeds the spine (one listener: BizCity_Journal_Tool_Axis)
+		if ( ! empty( $envelope['success'] ) && is_array( self::$tools[ $name ]['journal'] ?? null ) && empty( self::$tools[ $name ]['read_only'] ) && function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_mcp_tool_finished', $name, $args, $ctx, $envelope );
+		}
 		return $envelope;
+	}
+
+	/** [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — the journal axis a registered tool declares, or null (unknown tool / not brain data). */
+	public static function journal_of( $name ) {
+		return isset( self::$tools[ $name ]['journal'] ) && is_array( self::$tools[ $name ]['journal'] ) ? self::$tools[ $name ]['journal'] : null;
 	}
 
 	/**
@@ -1120,6 +1132,8 @@ final class BizCity_MCP_Tool_Registry {
 			'idempotent'     => false,
 			'required_scope' => 'page.publish',
 			'handler'        => array( $svc, 'publish' ),
+			// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 doc 90 R118-01 — a published page is a product of the brain (layer output) under a one-shot Job
+			'journal'        => array( 'kind' => 'mkt.page.output', 'source_ref' => 'wp_page:{post_id}', 'title' => 'Trang đã xuất bản #{post_id}', 'card' => array( 'draft_id', 'post_id', 'status' ), 'job' => 'synthetic', 'job_prefix' => 'pg', 'goal' => 'Xuất bản trang #{post_id}' ),
 		) );
 	}
 

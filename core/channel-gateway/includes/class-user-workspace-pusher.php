@@ -41,6 +41,15 @@ final class BizCity_User_Workspace_Pusher {
 		}
 	}
 
+	// [2026-10-18 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-MX / Q117-MX-1 — an admin switch changed this person's rights: push now, past the debounce
+	public static function on_user_forced( $user_id ): void {
+		try {
+			self::push( (int) $user_id, true );
+		} catch ( Throwable $e ) {
+			unset( $e );
+		}
+	}
+
 	public static function on_user( $user_id ): void {
 		try {
 			self::push( (int) $user_id );

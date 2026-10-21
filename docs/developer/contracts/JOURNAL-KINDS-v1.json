@@ -1,9 +1,15 @@
 {
     "$schema": "https://bizcity.vn/schema/journal-kinds-v1.json",
-    "contract": "journal-kinds@1.1.0",
+    "contract": "journal-kinds@1.4.0",
     "_stamp": "[2026-10-12 10:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L16 — new file (doc 92 §3, R-JOURNAL R-JN-6/R-JN-7).",
     "_stamp_d100_25": "[2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — education = the owner's own study: no per-subject (per-student) notebook, no child-sensitive stamp. nutrition/nanny keep theirs (the person cared for is a subject, not an audience).",
     "families": {
+        "group": {
+            "label": "Nhóm Zalo",
+            "per_subject_notebook_default": false,
+            "sensitive": "",
+            "_stamp": "[2026-10-19 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W3 — sổ ghi chép nhóm (R-JN-27)"
+        },
         "common": {
             "label": "Chung",
             "per_subject_notebook_default": false,
@@ -58,9 +64,48 @@
             "label": "Sản phẩm của trợ lý",
             "per_subject_notebook_default": false,
             "sensitive": ""
+        },
+        "brain": {
+            "label": "Bộ não",
+            "per_subject_notebook_default": false,
+            "sensitive": "",
+            "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — vật chứa của não: notebook (NB), sổ (SO)"
+        },
+        "skill": {
+            "label": "Kỹ năng",
+            "per_subject_notebook_default": false,
+            "sensitive": "",
+            "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — skill client sở hữu: khai · bản · bài học · bật/tắt (KN)"
+        },
+        "job": {
+            "label": "Việc",
+            "per_subject_notebook_default": false,
+            "sensitive": "",
+            "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J1 (BS-5) — dòng đầu việc (JB) + bằng chứng (EV); sổ máy ở cell"
         }
     },
     "kinds": {
+        "grp.brief": {
+            "family": "group",
+            "label": "Sổ ghi chép nhóm",
+            "icon": "minutes",
+            "sensitive": "",
+            "learn": "index",
+            "card_fields": [
+                "level",
+                "group_ref",
+                "from_msg_ref",
+                "to_msg_ref",
+                "msg_count",
+                "participants",
+                "decisions",
+                "tasks",
+                "numbers",
+                "files",
+                "open_questions"
+            ],
+            "_stamp": "[2026-10-19 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W3 — mỗi mục có msg_ref (site kiểm); không phải nguồn số liệu (doc 124 câu 8)"
+        },
         "common.note": {
             "family": "common",
             "label": "Ghi chú",
@@ -378,6 +423,67 @@
                 "reverses"
             ]
         },
+        "fin.debt": {
+            "family": "commerce",
+            "label": "Công nợ",
+            "icon": "debt",
+            "sensitive": "finance",
+            "learn": "index",
+            "card_fields": [
+                "type",
+                "direction",
+                "party",
+                "amount",
+                "currency",
+                "due_date",
+                "note"
+            ]
+        },
+        "fin.plan": {
+            "family": "commerce",
+            "label": "Kế hoạch thu chi",
+            "icon": "plan",
+            "sensitive": "finance",
+            "learn": "index",
+            "card_fields": [
+                "name",
+                "metric",
+                "target",
+                "period_start",
+                "period_end",
+                "status"
+            ]
+        },
+        "task.progress": {
+            "family": "tasks",
+            "label": "Tiến độ",
+            "icon": "progress",
+            "learn": "index",
+            "card_fields": [
+                "subject",
+                "percent",
+                "status",
+                "assignee",
+                "due_date",
+                "note"
+            ]
+        },
+        "task.todo": {
+            "family": "tasks",
+            "label": "Việc cần làm",
+            "icon": "todo",
+            "learn": "index",
+            "card_fields": [
+                "title",
+                "done",
+                "version",
+                "assignee",
+                "due_date",
+                "priority",
+                "status",
+                "note"
+            ]
+        },
         "biz.quote": {
             "family": "commerce",
             "label": "Báo giá",
@@ -602,10 +708,275 @@
                 "scenario",
                 "artifacts"
             ]
+        },
+        "brain.notebook": {
+            "family": "brain",
+            "label": "Notebook",
+            "icon": "notebook",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "notebook_id",
+                "name",
+                "sources",
+                "level",
+                "subject"
+            ]
+        },
+        "sheet.define": {
+            "family": "brain",
+            "label": "Sổ (định nghĩa)",
+            "icon": "sheet",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "sheet_key",
+                "display_name",
+                "origin",
+                "schema_version",
+                "kind"
+            ]
+        },
+        "sheet.snapshot": {
+            "_stamp": "[2026-10-21 10:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W4 (R-BRAIN-SKELETON BS-1/2) — a Twin Sheet checkpoint (Chốt sổ): ONE index row, the rows themselves are frozen elsewhere. A ledger row is not knowledge: learn none, no vector, no graph.",
+            "family": "brain",
+            "label": "Bản chốt sổ (điểm lưu)",
+            "icon": "sheet",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "sheet_key",
+                "period",
+                "as_of",
+                "row_count",
+                "lock",
+                "name",
+                "version",
+                "restorable"
+            ]
+        },
+        "job.run": {
+            "family": "job",
+            "label": "Việc",
+            "icon": "job",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "status",
+                "requested_by",
+                "skill",
+                "steps_total",
+                "steps_done",
+                "due_at",
+                "delivered_at",
+                "output_refs",
+                "evidence_refs"
+            ]
+        },
+        "job.evidence": {
+            "family": "job",
+            "label": "Bằng chứng",
+            "icon": "evidence",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "evidence_id",
+                "method",
+                "ref_kind",
+                "page",
+                "quote"
+            ]
+        },
+        "skill.define": {
+            "family": "skill",
+            "label": "Kỹ năng",
+            "icon": "skill",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "skill_id",
+                "name",
+                "version",
+                "permissions",
+                "executor"
+            ]
+        },
+        "skill.revision": {
+            "family": "skill",
+            "label": "Bản kỹ năng",
+            "icon": "revision",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "skill_id",
+                "version",
+                "prev_version",
+                "change",
+                "eval"
+            ]
+        },
+        "skill.lesson": {
+            "family": "skill",
+            "label": "Bài học",
+            "icon": "lesson",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "skill_id",
+                "lesson",
+                "source_ref",
+                "review",
+                "applied_version"
+            ]
+        },
+        "skill.state": {
+            "family": "skill",
+            "label": "Bật / tắt kỹ năng",
+            "icon": "toggle",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "skill_id",
+                "enabled",
+                "scope",
+                "by"
+            ]
+        },
+        "auto.define": {
+            "family": "skill",
+            "label": "Tự động hoá",
+            "icon": "automation",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "scenario_id",
+                "name",
+                "trigger",
+                "schedule",
+                "enabled"
+            ]
+        },
+        "common.instruction": {
+            "family": "common",
+            "label": "Lời dặn",
+            "icon": "instruction",
+            "sensitive": "",
+            "learn": "index",
+            "card_fields": [
+                "title",
+                "instruction",
+                "scope"
+            ]
+        },
+        "mkt.page.output": {
+            "family": "mkt",
+            "label": "Trang đã xuất bản",
+            "icon": "page",
+            "sensitive": "",
+            "learn": "index",
+            "card_fields": [
+                "draft_id",
+                "post_id",
+                "status"
+            ],
+            "_stamp": "[2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 doc 90 R118-01 — page.publish writes it (journal axis of the tool)"
+        },
+        "job.decision": {
+            "family": "job",
+            "label": "Quyết định cho việc",
+            "icon": "decision",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "question",
+                "answer",
+                "by",
+                "waiting_on"
+            ],
+            "_stamp": "[2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 (proposed by PHASE-0.125 doc 30 HIL-resume) — the owner answer to a waiting job; role input under the JB- header"
+        },
+        "job.feedback": {
+            "family": "job",
+            "label": "Phản hồi về việc",
+            "icon": "feedback",
+            "sensitive": "",
+            "learn": "none",
+            "card_fields": [
+                "verdict",
+                "text",
+                "lesson",
+                "source",
+                "by"
+            ],
+            "_stamp": "[2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-B16/C3 (feedback@1, D127-8) — the owner's 👍 / 👎 / \"sửa…\" on a finished job (Zalo reply or Quest Map); role lesson (👎 / sửa) or input (👍) under the JB- header. A ledger row is not knowledge: learn none."
         }
     },
     "_stamp_121": "[2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J6/K5 (R-JOURNAL v1.1-1.3, doc 72 §4, doc 74 §3) — 1.1.0 additive: per-kind `learn` (index|vector|graph; absent = vector), families mkt / research / hr (sensitive personal), kinds common.link, mkt.*, research.*, hr.*. Plugins add their own family = plugin slug (manifest journal_kinds or filter bizcity_journal_kinds).",
     "learn_default": "vector",
     "_stamp_121_s2": "[2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 (R-JN-19) — family media + kinds media.{image,audio,video,document}.output (cell outputs, key out:) and task.output (Automation run results, key run:). Additive.",
-    "_stamp_121_s3": "[2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-3 (S121-R3) — biz.contract card_fields + end_date (reminders before expiry, registry ordering). verified is set only by a person through the web PATCH (B4-2), never through MCP."
+    "_stamp_121_s3": "[2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-3 (S121-R3) — biz.contract card_fields + end_date (reminders before expiry, registry ordering). verified is set only by a person through the web PATCH (B4-2), never through MCP.",
+    "learn_values": [
+        "none",
+        "index",
+        "vector",
+        "graph"
+    ],
+    "layers": {
+        "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1 (doc 05 §3, R-BRAIN-SKELETON) — the layer of a kind (journal-entry@1.2.layer); read by BizCity_Journal_Kinds::layer_of() and bin/validate-brain-skeleton.mjs. Order: by_kind, then by_prefix, then by_suffix, then default.",
+        "values": [
+            "document",
+            "notebook",
+            "twin_sheet",
+            "skill",
+            "job",
+            "output"
+        ],
+        "by_kind": {
+            "brain.notebook": "notebook",
+            "sheet.define": "twin_sheet",
+            "sheet.snapshot": "twin_sheet",
+            "fin.cash": "twin_sheet",
+            "fin.debt": "twin_sheet",
+            "fin.plan": "twin_sheet",
+            "task.progress": "twin_sheet",
+            "task.todo": "twin_sheet",
+            "track.point": "twin_sheet",
+            "common.instruction": "skill"
+        },
+        "by_prefix": {
+            "job.": "job",
+            "skill.": "skill",
+            "auto.": "skill",
+            "data.": "twin_sheet"
+        },
+        "by_suffix": {
+            ".output": "output"
+        },
+        "default": "document",
+        "tiers_only_for": [
+            "document",
+            "notebook"
+        ]
+    },
+    "ref_codes": {
+        "_stamp": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1 (R-JN-25, doc 20 §1) — the code a person reads and types back, by kind. Documents (layer document with an original file) use the file code TL-<attachment>; a document row without a file reads JE-<entry_id>. Prefixes are unique across layers (validate-brain-skeleton).",
+        "fin.cash": "TC",
+        "fin.debt": "CN",
+        "task.progress": "TD",
+        "task.todo": "VC",
+        "fin.plan": "KH",
+        "job.run": "JB",
+        "job.evidence": "EV",
+        "brain.notebook": "NB",
+        "sheet.define": "SO",
+        "sheet.snapshot": "CS",
+        "skill.define": "KN",
+        "skill.revision": "KN",
+        "skill.lesson": "KN",
+        "skill.state": "KN",
+        "document": "TL",
+        "fallback": "JE"
+    },
+    "_stamp_126": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1/B3/J1/K1 (doc 20 §1, R-BRAIN-SKELETON) — 1.3.0 additive: families brain / skill / job; kinds brain.notebook (NB) · sheet.define (SO) · job.run (JB) · job.evidence (EV) · skill.define/revision/lesson/state (KN) · auto.define · common.instruction (lời dặn, learn index); learn value none (no vector, no graph — a ledger row is not knowledge); layers + ref_codes tables.",
+    "_stamp_127": "[2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C3 — 1.4.0 additive: kind job.feedback (family job, layer job by prefix, no ref code of its own: it reads under its JB-)."
 }

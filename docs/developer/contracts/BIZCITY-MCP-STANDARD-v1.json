@@ -1373,6 +1373,177 @@
             "capability": "mcp.journal.summarize"
         },
         {
+            "name": "twinsheet.list",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "twinsheet_list",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W1 (2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh): Twin Sheet (\"Sổ\") read doors over journal rows (no table, D123-1): list = the person's sheets (no figures); describe = typed columns + allow-list; rows = one kind, one owner, period + allow-listed filters, ≤ 100 rows; aggregate = exact integer sum\/count\/min\/max\/avg (void\/failed\/reversal pairs never count). Owner = the principal, never an argument. Writes stay on journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.list"
+        },
+        {
+            "name": "twinsheet.describe",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "twinsheet_describe",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W1 (2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh): Twin Sheet (\"Sổ\") read doors over journal rows (no table, D123-1): list = the person's sheets (no figures); describe = typed columns + allow-list; rows = one kind, one owner, period + allow-listed filters, ≤ 100 rows; aggregate = exact integer sum\/count\/min\/max\/avg (void\/failed\/reversal pairs never count). Owner = the principal, never an argument. Writes stay on journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.describe"
+        },
+        {
+            "name": "twinsheet.rows",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "twinsheet_rows",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W1 (2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh): Twin Sheet (\"Sổ\") read doors over journal rows (no table, D123-1): list = the person's sheets (no figures); describe = typed columns + allow-list; rows = one kind, one owner, period + allow-listed filters, ≤ 100 rows; aggregate = exact integer sum\/count\/min\/max\/avg (void\/failed\/reversal pairs never count). Owner = the principal, never an argument. Writes stay on journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.rows"
+        },
+        {
+            "name": "twinsheet.aggregate",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "twinsheet_aggregate",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W1 (2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh): Twin Sheet (\"Sổ\") read doors over journal rows (no table, D123-1): list = the person's sheets (no figures); describe = typed columns + allow-list; rows = one kind, one owner, period + allow-listed filters, ≤ 100 rows; aggregate = exact integer sum\/count\/min\/max\/avg (void\/failed\/reversal pairs never count). Owner = the principal, never an argument. Writes stay on journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.aggregate"
+        },
+        {
+            "name": "twinsheet.create",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "twinsheet_create",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W3 (2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh): the person's OWN sheets (twin_sheet post, kind data.s<ID>, D123-2). create: the assistant reads the columns back and gets a yes first (R1); the same name + columns returns the first sheet (no copy); a money column makes it a money book (void + re-enter). update: name \/ icon \/ folder \/ archive of an own sheet only. Rows still go through journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.create"
+        },
+        {
+            "name": "twinsheet.update",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "twinsheet_update",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W3 (2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh): the person's OWN sheets (twin_sheet post, kind data.s<ID>, D123-2). create: the assistant reads the columns back and gets a yes first (R1); the same name + columns returns the first sheet (no copy); a money column makes it a money book (void + re-enter). update: name \/ icon \/ folder \/ archive of an own sheet only. Rows still go through journal.record (R-JN-13).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.update"
+        },
+        {
+            "name": "twinsheet.snapshot",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "required_cap": "edit_posts",
+            "confirm": "never",
+            "llm_alias": "twinsheet_snapshot",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 7,
+            "notes": "PHASE-0.123 W3 (2026-10-20 02:05 AM Johnny Chu - Chu Hoàng Anh): Chốt sổ — one sheet.snapshot journal row (row count, totals, fingerprint of id.rev per row) for a period; lock=true makes rows of that period read-only (423 period_locked) until the person unlocks it on the Sổ screen. The assistant asks which period and whether to lock BEFORE calling; the same content returns the earlier snapshot.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.twinsheet.snapshot"
+        },
+        {
             "name": "journal.derive",
             "kind": "write",
             "mode": "notebook",

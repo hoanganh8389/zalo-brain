@@ -454,7 +454,8 @@ final class BizCity_Bot_Config_Repo {
 			'max_batch_messages'   => array( 'label' => 'Trần tin mỗi lượt', 'unit' => 'tin', 'group' => 'queue', 'min' => 1, 'max' => 200, 'default' => 32, 'hint' => 'Chỉ chặn bộ nhớ — batch to vẫn là MỘT lượt; tin vượt trần vẫn vào lịch sử.' ),
 			'send_delay_min_ms'    => array( 'label' => 'Giãn nhịp gửi (tối thiểu)', 'unit' => 'ms', 'group' => 'send', 'min' => 0, 'max' => 10000, 'default' => 900, 'hint' => 'Trả lời tức thì mọi lúc trông rất máy móc.' ),
 			'send_delay_max_ms'    => array( 'label' => 'Giãn nhịp gửi (tối đa)', 'unit' => 'ms', 'group' => 'send', 'min' => 0, 'max' => 15000, 'default' => 2600, 'hint' => 'Phải lớn hơn hoặc bằng mức tối thiểu.' ),
-			'turn_timeout_seconds' => array( 'label' => 'Trần thời gian một lượt', 'unit' => 'giây', 'group' => 'turns', 'min' => 10, 'max' => 300, 'default' => 90, 'hint' => 'Quá hạn thì lượt bị bỏ và khách vẫn nhận một câu trung thực.' ),
+			// [2026-10-19 09:06 PM Johnny Chu - Chu Hoàng Anh] 'turn_timeout_seconds' BỎ khỏi client (lời chủ 19/10): mặc định site 90 giây đẩy xuống cell và đè trang Cấu hình của cell
+			// ⇒ lượt tìm nghiên cứu + tạo file bị cắt ở 90 giây (lượt 13012). Trần thời gian một lượt nay CHỈ ở cell (LLM_TURN_TIMEOUT_MS).
 			'history_char_budget'  => array( 'label' => 'Ngân sách ký tự ngữ cảnh', 'unit' => 'ký tự', 'group' => 'context', 'min' => 2000, 'max' => 60000, 'default' => 12000, 'hint' => 'Một tin Zalo có thể rất dài nên đếm tin không chặn được ngữ cảnh phình. Vượt mức thì bỏ tin cũ trước, không cắt giữa một tin.' ),
 			// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — two bots that tag each other would loop forever without this.
 			'tagback_cooldown_seconds' => array( 'label' => 'Giãn cách tự tag lại', 'unit' => 'giây', 'group' => 'send', 'min' => 5, 'max' => 600, 'default' => 45, 'hint' => 'Cùng một người trong cùng một nhóm chỉ được bot tag lại sau khoảng này (chống hai bot tag nhau vô hạn).' ),

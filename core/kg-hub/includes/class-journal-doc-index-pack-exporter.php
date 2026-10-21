@@ -30,7 +30,11 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 	const MAX_SUBJECT  = 30;
 	const MAX_RECENT   = 20;  // v1 cap, kept for the constant's readers
 	const MAX_DOCS     = 120; // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1) — doc rows until the byte budget
-	const CONTRACT     = 'doc-index@2';
+	// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5/M2 (doc 20 §3, doc 00 §5c, BS-10) — doc-index@3: + jobs[] (≤ 10 latest JB-), layer / tier / audience on every doc row,
+	// one pack PER PRINCIPAL (owner · staff · customer) built through brain-access@1 — the site filters before packing, the cell never filters.
+	const CONTRACT     = 'doc-index@3';
+	const MAX_JOBS     = 10;
+	const PRINCIPALS   = array( 'owner', 'staff', 'customer' );
 	const SUMMARY_MAX  = 160;
 	const MAX_BYTES    = 24576;
 	const CACHE_TTL    = 60; // [2026-10-12 11:35 AM Johnny Chu - Chu Hoàng Anh] doc 92 §5 — ≤ 60 s after a write.
@@ -75,21 +79,30 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 		return array( 'items' => $items, 'last_id' => $last, 'more' => $last < count( $b['items'] ) );
 	}
 
-	/** @return array{items:array,truncated:bool} */
-	public static function build( int $owner_user_id ): array {
+	/**
+	 * @param string $principal owner (default) · staff · customer — the pack is built FOR that principal: rows it may not meta.read never enter it.
+	 * @return array{items:array,truncated:bool}
+	 */
+	public static function build( int $owner_user_id, string $principal = 'owner' ): array {
 		if ( $owner_user_id <= 0 || ! self::available() ) {
 			return array( 'items' => array(), 'truncated' => false );
 		}
-		$cached = function_exists( 'get_transient' ) ? get_transient( self::cache_key( $owner_user_id ) ) : false;
+		$principal = in_array( $principal, self::PRINCIPALS, true ) ? $principal : 'owner';
+		$cached = function_exists( 'get_transient' ) ? get_transient( self::cache_key( $owner_user_id, $principal ) ) : false;
 		if ( is_array( $cached ) && isset( $cached['items'] ) ) {
 			return $cached;
 		}
 		$db        = BizCity_Journal_Database::instance();
-		$items     = array( array( 'row' => 'meta', 'contract' => self::CONTRACT ) ); // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1)
+		$items     = array( array( 'row' => 'meta', 'contract' => self::CONTRACT, 'principal' => $principal, 'as_of' => gmdate( 'Y-m-d\TH:i:s\Z' ) ) ); // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-2 (S121-A2, I-1)
 		$bytes     = 2 + strlen( (string) wp_json_encode( $items[0] ) ) + 1;
 		$truncated = false;
+		$who       = class_exists( 'BizCity_Brain_Access' ) ? BizCity_Brain_Access::principal( array( 'role' => $principal, 'user_id' => 'customer' === $principal ? 0 : $owner_user_id ) ) : null;
+		$may       = static function ( array $entry ) use ( $who ): bool {
+			return null === $who || BizCity_Brain_Access::decide( $who, $entry, 'meta.read' )['allow'];
+		};
 
-		foreach ( $db->shelf_rows( $owner_user_id, self::MAX_SHELF ) as $r ) {
+		// the shelf (counts per kind) is the owner's view of their own book; a customer pack carries no shelf (counts of rows it may not see)
+		foreach ( 'customer' === $principal ? array() : $db->shelf_rows( $owner_user_id, self::MAX_SHELF ) as $r ) {
 			$kind = (string) $r['kind'];
 			$item = array(
 				'row'         => 'shelf',
@@ -111,12 +124,28 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 		// fields, tags, learning level, state, notebook. Pinned first, then contracts ending within 30 days, then newest.
 		if ( ! $truncated && class_exists( 'BizCity_Journal_Index' ) ) {
 			$docs = array();
+			$jobs = array();
 			foreach ( $db->register_rows( $owner_user_id, self::MAX_DOCS ) as $r ) {
-				$entry   = BizCity_Journal_Index::to_journal_entry( $r );
+				$entry = BizCity_Journal_Index::to_journal_entry( $r );
+				if ( ! $may( $entry ) ) {
+					continue; // brain-access@1: filtered at the source, before packing
+				}
+				// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — the latest JB- headers go to their own shelf (jobs[]), never to the doc rows
+				if ( 'job' === (string) ( $entry['layer'] ?? '' ) ) {
+					if ( count( $jobs ) < self::MAX_JOBS && 'owner' === $principal ) {
+						$jobs[] = self::job_item( $entry );
+					}
+					continue;
+				}
 				$docs[]  = self::doc_item( $entry ) + array(
 					'_pinned' => ! empty( $entry['flags']['pinned'] ),
 					'_end'    => is_scalar( $entry['card']['end_date'] ?? null ) ? (string) $entry['card']['end_date'] : '',
 				);
+			}
+			foreach ( $jobs as $item ) {
+				if ( ! self::push( $items, $bytes, $item, $truncated ) ) {
+					break;
+				}
 			}
 			foreach ( self::order_docs( $docs, gmdate( 'Y-m-d' ) ) as $item ) {
 				if ( ! self::push( $items, $bytes, $item, $truncated ) ) {
@@ -124,7 +153,7 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 				}
 			}
 		}
-		if ( ! $truncated ) {
+		if ( ! $truncated && 'customer' !== $principal ) {
 			foreach ( $db->subject_rows( $owner_user_id, self::MAX_SUBJECT ) as $r ) {
 				$item = array(
 					'row'          => 'subject',
@@ -141,9 +170,28 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 
 		$out = array( 'items' => $items, 'truncated' => $truncated );
 		if ( function_exists( 'set_transient' ) ) {
-			set_transient( self::cache_key( $owner_user_id ), $out, self::CACHE_TTL );
+			set_transient( self::cache_key( $owner_user_id, $principal ), $out, self::CACHE_TTL );
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 (doc 15 §6) — one `job` row from a job.run entry: code, goal, status, the product codes. No figures,
+	 * no evidence content, no URL. Pure.
+	 */
+	public static function job_item( array $e ): array {
+		$card = is_array( $e['card'] ?? null ) ? $e['card'] : array();
+		return array(
+			'row'         => 'job',
+			'ref'         => (string) ( $e['ref_code'] ?? '' ),
+			'entry_id'    => (int) ( $e['entry_id'] ?? 0 ),
+			'goal'        => mb_substr( (string) ( $e['title'] ?? '' ), 0, 80 ),
+			'status'      => (string) ( $card['status'] ?? '' ),
+			'skill'       => (string) ( $card['skill'] ?? '' ),
+			'steps'       => array( (int) ( $card['steps_done'] ?? 0 ), (int) ( $card['steps_total'] ?? 0 ) ),
+			'output_refs' => array_slice( array_map( 'strval', (array) ( $card['output_refs'] ?? array() ) ), 0, 8 ),
+			'updated_at'  => (string) ( $e['updated_at'] ?? '' ),
+		);
 	}
 
 	/**
@@ -184,6 +232,15 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 		$item['level']      = (string) ( $e['learning']['level'] ?? 'L0' );
 		$item['nb']         = (int) ( $e['kg']['notebook_ids'][0] ?? 0 );
 		$item['updated_at'] = (string) ( $e['updated_at'] ?? '' );
+		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M2 (doc 20 §3) — doc-index@3: layer · tier (null outside documents) · audience · belongs · version{n} · job_ref
+		$item['layer']      = (string) ( $e['layer'] ?? 'document' );
+		$item['tier']       = $e['tier'] ?? null;
+		$item['aud']        = (string) ( $e['audience'] ?? 'owner' );
+		$item['belongs']    = array( 'nb' => (int) ( $e['belongs']['notebook_id'] ?? 0 ), 'grp' => (string) ( $e['belongs']['group']['gid'] ?? '' ), 'contact' => (int) ( $e['belongs']['contact_id'] ?? 0 ) );
+		$item['ver']        = (int) ( $e['version']['n'] ?? 1 );
+		if ( '' !== (string) ( $e['job']['job_ref'] ?? '' ) ) {
+			$item['job_ref'] = (string) $e['job']['job_ref'];
+		}
 		return $item;
 	}
 
@@ -220,15 +277,17 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 		return true;
 	}
 
-	/** Drop the cached pack for one owner (called after every journal write). */
+	/** Drop the cached packs (every principal) for one owner (called after every journal write). */
 	public static function flush( int $owner_user_id ): void {
 		if ( $owner_user_id > 0 && function_exists( 'delete_transient' ) ) {
-			delete_transient( self::cache_key( $owner_user_id ) );
+			foreach ( self::PRINCIPALS as $p ) {
+				delete_transient( self::cache_key( $owner_user_id, $p ) );
+			}
 		}
 	}
 
-	private static function cache_key( int $owner_user_id ): string {
-		return 'bizcity_journal_doc_index_v2_' . (int) get_current_blog_id() . '_' . $owner_user_id; // v2: doc-index@2 (I-1)
+	private static function cache_key( int $owner_user_id, string $principal = 'owner' ): string {
+		return 'bizcity_journal_doc_index_v3_' . (int) get_current_blog_id() . '_' . $owner_user_id . '_' . $principal; // v3: doc-index@3 (PHASE-0.126), one per principal
 	}
 
 	private static function iso( string $mysql ): string {

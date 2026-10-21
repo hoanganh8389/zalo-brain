@@ -312,8 +312,12 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 W2-2 — owner-agent-block@1.3: `staff[]` (doc 50 §5.1) is sent even when the owner's own
 		// Agent is off or the number has no owner yet: staff are separate principals of the number.
 		$staff = class_exists( 'BizCity_Zalo_Agent_Principals' ) ? BizCity_Zalo_Agent_Principals::bundle_staff( $policy, $account_id ) : array();
+		// [2026-10-19 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 W1 — owner-agent-block@1.6 (cộng thêm): `groups[]` = cài đặt thư ký theo nhóm
+		// (theo dõi, người được giao, brief mỗi N tin) từ MỘT chỗ (BizCity_CRM_Group_Secretary). Chỉ gửi khi có ⇒ bundle cũ không đổi.
+		$groups = '' !== $account_id && class_exists( 'BizCity_CRM_Group_Secretary', false ) ? BizCity_CRM_Group_Secretary::bundle( $account_id ) : array();
+		$extra  = $groups ? array( 'groups' => $groups ) : array();
 		if ( ! $on( 'owner_agent_enabled' ) || $owner_user_id <= 0 || '' === trim( $owner_uid ) ) {
-			return array( 'enabled' => false, 'principal' => null, 'capture' => array( 'files' => false, 'remember' => false ), 'owner_knowledge_ref' => '', 'staff' => $staff );
+			return array( 'enabled' => false, 'principal' => null, 'capture' => array( 'files' => false, 'remember' => false ), 'owner_knowledge_ref' => '', 'staff' => $staff ) + $extra;
 		}
 		$hash  = isset( self::$readers['user_hash'] ) ? (string) call_user_func( self::$readers['user_hash'], $owner_user_id ) : ( class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::user_hash( $owner_user_id ) : '' );
 		$modes = isset( self::$readers['modes'] ) ? (array) call_user_func( self::$readers['modes'], $owner_user_id ) : ( class_exists( 'BizCity_Agent_Mode_Access' ) ? BizCity_Agent_Mode_Access::modes_for_user( $owner_user_id ) : array() );
@@ -330,7 +334,7 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			'capture'             => array( 'files' => $nb && $on( 'owner_capture_files' ), 'remember' => $nb && $on( 'owner_capture_remember' ) ),
 			'owner_knowledge_ref' => '' !== $hash ? 'u:' . $hash : '',
 			'staff'               => $staff,
-		);
+		) + $extra;
 	}
 
 	/** [2026-10-11 01:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L1 — seam `caps` (tests), else BizCity_Zalo_Agent_Principals::caps(). @return string[] */

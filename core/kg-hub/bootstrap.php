@@ -121,14 +121,31 @@ foreach ( array(
 	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
 	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
 	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
+	'class-journal-purge.php'                     => 'kg_hub.journal_purge', // [2026-10-18 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-K1 — xoá thật một mục (hai bước, mã chủ tự gõ)
 	'class-context-producers.php'                 => 'kg_hub.context_producers', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 — context-producer@1 (after the journal index it writes to)
 	'journal-api.php'                             => 'kg_hub.journal_api', // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J5 (R-JN-17) — bizcity_journal_record() + friends, the ONE write door for plugins
 	'class-journal-ingest-listener.php'           => 'kg_hub.journal_ingest_listener',
 	'class-journal-learning-sync.php'             => 'kg_hub.journal_learning_sync',
 	'class-journal-output-listener.php'           => 'kg_hub.journal_output_listener',
+	// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J1…J3 / P1…P2 (R-BRAIN-SKELETON) — job link (JB- header + join keys) and the one access decision point; after the index they read.
+	'class-journal-job-link.php'                  => 'kg_hub.journal_job_link',
+	'class-brain-access.php'                      => 'kg_hub.brain_access',
+	'class-journal-tool-axis.php'                 => 'kg_hub.journal_tool_axis', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — write tools that declare `journal` feed the spine
+	'class-journal-skill-link.php'                => 'kg_hub.journal_skill_link', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — skill.define / revision / state rows (KN-)
+	'class-journal-layer-rows.php'                => 'kg_hub.journal_layer_rows', // [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — notebook (NB-) and person-made sheet (SO-) rows
 	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
 	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
 	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
+	// [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 — Twin Sheet ("Sổ"): definitions + read doors over journal rows (no table, D123-1). After the journal index they read.
+	'twin-sheet/class-twin-sheet-schema.php'      => 'kg_hub.twin_sheet_schema',
+	'twin-sheet/class-twin-sheet-registry.php'    => 'kg_hub.twin_sheet_registry',
+	'twin-sheet/class-twin-sheet-store.php'       => 'kg_hub.twin_sheet_store',
+	'twin-sheet/class-twin-sheet-builder.php'     => 'kg_hub.twin_sheet_builder', // [2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — the person's own sheets: builder (pure) + CPT definitions
+	'twin-sheet/class-twin-sheet-defs.php'        => 'kg_hub.twin_sheet_defs',
+	'twin-sheet/class-twin-sheet-service.php'     => 'kg_hub.twin_sheet_service', // [2026-10-19 10:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W2 — apply_changes (before the API that calls it)
+	'twin-sheet/class-twin-sheet-snapshot.php'    => 'kg_hub.twin_sheet_snapshot', // [2026-10-20 01:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — Chốt sổ + khóa kỳ
+	'twin-sheet/class-twin-sheet-structure.php'   => 'kg_hub.twin_sheet_structure', // [2026-10-21 08:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — structure versions of my own sheet
+	'twin-sheet/class-twin-sheet-api.php'         => 'kg_hub.twin_sheet_api',
 ) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
 	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
 	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
@@ -175,6 +192,13 @@ if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
 if ( class_exists( 'BizCity_Journal_REST', false ) ) {
 	BizCity_Journal_REST::init();
 }
+if ( class_exists( 'BizCity_Journal_Purge', false ) ) {
+	BizCity_Journal_Purge::init(); // [2026-10-18 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-K1 — MCP journal.purge
+}
+// [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 — REST bizcity-knowledge/v2/twinsheets* + MCP twinsheet.* (read only).
+if ( class_exists( 'BizCity_Twin_Sheet_API', false ) ) {
+	BizCity_Twin_Sheet_API::init();
+}
 // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 — web / notebook uploads write their journal row (R-JN-13).
 if ( class_exists( 'BizCity_Journal_Ingest_Listener', false ) ) {
 	BizCity_Journal_Ingest_Listener::register();
@@ -189,6 +213,21 @@ if ( class_exists( 'BizCity_Journal_Output_Listener', false ) ) {
 }
 if ( class_exists( 'BizCity_Journal_Backfill', false ) ) {
 	BizCity_Journal_Backfill::register();
+}
+// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J2 (job-link@1, BS-5) — a job-event@1.1 that reached the site opens / folds the JB- header row (after BizCity_Sheet_Bindings at 10).
+if ( class_exists( 'BizCity_Journal_Job_Link', false ) ) {
+	BizCity_Journal_Job_Link::register();
+}
+// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — every skill change (propose · save · on/off · undo) is a KN- row of the client's brain.
+if ( class_exists( 'BizCity_Journal_Skill_Link', false ) ) {
+	BizCity_Journal_Skill_Link::register();
+}
+if ( class_exists( 'BizCity_Journal_Tool_Axis', false ) ) {
+	BizCity_Journal_Tool_Axis::register();
+}
+// [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 (BS-2) — each notebook and each person-made sheet is one row of the ledger (NB- / SO-).
+if ( class_exists( 'BizCity_Journal_Layer_Rows', false ) ) {
+	BizCity_Journal_Layer_Rows::register();
 }
 // [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — private originals of owner-capture documents (before the bridge that uses them).
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-private-file-store.php';

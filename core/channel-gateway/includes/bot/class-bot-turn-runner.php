@@ -41,6 +41,9 @@ final class BizCity_Bot_Turn_Runner {
 	const FALLBACK_TEXT = 'Xin lỗi, hiện mình chưa thể trả lời ngay. Bạn vui lòng đợi nhân viên hỗ trợ nhé.';
 	const CRON_HOOK     = 'bizcity_bot_run_turn';
 	const MAX_PARKS     = 6;
+	// [2026-10-19 09:06 PM Johnny Chu - Chu Hoàng Anh] Trần thời gian một lượt KHÔNG còn cấu hình ở client (lời chủ 19/10): cell quản lý chung ở trang Cấu hình của cell.
+	// Đây chỉ là trần cho TIẾN TRÌNH PHP của runner này (set_time_limit, khoá hội thoại), không gửi xuống cell.
+	const TURN_TIMEOUT_SECONDS = 300;
 	/** Recurring job that rescues a turn whose one-shot cron event was lost (see sweep_overdue()). */
 	const SWEEP_HOOK    = 'bizcity_bot_turn_sweep';
 	/** A waiting turn is overdue once it is older than debounce + this many seconds. */
@@ -808,8 +811,7 @@ final class BizCity_Bot_Turn_Runner {
 			self::lifecycle( 'bot_turn_failed', array( 'trace_id' => $claimed_trace, 'conversation_id' => $conversation_id, 'character_id' => (int) $claim['character_id'], 'stage' => 'run', 'reason_bucket' => 'character_missing' ) );
 			return $result;
 		}
-		$tuning  = BizCity_Bot_Config_Repo::get_tuning();
-		$timeout = (int) $tuning['turn_timeout_seconds'];
+		$timeout = self::TURN_TIMEOUT_SECONDS;
 
 		// B4.6 — same hardening as AI_Replier: the customer already saw "delivered", finish the turn.
 		if ( function_exists( 'ignore_user_abort' ) ) { ignore_user_abort( true ); }

@@ -63,13 +63,25 @@ final class BizCity_Brain_Profile_Installer {
 			BizCity_Brain_Profile_Store::write_json( BizCity_Brain_Profile_Store::guru_dir( $guru_id ) . 'INSTALL.json', $install_doc );
 		}
 
-		self::apply_persona( $guru_id, $dir, $p, $take_fields, $created, $errors );
-		self::apply_knowledge( $guru_id, $dir, $p, $created, $errors );
-		self::apply_skills( $dir, $p, $created, $errors );
-		self::apply_grants( $guru_id, $p, $created, $errors );
-		self::apply_policy( $guru_id, $dir, $p, $created, $errors );
-		self::apply_scenarios( $dir, $p, $created, $errors );
-		self::apply_schedule( $guru_id, $dir, $p, $created, $errors );
+		// [2026-10-21 11:32 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R100-09 (BS-5) — one install = one job (JB-): while the steps run, rows written
+		// without a job of their own (the skills' KN- rows) join it through the ambient-job filter; the header gets its status at the end.
+		$blog    = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$job_id  = 'job_pf' . substr( hash( 'sha256', $blog . '|' . (string) ( $p['id'] ?? '' ) . '|' . $guru_id . '|' . microtime( true ) . '|' . wp_rand() ), 0, 16 );
+		$ambient = static function ( $cur ) use ( $job_id, $p ) {
+			return null === $cur ? array( 'job_id' => $job_id, 'role' => 'output', 'goal' => 'Cài hồ sơ «' . (string) ( $p['name'] ?? $p['id'] ?? '' ) . '»' ) : $cur;
+		};
+		add_filter( 'bizcity_journal_ambient_job', $ambient );
+		try {
+			self::apply_persona( $guru_id, $dir, $p, $take_fields, $created, $errors );
+			self::apply_knowledge( $guru_id, $dir, $p, $created, $errors );
+			self::apply_skills( $dir, $p, $created, $errors );
+			self::apply_grants( $guru_id, $p, $created, $errors );
+			self::apply_policy( $guru_id, $dir, $p, $created, $errors );
+			self::apply_scenarios( $dir, $p, $created, $errors );
+			self::apply_schedule( $guru_id, $dir, $p, $created, $errors );
+		} finally {
+			remove_filter( 'bizcity_journal_ambient_job', $ambient );
+		}
 
 		// copy package files into the per-Guru store (I-7) + final INSTALL.json + Guru settings.brain_profile.
 		if ( class_exists( 'BizCity_Brain_Profile_Store' ) ) {
@@ -84,6 +96,7 @@ final class BizCity_Brain_Profile_Installer {
 			BizCity_Brain_Profile_Store::write_json( $gd . 'INSTALL.json', $install_doc );
 		}
 		self::set_guru_brain_profile_setting( $guru_id, (string) ( $p['id'] ?? '' ), (string) ( $p['version'] ?? '' ), (string) ( $p['family'] ?? '' ) );
+		do_action( 'bizcity_brain_profile_installed', array( 'job_id' => $job_id, 'owner' => function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0, 'profile_id' => (string) ( $p['id'] ?? '' ), 'profile_version' => (string) ( $p['version'] ?? '' ), 'name' => (string) ( $p['name'] ?? '' ), 'guru_id' => $guru_id, 'created' => $created, 'errors' => $errors ) );
 
 		if ( $errors ) {
 			return new WP_Error( 'install_partial', 'Một số phần của gói chưa cài xong.', array( 'status' => 207, 'hint' => 'Xem errors[] để biết phần nào chưa xong và thử lại.', 'help_code' => 'install_partial', 'created' => $created, 'errors' => $errors ) );

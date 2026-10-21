@@ -1,0 +1,132 @@
+{
+  "$schema": "https://bizcity.vn/schema/doc-register-v1.json",
+  "contract": "doc-register@1.0.0",
+  "conforms_to": "twin-sheet@1.0.0",
+  "_stamp": "[2026-10-19 09:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-R4 (doc 70 §3) + PHASE-0.123 (doc 20 §2, D123-14) — the document register as the FIRST built-in Twin Sheet: typed columns, filter/sort allow-list, the four web views, and the CSV / Google mirror projections. One file for site (BizCity_Journal_Index::register_sheet), web (documents/overview.sheet) and the cell mirror check (docs_v1).",
+  "rule": "R-JOURNAL R-JN-12/15 — the register is a VIEW over bizcity_journal_entries (one row = one journal entry); no second table, no second ledger. CSV and Google Sheet are projections of register_row(); the Sheet is one-way (journal ⇒ Google).",
+  "sheet_key": "doc.register",
+  "origin": "builtin",
+  "kind": "*",
+  "kind_scope": "every journal row of the person except archived / void (BizCity_Journal_Database::register_rows); the contracts view narrows to biz.contract",
+  "display_name": "Sổ tài liệu",
+  "schema_version": 1,
+  "edit_policy": "rev",
+  "edit_rules": [
+    "a web edit sends expected_rev = the row's rev; a stale rev ⇒ 409 journal_revision_conflict, nothing written (BizCity_Journal_Database::update expected_revision)",
+    "verified is set only by the logged-in PERSON (PATCH verified:true), never by MCP, a model, a job or a cron (R-JN-14)",
+    "original{} is never patched (R-JN-2); kind, owner and idempotency_key are never changed from this sheet",
+    "only fields with editable:true and card fields listed in views.detail.editable_card[kind] are accepted; anything else ⇒ 400 field_not_editable",
+    "no delete: leaving the register = state void (row kept as history)"
+  ],
+  "fields": [
+    { "key": "ref_code",    "label": "Mã",                 "type": "ref_code",  "source": "computed", "path": "original.doc_code | 'JE-' + entry_id", "readonly": true },
+    { "key": "title",       "label": "Tên",                "type": "text",      "source": "column",   "path": "title", "max": 255, "sort": true, "search": true },
+    { "key": "kind",        "label": "Loại",               "type": "select",    "source": "column",   "path": "kind", "options_from": "journal-kinds@1 (label per kind; documents/overview.kind_labels)", "filter": true },
+    { "key": "doc_date",    "label": "Ngày trên tài liệu", "type": "date",      "source": "column",   "path": "doc_date", "filter": true, "sort": true, "editable": true },
+    { "key": "captured_at", "label": "Ngày lưu",           "type": "datetime",  "source": "column",   "path": "created_at", "sort": true, "readonly": true },
+    { "key": "file_name",   "label": "Tên file",           "type": "text",      "source": "computed", "path": "original.file_name", "max": 200, "readonly": true },
+    { "key": "summary",     "label": "Tóm tắt",            "type": "long_text", "source": "column",   "path": "body", "max": 2000, "editable": true, "mirror_blank_when_sensitive": true },
+    { "key": "key_fields",  "label": "Thông tin chính",    "type": "text",      "source": "computed", "path": "card ∩ kind.card_fields (\"k: v; …\")", "max": 400, "readonly": true, "mirror_blank_when_sensitive": true },
+    { "key": "tags",        "label": "Nhãn",               "type": "text",      "source": "column",   "path": "tags", "list": true, "max_items": 12, "filter": true, "editable": true },
+    { "key": "group",       "label": "Nhóm Zalo",          "type": "text",      "source": "computed", "path": "group.name (filter: tag grp-<gid>)", "max": 120, "filter": true, "readonly": true },
+    { "key": "contact",     "label": "Liên hệ",            "type": "integer",   "source": "computed", "path": "contact_id (filter: subject_hash)", "filter": true, "editable": true, "note": "a CRM contact id; the web shows the contact name from the CRM, the register row carries the number only (no name, no phone)" },
+    { "key": "state",       "label": "Trạng thái",         "type": "select",    "source": "column",   "path": "status", "filter": true, "readonly": true,
+      "options": [
+        { "v": "captured", "label": "Đã lưu" },
+        { "v": "review",   "label": "Chờ xem lại" },
+        { "v": "verified", "label": "Đã xác minh" },
+        { "v": "failed",   "label": "Lỗi" },
+        { "v": "void",     "label": "Đã bỏ" }
+      ] },
+    { "key": "verified",    "label": "Xác minh",           "type": "boolean",   "source": "computed", "path": "flags.verified.by > 0", "readonly": true, "set_by": "person (PATCH verified:true)" },
+    { "key": "sender_role", "label": "Người gửi",          "type": "select",    "source": "computed", "path": "by.role", "readonly": true,
+      "options": [
+        { "v": "owner",  "label": "Chủ" },
+        { "v": "staff",  "label": "Nhân sự" },
+        { "v": "system", "label": "Hệ thống" }
+      ] },
+    { "key": "notebook",    "label": "Notebook",           "type": "integer",   "source": "computed", "path": "kg.notebook_ids[0]", "readonly": true },
+    { "key": "level",       "label": "Mức học",            "type": "select",    "source": "computed", "path": "learning.level", "readonly": true,
+      "options": [
+        { "v": "L0", "label": "Chỉ lưu" },
+        { "v": "L1", "label": "Tìm theo nội dung" },
+        { "v": "L2", "label": "Hiểu sâu" },
+        { "v": "L3", "label": "Guru dùng" }
+      ] }
+  ],
+  "views": [
+    { "key": "overview",  "label": "Tổng quan",
+      "headline": ["total", "expiring", "review", "failed", "mirror_pending", "upcoming_reminders", "team_total"],
+      "expiring_days": 30, "reminder_days": 7, "scan_max": 500 },
+    { "key": "store",     "label": "Kho",
+      "columns": ["ref_code", "title", "kind", "group", "contact", "doc_date", "state", "level"],
+      "sort": [{ "field": "doc_date", "dir": "desc" }],
+      "chips": [
+        { "key": "all",      "label": "Tất cả" },
+        { "key": "file",     "label": "Có file gốc", "where": { "has_file": true } },
+        { "key": "review",   "label": "Chờ xem lại", "where": { "status": "review" } },
+        { "key": "verified", "label": "Đã xác minh", "where": { "status": "verified" } },
+        { "key": "failed",   "label": "Lỗi",         "where": { "status": "failed" } },
+        { "key": "team",     "label": "Nhân sự gửi", "source": "journal/team (Q121-8, read-only)" }
+      ],
+      "page_size": 50 },
+    { "key": "contracts", "label": "Hợp đồng", "kind": "biz.contract",
+      "card_fields_from": "TWIN-SHEET-BUILTIN-v1.json sheets.biz.contract.fields (twin-sheet-builtin@1, PHASE-0.123 W1) — labels and types of card.* columns live there only",
+      "columns": ["ref_code", "title", "card.parties", "card.ref", "card.date", "card.end_date", "card.total", "verified"],
+      "money_legacy": "card.total written by the reader before journal-kinds@1.2 may be free text; the web shows a value that is not an integer string as-is",
+      "sort": [{ "field": "card.end_date", "dir": "asc" }],
+      "expiring_days": 30, "scan_max": 500 },
+    { "key": "detail",    "label": "Chi tiết",
+      "editable": ["doc_date", "summary", "tags", "contact"],
+      "editable_card": { "biz.contract": ["end_date"] },
+      "actions": ["pin", "verify", "unverify", "learn_l2", "learn_stop", "download_original", "open_notebook"],
+      "never": ["learn_l3 (Bot Studio only, Q121-23)", "sha256 / storage URL / phone / uid on screen"] }
+  ],
+  "projections": {
+    "row": {
+      "function": "BizCity_Journal_Index::register_row( journal-entry@1.1.0 ) : array",
+      "keys": ["contract", "doc_code", "entry_id", "captured_at", "doc_date", "title", "file_name", "kind", "kind_label", "summary", "key_fields", "tags", "state", "verified", "sender_role", "notebook", "level", "group", "contact_id", "source_ref"]
+    },
+    "csv": {
+      "route": "GET bizcity-knowledge/v2/journal/export",
+      "columns": ["doc_code", "captured_at", "doc_date", "title", "file_name", "kind_label", "summary", "key_fields", "tags", "state", "verified", "sender_role", "level", "group"],
+      "bom": true,
+      "formula_guard": "a cell starting with = + - @ gets a leading ' (CSV injection)",
+      "file_name": "so-tai-lieu-<Ymd>.csv"
+    },
+    "mirror": {
+      "docs_v1": {
+        "owner": "cell zalo-hub/src/sheets/docs-register.ts (DOCS_COLUMNS) — sheet-ledger@1 fixed template of PHASE-0.117",
+        "tab": "TaiLieu",
+        "family": "docs",
+        "dedupe_column": "J",
+        "append_only": true,
+        "columns": [
+          { "col": "A", "key": "record_id",   "from": "cell: doc_ + 16 hex sha256(owner_user_ref|code|state)" },
+          { "col": "B", "key": "captured_at", "from": "row.captured_at" },
+          { "col": "C", "key": "doc_date",    "from": "row.doc_date" },
+          { "col": "D", "key": "title",       "from": "row.title" },
+          { "col": "E", "key": "file_name",   "from": "row.file_name" },
+          { "col": "F", "key": "kind_label",  "from": "row.kind_label" },
+          { "col": "G", "key": "summary",     "from": "row.summary" },
+          { "col": "H", "key": "key_fields",  "from": "row.key_fields" },
+          { "col": "I", "key": "tags",        "from": "row.tags" },
+          { "col": "J", "key": "source_ref",  "from": "row.doc_code (upper-case)" },
+          { "col": "K", "key": "status",      "from": "row.state" },
+          { "col": "L", "key": "verified",    "from": "row.verified" },
+          { "col": "M", "key": "sender_role", "from": "row.sender_role" },
+          { "col": "N", "key": "notebook",    "from": "row.notebook" },
+          { "col": "O", "key": "open",        "from": "cell: Nhắn \"gửi <code>\" cho trợ lý (never a link)" },
+          { "col": "P", "key": "created_at",  "from": "cell: append time" }
+        ]
+      },
+      "twin_sheet_template": "tsheet:doc.register:v1",
+      "twin_sheet_mapping": "PHASE-0.123 doc 36 §2 — docs_v1 stays the legacy fixed template and maps to tsheet:doc.register:v1 (same tab, no second tab) when the generated mirror lands (B15)"
+    }
+  },
+  "privacy": {
+    "never_in_row": ["url", "storage_url", "sha256", "phone", "zalo_uid", "user_id", "owner_user_id"],
+    "sensitive": "a kind with sensitive (finance · health · child · personal) keeps title + dates + state; summary and key_fields are blank in every projection (Q121-16)"
+  },
+  "limits": { "fields_max": 30, "queryable_max": 8, "page_max": 50, "scan_max": 500 }
+}

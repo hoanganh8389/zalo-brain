@@ -68,7 +68,8 @@ final class BizCity_User_Workspace_Builder {
 				'workflows' => array(),
 				'settings'  => array( 'report_hour' => 20, 'report_on' => true, 'quiet_hours' => '', 'default_guru' => 0 ),
 			),
-			'off'        => array(),
+			// [2026-10-18 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-MX / Q117-MX-1 — role + person switches of the Connector matrix (only subtract)
+			'off'        => class_exists( 'BizCity_Executor_Policy' ) ? BizCity_Executor_Policy::off_for( $user_id ) : array(),
 		);
 		// [2026-10-16 10:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S1 — the cash-book sheet(s) this person bound; omitted when none so nobody else's bundle / rev changes
 		if ( class_exists( 'BizCity_Sheet_Bindings' ) ) {

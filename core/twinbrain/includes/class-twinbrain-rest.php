@@ -271,27 +271,37 @@ class BizCity_TwinBrain_REST {
 	 * @return string|WP_REST_Response
 	 */
 	private function maybe_agent_turn( WP_REST_Request $req, string $prompt, int $focus_notebook_id ) {
+		// [2026-10-22 07:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "giữ MPR cho verticals + phân tích sâu, bỏ rơi về của Brain Chat") — a plain Brain Chat
+		// turn is answered by the cell or by an R-ERROR-UX error, never by the MPR pipeline. MPR stays only for the vertical modes below and for the emergency
+		// constant BIZCITY_TWIN_WEB_TURN_FORCE_PHP (flag_php); Zalo deep analysis and the vertical add-on call the runtime directly, not through here.
 		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) ) {
-			$this->legacy_reason = 'adapter_missing';
-			return 'php';
+			return new WP_REST_Response( [ 'ok' => false, 'code' => 'adapter_missing', 'message' => 'Bộ não chưa sẵn sàng trên website này.', 'hint' => 'Cập nhật plugin Zalo Brain rồi thử lại.', 'help_code' => 'S126-BRAIN-ADAPTER-MISSING' ], 503 );
 		}
-		// a vertical (web_mode ≠ off) goes to the cell only when the verticals switch is on (Twin_Web_Turn::VERTICALS_OPTION)
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a vertical (web_mode ≠ off) and a literal /slug of one go to the cell as `vertical` (its own recipes); an unknown mode is plain chat.
+		// verticals_enabled() is false only under the emergency constant: then the old vertical MPR answers.
 		$vertical = $this->sanitize_web_mode( $req->get_param( 'web_mode' ) );
 		if ( 'off' !== $vertical && ! BizCity_Twin_Web_Turn::verticals_enabled() ) {
 			$this->legacy_reason = 'vertical';
 			return 'php';
 		}
+		$vertical = 'off' !== $vertical && BizCity_Twin_Web_Turn::is_vertical( $vertical ) ? $vertical : 'off';
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — `skill` no longer pins the turn to PHP: the
 		// /skill Workflow Pipeline is archived, so such requests follow the normal cell / PHP decision.
-		if ( class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) && is_array( BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $prompt ) ) ) {
-			$this->legacy_reason = 'vertical_slug';
-			return 'php';
+		if ( 'off' === $vertical && class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			$cmd  = BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $prompt );
+			$slug = is_array( $cmd ) ? sanitize_key( (string) ( $cmd['slug'] ?? '' ) ) : '';
+			if ( '' !== $slug && BizCity_Twin_Web_Turn::is_vertical( $slug ) ) {
+				$vertical = $slug;
+			}
 		}
 		$user_id  = get_current_user_id();
 		$decision = BizCity_Twin_Web_Turn::decide( 'twinchat', $user_id, 'brain' );
+		if ( 'php' === $decision['path'] && 'flag_php' === (string) $decision['reason'] ) {
+			$this->legacy_reason = 'flag_php';
+			return 'php'; // the emergency constant only (wp-config): the documented way back
+		}
 		if ( 'php' === $decision['path'] ) {
-			$this->legacy_reason = (string) $decision['reason'];
-			return 'php'; // byte-identical legacy: nothing was read or written above
+			return BizCity_Twin_Web_Turn::error( 'guest' === (string) $decision['reason'] ? 'login_required' : 'hub_unreachable' );
 		}
 		// owner/staff only (others keep MPR: on the cell they would have no notebook, no memory); focus needs the notebook mode
 		$stay = method_exists( 'BizCity_Twin_Web_Turn', 'brain_stay_reason' ) ? BizCity_Twin_Web_Turn::brain_stay_reason( $decision, $focus_notebook_id ) : '';
@@ -300,8 +310,8 @@ class BizCity_TwinBrain_REST {
 			return BizCity_Twin_Web_Turn::error( $stay );
 		}
 		if ( '' !== $stay ) {
-			$this->legacy_reason = $stay;
-			return 'php';
+			// not an owner / staff of a number: the cell would answer as a customer (no notebook, no memory) and MPR is gone for Brain Chat
+			return BizCity_Twin_Web_Turn::error( 'not_owner' );
 		}
 		// decided node, but the Hub/cell could not take the turn before its first frame (auto ⇒ falls back below)
 		$this->legacy_reason = 'cell_fallback';
@@ -343,6 +353,7 @@ class BizCity_TwinBrain_REST {
 			'effort'      => $depth,
 			'vertical'    => 'off' !== $vertical ? $vertical : '',
 			'persist'     => $persist,
+			'no_php'      => true, // PHASE-0.126 Q126-19: a cell that cannot take the turn answers with its error, never with MPR
 			// the panel takes its session id from `started` and ends a turn on `complete` (the legacy runtime's own frames)
 			'prelude'     => static function () use ( $session_id, $prompt ): array {
 				return array( array( 'started', array( 'prompt' => $prompt, 'session_id' => $session_id, 'path' => 'cell' ) ) );
@@ -543,6 +554,12 @@ class BizCity_TwinBrain_REST {
 			if ( is_array( $vertical_command ) ) {
 				$opts['web_mode'] = (string) $vertical_command['slug'];
 			}
+		}
+		// [2026-10-22 07:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the synchronous turn is MPR-only (no cell path here): it now answers vertical modes only.
+		// A plain Brain Chat question goes through /turn/stream (cell). The emergency constant keeps the old behaviour.
+		// 2026-10-22 09:45 PM (owner: "để qua cell hết") — vertical modes too: the cell has its own recipes; the emergency constant is the only way in.
+		if ( ! ( class_exists( 'BizCity_Twin_Web_Turn' ) && BizCity_Twin_Web_Turn::force_php() ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'code' => 'brain_chat_on_cell', 'message' => 'Câu hỏi thường của bộ não do trợ lý (cell) trả lời qua luồng chat.', 'hint' => 'Gọi /turn/stream (chế độ chuyên môn gửi kèm web_mode).', 'help_code' => 'S126-BRAIN-TURN-SYNC' ], 409 );
 		}
 
 		$runtime = BizCity_TwinBrain_Runtime::instance();

@@ -117,6 +117,9 @@ final class BizCity_MCP_Tool_Registry {
 			// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 (R-BRAIN-SKELETON BS-3, doc 90 R103-01 / R116-03) — how a WRITE tool sits on the journal spine:
 			// {kind, source_ref '<type>:{key}', title, card[], job: turn|synthetic|none, job_prefix, goal}; BizCity_Journal_Tool_Axis writes the row after a success. null = not brain data.
 			'journal'        => null,
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (doc 20 §4 / §4b, knowledge-tools@1) — how a READ/WRITE tool sits on the knowledge axis: {tier L1|L2|L3 | layer, permission (brain-access@1), crud, answer_hint}.
+			// The spec calls the data tier `tier`, but that key is already tool-registry@1's (cell|site|channel) — so the block is named `brain`. null = not a brain-data tool.
+			'brain'          => null,
 		), $descriptor );
 		$reason = self::registry_keys_error( $name, $tool );
 		if ( null !== $reason ) {
@@ -161,6 +164,20 @@ final class BizCity_MCP_Tool_Registry {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W3 (B7) — knowledge.search exactly as before (BizCity_Brain_MCP_Service::search), then
+	 * BizCity_Journal_Brain_Map::note_search counts the lookup (0 passages = a gap) for an owner / staff. Absent brain map ⇒ just the search.
+	 *
+	 * @return array|WP_Error
+	 */
+	public static function knowledge_search_counted( array $args, array $ctx ) {
+		$result = BizCity_Brain_MCP_Service::instance()->search( $args, $ctx );
+		if ( class_exists( 'BizCity_Journal_Brain_Map', false ) ) {
+			BizCity_Journal_Brain_Map::note_search( $args, $ctx, $result );
+		}
+		return $result;
 	}
 
 	/** PHASE-0.103 RK-15 — same callable? (class + method for [object|class, method]; identity for closures/functions). null on either side ⇒ treated as the same (nothing to compare). */
@@ -225,7 +242,66 @@ final class BizCity_MCP_Tool_Registry {
 		if ( in_array( 'customer', $tool['roles'], true ) && 'thread' !== $tool['scope'] ) {
 			return 'a tool usable by customer must have scope thread.';
 		}
+		if ( null !== $tool['brain'] ) {
+			$brain_error = self::brain_error( $tool['brain'] );
+			if ( null !== $brain_error ) {
+				return $brain_error;
+			}
+		}
 		return null;
+	}
+
+	/** knowledge-tools@1 vocabulary (doc 20 §4): tier = document knowledge only (L1 journal · L2 embed · L3 KG); every other lane declares its layer. */
+	const BRAIN_TIERS       = array( 'L1', 'L2', 'L3' );
+	const BRAIN_LAYERS      = array( 'document', 'notebook', 'twin_sheet', 'skill', 'job', 'output' );
+	const BRAIN_PERMISSIONS = array( 'meta.read', 'content.read', 'search.vector', 'search.kg', 'file.get', 'file.send', 'write', 'state' );
+	const BRAIN_CRUD        = array( 'read', 'write', 'state' );
+	const BRAIN_HINTS       = array( 'instant', 'detail', 'graph' );
+
+	/**
+	 * [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 — rules of the `brain` block. Pure.
+	 * - exactly one of `tier` (document knowledge: L1/L2/L3) or `layer` (sheet · job · skill · notebook · output · document rows);
+	 * - `permission` is a brain-access@1 permission the tool needs; `crud` read|write|state; L2 / L3 tools are read only (learning is a job: document.learn.set);
+	 * - a `tier` tool carries `answer_hint` (instant|detail|graph) so the cell can offer the next tier; and never a customer-writable tool.
+	 *
+	 * @return string|null reason, null when valid
+	 */
+	public static function brain_error( $brain ) {
+		if ( ! is_array( $brain ) ) {
+			return 'brain must be an array.';
+		}
+		$has_tier  = isset( $brain['tier'] );
+		$has_layer = isset( $brain['layer'] );
+		if ( $has_tier === $has_layer ) {
+			return 'brain declares exactly one of tier (L1|L2|L3) or layer.';
+		}
+		if ( $has_tier && ! in_array( $brain['tier'], self::BRAIN_TIERS, true ) ) {
+			return 'brain.tier must be L1|L2|L3.';
+		}
+		if ( $has_layer && ! in_array( $brain['layer'], self::BRAIN_LAYERS, true ) ) {
+			return 'brain.layer is not a known layer.';
+		}
+		if ( ! isset( $brain['permission'] ) || ! in_array( $brain['permission'], self::BRAIN_PERMISSIONS, true ) ) {
+			return 'brain.permission must be a brain-access@1 permission.';
+		}
+		if ( ! isset( $brain['crud'] ) || ! in_array( $brain['crud'], self::BRAIN_CRUD, true ) ) {
+			return 'brain.crud must be read|write|state.';
+		}
+		if ( $has_tier && 'L1' !== $brain['tier'] && 'read' !== $brain['crud'] ) {
+			return 'L2 / L3 tools are read only (learning is a job).';
+		}
+		if ( $has_tier && ( ! isset( $brain['answer_hint'] ) || ! in_array( $brain['answer_hint'], self::BRAIN_HINTS, true ) ) ) {
+			return 'a tier tool needs answer_hint (instant|detail|graph).';
+		}
+		if ( isset( $brain['answer_hint'] ) && ! in_array( $brain['answer_hint'], self::BRAIN_HINTS, true ) ) {
+			return 'brain.answer_hint must be instant|detail|graph.';
+		}
+		return null;
+	}
+
+	/** The `brain` block a registered tool declares, or null (unknown tool / not brain data). */
+	public static function brain_of( $name ) {
+		return isset( self::$tools[ $name ]['brain'] ) && is_array( self::$tools[ $name ]['brain'] ) ? self::$tools[ $name ]['brain'] : null;
 	}
 
 	/**
@@ -301,6 +377,10 @@ final class BizCity_MCP_Tool_Registry {
 		// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L12 — additive, only when declared (old clients ignore it; fixtures of other tools unchanged).
 		if ( '' !== (string) ( $t['required_cap'] ?? '' ) ) {
 			$meta['required_cap'] = (string) $t['required_cap'];
+		}
+		// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 — additive, only when declared (knowledge-tools@1; tools/list fixtures of other tools unchanged).
+		if ( is_array( $t['brain'] ?? null ) ) {
+			$meta['brain'] = $t['brain'];
 		}
 		if ( ! empty( $t['alias_of'] ) ) {
 			$meta['deprecated_alias_of'] = (string) $t['alias_of'];
@@ -577,7 +657,31 @@ final class BizCity_MCP_Tool_Registry {
 		if ( $confirm && is_array( $result ) && ! isset( $result['status'] ) ) {
 			$result['status'] = 'done';
 		}
-		return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::success( $name, self::with_as_of( $result ), $extra, '', $ctx ), $t0 );
+		return self::finish_call( $name, $args, $ctx, BizCity_MCP_Error::success( $name, self::with_brain( $tool, $ctx, self::with_as_of( $result ) ), $extra, '', $ctx ), $t0 );
+	}
+
+	/**
+	 * [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (doc 20 §4 envelope) — a brain-data tool's result says which tier / layer it read, whether a deeper tier exists
+	 * (`next_tier_available`, the handler may set it; default false) and for whom the site filtered (`audience_applied`: customer-side roles ⇒ customer, else owner). A handler's own value wins.
+	 * Lists and tools without a `brain` block are left alone.
+	 */
+	private static function with_brain( array $tool, array $ctx, $data ) {
+		$brain = $tool['brain'] ?? null;
+		if ( ! is_array( $brain ) || ! is_array( $data ) || ( array() !== $data && array_keys( $data ) === range( 0, count( $data ) - 1 ) ) ) {
+			return $data;
+		}
+		if ( isset( $brain['tier'] ) ) {
+			// a handler that returns a journal ROW (journal.get) already has its own `tier` (the document's maturity, maybe null): the tool's tier never overwrites it
+			if ( ! array_key_exists( 'tier', $data ) ) {
+				$data['tier'] = $brain['tier'];
+			}
+			$data['next_tier_available'] = (bool) ( $data['next_tier_available'] ?? false );
+		} else {
+			$data['layer'] = $data['layer'] ?? $brain['layer'];
+		}
+		$customer_side = in_array( (string) ( $ctx['role'] ?? '' ), array( 'customer', 'contact', 'group_member' ), true ) || 'guru_public' === (string) ( $ctx['principal_kind'] ?? '' );
+		$data['audience_applied'] = $data['audience_applied'] ?? ( $customer_side ? 'customer' : 'owner' );
+		return $data;
 	}
 
 	/**
@@ -830,7 +934,8 @@ final class BizCity_MCP_Tool_Registry {
 			'read_only'      => true,
 			'idempotent'     => false, // snapshot creation is a side effect, same as brain.search
 			'required_scope' => 'brain.read',
-			'handler'        => array( $svc, 'search' ),
+			// [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W3 (B7) — same search, then the owner's / staff's lookup + gap counter of the Bản đồ não (knowledge_search_counted)
+			'handler'        => array( __CLASS__, 'knowledge_search_counted' ),
 			'mode'           => 'notebook',
 			// [2026-10-05 09:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-R-AGENT-PRINCIPALS R-AP-6 (Q91-24): customers read the Guru's public notebooks
 			// (principal guru_public: allowed_notebook_ids = that Guru's notebooks, only the tools the Guru allows).
@@ -839,6 +944,8 @@ final class BizCity_MCP_Tool_Registry {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'notebook_search',
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (knowledge-tools@1) — L2 (embed): the site filters by principal; the answer can offer L3 when the KG holds the rows
+			'brain'          => array( 'tier' => 'L2', 'permission' => 'search.vector', 'crud' => 'read', 'answer_hint' => 'detail' ),
 			'fallback_pack'  => 'owner_knowledge',
 			'since'          => '0.88.2',
 		) );
@@ -859,6 +966,7 @@ final class BizCity_MCP_Tool_Registry {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'knowledge_get_passage',
+			'brain'          => array( 'tier' => 'L2', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'detail' ),
 			'fallback_pack'  => null,
 			'since'          => '0.88.2',
 		) );
@@ -882,6 +990,7 @@ final class BizCity_MCP_Tool_Registry {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'knowledge_list_notebooks',
+			'brain'          => array( 'layer' => 'notebook', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => 'notebook_meta',
 			'since'          => '0.88.2',
 		) );
@@ -905,7 +1014,8 @@ final class BizCity_MCP_Tool_Registry {
 			'read_only'      => true,
 			'idempotent'     => false, // snapshot creation is a side effect (new row), even though content is deterministic for unchanged KG state.
 			'required_scope' => 'brain.read',
-			'handler'        => array( $svc, 'search' ),
+			// [2026-10-22 04:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W3 (B7) — the alias keeps sharing ONE handler with knowledge.search (McpKnowledgeAliasS103Test)
+			'handler'        => array( __CLASS__, 'knowledge_search_counted' ),
 		) );
 
 		self::register( 'brain.get_passage', array(

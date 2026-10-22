@@ -18,6 +18,7 @@
  *   GET  brain/overview · brain/find · brain/{id}   brain   BizCity_Journal_REST (the person's own register)
  *   PATCH brain/{id} {pinned|review}     brain         nothing else (delete = "XOÁ <mã>" in Zalo, D122-14)
  *   GET  brain/{id}/file                 brain         15-minute signed link of the private original
+ *   GET  brain/map · PUT brain/map/receipt   brain     brain-map@1 of the person (BizCity_Journal_Brain_Map) · map link in the receipt on/off (PHASE-0.129)
  * [2026-10-18 07:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F2/F3 — jobs.next, brain.docs, brain.notes.
  *
  * [2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P3 — new file. Loaded once by require_once in bootstrap.php.
@@ -56,6 +57,8 @@ final class BizCity_Panel_REST {
 			array( '/jobs/next', 'GET', 'jobs_next', 'jobs' ), // [2026-10-18 07:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F2 (registered before jobs/{id})
 			array( '/brain/overview', 'GET', 'brain_overview', 'brain' ), // [2026-10-18 07:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F3
 			array( '/brain/find', 'GET', 'brain_find', 'brain' ),
+			array( '/brain/map', 'GET', 'brain_map', 'brain' ), // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — Bản đồ não (registered before brain/{id})
+			array( '/brain/map/receipt', 'PUT', 'brain_map_receipt', 'brain' ), // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — "Tắt / bật gửi bản đồ" after each save (the person's own notification)
 			array( '/brain/(?P<id>[0-9]+)', 'GET', 'brain_get', 'brain' ),
 			array( '/brain/(?P<id>[0-9]+)', 'PATCH', 'brain_patch', 'brain' ),
 			array( '/brain/(?P<id>[0-9]+)/file', 'GET', 'brain_file', 'brain' ),
@@ -66,15 +69,30 @@ final class BizCity_Panel_REST {
 			array( '/jobs/(?P<id>job_[0-9A-Za-z]{10,40})/control', 'POST', 'job_control', 'jobs' ), // [2026-10-21 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 C3 (D125-19) — pause / resume / cancel / skip / note from the Quest Map // [2026-10-21 11:21 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1.7 C2 (Q125-17) — answer the background job from the Quest Map
 			array( '/jobs/(?P<id>job_[0-9A-Za-z]{10,40})/feedback', 'POST', 'job_feedback', 'jobs' ), // [2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C3 — 👍 / 👎 / "sửa…" on a finished job from the Quest Map
 			array( '/jobs/(?P<id>[A-Za-z0-9_.:\-]{4,80})', 'GET', 'job', 'jobs' ),
+			array( '/tz/ask', 'POST', 'tz_ask', 'twinzalo' ), // [2026-10-22 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U5 — the ask sheet = Cell Chat of the owner's number (SSE)
 		);
 		foreach ( $routes as $r ) {
 			$group = $r[3];
+			$cb    = $r[2];
 			register_rest_route( self::NS, $r[0], array(
 				'methods'             => $r[1],
 				'callback'            => array( __CLASS__, $r[2] ),
-				'permission_callback' => static function ( WP_REST_Request $request ) use ( $group ) { return self::perm( $request, $group ); },
+				// [2026-10-22 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #1 — + the route's callback, so a brain.map session reaches only the map routes
+				'permission_callback' => static function ( WP_REST_Request $request ) use ( $group, $cb ) { return self::perm( $request, $group, $cb ); },
 			) );
 		}
+	}
+
+	/**
+	 * [2026-10-22 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #1 — panels that open UNASKED (the brain.map link rides every second-brain
+	 * receipt) get a narrow session: only these callbacks, never the rest of their group (all originals, pin, rename, note). Pure.
+	 */
+	const PANEL_ROUTES = array(
+		'brain.map' => array( 'get_session', 'get_key', 'post_key_reset', 'brain_map', 'brain_map_receipt', 'brain_file' ),
+	);
+
+	public static function panel_route_allowed( string $panel, string $callback ): bool {
+		return ! isset( self::PANEL_ROUTES[ $panel ] ) || '' === $callback || in_array( $callback, self::PANEL_ROUTES[ $panel ], true );
 	}
 
 	/**
@@ -82,9 +100,13 @@ final class BizCity_Panel_REST {
 	 *
 	 * @return true|WP_Error
 	 */
-	public static function perm( WP_REST_Request $request, string $group ) {
+	public static function perm( WP_REST_Request $request, string $group, string $callback = '' ) {
 		$s = BizCity_Panel_Gate::current_session();
 		$v = self::allows( $s, (string) $request->get_header( self::HEADER ), $group );
+		// [2026-10-22 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #1 — a narrow panel (brain.map) reaches only its own routes
+		if ( true === $v && ! self::panel_route_allowed( (string) ( $s['panel'] ?? '' ), $callback ) ) {
+			$v = 'wrong_group';
+		}
 		if ( true !== $v ) {
 			return new WP_Error( $v, 'expired' === $v ? 'Bảng nhanh đã hết hạn hoặc đã bị khoá. Nhắn trợ lý trên Zalo để lấy link mới.' : 'Bảng nhanh này không mở được mục này.', array( 'status' => 'expired' === $v ? 401 : 403 ) );
 		}
@@ -110,7 +132,9 @@ final class BizCity_Panel_REST {
 		if ( '1' !== $header ) {
 			return 'bad_header';
 		}
-		if ( '' !== $group && (string) ( $session['group'] ?? '' ) !== $group ) {
+		$sg = (string) ( $session['group'] ?? '' );
+		// [2026-10-22 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo — a twinzalo session reaches the routes of its groups (jobs · brain · connect), not `users`
+		if ( '' !== $group && $sg !== $group && ! ( 'twinzalo' === $sg && in_array( $group, BizCity_Panel_Link::TWINZALO_GROUPS, true ) ) ) {
 			return 'wrong_group';
 		}
 		return true;
@@ -123,8 +147,9 @@ final class BizCity_Panel_REST {
 		$cat   = BizCity_Panel_Link::catalog();
 		$group = (string) $s['group'];
 		$mine  = array();
+		$narrow = isset( self::PANEL_ROUTES[ (string) $s['panel'] ] ); // [2026-10-22 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #1 — a narrow session offers only itself + the key
 		foreach ( $cat as $id => $row ) {
-			if ( BizCity_Panel_Link::group_allows( $group, $id ) ) {
+			if ( BizCity_Panel_Link::group_allows( $group, $id ) && ( ! $narrow || $id === (string) $s['panel'] || 'key' === $id ) ) {
 				$mine[] = array( 'id' => $id, 'label' => $row['label'], 'body' => $row['body'], 'toolkit' => $row['toolkit'] );
 			}
 		}
@@ -361,6 +386,40 @@ final class BizCity_Panel_REST {
 	}
 
 	/** Pure: calendar rows ⇒ [{id, title, at (unix), kind}] soonest first, ≤ 30. `start_at` is the site's wall clock. */
+	/**
+	 * [2026-10-22 08:51 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U5 (doc 68) — the ask sheet of TwinZalo is ONE Cell Chat turn (PHASE-0.105):
+	 * the panel person's own Zalo 1-1 thread on the cell (same memory, same tools, same risk gates as typing in Zalo), streamed back as SSE
+	 * (final_token · final_done · error · end). The user is the panel session's, never a body field; the number = the first one they OWN
+	 * (none ⇒ the site's web home). Only a `twinzalo` session reaches this route. Streams and exits.
+	 */
+	public static function tz_ask( WP_REST_Request $request ): WP_REST_Response {
+		$text = mb_substr( sanitize_textarea_field( (string) ( ( (array) $request->get_json_params() )['text'] ?? '' ) ), 0, 2000 );
+		if ( 'twinzalo' !== (string) ( self::$session['panel'] ?? '' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'wrong_panel', 'message' => 'Chỉ TwinZalo hỏi được ở đây.' ), 403 );
+		}
+		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) || ! method_exists( 'BizCity_Twin_Web_Turn', 'cell_chat_run' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'cell_chat_missing', 'message' => 'Website chưa có Cell Chat.', 'hint' => 'Cập nhật plugin BizCity Twin AI rồi thử lại.' ), 503 );
+		}
+		$uid = (int) self::$session['user_id'];
+		BizCity_Twin_Web_Turn::cell_chat_run( array(
+			'user_id'    => $uid,
+			'session_id' => '',
+			'text'       => $text,
+			'account_id' => self::tz_account( BizCity_Twin_Web_Turn::owned_rows( $uid ) ),
+		) );
+		exit;
+	}
+
+	/** Pure: the number TwinZalo asks through — the first the person OWNS, else '' (web home). Staff rows are not a TwinZalo owner's. */
+	public static function tz_account( array $rows ): string {
+		foreach ( $rows as $r ) {
+			if ( 'owner' === (string) ( $r['role'] ?? '' ) && '' !== (string) ( $r['account_id'] ?? '' ) ) {
+				return (string) $r['account_id'];
+			}
+		}
+		return '';
+	}
+
 	public static function next_rows( array $rows, DateTimeZone $tz ): array {
 		$out = array();
 		foreach ( $rows as $r ) {
@@ -385,7 +444,23 @@ final class BizCity_Panel_REST {
 	// ── brain (the person's own register, BizCity_Journal_REST) ───────────
 
 	public static function brain_overview(): WP_REST_Response {
-		return class_exists( 'BizCity_Journal_REST' ) ? BizCity_Journal_REST::overview( new WP_REST_Request( 'GET', '/bizcity-knowledge/v2/documents/overview' ) ) : self::brain_off();
+		$resp = class_exists( 'BizCity_Journal_REST' ) ? BizCity_Journal_REST::overview( new WP_REST_Request( 'GET', '/bizcity-knowledge/v2/documents/overview' ) ) : self::brain_off();
+		// [2026-10-22 09:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo ㉑ (U19) — + storage of the person's brain: used (every file, once) / quota (50 GB by default)
+		if ( 200 === $resp->get_status() && class_exists( 'BizCity_Journal_Database' ) && method_exists( 'BizCity_Journal_Database', 'storage_bytes' ) ) {
+			$uid = (int) get_current_user_id();
+			$s   = BizCity_Journal_Database::instance()->storage_bytes( $uid );
+			$resp->set_data( (array) $resp->get_data() + array( 'storage' => self::storage_view( $s, (int) apply_filters( 'bizcity_brain_storage_quota_bytes', self::STORAGE_QUOTA_DEFAULT, $uid ) ) ) );
+		}
+		return $resp;
+	}
+
+	const STORAGE_QUOTA_DEFAULT = 53687091200; // 50 GB (chủ 2026-10-22 20:2x); a plan may set its own through `bizcity_brain_storage_quota_bytes`
+
+	/** Pure: storage numbers the panel shows (bytes only — never a path or a file name). */
+	public static function storage_view( array $s, int $quota ): array {
+		$quota = $quota > 0 ? $quota : self::STORAGE_QUOTA_DEFAULT;
+		$used  = max( 0, (int) ( $s['bytes'] ?? 0 ) );
+		return array( 'used_bytes' => $used, 'quota_bytes' => $quota, 'files' => max( 0, (int) ( $s['files'] ?? 0 ) ), 'pct' => (int) min( 100, round( 100 * $used / $quota ) ), 'capped' => ! empty( $s['capped'] ) );
 	}
 
 	public static function brain_find( WP_REST_Request $request ): WP_REST_Response {
@@ -401,6 +476,39 @@ final class BizCity_Panel_REST {
 		}
 		$r->set_param( 'limit', 30 );
 		return BizCity_Journal_REST::find( $r );
+	}
+
+	/**
+	 * [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — brain-map@1 of the panel person (BizCity_Journal_Brain_Map, their own rows). `entry` wins,
+	 * else the row the link was issued for (`entry:<id>` focus of the session). + `receipt_on` for the "Tắt gửi bản đồ" button.
+	 */
+	public static function brain_map( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Journal_Brain_Map' ) ) {
+			return self::brain_off();
+		}
+		$focus = class_exists( 'BizCity_Panel_Link' ) ? BizCity_Panel_Link::focus_entry( (string) ( self::$session['focus'] ?? '' ) ) : 0;
+		$resp  = BizCity_Journal_Brain_Map::rest( $request, $focus );
+		if ( 200 === $resp->get_status() ) {
+			$data = (array) $resp->get_data();
+			$resp->set_data( array( 'ok' => true, 'receipt_on' => BizCity_Journal_Brain_Map::receipt_on( get_current_user_id() ), 'journal_url' => self::journal_map_url( (int) ( $data['focus']['entry_id'] ?? 0 ) ) ) + $data );
+		}
+		return $resp;
+	}
+
+	/** [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — TwinChat › Journal › Bản đồ on the same row (one `ledger` key through the Twin shell; needs a WordPress login there). */
+	private static function journal_map_url( int $entry ): string {
+		$base = class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'twinchat' ) : admin_url( 'admin.php?page=bizcity-twinchat&plugin=twinchat' );
+		return add_query_arg( 'ledger', rawurlencode( 'mode=map' . ( $entry > 0 ? '&entry=' . $entry : '' ) ), $base );
+	}
+
+	/** [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — {on: bool}: the receipt of the next saves carries (or not) a map link. Only the person's own notification. */
+	public static function brain_map_receipt( WP_REST_Request $request ): WP_REST_Response {
+		$p = (array) $request->get_json_params();
+		if ( ! array_key_exists( 'on', $p ) || ! is_bool( $p['on'] ) || ! class_exists( 'BizCity_Journal_Brain_Map' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Thiếu lựa chọn bật / tắt.', 'hint' => 'Bấm lại nút trên bảng.', 'help_code' => 'brain_map' ), 400 );
+		}
+		BizCity_Journal_Brain_Map::set_receipt( get_current_user_id(), (bool) $p['on'] );
+		return new WP_REST_Response( array( 'ok' => true, 'receipt_on' => BizCity_Journal_Brain_Map::receipt_on( get_current_user_id() ) ), 200 );
 	}
 
 	public static function brain_get( WP_REST_Request $request ): WP_REST_Response {
@@ -436,6 +544,10 @@ final class BizCity_Panel_REST {
 
 	/** The person's own original, as a 15-minute signed link (never another person's). */
 	public static function brain_file( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-10-22 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #1 — a brain.map session (link sent unasked) downloads only the file it was sent for
+		if ( 'brain.map' === (string) ( self::$session['panel'] ?? '' ) && (int) $request['id'] !== BizCity_Panel_Link::focus_entry( (string) ( self::$session['focus'] ?? '' ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'focus_only', 'message' => 'Link bản đồ chỉ mở được file vừa lưu.', 'hint' => 'Mở trong Journal (đăng nhập website) để tải file khác.', 'help_code' => 'brain_map' ), 403 );
+		}
 		$e   = class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::get( (int) $request['id'], get_current_user_id() ) : null;
 		$aid = is_array( $e ) ? (int) ( $e['original']['attachment_id'] ?? 0 ) : 0;
 		if ( $aid <= 0 || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::has_bytes( $aid ) ) {

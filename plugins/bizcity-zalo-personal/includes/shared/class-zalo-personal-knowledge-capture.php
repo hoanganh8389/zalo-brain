@@ -879,6 +879,51 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		return (bool) apply_filters( 'bizcity_second_brain_register_rows', $has, $user_id );
 	}
 
+	/**
+	 * [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — doc code of the FIRST file kept (stored, not a duplicate) in a capture result, or ''. Pure.
+	 */
+	public static function first_kept_code( array $res ): string {
+		$all = self::kept_codes( $res );
+		return $all[0] ?? '';
+	}
+
+	/**
+	 * [2026-10-22 07:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #5 — doc codes of the files KEPT (stored, not duplicates), filed rows (`items`) before
+	 * the ones still queued, ≤ 20, no repeats. Pure.
+	 *
+	 * @return string[]
+	 */
+	public static function kept_codes( array $res ): array {
+		$out = array();
+		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
+			if ( is_array( $r ) && 'file' === (string) ( $r['kind'] ?? '' ) && empty( $r['duplicate'] ) && (int) ( $r['attachment_id'] ?? 0 ) > 0 ) {
+				$out[ 'TL-' . (int) $r['attachment_id'] ] = true;
+			}
+			if ( count( $out ) >= 20 ) {
+				break;
+			}
+		}
+		return array_keys( $out );
+	}
+
+	/**
+	 * PHASE-0.129 W2 — the brain.map link of a receipt (null when the brain map, the panel code or every row is absent, or the person switched it off).
+	 * [2026-10-22 07:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #5 — tries each kept file until one has THIS owner's row (a row not filed yet, or another
+	 * owner's row with the same code, no longer drops the link).
+	 */
+	private static function map_link_for( array $res, int $owner ): ?array {
+		if ( ! class_exists( 'BizCity_Journal_Brain_Map' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return null;
+		}
+		foreach ( self::kept_codes( $res ) as $code ) {
+			$e = BizCity_Journal_Index::find_by_ref( $code, $owner );
+			if ( is_array( $e ) && (int) ( $e['entry_id'] ?? 0 ) > 0 ) {
+				return BizCity_Journal_Brain_Map::receipt_panel_link( $owner, (int) $e['entry_id'] );
+			}
+		}
+		return null;
+	}
+
 	/** Best effort: a receipt that cannot be sent is logged, never retried in W1 (the notebook still has the file). */
 	private static function send_receipt( array $job, int $owner, string $bridge_id, array $res ): void {
 		// PHASE-0.124 W2: tệp nhóm lưu THEO LỆNH ⇒ chủ nhận biên nhận (kèm tên nhóm); tự lưu khi theo dõi ⇒ im lặng (không spam chủ)
@@ -921,8 +966,20 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 					$letter['job']['register_rows'] = $rows;
 				}
 			}
+			// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 (brain-map@1 receipt_link) — 1-1 owner capture with a KEPT file: a one-time "Bản đồ não" link opening on
+			// that row (the row exists now, so it can say "Đã lưu · TL-… · L1" honestly). The URL rides `job.panel_link` only: the cell sends it as its own fixed sentence and
+			// never puts it in history / the log (R-PL-8). ≤ 1 / 10 min, off by the person. Older cells drop the unknown key.
+			$panel_link = 'owner_capture' === $origin ? self::map_link_for( $res, $owner ) : null;
+			if ( null !== $panel_link ) {
+				$letter['job']['panel_link'] = $panel_link;
+			}
+			$ctx['map_link'] = null !== $panel_link;
 			$out    = BizCity_Scheduler_Hub_Pipe::post_letter( $target, $letter );
 			$ack    = is_array( $out['body'] ?? null ) ? $out['body'] : array();
+			// [2026-10-22 07:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #4 — the 10-minute pause of the map link starts only when the receipt really reached the owner
+			if ( null !== $panel_link && (int) $out['status'] >= 200 && (int) $out['status'] < 300 && ! empty( $ack['delivered'] ) && method_exists( 'BizCity_Journal_Brain_Map', 'mark_receipt_sent' ) ) {
+				BizCity_Journal_Brain_Map::mark_receipt_sent( $owner );
+			}
 			self::log( 'second_brain_receipt_sent', $ctx + array(
 				'http'        => (int) $out['status'],
 				'ack'         => substr( sanitize_key( (string) ( $ack['status'] ?? $ack['code'] ?? '' ) ), 0, 40 ),

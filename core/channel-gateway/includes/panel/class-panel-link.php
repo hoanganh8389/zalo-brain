@@ -133,7 +133,13 @@ final class BizCity_Panel_Link {
 
 	/** Pure ([2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1): a job id the panel may open on, or ''. */
 	public static function clean_focus( string $focus ): string {
-		return 1 === preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $focus ) ? $focus : '';
+		// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — + `entry:<id>`: the journal row a brain.map link opens on (the receipt's file)
+		return 1 === preg_match( '/^(job_[0-9A-Za-z]{10,40}|entry:[1-9][0-9]{0,11})$/', $focus ) ? $focus : '';
+	}
+
+	/** Pure ([2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2): the entry id of an `entry:<id>` focus, else 0. */
+	public static function focus_entry( string $focus ): int {
+		return 1 === preg_match( '/^entry:([1-9][0-9]{0,11})$/', $focus, $m ) ? (int) $m[1] : 0;
 	}
 
 	/** Pure: `connect.gmail` ⇒ `connect`; `key` ⇒ `key`. */
@@ -142,9 +148,16 @@ final class BizCity_Panel_Link {
 		return false === $dot ? $panel : substr( $panel, 0, $dot );
 	}
 
-	/** Pure: may a session of `$group` open `$panel`? Same group, or the key panel (always). */
+	/**
+	 * [2026-10-22 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo (D128-12, doc 68 TZ0-1) — the `twinzalo` panel is the owner's own app: its session
+	 * may open the panels of these groups (the person's own jobs, brain and connections — never `users`, which is the site admin's people matrix).
+	 * Nothing new is writable: each route keeps its own group check, owner check and risk rules.
+	 */
+	const TWINZALO_GROUPS = array( 'jobs', 'brain', 'connect' );
+
+	/** Pure: may a session of `$group` open `$panel`? Same group, or the key panel (always); a TwinZalo session also its groups. */
 	public static function group_allows( string $group, string $panel ): bool {
-		return 'key' === $panel || self::group_of( $panel ) === $group;
+		return 'key' === $panel || self::group_of( $panel ) === $group || ( 'twinzalo' === $group && in_array( self::group_of( $panel ), self::TWINZALO_GROUPS, true ) );
 	}
 
 	// ── key ──────────────────────────────────────────────────────────────
@@ -196,7 +209,26 @@ final class BizCity_Panel_Link {
 	 * @return array{ok:true, token:string, expires_at:int, panel:array}|array{ok:false, code:string}
 	 */
 	// [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — `$focus` = the job id a Quest Map link opens on (jobs.quest); '' for every other panel
-	public static function issue( int $uid, string $panel, string $turn_id = '', string $focus = '' ): array {
+	/**
+	 * [2026-10-22 07:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #4 — may a link be issued UNASKED (the brain.map link of a receipt)? Not while the
+	 * owner still holds an unused ticket of that panel (issuing would kill the one they asked for), and only with headroom in the 5 / 10 min limit
+	 * (≤ 3 used) so the owner's own next request is never refused because of an automatic one.
+	 */
+	public static function can_auto_issue( int $uid, string $panel ): bool {
+		if ( $uid <= 0 ) {
+			return false;
+		}
+		$now     = self::now();
+		$tickets = self::prune_tickets( self::uarr( $uid, self::OPT_TICKETS ), $now );
+		if ( isset( $tickets[ $panel ] ) ) {
+			return false;
+		}
+		$recent = array_filter( array_map( 'intval', self::uarr( $uid, self::OPT_ISSUED ) ), static function ( $t ) use ( $now ) { return $t > $now - self::ISSUE_WINDOW; } );
+		return count( $recent ) <= self::ISSUE_LIMIT - 2;
+	}
+
+	// [2026-10-22 07:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #4 — `$auto` (issued unasked): the key is never rotated here (a rotation would close a page the owner has open)
+	public static function issue( int $uid, string $panel, string $turn_id = '', string $focus = '', bool $auto = false ): array {
 		$cat = self::catalog();
 		if ( $uid <= 0 ) {
 			return array( 'ok' => false, 'code' => 'not_owner' );
@@ -209,7 +241,7 @@ final class BizCity_Panel_Link {
 		if ( count( $recent ) >= self::ISSUE_LIMIT ) {
 			return array( 'ok' => false, 'code' => 'rate_limited' );
 		}
-		self::ensure_key( $uid, true );
+		self::ensure_key( $uid, ! $auto );
 		$tickets = self::uarr( $uid, self::OPT_TICKETS );
 		if ( isset( $tickets[ $panel ]['h'] ) ) {
 			self::tdel( self::T_TICKET . (string) $tickets[ $panel ]['h'] ); // R-PL-3: the older unused link of this panel dies

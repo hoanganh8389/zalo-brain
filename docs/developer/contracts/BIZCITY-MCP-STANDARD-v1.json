@@ -917,6 +917,53 @@
             "capability": "mcp.skills.get"
         },
         {
+            "name": "skills.resource",
+            "kind": "read",
+            "mode": "notebook",
+            "scopes": [
+                "brain.read"
+            ],
+            "confirm": "never",
+            "llm_alias": "skills_resource",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.128 S127-SK7 (2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh, owner 16:31 Q-SK-4): Agent Skills tier 3 (execution) — ONE file a skill ships beside its SKILL.md in its folder (skills/<name>/references/x.md), read when the step needs it; .md only, never SKILL.md or the sidecar; skills.get lists the files (resources). Every file of a skill folder is also a journal row (kind skill.resource, KN-).",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner",
+                "staff"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.resource"
+        },
+        {
+            "name": "skills.lesson",
+            "kind": "write",
+            "mode": "notebook",
+            "scopes": [
+                "memory.write"
+            ],
+            "confirm": "never",
+            "llm_alias": "skills_lesson",
+            "fallback_pack": null,
+            "aliases": [],
+            "wave": 6,
+            "notes": "PHASE-0.128 S127-SK8 (2026-10-22 04:46 PM Johnny Chu - Chu Hoàng Anh, Q-SK-1 the client owns skills): a lesson about a skill from a finished job (feedback down / sửa) — appended to the skill folder LESSONS.md (a resource, its own journal row) + one skill.lesson journal row (review pending, linked to the job). Never edits SKILL.md: the owner applies it in a new version. Same lesson twice = one entry.",
+            "tier": "site",
+            "platform": [
+                "*"
+            ],
+            "roles": [
+                "owner"
+            ],
+            "scope": "tenant",
+            "capability": "mcp.skills.lesson"
+        },
+        {
             "name": "skills.propose",
             "kind": "write",
             "mode": "notebook",
@@ -2177,6 +2224,40 @@
             "capability": "mcp.wp.page.restore"
         }
     ],
+    "knowledge_tools": {
+        "contract": "knowledge-tools@1.0.0",
+        "phase": "PHASE-0.126 S126-M1",
+        "doc": "core\/channel-gateway\/docs\/PHASE-0.126-JOURNAL-LEDGER-BRAIN-INDEX\/20-CONTRACTS.md §4, §4b",
+        "notes": "Every tool that reads or writes the brain spine declares a `brain` block in its register() call: exactly one of `tier` (L1 journal · L2 embed · L3 KG — document \/ notebook-source knowledge only) or `layer` (twin_sheet · job · skill · notebook · output · document rows), `permission` (a brain-access@1 permission the tool needs, checked at the source), `crud` (read|write|state; L2\/L3 read only — learning is a job), `answer_hint` (instant|detail|graph, required for a tier tool). The spec calls the data tier `tier`, but tool-registry@1 already owns that key (cell|site|channel), so the block is `_meta.bizcity.brain`. A tool takes no `audience` argument: the site derives the scope from the principal. Results carry tier|layer + next_tier_available + audience_applied. `exempt` = tools of the notebook mode that are not brain-data answers.",
+        "exempt": {
+            "knowledge.stats": "system sync (counts only), no rows"
+        },
+        "tools": {
+            "journal.find": { "tier": "L1", "permission": "meta.read", "crud": "read" },
+            "journal.get": { "tier": "L1", "permission": "content.read", "crud": "read" },
+            "journal.summarize": { "tier": "L1", "permission": "meta.read", "crud": "read" },
+            "journal.file": { "tier": "L1", "permission": "write", "crud": "write" },
+            "journal.record": { "tier": "L1", "permission": "write", "crud": "write" },
+            "journal.mirror": { "tier": "L1", "permission": "write", "crud": "write" },
+            "journal.void": { "tier": "L1", "permission": "write", "crud": "state" },
+            "journal.deliver": { "tier": "L1", "permission": "file.send", "crud": "write" },
+            "journal.derive": { "tier": "L1", "permission": "write", "crud": "write" },
+            "knowledge.search": { "tier": "L2", "permission": "search.vector", "crud": "read" },
+            "knowledge.get_passage": { "tier": "L2", "permission": "content.read", "crud": "read" },
+            "document.text.read": { "tier": "L2", "permission": "content.read", "crud": "read" },
+            "knowledge.list_notebooks": { "layer": "notebook", "permission": "meta.read", "crud": "read" },
+            "document.file.link": { "layer": "document", "permission": "file.get", "crud": "read" },
+            "document.learn.set": { "layer": "document", "permission": "write", "crud": "state" },
+            "journal.purge": { "layer": "document", "permission": "write", "crud": "write" },
+            "twinsheet.list": { "layer": "twin_sheet", "permission": "meta.read", "crud": "read" },
+            "twinsheet.describe": { "layer": "twin_sheet", "permission": "meta.read", "crud": "read" },
+            "twinsheet.rows": { "layer": "twin_sheet", "permission": "content.read", "crud": "read" },
+            "twinsheet.aggregate": { "layer": "twin_sheet", "permission": "content.read", "crud": "read" },
+            "twinsheet.create": { "layer": "twin_sheet", "permission": "write", "crud": "write" },
+            "twinsheet.update": { "layer": "twin_sheet", "permission": "write", "crud": "write" },
+            "twinsheet.snapshot": { "layer": "twin_sheet", "permission": "write", "crud": "write" }
+        }
+    },
     "existing_tool_modes": {
         "notes": "Modes for tools registered before 0.88 so a delegated (cell) principal can reach them by mode. Tools not listed here (document.*, page.*, content.*, brain.context.*) are not offered to delegated principals in 0.88.",
         "brain.order.summary": "orders",

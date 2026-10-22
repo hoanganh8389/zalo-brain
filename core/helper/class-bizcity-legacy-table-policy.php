@@ -94,6 +94,11 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_crm_flows',
 		// [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — the Gmail SMTP account store is retired (Gmail → cell + Composio); rows stay, no writer, no DROP.
 		'bizcity_crm_gmail_smtp_accounts',
+		// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: tc_welcome_jobs không dùng) — the AI welcome-after-upload queue is removed (files in modules/_archived/twinchat-welcome-20261022); the table was never in a changelog. Rows stay, no writer, no DROP.
+		'tc_welcome_jobs',
+		// [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "gỡ, chấp nhận mất Image Studio, Studio Builder và thẻ duyệt HIL") — the PHP agent loop
+		// (BizCity_Twin_Runner + REST bizcity-twin/v1/run) is archived in core/_archived/runtime-agent-loop-20261022/; its run-state and HIL-decision tables have no writer. Rows stay, no DROP.
+		'bizcity_twin_runs', 'bizcity_twin_hil',
 		'bizcity_memory_users', 'bizcity_memory_episodic',
 		'bizcity_memory_rolling', 'bizcity_memory_session', 'bizcity_memory_notes',
 		'bizcity_kg_usage_log',

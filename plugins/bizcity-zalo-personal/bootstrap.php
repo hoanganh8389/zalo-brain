@@ -134,6 +134,16 @@ BizCity_Zalo_Pack_Invalidate::boot(); // [2026-09-30] PHASE-0.87 CL-2 / CL-D4 �
 BizCity_Zalo_Agent_Principals::boot(); // [2026-10-01] PHASE-0.87 W2-1 — CRM suspend/reactivate re-projects the bundle
 BizCity_Zalo_Staff_Principals_REST::init(); // [2026-10-01] PHASE-0.87 W2-1 — bot/policy/{binding_id}/staff routes
 // [2026-10-19 11:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 B10 — bot/policy/{binding_id}/groups (ma trận Nhóm của số). Nạp có điều kiện: file mới thiếu khi deploy ⇒ chỉ thiếu màn nhóm, không làm plugin trơ.
+// [2026-10-22 12:02 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C5 — "Cấu hình trợ lý của số" (agent-config@1, cell giữ giá trị; đọc / sửa qua Hub)
+if ( is_readable( __DIR__ . '/includes/shared/class-zalo-agent-config-rest.php' ) ) {
+	require_once __DIR__ . '/includes/shared/class-zalo-agent-config-rest.php';
+	BizCity_Zalo_Agent_Config_REST::init();
+}
+// [2026-10-21 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C7 — tab "Lịch" của số (cell là chủ lịch; đọc / sửa qua Hub)
+if ( is_readable( __DIR__ . '/includes/shared/class-zalo-schedule-rest.php' ) ) {
+	require_once __DIR__ . '/includes/shared/class-zalo-schedule-rest.php';
+	BizCity_Zalo_Schedule_REST::init();
+}
 if ( is_readable( __DIR__ . '/includes/shared/class-zalo-group-secretary-rest.php' ) ) {
 	require_once __DIR__ . '/includes/shared/class-zalo-group-secretary-rest.php';
 	BizCity_Zalo_Group_Secretary_REST::init();

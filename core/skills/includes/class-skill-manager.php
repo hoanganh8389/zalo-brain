@@ -147,8 +147,9 @@ class BizCity_Skill_Manager {
 	 * BizCity_Skills_Service::save() after the cell checked it. @return true|WP_Error
 	 */
 	public function write_sidecar( string $relative_path, string $json ) {
-		if ( 1 !== preg_match( '#/[a-z0-9][a-z0-9-]{1,62}(\.v[0-9]{1,6})?\.twin\.json$#', $relative_path ) ) {
-			return new WP_Error( 'invalid_ext', 'Chỉ nhận file <tên>.twin.json.' );
+		// [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 — + `/skills/<name>/twin.json` (the sidecar inside the skill's folder, Agent Skills layout)
+		if ( 1 !== preg_match( '#/[a-z0-9][a-z0-9-]{1,62}(\.v[0-9]{1,6})?\.twin\.json$#', $relative_path ) && 1 !== preg_match( '#^/skills/(?![^/]*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?/twin\.json$#', '/' . ltrim( $relative_path, '/' ) ) ) {
+			return new WP_Error( 'invalid_ext', 'Chỉ nhận file <tên>.twin.json hoặc skills/<tên>/twin.json.' );
 		}
 		$abs = $this->resolve_path( $relative_path );
 		if ( is_wp_error( $abs ) ) {

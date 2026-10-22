@@ -88,6 +88,40 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Journal_Writer', false ) ) {
 			return class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::get_by_idempotency_key( $key, $owner ) : null;
 		}
 
+		const HISTORY_CONTRACT = 'kg_hub.twinsheet_history';
+
+		/**
+		 * [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B10) — keep the last HISTORY_MAX items on the row; hand the older ones to `$archive` (returns how many it stored, oldest first).
+		 * What the archive could not take stays on the row (up to 2 × HISTORY_MAX), so nothing is lost silently. Pure.
+		 *
+		 * @return array{history:array,archived:int}
+		 */
+		public static function trim_history( array $hist, callable $archive ): array {
+			if ( count( $hist ) <= self::HISTORY_MAX ) {
+				return array( 'history' => array_values( $hist ), 'archived' => 0 );
+			}
+			$old  = array_slice( $hist, 0, count( $hist ) - self::HISTORY_MAX );
+			$done = max( 0, min( count( $old ), (int) $archive( $old ) ) );
+			$keep = array_merge( array_slice( $old, $done ), array_slice( $hist, -self::HISTORY_MAX ) );
+			return array( 'history' => array_values( array_slice( $keep, -2 * self::HISTORY_MAX ) ), 'archived' => $done );
+		}
+
+		/** Store old history items of one row (oldest first); stops at the first failure. @return int how many were stored */
+		public static function archive_history( int $id, int $owner, string $kind, array $items ): int {
+			if ( ! class_exists( 'BizCity_Business_JSONL_File_Store' ) || ! class_exists( 'BizCity_File_Contract_Registry' ) || ! BizCity_File_Contract_Registry::has( self::HISTORY_CONTRACT ) ) {
+				return 0;
+			}
+			$n = 0;
+			foreach ( $items as $item ) {
+				$rec = array( 'record_id' => $id . ':' . substr( hash( 'sha256', (string) wp_json_encode( $item ) ), 0, 16 ), 'entry_id' => $id, 'owner_user_id' => $owner, 'kind' => $kind, 'item' => $item );
+				if ( ! BizCity_Business_JSONL_File_Store::write( self::HISTORY_CONTRACT, $rec ) ) {
+					break;
+				}
+				$n++;
+			}
+			return $n;
+		}
+
 		public function update_card( int $id, int $owner, array $data ) {
 			$db  = BizCity_Journal_Database::instance();
 			$row = $db->get( $id, $owner );
@@ -99,7 +133,10 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Journal_Writer', false ) ) {
 			$meta['card']      = $data['card'];
 			$hist = is_array( $meta['history'] ?? null ) ? $meta['history'] : array();
 			$hist[] = $data['history'];
-			$meta['history'] = array_slice( $hist, -self::HISTORY_MAX );
+			// [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B10) — the 21st edit is no longer cut away: older items go to the encrypted business JSONL store first
+			$kept = self::trim_history( $hist, static function ( array $old ) use ( $id, $owner, $row ) { return self::archive_history( $id, $owner, (string) ( $row['kind'] ?? '' ), $old ); } );
+			$meta['history']          = $kept['history'];
+			$meta['history_archived'] = (int) ( $meta['history_archived'] ?? 0 ) + $kept['archived'];
 			if ( 'ok' === (string) ( $meta['mirror']['sheet'] ?? '' ) ) {
 				$meta['mirror']['sheet'] = 'pending'; // the Google copy is stale now (R-JN-15: the journal stays the truth)
 			}
@@ -289,6 +326,42 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Service', false ) ) {
 				$out[ $f['key'] ] = 'boolean' === $f['type'] ? (int) $chk['value'] : $chk['value']; // the cell writes done as 0 / 1
 			}
 			return $out;
+		}
+
+		/**
+		 * [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B2) — the card of a row written through the journal door (assistant `journal.record`, automation) into a sheet a
+		 * person made: every declared column that is present must be valid AND already in its stored form (money / numbers as
+		 * integers, yes/no as 0/1, dates as YYYY-MM-DD, a select by its value) — the door cannot rewrite the entry, so "300k" is
+		 * refused with a hint instead of being stored as text. A required column must be there. Unknown keys are left to the kind.
+		 *
+		 * @return WP_Error|null
+		 */
+		public static function check_card( array $sheet, array $card ) {
+			foreach ( (array) ( $sheet['fields'] ?? array() ) as $f ) {
+				if ( ! is_array( $f ) || 'card' !== ( $f['source'] ?? 'card' ) || in_array( (string) ( $f['type'] ?? '' ), array( 'ref_code' ), true ) || 'computed' === ( $f['source'] ?? '' ) ) {
+					continue;
+				}
+				$key = (string) ( $f['key'] ?? '' );
+				$has = array_key_exists( $key, $card ) && null !== $card[ $key ] && '' !== $card[ $key ];
+				if ( ! $has ) {
+					if ( ! empty( $f['required'] ) && 'doc_date' !== $key ) {
+						return self::field_error( $f, 'field_required' );
+					}
+					continue;
+				}
+				$chk = BizCity_Twin_Sheet_Schema::validate_value( array_merge( $f, array( 'readonly' => false ) ), $card[ $key ] );
+				if ( ! $chk['ok'] ) {
+					return self::field_error( $f, (string) $chk['code'] );
+				}
+				$raw = $card[ $key ];
+				$t   = (string) ( $f['type'] ?? '' );
+				$canon = in_array( $t, array( 'money', 'integer', 'percent' ), true ) ? ( is_int( $raw ) || ( is_string( $raw ) && 1 === preg_match( '/^-?[0-9]{1,15}$/', $raw ) ) )
+					: ( 'boolean' === $t ? ( is_bool( $raw ) || 0 === $raw || 1 === $raw || '0' === $raw || '1' === $raw ) : true );
+				if ( ! $canon ) {
+					return BizCity_Twin_Sheet_Schema::error( 'field_not_canonical', 'Cột "' . $f['label'] . '" phải ghi ở dạng chuẩn.', 'boolean' === $t ? 'Ghi 1 (có) hoặc 0 (không).' : 'Ghi số nguyên, ví dụ 300000 thay cho "300k".', 400 );
+				}
+			}
+			return null;
 		}
 
 		private static function field_error( array $f, string $code ): WP_Error {

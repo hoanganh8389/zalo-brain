@@ -57,6 +57,8 @@ final class BizCity_Twin_Web_Turn {
 	const CONTRACT_CONTACT = 'twin-agent-turn@1.4.0';
 	// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — Cell Chat (mirror the owner's Zalo 1-1 thread from the web): twin-agent-turn@1.5 = 1.4 + `mirror` + `mirror_opts`.
 	const CONTRACT_MIRROR   = 'twin-agent-turn@1.5.0';
+	// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a /gpt/ guest (no WP user) goes to the cell as principal web_guest + contact web_guest; cells older than 1.6 refuse it (an error, never MPR)
+	const CONTRACT_GUEST    = 'twin-agent-turn@1.6.0';
 	const CELL_CHAT_PATH    = '/zalo-hub/cell-chat';
 	const CELL_CHAT_CAPS_KEY = 'bizcity_cell_chat_caps';
 	const CELL_CHAT_CAPS_TTL = 60;
@@ -97,6 +99,10 @@ final class BizCity_Twin_Web_Turn {
 		'empty_message'      => array( 400, 'Tin nhắn không được để trống.', 'Nhập câu hỏi rồi gửi lại.' ),
 		'stream_interrupted' => array( 502, 'Luồng trả lời bị ngắt trước khi hoàn tất.', 'Gửi lại câu hỏi.' ),
 		// [2026-10-12 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.105 S105-C2 — Cell Chat errors (the same codes the cell answers in its `error` frame).
+		// [2026-10-22 07:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — a surface with no PHP fallback (`no_php`) answers a guest with this instead of MPR.
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — the web answers only what the cell can read (images); a document belongs in a notebook / Zalo, never in a silent PHP answer
+		'attachment_not_supported' => array( 415, 'Trợ lý trên web hiện chỉ đọc được ảnh đính kèm.', 'Tài liệu (PDF, Word, Excel…) hãy tải vào sổ ghi chú hoặc gửi qua Zalo rồi hỏi lại.' ),
+		'login_required'     => array( 401, 'Bạn cần đăng nhập để hỏi bộ não.', 'Đăng nhập website rồi hỏi lại.' ),
 		'not_owner'          => array( 403, 'Bạn không phải chủ hoặc nhân viên của số này.', 'Chọn số bạn là chủ hoặc nhân viên, hoặc nhờ chủ số thêm bạn ở Bot Studio.' ),
 		'focus_needs_notebook_mode' => array( 403, 'Tài khoản của bạn chưa được bật quyền "Sổ ghi chú" trên Agent.', 'Nhờ chủ tài khoản bật quyền Sổ ghi chú cho bạn ở Bot Studio, hoặc bỏ chọn sổ rồi hỏi lại.' ),
 	);
@@ -123,6 +129,11 @@ final class BizCity_Twin_Web_Turn {
 	}
 
 	public static function verticals_enabled(): bool {
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — the vertical modes are answered by the cell's own recipes; the site has no vertical pipeline to fall back to any more.
+		// Only the emergency constant (BIZCITY_TWIN_WEB_TURN_FORCE_PHP) still honours a stored 'off'.
+		if ( ! self::force_php() ) {
+			return true;
+		}
 		return 'on' === strtolower( trim( (string) self::option( self::VERTICALS_OPTION, 'off' ) ) );
 	}
 
@@ -153,15 +164,18 @@ final class BizCity_Twin_Web_Turn {
 	 *
 	 * @return array{path:string,reason:string,flag:string,error?:string,principal?:array,key_id?:int}
 	 */
-	public static function decide( string $surface, int $user_id, string $flag_key = '' ): array {
+	public static function decide( string $surface, int $user_id, string $flag_key = '', string $guest_ref = '' ): array {
 		$flag = self::flag( '' !== $flag_key ? $flag_key : $surface );
 		$php  = static function ( string $reason ) use ( $flag ): array { return array( 'path' => 'php', 'reason' => $reason, 'flag' => $flag ); };
 		$err  = static function ( string $code ) use ( $flag ): array { return array( 'path' => 'error', 'reason' => $code, 'flag' => $flag, 'error' => $code ); };
 		if ( ! in_array( $surface, self::SURFACES, true ) || 'php' === $flag ) {
 			return $php( 'flag_php' );
 		}
-		if ( $user_id <= 0 ) {
-			return $php( 'guest' ); // guests keep the PHP surface rules (/gpt/ guest quota, profile chat)
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a /gpt/ guest with its guest session id goes to the cell as a customer (quota is still checked by the site BEFORE the turn).
+		// Without a guest session (or on another surface) it stays the 'guest' php decision, which a no_php surface turns into login_required.
+		$guest = $user_id <= 0 && 'gpt' === $surface && self::is_guest_ref( $guest_ref );
+		if ( $user_id <= 0 && ! $guest ) {
+			return $php( 'guest' );
 		}
 		$accounts = self::accounts();
 		// PHASE-0.90 S90-W4: no Zalo number is no longer a reason to stay on PHP - the site's web home answers (way back: filter
@@ -179,7 +193,7 @@ final class BizCity_Twin_Web_Turn {
 		if ( $key_id <= 0 || null === self::target() ) {
 			return $err( 'hub_key_unknown' );
 		}
-		$principal = $home ? self::web_home_principal( $user_id ) : self::principal( $user_id, $accounts );
+		$principal = $guest ? self::guest_principal( $accounts ) : ( $home ? self::web_home_principal( $user_id ) : self::principal( $user_id, $accounts ) );
 		return array( 'path' => 'node', 'reason' => 'node', 'flag' => $flag, 'principal' => $principal, 'key_id' => $key_id );
 	}
 
@@ -248,6 +262,21 @@ final class BizCity_Twin_Web_Turn {
 	 *
 	 * @return array{kind:string,account_id:string,role:string,role_evidence:string,modes:string[],user_hash:string}
 	 */
+	/** [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a guest session id as the site mints it (letters, digits, - _; 8–120). Pure. */
+	public static function is_guest_ref( string $ref ): bool {
+		return 1 === preg_match( '/^[A-Za-z0-9_-]{8,120}$/', $ref );
+	}
+
+	/**
+	 * [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a /gpt/ guest: always a customer of the site's default number (or the web home when the site has no number), no modes, no hash.
+	 *
+	 * @param list<array{bridge_id:string}>|string[] $accounts
+	 * @return array{kind:string,account_id:string,role:string,role_evidence:string,modes:string[],user_hash:string}
+	 */
+	public static function guest_principal( array $accounts ): array {
+		return self::as_role( 'guest', $accounts ? self::default_account( $accounts ) : '', 'customer', 'guest_session', array() );
+	}
+
 	public static function web_home_principal( int $user_id ): array {
 		$r = BizCity_Twin_Web_Home::role_of( $user_id );
 		if ( 'staff' === $r['role'] && ! self::staff_supported() ) {
@@ -945,8 +974,9 @@ final class BizCity_Twin_Web_Turn {
 	 */
 	public static function envelope( string $surface, array $turn, array $principal, int $key_id ): array {
 		$user_id = (int) $turn['user_id'];
-		$ref     = substr( self::user_hash( $user_id ), 0, 16 );
-		$who     = array( 'kind' => 'wp_user', 'ref' => $ref, 'wp_user_id' => $user_id );
+		$guest   = 'guest' === (string) ( $principal['kind'] ?? '' );
+		$ref     = $guest ? '' : substr( self::user_hash( $user_id ), 0, 16 );
+		$who     = $guest ? array( 'kind' => 'web_guest', 'ref' => '', 'wp_user_id' => 0 ) : array( 'kind' => 'wp_user', 'ref' => $ref, 'wp_user_id' => $user_id );
 		if ( in_array( $principal['role'], array( 'owner', 'staff' ), true ) && '' !== $principal['user_hash'] ) {
 			$who['user_hash'] = $principal['user_hash'];
 		}
@@ -955,7 +985,7 @@ final class BizCity_Twin_Web_Turn {
 			$session['thread_key'] = substr( (string) $turn['thread_key'], 0, 200 );
 		}
 		$env = array(
-			'contract'      => ! empty( $turn['mirror'] ) ? self::CONTRACT_MIRROR : ( ( '' === (string) $principal['account_id'] || ! empty( $turn['vertical'] ) ) ? self::CONTRACT_CONTACT : ( 'staff' === $principal['role'] ? self::CONTRACT_STAFF : self::CONTRACT ) ),
+			'contract'      => $guest ? self::CONTRACT_GUEST : ( ! empty( $turn['mirror'] ) ? self::CONTRACT_MIRROR : ( ( '' === (string) $principal['account_id'] || ! empty( $turn['vertical'] ) ) ? self::CONTRACT_CONTACT : ( 'staff' === $principal['role'] ? self::CONTRACT_STAFF : self::CONTRACT ) ) ),
 			'axis'          => self::AXIS,
 			'trace_id'      => self::trace_id(),
 			'surface'       => $surface,
@@ -989,7 +1019,23 @@ final class BizCity_Twin_Web_Turn {
 		}
 		// PHASE-0.90 (R-CONTACT-ID, contact-identity@1 ContactIn): a numbered turn names the number that answers; a home turn
 		// (no number) names only the web channel. Never a tenant or person id (R-CID-3).
-		if ( '' === (string) $principal['account_id'] ) {
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a guest always names its channel: contact web_guest + the guest session (beside account_id when the site has a number)
+		if ( $guest ) {
+			$at      = array_search( 'principal', array_keys( $env ), true );
+			$contact = array(
+				'platform'     => 'web_guest',
+				'channel_ref'  => class_exists( 'BizCity_Twin_Web_Home' ) ? BizCity_Twin_Web_Home::channel_ref() : '',
+				'platform_uid' => (string) ( $turn['guest_ref'] ?? '' ),
+			);
+			if ( '' === $contact['channel_ref'] ) {
+				$contact['channel_ref'] = function_exists( 'home_url' ) ? (string) wp_parse_url( home_url(), PHP_URL_HOST ) : 'site';
+			}
+			if ( '' === (string) $principal['account_id'] ) {
+				unset( $env['account_id'] );
+				$at = array_search( 'principal', array_keys( $env ), true );
+			}
+			$env = array_slice( $env, 0, (int) $at, true ) + array( 'contact' => $contact ) + array_slice( $env, (int) $at, null, true );
+		} elseif ( '' === (string) $principal['account_id'] ) {
 			// `contact` takes the place of `account_id` (fixture key order)
 			$at      = array_search( 'account_id', array_keys( $env ), true );
 			$contact = array(
@@ -1081,8 +1127,19 @@ final class BizCity_Twin_Web_Turn {
 	public static function run( string $surface, array $turn ) {
 		$user_id = (int) ( $turn['user_id'] ?? 0 );
 		// PHASE-0.89 S89-B7: a surface may keep its OWN cut-over flag (Ask Brain = `brain`) while using the twinchat envelope.
-		$d       = self::decide( $surface, $user_id, (string) ( $turn['flag_key'] ?? '' ) );
+		$d       = self::decide( $surface, $user_id, (string) ( $turn['flag_key'] ?? '' ), (string) ( $turn['guest_ref'] ?? '' ) );
 		self::trace( $surface, $d );
+		// [2026-10-22 07:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: Brain Chat luôn đi cell, cell không nhận thì báo lỗi) — `no_php`: the surface has
+		// no PHP answer any more. Only the emergency constant (flag_php) still returns 'php'; a guest gets login_required; `auto` is piped as `node`, so a cell
+		// that cannot take the turn answers with its R-ERROR-UX error instead of a silent MPR answer (same rule as Cell Chat).
+		if ( ! empty( $turn['no_php'] ) ) {
+			if ( 'php' === $d['path'] && 'flag_php' !== $d['reason'] ) {
+				return self::error( 'guest' === $d['reason'] ? 'login_required' : 'hub_unreachable' );
+			}
+			if ( 'auto' === $d['flag'] ) {
+				$d['flag'] = 'node';
+			}
+		}
 		if ( 'php' === $d['path'] ) {
 			return 'php';
 		}

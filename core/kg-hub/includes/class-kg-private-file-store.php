@@ -136,6 +136,8 @@ final class BizCity_KG_Private_File_Store {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'send_document',
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (knowledge-tools@1) — a file, not a knowledge tier: layer document, the site checks file.get
+			'brain'          => array( 'layer' => 'document', 'permission' => 'file.get', 'crud' => 'read' ),
 			'fallback_pack'  => null,
 			'since'          => '0.121.0',
 		) );
@@ -167,6 +169,8 @@ final class BizCity_KG_Private_File_Store {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'learn_document',
+			// learning is a job, not a CRUD of L2 / L3 (doc 20 §4): crud = state on the document row
+			'brain'          => array( 'layer' => 'document', 'permission' => 'write', 'crud' => 'state' ),
 			'fallback_pack'  => null,
 			'since'          => '0.121.0',
 		) );
@@ -202,6 +206,7 @@ final class BizCity_KG_Private_File_Store {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'read_document',
+			'brain'          => array( 'tier' => 'L2', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'detail' ),
 			'fallback_pack'  => null,
 			'since'          => '0.121.0',
 		) );

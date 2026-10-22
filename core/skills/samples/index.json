@@ -63,8 +63,8 @@
       "needs": [
         "sheets"
       ],
-      "file_hash": "d28d4d14866a093f",
-      "version": 1
+      "file_hash": "cf20be3315097dc4",
+      "version": 2
     },
     "ke-hoach-ngay": {
       "category": "ke-hoach",
@@ -95,8 +95,8 @@
       "icon": "📝",
       "title": "Tóm tắt tài liệu vừa gửi",
       "needs": [],
-      "file_hash": "16274f5ec52b7f7a",
-      "version": 1
+      "file_hash": "aa09b11ba65cad5f",
+      "version": 2
     },
     "on-bai-cach-quang": {
       "category": "hoc-tap",
@@ -113,8 +113,8 @@
       "needs": [
         "sheets"
       ],
-      "file_hash": "a4add707ac975897",
-      "version": 1
+      "file_hash": "e40fd902b9155910",
+      "version": 2
     }
   }
 }

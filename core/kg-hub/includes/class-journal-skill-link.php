@@ -38,6 +38,105 @@ final class BizCity_Journal_Skill_Link {
 		}
 		self::$hooked = true;
 		add_action( 'bizcity_skills_changed', array( __CLASS__, 'on_skill_changed' ), 20, 3 );
+		add_action( 'bizcity_skill_resource_changed', array( __CLASS__, 'on_resource_changed' ), 20, 4 ); // [2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] S127-SK10
+		add_action( 'bizcity_skill_lesson_added', array( __CLASS__, 'on_lesson_added' ), 20, 4 ); // [2026-10-22 04:46 PM Johnny Chu - Chu Hoàng Anh] S127-SK8
+	}
+
+	/**
+	 * S127-SK8 — the `skill.lesson` row of one lesson the brain learned about a skill (from a finished job's 👎 / "sửa …"). Pure. review = pending until the owner
+	 * puts it into a new version (applied_version), under the skill's KN- code; a job's lesson is linked to that job (role lesson, BS-4).
+	 */
+	public static function lesson_row( string $name, string $lesson, string $job, string $key, int $blog, int $owner, string $now ): array {
+		return array(
+			'owner_user_id'   => $owner,
+			'kind'            => 'skill.lesson',
+			'title'           => mb_substr( 'Bài học cho kỹ năng ' . $name, 0, 255 ),
+			'summary'         => mb_substr( $lesson, 0, 300 ),
+			'doc_date'        => substr( $now, 0, 10 ),
+			'source_type'     => 'plugin',
+			'source_ref'      => '' !== $job ? 'job:' . $job : 'skill:' . $name,
+			'idempotency_key' => 'kn:' . $blog . ':' . $name . ':lesson:' . $key,
+			'origin'          => array( 'surface' => 'plugin:skills', 'ref' => 'lesson' ),
+			'card'            => array( 'skill_id' => $name, 'lesson' => mb_substr( $lesson, 0, 400 ), 'source_ref' => '' !== $job ? 'job:' . $job : '', 'review' => 'pending', 'applied_version' => '' ),
+			'tags'            => array( 'skill-' . $name, 'skill-lesson' ),
+			'by'              => array( 'role' => 'system' ),
+		);
+	}
+
+	public static function on_lesson_added( $name, $lesson = '', $job = '', $key = '' ): void {
+		if ( ! class_exists( 'BizCity_Journal_Index' ) || '' === (string) $name || '' === (string) $lesson ) {
+			return;
+		}
+		$owner = self::owner();
+		if ( $owner <= 0 ) {
+			return;
+		}
+		$now  = isset( self::$readers['now'] ) ? (string) call_user_func( self::$readers['now'] ) : gmdate( 'Y-m-d\TH:i:s' );
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$row  = self::lesson_row( (string) $name, (string) $lesson, (string) $job, (string) $key, $blog, $owner, $now );
+		if ( null !== BizCity_Journal_Index::get_by_idempotency_key( $row['idempotency_key'], $owner ) ) {
+			return;
+		}
+		$def = BizCity_Journal_Index::get_by_idempotency_key( self::define_key( $blog, (string) $name ), $owner );
+		if ( is_array( $def ) ) {
+			$row['derived_from'] = array( (int) $def['entry_id'] );
+		}
+		$added = BizCity_Journal_Index::add( $row );
+		if ( is_array( $added ) && '' !== (string) $job && class_exists( 'BizCity_Journal_Job_Link' ) ) {
+			BizCity_Journal_Job_Link::attach( $added, $owner, array( 'job_id' => (string) $job, 'role' => 'lesson' ) );
+		}
+	}
+
+	/* ── S127-SK10: every file of a skill folder is a row (owner 16:31 "Journal have all vault") ── */
+
+	public static function resource_key( int $blog, string $name, string $rel ): string {
+		return 'kn:' . $blog . ':' . $name . ':res:' . substr( hash( 'sha256', $rel ), 0, 12 );
+	}
+
+	/**
+	 * The journal row of ONE file inside a skill folder (`skills/<name>/references/x.md`): kind `skill.resource`, under the skill's KN- code. Pure.
+	 *
+	 * @param string $op write · delete
+	 */
+	public static function resource_row( string $name, string $rel, string $op, int $bytes, string $excerpt, int $blog, int $owner, string $now ): array {
+		return array(
+			'owner_user_id'   => $owner,
+			'kind'            => 'skill.resource',
+			'title'           => mb_substr( 'Tài liệu kỹ năng ' . $name . ': ' . $rel, 0, 255 ),
+			'summary'         => 'delete' === $op ? 'Đã gỡ khỏi thư mục kỹ năng.' : mb_substr( trim( (string) preg_replace( '/\s+/', ' ', $excerpt ) ), 0, 300 ),
+			'doc_date'        => substr( $now, 0, 10 ),
+			'source_type'     => 'plugin',
+			'source_ref'      => 'skill:' . $name . '/' . $rel,
+			'idempotency_key' => self::resource_key( $blog, $name, $rel ),
+			'origin'          => array( 'surface' => 'plugin:skills', 'ref' => 'resource' ),
+			'card'            => array( 'skill_id' => $name, 'path' => $rel, 'bytes' => max( 0, $bytes ), 'op' => 'delete' === $op ? 'delete' : 'write' ),
+			'tags'            => array( 'skill-' . $name, 'skill-resource' ),
+			'by'              => array( 'role' => 'owner' ),
+		);
+	}
+
+	/** `bizcity_skill_resource_changed( name, rel, op, excerpt )` — fired by the skill file routes when a file INSIDE a skill folder is written or removed */
+	public static function on_resource_changed( $name, $rel = '', $op = 'write', $excerpt = '' ): void {
+		if ( ! class_exists( 'BizCity_Journal_Index' ) || '' === (string) $name || '' === (string) $rel ) {
+			return;
+		}
+		$owner = self::owner();
+		if ( $owner <= 0 ) {
+			return;
+		}
+		$now  = isset( self::$readers['now'] ) ? (string) call_user_func( self::$readers['now'] ) : gmdate( 'Y-m-d\TH:i:s' );
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$row  = self::resource_row( (string) $name, (string) $rel, (string) $op, strlen( (string) $excerpt ), (string) $excerpt, $blog, $owner, $now );
+		$def  = BizCity_Journal_Index::get_by_idempotency_key( self::define_key( $blog, (string) $name ), $owner );
+		if ( is_array( $def ) ) {
+			$row['derived_from'] = array( (int) $def['entry_id'] );
+		}
+		$had = BizCity_Journal_Index::get_by_idempotency_key( $row['idempotency_key'], $owner );
+		if ( null === $had ) {
+			BizCity_Journal_Index::add( $row );
+		} else {
+			BizCity_Journal_Index::file( (int) $had['entry_id'], $owner, array( 'card' => $row['card'], 'summary' => $row['summary'] ) );
+		}
 	}
 
 	/* ── pure ─────────────────────────────────────────────────────────── */

@@ -53,7 +53,68 @@ final class BizCity_Twin_Sheet_Registry {
 
 	/** `data.s<ID>` — a sheet a person made */
 	public static function is_custom_key( string $key ): bool {
-		return 1 === preg_match( '/^data.s[0-9]{1,12}$/', $key );
+		// [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (audit) — the dot is literal: `dataxs12` is not a sheet a person made
+		return 1 === preg_match( '/^data\.s[0-9]{1,12}$/', $key );
+	}
+
+	/**
+	 * [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B12, O4) — starting columns for "Tạo sổ" from core/kg-hub/contracts/TWIN-SHEET-TEMPLATES-v1.json + the filter
+	 * `bizcity_twin_sheet_templates`. Every template goes through the same checks as a hand-made sheet; a bad one is dropped, never
+	 * half-shown. ≤ 24 templates. Memoised per request (a JSON file read, no DB).
+	 *
+	 * @return array[] [{key, label, display_name, icon, fields:[{label, type, options?}]}]
+	 */
+	public static function templates(): array {
+		static $memo = null;
+		if ( null === $memo ) {
+			$file = dirname( __DIR__, 2 ) . '/contracts/TWIN-SHEET-TEMPLATES-v1.json';
+			$raw  = is_readable( $file ) ? json_decode( (string) file_get_contents( $file ), true ) : null;
+			$memo = is_array( $raw['templates'] ?? null ) ? $raw['templates'] : array();
+		}
+		$list = function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_twin_sheet_templates', $memo ) : $memo;
+		$out  = array();
+		foreach ( is_array( $list ) ? $list : array() as $t ) {
+			$ok = self::clean_template( $t );
+			if ( null !== $ok && ! isset( $out[ $ok['key'] ] ) ) {
+				$out[ $ok['key'] ] = $ok;
+			}
+		}
+		return array_slice( array_values( $out ), 0, 24 );
+	}
+
+	/** One template, checked like a sheet a person types (Builder types / icons, ≤ 28 columns, select 2–20 options). @return array|null */
+	public static function clean_template( $t ): ?array {
+		if ( ! is_array( $t ) || 1 !== preg_match( '/^[a-z][a-z0-9_]{1,31}$/', (string) ( $t['key'] ?? '' ) ) ) {
+			return null;
+		}
+		$fields = array();
+		foreach ( (array) ( $t['fields'] ?? array() ) as $f ) {
+			$label = is_array( $f ) ? BizCity_Twin_Sheet_Schema::clean_text( (string) ( $f['label'] ?? '' ), 60 ) : '';
+			$type  = is_array( $f ) ? (string) ( $f['type'] ?? '' ) : '';
+			if ( '' === $label || ! in_array( $type, BizCity_Twin_Sheet_Builder::TYPES, true ) ) {
+				return null;
+			}
+			$one = array( 'label' => $label, 'type' => $type );
+			if ( 'select' === $type ) {
+				$opts = array_values( array_filter( array_map( static function ( $o ) { return BizCity_Twin_Sheet_Schema::clean_text( (string) $o, 60 ); }, (array) ( $f['options'] ?? array() ) ) ) );
+				if ( count( $opts ) < 2 || count( $opts ) > 20 ) {
+					return null;
+				}
+				$one['options'] = $opts;
+			}
+			$fields[] = $one;
+		}
+		if ( ! $fields || count( $fields ) > 28 ) {
+			return null;
+		}
+		$icon = in_array( (string) ( $t['icon'] ?? '' ), BizCity_Twin_Sheet_Builder::ICONS, true ) ? (string) $t['icon'] : 'sheet';
+		return array(
+			'key'          => (string) $t['key'],
+			'label'        => BizCity_Twin_Sheet_Schema::clean_text( (string) ( $t['label'] ?? $t['key'] ), 40 ),
+			'display_name' => BizCity_Twin_Sheet_Schema::clean_text( (string) ( $t['display_name'] ?? '' ), 80 ),
+			'icon'         => $icon,
+			'fields'       => $fields,
+		);
 	}
 
 	/** `<family>.<kind>` exactly as journal kinds are spelled. */

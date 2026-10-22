@@ -604,14 +604,16 @@ class BizCity_TwinChat_REST_Controller {
 	 * @return string|WP_REST_Response
 	 */
 	private function maybe_agent_turn( array $args ) {
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — the notebook chat is the cell's: no PHP pipeline answer any more (no_php below). Only the emergency constant
+		// BIZCITY_TWIN_WEB_TURN_FORCE_PHP (flag_php) still returns 'php'.
 		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) ) {
-			return 'php';
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'adapter_missing', 'message' => 'Trợ lý chưa sẵn sàng trên website này.', 'hint' => 'Cập nhật plugin Zalo Brain rồi thử lại.', 'help_code' => 'S126-TWINCHAT-ADAPTER-MISSING' ), 503 );
 		}
 		$user_id     = get_current_user_id();
 		$notebook_id = (int) $args['notebook_id'];
 		$decision    = BizCity_Twin_Web_Turn::decide( 'twinchat', $user_id );
-		if ( 'php' === $decision['path'] ) {
-			return 'php'; // keep the PHP pipeline byte-identical (no history read, no extra query)
+		if ( 'php' === $decision['path'] && 'flag_php' === (string) $decision['reason'] ) {
+			return 'php'; // the emergency constant only: the documented way back
 		}
 		$session_id = '' !== $args['session_id'] ? (string) $args['session_id'] : wp_generate_uuid4();
 		$history    = $this->agent_turn_history( $session_id, $user_id );
@@ -627,6 +629,7 @@ class BizCity_TwinChat_REST_Controller {
 			'notebook_id' => $notebook_id,
 			'thread_key'  => 'twinchat:' . $user_id . ':' . $notebook_id,
 			'effort'      => (string) ( $args['answer_depth'] ?? '' ), // Nhanh/Vừa/Cao/Sâu ⇒ cell reasoning level (clamped there)
+			'no_php'      => true, // [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết"): a cell that cannot take the turn answers with its error, never with the PHP pipeline
 			'persist'     => static function ( array $done, string $trace_id ) use ( $notebook_id, $user_id, $session_id, $message ): int {
 				$db = BizCity_TwinChat_Database::instance();
 				$db->insert_message( [ 'notebook_id' => $notebook_id, 'user_id' => $user_id, 'session_id' => $session_id, 'role' => 'user', 'content' => $message ] );

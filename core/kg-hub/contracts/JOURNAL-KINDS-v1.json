@@ -1,6 +1,6 @@
 {
     "$schema": "https://bizcity.vn/schema/journal-kinds-v1.json",
-    "contract": "journal-kinds@1.4.0",
+    "contract": "journal-kinds@1.5.0",
     "_stamp": "[2026-10-12 10:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L16 — new file (doc 92 §3, R-JOURNAL R-JN-6/R-JN-7).",
     "_stamp_d100_25": "[2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — education = the owner's own study: no per-subject (per-student) notebook, no child-sensitive stamp. nutrition/nanny keep theirs (the person cared for is a subject, not an audience).",
     "families": {
@@ -829,6 +829,20 @@
                 "applied_version"
             ]
         },
+        "skill.resource": {
+            "family": "skill",
+            "label": "Tài liệu của kỹ năng",
+            "icon": "attachment",
+            "sensitive": "",
+            "learn": "index",
+            "card_fields": [
+                "skill_id",
+                "path",
+                "bytes",
+                "op"
+            ],
+            "_stamp": "[2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 (owner 16:31 \"Journal have all vault\") — one row per file INSIDE a skill folder (skills/<name>/references/x.md…): the skill is a folder like Claude Code / Obsidian, every file of it is a journal row under the skill's KN- code. learn index (found by title / path, not vectorised)."
+        },
         "skill.state": {
             "family": "skill",
             "label": "Bật / tắt kỹ năng",
@@ -974,9 +988,11 @@
         "skill.revision": "KN",
         "skill.lesson": "KN",
         "skill.state": "KN",
+        "skill.resource": "KN",
         "document": "TL",
         "fallback": "JE"
     },
     "_stamp_126": "[2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B1/B3/J1/K1 (doc 20 §1, R-BRAIN-SKELETON) — 1.3.0 additive: families brain / skill / job; kinds brain.notebook (NB) · sheet.define (SO) · job.run (JB) · job.evidence (EV) · skill.define/revision/lesson/state (KN) · auto.define · common.instruction (lời dặn, learn index); learn value none (no vector, no graph — a ledger row is not knowledge); layers + ref_codes tables.",
-    "_stamp_127": "[2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C3 — 1.4.0 additive: kind job.feedback (family job, layer job by prefix, no ref code of its own: it reads under its JB-)."
+    "_stamp_127": "[2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C3 — 1.4.0 additive: kind job.feedback (family job, layer job by prefix, no ref code of its own: it reads under its JB-).",
+    "_stamp_128": "[2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 — 1.5.0 additive: kind skill.resource (family skill, layer skill by prefix, ref code KN)."
 }

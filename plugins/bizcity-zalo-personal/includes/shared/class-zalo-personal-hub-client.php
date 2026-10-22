@@ -409,6 +409,78 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/**
+	 * [2026-10-21 11:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C7 (doc 56 §2.3) — the number's schedule ("Lịch" tab) through the Hub brain relay.
+	 * A FIXED list of paths (no free path): list · runs · edit a row · delete · run now · the system row `idle`. The cell is the schedule's owner (D-SCH-CELL-1).
+	 * PATCH goes as POST + `_method=PATCH` (WP REST method override; the Hub route accepts PATCH and drops `_method` before the cell).
+	 */
+	public function schedule_call( string $method, string $path, string $bridge_account_id, array $query = array(), array $body = array() ): array {
+		$method = strtoupper( $method );
+		$id     = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		$job    = '[A-Za-z0-9_-]{1,64}';
+		$allowed = array(
+			'GET'    => array( '#^schedule$#', '#^schedule/' . $job . '/runs$#' ),
+			'PATCH'  => array( '#^schedule/' . $job . '$#', '#^schedule/system/idle$#' ),
+			'DELETE' => array( '#^schedule/' . $job . '$#' ),
+			'POST'   => array( '#^schedule/' . $job . '/run$#' ),
+		);
+		$ok = false;
+		foreach ( $allowed[ $method ] ?? array() as $re ) {
+			$ok = $ok || 1 === preg_match( $re, $path );
+		}
+		if ( '' === $id || ! $ok ) {
+			return $this->degraded( 'schedule_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		if ( 'PATCH' === $method ) {
+			$query['_method'] = 'PATCH';
+		}
+		$full = '/zalo-personal-bridge/brain/' . $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+		if ( 'GET' === $method ) {
+			return $this->get( $full );
+		}
+		if ( 'DELETE' === $method ) {
+			return $this->delete( $full );
+		}
+		$body['account_id'] = (int) $id;
+		return $this->post( $full, $body );
+	}
+
+	/**
+	 * [2026-10-22 12:02 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C5 / H2 — agent-config@1 of one number (tab "Cấu hình"): read, or write ONE key of the
+	 * number's own layer. Two fixed calls only (GET / PATCH agent-config); PATCH goes as POST + `_method=PATCH` like schedule_call.
+	 */
+	public function agent_config_call( string $method, string $bridge_account_id, array $body = array(), array $query = array() ): array {
+		$method = strtoupper( $method );
+		$id     = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( '' === $id || ! in_array( $method, array( 'GET', 'PATCH' ), true ) ) {
+			return $this->degraded( 'agent_config_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		if ( 'PATCH' === $method ) {
+			$query['_method'] = 'PATCH';
+		}
+		$full = '/zalo-personal-bridge/brain/agent-config?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+		if ( 'GET' === $method ) {
+			return $this->get( $full );
+		}
+		$body['account_id'] = (int) $id;
+		return $this->post( $full, $body );
+	}
+
+	/**
+	 * [2026-10-22 05:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S128-C2 — registry-view@1 of the number's tenant (tab "Cấu hình" › "Trợ lý làm được gì").
+	 * One fixed GET; nothing is written.
+	 */
+	public function registry_call( string $bridge_account_id, array $query = array() ): array {
+		$id = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( '' === $id ) {
+			return $this->degraded( 'registry_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		return $this->get( '/zalo-personal-bridge/brain/registry?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 ) );
+	}
+
+	/**
 	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
 	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
 	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.

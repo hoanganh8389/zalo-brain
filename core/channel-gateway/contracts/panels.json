@@ -1,6 +1,6 @@
 {
   "contract": "owner-panel@1.0.0",
-  "_comment": "[2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P4 — core panels the assistant may send its owner (doc 30 §3). connect.<toolkit> panels come from the connector manifests (auth.kind oauth_composio). `say` = examples for the model, never a match table (R-INTENT-MIN). [2026-10-18 08:00 PM] S122-F2/F3: jobs.next, brain.docs, brain.notes. [2026-10-18 09:05 PM] S122-F5: users (chỉ xem; thêm / đổi quyền / xoá = nhắn trợ lý). [2026-10-20 03:30 AM] PHASE-0.125 Q1: jobs.quest (Bản đồ việc — the background job's Quest Map; the cell sends it with job_id when a planned job starts).",
+  "_comment": "[2026-10-18 05:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-P4 — core panels the assistant may send its owner (doc 30 §3). connect.<toolkit> panels come from the connector manifests (auth.kind oauth_composio). `say` = examples for the model, never a match table (R-INTENT-MIN). [2026-10-18 08:00 PM] S122-F2/F3: jobs.next, brain.docs, brain.notes. [2026-10-18 09:05 PM] S122-F5: users (chỉ xem; thêm / đổi quyền / xoá = nhắn trợ lý). [2026-10-20 03:30 AM] PHASE-0.125 Q1: jobs.quest (Bản đồ việc — the background job's Quest Map; the cell sends it with job_id when a planned job starts). [2026-10-22 01:50 PM] PHASE-0.129 W2: brain.map (Bản đồ não, brain-map@1 — the site's second-brain receipt carries it with focus entry:<id> once the rows exist).",
   "panels": [
     {
       "id": "connect.all",
@@ -58,6 +58,17 @@
       ]
     },
     {
+      "id": "brain.map",
+      "label": "Bản đồ não",
+      "body": "graph",
+      "risk_max": "R0",
+      "say": [
+        "xem bản đồ não",
+        "não của tôi có gì",
+        "file vừa lưu nằm đâu"
+      ]
+    },
+    {
       "id": "brain.notes",
       "label": "Ghi chú của tôi",
       "body": "list",
@@ -76,6 +87,18 @@
         "xem nhân viên",
         "ai được làm gì",
         "danh sách người dùng"
+      ]
+    },
+    {
+      "id": "twinzalo",
+      "label": "TwinZalo",
+      "body": "app",
+      "risk_max": "R1",
+      "say": [
+        "mở twinzalo",
+        "mở ứng dụng trợ lý",
+        "tổng quan hôm nay của tôi",
+        "mở bảng điều khiển của tôi"
       ]
     },
     {

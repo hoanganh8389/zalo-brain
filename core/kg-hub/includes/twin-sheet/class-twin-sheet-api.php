@@ -50,6 +50,12 @@ final class BizCity_Twin_Sheet_API {
 		add_filter( 'bizcity_journal_kinds', array( 'BizCity_Twin_Sheet_Registry', 'filter_kinds' ) );
 		// [2026-10-21 11:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — "Khóa kỳ" also holds for the assistant / automations that write through the journal index
 		add_filter( 'bizcity_journal_pre_add', array( 'BizCity_Twin_Sheet_Snapshot', 'guard_journal' ), 10, 5 );
+		// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B2) — after the period lock: the card of a row the assistant writes into a sheet a person made is checked against that sheet
+		add_filter( 'bizcity_journal_pre_add', array( __CLASS__, 'check_journal_card' ), 11, 6 );
+		// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B10) — the encrypted JSONL store that keeps row edits older than the last 20 (registration is an in-memory array, no DB)
+		if ( class_exists( 'BizCity_File_Contract_Registry' ) && class_exists( 'BizCity_Twin_Sheet_Journal_Writer', false ) && ! BizCity_File_Contract_Registry::has( BizCity_Twin_Sheet_Journal_Writer::HISTORY_CONTRACT ) ) {
+			BizCity_File_Contract_Registry::register( BizCity_Twin_Sheet_Journal_Writer::HISTORY_CONTRACT, array( 'owner_module' => 'core/kg-hub', 'label' => 'Twin Sheet row edit history (older than the last 20)', 'folder' => 'bizcity-kg-hub-data', 'module' => 'twinsheet-history', 'related_sql_tables' => array( 'bizcity_journal_entries' ), 'retention_days' => 3650, 'storage_scope' => 'blog' ) );
+		}
 		add_filter( 'bizcity_journal_pre_state', array( 'BizCity_Twin_Sheet_Snapshot', 'guard_state' ), 10, 4 );
 		add_filter( 'wp_revisions_to_keep', array( 'BizCity_Twin_Sheet_Cpt_Defs', 'revisions_to_keep' ), 10, 2 ); // [2026-10-21 08:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — WP revisions of a sheet post: 20
 	}
@@ -71,7 +77,8 @@ final class BizCity_Twin_Sheet_API {
 	/** @return array{items:array,total:int} */
 	public static function list_sheets( array $args, array $ctx ) {
 		$items = BizCity_Twin_Sheet_Registry::list_for_owner( self::owner( $ctx ) );
-		return array( 'items' => $items, 'total' => count( $items ) );
+		// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B12) — the starting columns of "Tạo sổ" travel with the list (no extra route)
+		return array( 'items' => $items, 'total' => count( $items ), 'templates' => BizCity_Twin_Sheet_Registry::templates() );
 	}
 
 	/** @return array|WP_Error twin-sheet@1 definition */
@@ -211,6 +218,8 @@ final class BizCity_Twin_Sheet_API {
 			'output_schema' => $R::envelope_schema( array( 'items' => array( 'type' => 'array' ), 'total' => array( 'type' => 'integer' ) ), array( 'items', 'total' ) ),
 			'handler'       => array( __CLASS__, 'mcp_list' ),
 			'llm_alias'     => 'twinsheet_list',
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (doc 20 §4b) — Twin Sheet has no tier (tier is document / notebook-source maturity): it declares its layer + the permission it needs
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'mode'          => 'notebook',
 		) ) );
 
@@ -222,6 +231,7 @@ final class BizCity_Twin_Sheet_API {
 			'output_schema' => $R::envelope_schema( array( 'sheet_key' => array( 'type' => 'string' ), 'fields' => array( 'type' => 'array' ), 'views' => array( 'type' => 'array' ) ), array( 'sheet_key', 'fields' ) ),
 			'handler'       => array( __CLASS__, 'mcp_describe' ),
 			'llm_alias'     => 'twinsheet_describe',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'mode'          => 'notebook',
 		) ) );
 
@@ -237,6 +247,7 @@ final class BizCity_Twin_Sheet_API {
 			'output_schema' => $R::envelope_schema( array( 'rows' => array( 'type' => 'array' ), 'total' => array( 'type' => 'integer' ), 'totals' => array( 'type' => 'array' ) ), array( 'rows', 'total' ) ),
 			'handler'       => array( __CLASS__, 'mcp_rows' ),
 			'llm_alias'     => 'twinsheet_rows',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'mode'          => 'notebook',
 		) ) );
 
@@ -254,6 +265,7 @@ final class BizCity_Twin_Sheet_API {
 			'output_schema' => $R::envelope_schema( array( 'value' => array( 'type' => 'integer' ), 'count' => array( 'type' => 'integer' ), 'groups' => array( 'type' => 'array' ) ), array( 'value', 'count' ) ),
 			'handler'       => array( __CLASS__, 'mcp_aggregate' ),
 			'llm_alias'     => 'twinsheet_aggregate',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'mode'          => 'notebook',
 		) ) );
 	}
@@ -296,6 +308,7 @@ final class BizCity_Twin_Sheet_API {
 			'idempotent'    => true,
 			'handler'       => array( __CLASS__, 'mcp_create' ),
 			'llm_alias'     => 'twinsheet_create',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'write', 'crud' => 'write' ),
 			'read_only'     => false,
 			'required_cap'  => 'edit_posts',
 		) ) );
@@ -316,6 +329,7 @@ final class BizCity_Twin_Sheet_API {
 			'idempotent'    => true,
 			'handler'       => array( __CLASS__, 'mcp_update' ),
 			'llm_alias'     => 'twinsheet_update',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'write', 'crud' => 'write' ),
 			'read_only'     => false,
 			'required_cap'  => 'edit_posts',
 		) ) );
@@ -335,6 +349,7 @@ final class BizCity_Twin_Sheet_API {
 			'idempotent'    => true,
 			'handler'       => array( __CLASS__, 'mcp_snapshot' ),
 			'llm_alias'     => 'twinsheet_snapshot',
+			'brain'         => array( 'layer' => 'twin_sheet', 'permission' => 'write', 'crud' => 'write' ),
 			'read_only'     => false,
 			'required_cap'  => 'edit_posts',
 		) ) );
@@ -392,6 +407,25 @@ final class BizCity_Twin_Sheet_API {
 			return $denied;
 		}
 		return self::mcp_out( self::aggregate( $args, $ctx ) );
+	}
+
+	/**
+	 * [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B2) — filter `bizcity_journal_pre_add` (…, $idem, $entry): a row for a sheet a person made must fit that sheet.
+	 * A `data.s<ID>` kind that is not the writer's own sheet ⇒ "not found" (custom sheets belong to their author). Built-in sheets keep
+	 * the cell's own checks (unchanged behaviour). An earlier refusal (period locked) passes through untouched.
+	 *
+	 * @return mixed WP_Error to refuse, else $pass
+	 */
+	public static function check_journal_card( $pass, $owner, $kind, $date = '', $idem = '', $entry = array() ) {
+		if ( is_wp_error( $pass ) || ! is_array( $entry ) || ! BizCity_Twin_Sheet_Registry::is_custom_key( (string) $kind ) ) {
+			return $pass;
+		}
+		$sheet = BizCity_Twin_Sheet_Registry::get( (string) $kind, (int) $owner );
+		if ( is_wp_error( $sheet ) ) {
+			return $sheet;
+		}
+		$bad = BizCity_Twin_Sheet_Service::check_card( $sheet, is_array( $entry['card'] ?? null ) ? $entry['card'] : array() );
+		return null !== $bad ? $bad : $pass;
 	}
 
 	/**
@@ -583,6 +617,12 @@ final class BizCity_Twin_Sheet_API {
 	}
 
 	public static function rest_structure_versions( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (A13) — ?a=<v>&b=<v> compares ANY two stored versions (notes computed by code, FV-6); without them: the list
+		$a = (int) $request->get_param( 'a' );
+		$b = (int) $request->get_param( 'b' );
+		if ( $a > 0 && $b > 0 ) {
+			return self::respond( BizCity_Twin_Sheet_Structure::compare( (int) get_current_user_id(), (string) $request->get_param( 'key' ), $a, $b ) );
+		}
 		return self::respond( BizCity_Twin_Sheet_Structure::versions( (int) get_current_user_id(), (string) $request->get_param( 'key' ) ) );
 	}
 
@@ -655,6 +695,16 @@ final class BizCity_Twin_Sheet_API {
 		foreach ( $params as $k => $v ) {
 			if ( 0 === strpos( (string) $k, 'f_' ) && is_scalar( $v ) && '' !== (string) $v ) {
 				$field = substr( (string) $k, 2 );
+				// [2026-10-22 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W8 (A3) — `f_x=~chữ` ⇒ contains, `f_x=a..b` ⇒ between (either side may be empty); the schema still allows only declared filter columns
+				if ( 0 === strpos( (string) $v, '~' ) ) {
+					$where[] = array( 'field' => $field, 'op' => 'contains', 'value' => substr( (string) $v, 1 ) );
+					continue;
+				}
+				if ( false !== strpos( (string) $v, '..' ) ) {
+					$pair    = explode( '..', (string) $v, 2 );
+					$where[] = array( 'field' => $field, 'op' => 'between', 'value' => array( trim( $pair[0] ), trim( $pair[1] ) ) );
+					continue;
+				}
 				$vals  = array_values( array_filter( array_map( 'trim', explode( ',', (string) $v ) ), 'strlen' ) );
 				$where[] = count( $vals ) > 1 ? array( 'field' => $field, 'op' => 'in', 'value' => $vals ) : array( 'field' => $field, 'op' => 'eq', 'value' => $vals[0] ?? '' );
 			}

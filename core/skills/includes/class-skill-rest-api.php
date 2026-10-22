@@ -146,16 +146,24 @@ final class BizCity_Skill_REST_API {
 			return self::error( $r, 400 );
 		}
 		self::changed();
+		// [2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 — a file inside a skill folder is a resource: one journal row per file
+		if ( class_exists( 'BizCity_Skills_Service', false ) ) {
+			BizCity_Skills_Service::notify_resource( $path, 'write', $raw );
+		}
 		$skill = class_exists( 'BizCity_Skills_Service', false ) ? BizCity_Skills_Service::from_raw( $raw, $path ) : null;
 		return new WP_REST_Response( array( 'saved' => true, 'path' => $path, 'skill' => $skill ? $skill['name'] : null, 'status' => $skill ? $skill['status'] : null ), 200 );
 	}
 
 	public static function delete_file( WP_REST_Request $req ): WP_REST_Response {
-		$r = BizCity_Skill_Manager::instance()->delete_file( sanitize_text_field( (string) $req->get_param( 'path' ) ) );
+		$path = sanitize_text_field( (string) $req->get_param( 'path' ) );
+		$r    = BizCity_Skill_Manager::instance()->delete_file( $path );
 		if ( is_wp_error( $r ) ) {
 			return self::error( $r, 400 );
 		}
 		self::changed();
+		if ( class_exists( 'BizCity_Skills_Service', false ) ) {
+			BizCity_Skills_Service::notify_resource( $path, 'delete' ); // S127-SK10: the resource row says it left the folder
+		}
 		return new WP_REST_Response( array( 'deleted' => true ), 200 );
 	}
 
@@ -376,7 +384,9 @@ final class BizCity_Skill_REST_API {
 			'user_ref'   => '' !== $was ? $was : $ref,
 			'visibility' => ( 'shop' === ( $twin['owner']['visibility'] ?? '' ) && current_user_can( 'manage_options' ) ) ? 'shop' : 'private',
 		);
-		$r     = self::hub( 'POST', self::HUB_TWIN_CHECK, array( 'skill' => $twin ) );
+		// [2026-10-22 12:11 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C6 (twin-skill@1.1) — the SKILL.md body goes with it: its ```delegation block is checked by the
+		// cell's own code (same parser it compiles with); a broken block is a check error ⇒ the version is not publishable
+		$r     = self::hub( 'POST', self::HUB_TWIN_CHECK, array( 'skill' => $twin, 'body' => mb_substr( (string) ( $skill['body_md'] ?? '' ), 0, 8192 ) ) );
 		$valid = $r['ok'] && ! empty( $r['body']['valid'] );
 		$errs  = $r['ok'] && is_array( $r['body']['errors'] ?? null ) ? $r['body']['errors'] : array();
 		if ( $r['ok'] && is_array( $r['body']['skill'] ?? null ) ) {
@@ -395,6 +405,8 @@ final class BizCity_Skill_REST_API {
 			'valid'     => $valid,
 			'errors'    => array_slice( $errs, 0, 30 ),
 			'warnings'  => $r['ok'] && is_array( $r['body']['warnings'] ?? null ) ? array_slice( $r['body']['warnings'], 0, 30 ) : array(),
+			// S127-C6: the pieces the cell read from the body (piece · goal · group · output · rubric) — the Editor lists them; never written here
+			'delegation' => $r['ok'] && is_array( $r['body']['delegation']['pieces'] ?? null ) ? array_slice( $r['body']['delegation']['pieces'], 0, 8 ) : array(),
 			'_degraded' => ! $r['ok'],
 			'hint'      => $r['ok'] ? '' : 'Đã lưu nháp; chưa kiểm được vì trợ lý đang vắng — bấm Lưu lại sau ít phút để kiểm trước khi xuất bản.',
 		), 200 );

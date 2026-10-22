@@ -1,0 +1,64 @@
+{
+    "contract": "twin-sheet-templates@1.0.0",
+    "_stamp": "[2026-10-22 02:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B12, O4) — starting columns for \"Tạo sổ\". Served inside GET twinsheets (`templates`, no extra route) after validation by BizCity_Twin_Sheet_Registry::templates(); a plugin adds its own through the filter `bizcity_twin_sheet_templates`. A template is only a suggestion: the sheet is built by the same Builder as a hand-made one (types, ≤ 28 columns, select 2–20 options).",
+    "templates": [
+        {
+            "key": "study",
+            "label": "Học tập",
+            "display_name": "Sổ học tập",
+            "icon": "book",
+            "fields": [
+                { "label": "Bài học", "type": "text" },
+                { "label": "Điểm", "type": "percent" },
+                { "label": "Kết quả", "type": "select", "options": ["Đạt", "Chưa đạt"] },
+                { "label": "Ghi chú", "type": "long_text" }
+            ]
+        },
+        {
+            "key": "people",
+            "label": "Danh sách khách",
+            "display_name": "Sổ khách hàng",
+            "icon": "people",
+            "fields": [
+                { "label": "Họ tên", "type": "text" },
+                { "label": "Điện thoại", "type": "text" },
+                { "label": "Tình trạng", "type": "select", "options": ["Mới", "Đang tư vấn", "Đã chốt", "Ngừng"] },
+                { "label": "Ghi chú", "type": "long_text" }
+            ]
+        },
+        {
+            "key": "fund",
+            "label": "Quỹ nhóm",
+            "display_name": "Quỹ nhóm",
+            "icon": "cash",
+            "fields": [
+                { "label": "Khoản", "type": "text" },
+                { "label": "Số tiền", "type": "money" },
+                { "label": "Người nộp", "type": "text" }
+            ]
+        },
+        {
+            "key": "stock",
+            "label": "Kho hàng nhỏ",
+            "display_name": "Sổ kho",
+            "icon": "box",
+            "fields": [
+                { "label": "Mặt hàng", "type": "text" },
+                { "label": "Số lượng", "type": "integer" },
+                { "label": "Nhập / Xuất", "type": "select", "options": ["Nhập", "Xuất"] },
+                { "label": "Ghi chú", "type": "long_text" }
+            ]
+        },
+        {
+            "key": "habit",
+            "label": "Thói quen hằng ngày",
+            "display_name": "Sổ thói quen",
+            "icon": "todo",
+            "fields": [
+                { "label": "Việc", "type": "text" },
+                { "label": "Đã làm", "type": "boolean" },
+                { "label": "Ghi chú", "type": "long_text" }
+            ]
+        }
+    ]
+}

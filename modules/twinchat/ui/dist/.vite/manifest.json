@@ -1,14 +1,10 @@
 {
-  "_shield-check-87QItHSe.js": {
-    "file": "assets/shield-check-87QItHSe.js",
+  "_shield-check-BLmSndlV.js": {
+    "file": "assets/shield-check-BLmSndlV.js",
     "name": "shield-check",
     "imports": [
       "index.html"
     ]
-  },
-  "_studioTemplates-CLQBaV0Y.js": {
-    "file": "assets/studioTemplates-CLQBaV0Y.js",
-    "name": "studioTemplates"
   },
   "_vendor-graph-CL8HYJUj.js": {
     "file": "assets/vendor-graph-CL8HYJUj.js",
@@ -36,7 +32,7 @@
     ]
   },
   "index.html": {
-    "file": "assets/index-CTJJ9Feg.js",
+    "file": "assets/index-CJlr3uuC.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -48,9 +44,6 @@
     ],
     "dynamicImports": [
       "src/components/KGGraphViewNexus.tsx",
-      "src/components/embed/StudioBuilderTab.tsx",
-      "src/components/embed/ImageStudioTab.tsx",
-      "src/components/embed/DesignEmbedTab.tsx",
       "src/components/workspace/HistoryWorkspace.tsx",
       "src/components/workspace/IntegrationsWorkspace.tsx",
       "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
@@ -59,11 +52,11 @@
       "src/pages/AccountPage.tsx"
     ],
     "css": [
-      "assets/index-lzyoN4yN.css"
+      "assets/index-B_Br-_7p.css"
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-CDJqZSG8.js",
+    "file": "assets/KGGraphViewNexus-BJsoAy9y.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,
@@ -75,55 +68,14 @@
       "_vendor-graph-CL8HYJUj.js"
     ]
   },
-  "src/components/embed/DesignEmbedTab.tsx": {
-    "file": "assets/DesignEmbedTab-BiRXYjUh.js",
-    "name": "DesignEmbedTab",
-    "src": "src/components/embed/DesignEmbedTab.tsx",
-    "isDynamicEntry": true,
-    "imports": [
-      "_vendor-query-D509jcZr.js",
-      "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
-    ]
-  },
-  "src/components/embed/ImageStudioTab.tsx": {
-    "file": "assets/ImageStudioTab-70e3LoP1.js",
-    "name": "ImageStudioTab",
-    "src": "src/components/embed/ImageStudioTab.tsx",
-    "isDynamicEntry": true,
-    "imports": [
-      "_vendor-query-D509jcZr.js",
-      "index.html",
-      "_studioTemplates-CLQBaV0Y.js",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
-    ]
-  },
-  "src/components/embed/StudioBuilderTab.tsx": {
-    "file": "assets/StudioBuilderTab-C_6P_elS.js",
-    "name": "StudioBuilderTab",
-    "src": "src/components/embed/StudioBuilderTab.tsx",
-    "isDynamicEntry": true,
-    "imports": [
-      "_vendor-query-D509jcZr.js",
-      "index.html",
-      "_studioTemplates-CLQBaV0Y.js",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
-    ]
-  },
   "src/components/guru/GuruWorkspacePanel.tsx": {
-    "file": "assets/GuruWorkspacePanel-BlLezMV8.js",
+    "file": "assets/GuruWorkspacePanel-Ca0GM4f-.js",
     "name": "GuruWorkspacePanel",
     "src": "src/components/guru/GuruWorkspacePanel.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-D509jcZr.js",
-      "_shield-check-87QItHSe.js",
+      "_shield-check-BLmSndlV.js",
       "index.html",
       "_vendor-react-CkLhF1le.js",
       "_vendor-md-BYxt_V2H.js",
@@ -131,7 +83,7 @@
     ]
   },
   "src/components/workspace/HistoryWorkspace.tsx": {
-    "file": "assets/HistoryWorkspace-CJoP_oaf.js",
+    "file": "assets/HistoryWorkspace-DcTkWqq9.js",
     "name": "HistoryWorkspace",
     "src": "src/components/workspace/HistoryWorkspace.tsx",
     "isDynamicEntry": true,
@@ -144,7 +96,7 @@
     ]
   },
   "src/components/workspace/IntegrationsWorkspace.tsx": {
-    "file": "assets/IntegrationsWorkspace-D_huEx_R.js",
+    "file": "assets/IntegrationsWorkspace-DAOox1z4.js",
     "name": "IntegrationsWorkspace",
     "src": "src/components/workspace/IntegrationsWorkspace.tsx",
     "isDynamicEntry": true,
@@ -157,14 +109,14 @@
     ]
   },
   "src/components/workspace/PlansAndApiKeyWorkspace.tsx": {
-    "file": "assets/PlansAndApiKeyWorkspace-BWI1o7qf.js",
+    "file": "assets/PlansAndApiKeyWorkspace-Czi-7gLV.js",
     "name": "PlansAndApiKeyWorkspace",
     "src": "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_vendor-query-D509jcZr.js",
       "index.html",
-      "_shield-check-87QItHSe.js",
+      "_shield-check-BLmSndlV.js",
       "src/components/workspace/UsageWorkspace.tsx",
       "_vendor-react-CkLhF1le.js",
       "_vendor-md-BYxt_V2H.js",
@@ -172,7 +124,7 @@
     ]
   },
   "src/components/workspace/UsageWorkspace.tsx": {
-    "file": "assets/UsageWorkspace-CMn9amDB.js",
+    "file": "assets/UsageWorkspace-DnHNwNCq.js",
     "name": "UsageWorkspace",
     "src": "src/components/workspace/UsageWorkspace.tsx",
     "isDynamicEntry": true,
@@ -185,7 +137,7 @@
     ]
   },
   "src/pages/AccountPage.tsx": {
-    "file": "assets/AccountPage-DF5VAsG9.js",
+    "file": "assets/AccountPage-BTvO-xPH.js",
     "name": "AccountPage",
     "src": "src/pages/AccountPage.tsx",
     "isDynamicEntry": true,

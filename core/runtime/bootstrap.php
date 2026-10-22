@@ -48,21 +48,6 @@ if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 	error_log( '[bizcity] runtime_trace_classes_skipped: BizCity_Safe_Loader unavailable' );
 }
 
-// Runtime contracts + classes
-require_once __DIR__ . '/class-twin-db-installer.php';
-require_once __DIR__ . '/interface-twin-session.php';
-require_once __DIR__ . '/class-twin-run-state.php';
-require_once __DIR__ . '/class-twin-rolling-session.php';
-require_once __DIR__ . '/class-twinshell-event-bus.php';
-require_once __DIR__ . '/class-twin-runner.php';
-require_once __DIR__ . '/class-twin-rest-controller.php';
-
-// Ensure DB tables exist for current blog (cheap: reads one option, bails if current).
-add_action( 'plugins_loaded', function () {
-	BizCity_Twin_DB_Installer::maybe_install();
-}, 15 );
-
-// Register REST route at rest_api_init
-add_action( 'rest_api_init', function () {
-	BizCity_Twin_REST_Controller::instance()->register_routes();
-} );
+// [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the PHP agent loop is gone (cell is the brain): BizCity_Twin_Runner, Twin_Run_State,
+// Twin_Rolling_Session, Twin_Session, TwinShell_Event_Bus, Twin_DB_Installer and the REST POST bizcity-twin/v1/run + GET /events/{run_id} live in
+// core/_archived/runtime-agent-loop-20261022/. Tables bizcity_twin_runs / bizcity_twin_hil are quarantined (rows kept, nothing installs or writes them).

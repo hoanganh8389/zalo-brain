@@ -357,6 +357,27 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Structure', false ) ) {
 		 *
 		 * @return array|WP_Error {items:[{v, at, note, source, changes[], columns, current}]}
 		 */
+		/**
+		 * [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (A13) — what changed between ANY two stored versions a → b (either order), notes computed from the snapshots.
+		 *
+		 * @return array|WP_Error {a, b, changes[], columns_a, columns_b}
+		 */
+		public static function compare( int $owner, string $key, int $a, int $b, ?BizCity_Twin_Sheet_Defs $defs = null, string $now = '' ) {
+			$defs = $defs ?? BizCity_Twin_Sheet_Registry::defs();
+			$rec  = self::own( $owner, $key, $defs );
+			if ( is_wp_error( $rec ) ) {
+				return $rec;
+			}
+			$by = array();
+			foreach ( self::stored( $rec, $defs, '' !== $now ? $now : gmdate( 'c' ) ) as $ver ) {
+				$by[ (int) $ver['v'] ] = (array) $ver['fields'];
+			}
+			if ( ! isset( $by[ $a ], $by[ $b ] ) ) {
+				return BizCity_Twin_Sheet_Schema::error( 'version_not_found', 'Không có bản cấu trúc này trong sổ.', 'Chọn lại hai bản trong danh sách "Các bản".', 404 );
+			}
+			return array( 'a' => $a, 'b' => $b, 'changes' => $a === $b ? array() : self::diff_notes( $by[ $a ], $by[ $b ] ), 'columns_a' => count( $by[ $a ] ), 'columns_b' => count( $by[ $b ] ) );
+		}
+
 		public static function versions( int $owner, string $key, ?BizCity_Twin_Sheet_Defs $defs = null, string $now = '' ) {
 			$defs = $defs ?? BizCity_Twin_Sheet_Registry::defs();
 			$rec  = self::own( $owner, $key, $defs );

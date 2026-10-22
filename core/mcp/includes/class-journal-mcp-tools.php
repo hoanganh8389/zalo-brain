@@ -92,12 +92,14 @@ final class BizCity_Journal_MCP_Tools {
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
-			'handler'        => array( __CLASS__, 'find' ),
+			'handler'        => array( __CLASS__, 'find_mcp' ),
 			'mode'           => 'notebook',
 			'roles'          => array( 'owner', 'staff' ),
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_find',
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (knowledge-tools@1) — L1 journal tool: the permission it needs from brain-access@1
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => 'doc_index',
 			'since'          => self::SINCE,
 		) );
@@ -117,12 +119,13 @@ final class BizCity_Journal_MCP_Tools {
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
-			'handler'        => array( __CLASS__, 'get' ),
+			'handler'        => array( __CLASS__, 'get_mcp' ),
 			'mode'           => 'notebook',
 			'roles'          => array( 'owner', 'staff' ),
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_get',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -157,6 +160,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_file',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -208,6 +212,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_record',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -238,6 +243,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_mirror',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -268,6 +274,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_void',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'state', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -299,6 +306,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_deliver',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'file.send', 'crud' => 'write', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => '0.126.0',
 		) );
@@ -328,6 +336,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'llm_alias'      => 'journal_summarize',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -367,6 +376,7 @@ final class BizCity_Journal_MCP_Tools {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'always',
 			'llm_alias'      => 'journal_derive',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
@@ -473,6 +483,37 @@ final class BizCity_Journal_MCP_Tools {
 		return $res;
 	}
 
+	/**
+	 * [2026-10-22 02:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (doc 20 §4 envelope) — a row is "deeper-able" when it is a document / notebook source already embedded (L2) or graphed (L3):
+	 * the register line is L1, the content (or the relations) sits one tier down. Pure; tier null (sheet, job, skill…) has no next tier.
+	 */
+	public static function has_deeper_tier( array $items ): bool {
+		foreach ( $items as $e ) {
+			if ( is_array( $e ) && in_array( $e['tier'] ?? null, array( 'L2', 'L3' ), true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** MCP door of journal.find: the rows as before + `next_tier_available` (any returned row has a deeper tier). */
+	public static function find_mcp( array $args, array $ctx ) {
+		$res = self::find( $args, $ctx );
+		if ( is_array( $res ) ) {
+			$res['next_tier_available'] = self::has_deeper_tier( (array) ( $res['items'] ?? array() ) );
+		}
+		return $res;
+	}
+
+	/** MCP door of journal.get: the row as before + `next_tier_available`. The row keeps ITS OWN `tier` (maturity of the document); the tool's tier is not stamped over it. */
+	public static function get_mcp( array $args, array $ctx ) {
+		$row = self::get( $args, $ctx );
+		if ( is_array( $row ) ) {
+			$row['next_tier_available'] = self::has_deeper_tier( array( $row ) );
+		}
+		return $row;
+	}
+
 	public static function get( array $args, array $ctx ) {
 		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-2/F-5) — by code or by id; a miss says what to do next
 		$ref = trim( (string) ( $args['ref'] ?? '' ) );
@@ -506,6 +547,14 @@ final class BizCity_Journal_MCP_Tools {
 				return self::err( new WP_Error( 'journal_not_found', 'Không có dòng ' . strtoupper( trim( (string) $args['ref'] ) ) . ' trong sổ của chủ. Tìm lại bằng journal.find để lấy mã đúng.' ) );
 			}
 			$id = (int) $hit['entry_id'];
+		}
+		// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M4 (C5, brain-access@1 `write`) — changing a row (kind, tags, pin, the contact it belongs to) is decided AT THE ROW:
+		// the principal of the turn must hold `write` on it, else it answers "not found" (no existence leak). contact_visible() above stays: it guards the CRM CONTACT (inbox access), not the row.
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			$row = BizCity_Journal_Index::get( $id, self::owner( $ctx ) );
+			if ( $row && ! BizCity_Brain_Access::decide( BizCity_Brain_Access::principal( $ctx ), $row, 'write' )['allow'] ) {
+				return self::err( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
+			}
 		}
 		$r = BizCity_Journal_Index::file( $id, self::owner( $ctx ), $patch );
 		return is_wp_error( $r ) ? self::err( $r ) : $r;

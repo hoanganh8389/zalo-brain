@@ -7,7 +7,13 @@
  * @license    GPL-2.0-or-later
  * @link       https://bizcity.vn
  *
- * Bootstrap for core/agents — Phase 0.15 primitives.
+ * Bootstrap for core/runtime/agents — only the Universal Artifact-Source Federation contract is left here.
+ *
+ * [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "gỡ, chấp nhận mất Image Studio, Studio Builder và thẻ duyệt HIL";
+ * "Cell là trục não chính, không dùng PHP để suy luận") — the PHP agent primitives (BizCity_TwinShell_Agent / _Tool, BizCity_Twin_Agent_Registry,
+ * the echo / image / twin_root agents) moved to core/_archived/runtime-agent-loop-20261022/ together with the runner and the REST /run endpoint.
+ * The `bizcity_register_agent` filter is still applied by a few readers (guru skill bridge, twinbrain intent matcher, twin-crm probes); with no
+ * registrant it returns an empty list, which every reader already handles.
  *
  * @since 1.13.0
  */
@@ -16,34 +22,5 @@ defined( 'ABSPATH' ) || exit;
 if ( defined( 'BIZCITY_TWIN_AGENTS_LOADED' ) ) return;
 define( 'BIZCITY_TWIN_AGENTS_LOADED', true );
 
-// Agent primitives
-require_once __DIR__ . '/class-twin-tool.php';
-require_once __DIR__ . '/class-twin-agent.php';
-require_once __DIR__ . '/class-twin-agent-registry.php';
-// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R15 (core-wide sweep) — BizCity_TwinShell_Handoff had no caller; archived in core/_archived/sweep-20260930/.
-
-// Vòng 4.5.0.a — Universal Artifact-Source Federation (Rule 8g).
+// Vòng 4.5.0.a — Universal Artifact-Source Federation (Rule 8g). KG-Hub federation, CRM and TwinWeb read it.
 require_once __DIR__ . '/contracts/class-artifact-source-federation.php';
-
-// Built-in agent registrations
-// Sprint 8 cleanup — `echo_agent` is a Vòng-1 smoke-test fixture (no tools,
-// just echoes input). Gate behind `bizcity_twin_dev_mode` filter so it does
-// not pollute production agent registry. Default ON in WP_DEBUG, OFF otherwise.
-$bizcity_twin_dev_mode = (bool) apply_filters(
-	'bizcity_twin_dev_mode',
-	defined( 'WP_DEBUG' ) && WP_DEBUG
-);
-if ( $bizcity_twin_dev_mode ) {
-	require_once __DIR__ . '/bootstrap/register-echo-agent.php';
-}
-unset( $bizcity_twin_dev_mode );
-// Vòng 4.5.5e (Rule 8g v2 — 2026-05-02) — agent registration moved to owning
-// plugins. Each plugin self-registers via the `bizcity_register_agent`
-// filter (see BizCity_Twin_Agent_Registry::resolve()). Core only keeps
-// the system-level agents: image (placeholder) + twin_root (orchestrator).
-//
-//   - register-mindmap-agent.php   →  plugins/bizcity-doc/includes/agents/
-//   - register-doc-agent.php       →  plugins/bizcity-doc/includes/agents/
-//   - register-content-agent.php   →  plugins/bizcity-content-creator/includes/agents/
-require_once __DIR__ . '/bootstrap/register-image-agent.php';
-require_once __DIR__ . '/bootstrap/register-twin-root.php';

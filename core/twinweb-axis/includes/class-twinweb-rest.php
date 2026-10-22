@@ -1265,7 +1265,8 @@ class BizCity_TwinWeb_REST {
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-7 — /gpt/ = adapter of the cell's runAgentTurn (surface gpt, R-TWIN-GPT-FIRST)
 		// when `bizcity_twin_web_turn_path_gpt` (auto|node|php, default auto) picks node. Guests, Profile chat, /skill workflows,
 		// #workflow commands, vertical modes and non-image attachments stay on the PHP path (images go as parts since 2026-10-01).
-		if ( ! $is_profile_public && ! $identity['is_guest'] ) {
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — guests go to the cell too (as customers, quota already checked above); only the public Profile chat keeps the PHP path.
+		if ( ! $is_profile_public ) {
 			$agent = $this->maybe_agent_turn( $request, $identity, $message );
 			if ( 'done' === $agent ) {
 				exit; // SSE already written by the transition bridge
@@ -1690,41 +1691,34 @@ class BizCity_TwinWeb_REST {
 	 */
 	private function maybe_agent_turn( WP_REST_Request $request, array $identity, string $message ) {
 		if ( ! class_exists( 'BizCity_Twin_Web_Turn' ) ) {
-			$this->legacy_reason = 'adapter_missing';
-			return 'php';
+			return new WP_REST_Response( array( 'success' => false, 'code' => 'adapter_missing', 'message' => 'Trợ lý chưa sẵn sàng trên website này.', 'hint' => 'Cập nhật plugin Zalo Brain rồi thử lại.', 'help_code' => 'S126-GPT-ADAPTER-MISSING' ), 503 );
 		}
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — every /gpt/ turn is the cell's: a vertical mode or /slug goes as `vertical`, an unknown mode as plain chat, a non-image file is an
+		// error; only the emergency constant (flag_php) still returns 'php'. The cell answers or says why it cannot (no_php: no silent MPR answer).
 		$mode  = sanitize_key( (string) $request->get_param( 'mode' ) );
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — `skill` no longer pins the turn to PHP (the /skill Workflow Pipeline is archived).
-		// PHASE-0.89 S89-B8: a vertical brain mode (law, tax, woo_bizops…) answers on the cell when the verticals switch is on
-		// (Twin_Web_Turn::VERTICALS_OPTION, default off); any other non-chat mode, and a literal /slug, stay on the PHP pipeline.
+		// PHASE-0.89 S89-B8 → 0.126: a vertical brain mode (law, tax, woo_bizops…) or a literal /slug of one answers on the cell as `vertical`.
 		$vertical = '';
 		// `notebooks` is the /gpt/ DEFAULT mode ("Brain Chat": the UI canonicalises `chat` → `notebooks`, the server default is
 		// `notebooks` too) - it is plain chat, not a vertical. Before 2026-10-03 it fell into the branch below and every default
 		// /gpt/ turn stayed on the PHP pipeline ('vertical'), so nothing reached the cell or its Sessions.
-		if ( ! in_array( $mode, array( '', 'chat', 'notebooks' ), true ) ) {
-			if ( ! BizCity_Twin_Web_Turn::is_vertical( $mode ) || ! BizCity_Twin_Web_Turn::verticals_enabled() ) {
-				$this->legacy_reason = 'vertical';
-				return 'php';
-			}
+		if ( ! in_array( $mode, array( '', 'chat', 'notebooks' ), true ) && BizCity_Twin_Web_Turn::is_vertical( $mode ) ) {
 			$vertical = $mode;
 		}
-		if ( class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) && is_array( BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $message ) ) ) {
-			$this->legacy_reason = 'vertical_slug';
-			return 'php';
-		}
+		$vertical = '' !== $vertical ? $vertical : self::vertical_of_slug( $message );
 		$user_id  = (int) $identity['user_id'];
 		// [2026-10-01 Claude Opus 5.5] PHASE-0.87 — owned image attachments go to the cell as image parts (public uploads URLs, the
-		// same URLs the PHP path already hands to the model); any non-image, foreign or unfetchable file keeps the turn on php.
+		// same URLs the PHP path already hands to the model); any non-image, foreign or unfetchable file is an error (0.126: no PHP path).
 		$owned  = $this->build_owned_attachment_payload( $this->sanitize_attachment_ids( (array) $request->get_param( 'attachment_ids' ) ), $user_id );
 		$images = is_wp_error( $owned ) ? null : BizCity_Twin_Web_Turn::image_urls( $owned );
 		if ( null === $images ) {
-			$this->legacy_reason = 'attachment_not_image';
-			return 'php';
+			return BizCity_Twin_Web_Turn::error( 'attachment_not_supported' );
 		}
-		$decision = BizCity_Twin_Web_Turn::decide( 'gpt', $user_id );
-		if ( 'php' === $decision['path'] ) {
-			$this->legacy_reason = (string) $decision['reason'];
-			return 'php';
+		$guest_ref = ! empty( $identity['is_guest'] ) ? (string) ( $identity['guest_sid'] ?? '' ) : '';
+		$decision  = BizCity_Twin_Web_Turn::decide( 'gpt', $user_id, '', $guest_ref );
+		if ( 'php' === $decision['path'] && 'flag_php' === (string) $decision['reason'] ) {
+			$this->legacy_reason = 'flag_php';
+			return 'php'; // the emergency constant only (wp-config): the documented way back
 		}
 		$this->legacy_reason = 'cell_fallback'; // decided node; only reached again below if the Hub/cell could not take the turn
 		$thread_id = (string) $request->get_param( 'thread_id' );
@@ -1744,19 +1738,38 @@ class BizCity_TwinWeb_REST {
 			'notebook_id' => absint( $request->get_param( 'focus_notebook_id' ) ),
 			'effort'      => sanitize_key( (string) $request->get_param( 'answer_depth' ) ), // Nhanh/Vừa/Cao/Sâu ⇒ cell reasoning level (clamped there)
 			'vertical'    => $vertical,
-			'persist'     => function ( array $done, string $trace_id ) use ( $thread_id, $message, $user_id ): int {
-				$this->agent_turn_record( $thread_id, $message, $user_id, $done, $trace_id );
+			'guest_ref'   => $guest_ref,
+			'no_php'      => true,
+			'persist'     => function ( array $done, string $trace_id ) use ( $thread_id, $message, $user_id, $guest_ref ): int {
+				$this->agent_turn_record( $thread_id, $message, $user_id, $done, $trace_id, $guest_ref );
 				return 0;
 			},
 		) );
 	}
 
 	/**
+	 * [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a literal /slug at the start of the message (the TwinBrain vertical bridge syntax) ⇒ the cell's vertical id when the cell has one,
+	 * else '' (plain chat; the slug stays in the text). Pure apart from the registry read.
+	 */
+	private static function vertical_of_slug( string $message ): string {
+		if ( ! class_exists( 'BizCity_TwinBrain_Vertical_Bridge_Registry' ) ) {
+			return '';
+		}
+		$cmd  = BizCity_TwinBrain_Vertical_Bridge_Registry::extract( $message );
+		$slug = is_array( $cmd ) ? sanitize_key( (string) ( $cmd['slug'] ?? '' ) ) : '';
+		return '' !== $slug && BizCity_Twin_Web_Turn::is_vertical( $slug ) ? $slug : '';
+	}
+
+	/**
 	 * Site side of a finished /gpt/ axis turn (same writes as the PHP path's success branch; no event stream row — the cell's
 	 * turn-complete is the twin record). Called from the closure above (bound to $this).
 	 */
-	private function agent_turn_record( string $thread_id, string $message, int $user_id, array $done, string $trace_id ): void {
-		if ( ! current_user_can( 'manage_options' ) ) {
+	private function agent_turn_record( string $thread_id, string $message, int $user_id, array $done, string $trace_id, string $guest_ref = '' ): void {
+		// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a guest turn counts against the guest's own daily quota (the same key the PHP path used)
+		if ( '' !== $guest_ref ) {
+			$quota_key = 'tw_guest_' . $guest_ref . '_quota';
+			set_transient( $quota_key, (int) get_transient( $quota_key ) + 1, DAY_IN_SECONDS );
+		} elseif ( ! current_user_can( 'manage_options' ) ) {
 			$member_quota_key = 'tw_user_' . $user_id . '_quota_' . gmdate( 'Y-m-d' );
 			set_transient( $member_quota_key, (int) get_transient( $member_quota_key ) + 1, DAY_IN_SECONDS );
 		}

@@ -59,7 +59,7 @@ final class BizCity_Journal_Index {
 		}
 		$kind  = BizCity_Journal_Kinds::resolve( (string) ( $entry['kind'] ?? '' ), (string) ( $entry['original']['mime'] ?? '' ) );
 		// [2026-10-21 11:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — seam: a module that closes a period (Twin Sheet "Khóa kỳ") may refuse a new row. Return a WP_Error to refuse; null / anything else lets it through.
-		$guard = apply_filters( 'bizcity_journal_pre_add', null, $owner, $kind, (string) ( $entry['doc_date'] ?? '' ), (string) ( $entry['idempotency_key'] ?? '' ) ); // [2026-10-21 07:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W4 — + idempotency key: a retry of a row that already exists must not be refused
+		$guard = apply_filters( 'bizcity_journal_pre_add', null, $owner, $kind, (string) ( $entry['doc_date'] ?? '' ), (string) ( $entry['idempotency_key'] ?? '' ), $entry ); // [2026-10-22 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B2) — + the entry (6th, additive): a sheet a person made checks the types of the card the assistant sends // [2026-10-21 07:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W4 — + idempotency key: a retry of a row that already exists must not be refused
 		if ( is_wp_error( $guard ) ) {
 			return $guard;
 		}

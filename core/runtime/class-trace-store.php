@@ -35,12 +35,6 @@ class BizCity_Trace_Store {
 	/** @var string tasks table — thinking steps + SSE event replay */
 	private $tasks_table;
 
-	/** @var string runs table — Phase 0.13 RunState persistence */
-	private $runs_table;
-
-	/** @var string resume_signals table — HIL decisions inbox */
-	private $resume_signals_table;
-
 	/** @var bool tables verified */
 	private $tables_ready = false;
 
@@ -71,8 +65,6 @@ class BizCity_Trace_Store {
 		global $wpdb;
 		$this->traces_table        = $wpdb->prefix . 'bizcity_traces';
 		$this->tasks_table         = $wpdb->prefix . 'bizcity_trace_tasks';
-		$this->runs_table          = $wpdb->prefix . 'bizcity_twin_runs';
-		$this->resume_signals_table = $wpdb->prefix . 'bizcity_twin_hil';
 	}
 
 	/* ================================================================
@@ -80,16 +72,6 @@ class BizCity_Trace_Store {
 	 * ================================================================ */
 
 	public function ensure_tables(): void {
-		// Always refresh runs/HIL table names via Installer (handles multisite prefix correctly).
-		if ( class_exists( 'BizCity_Twin_DB_Installer' ) ) {
-			$this->runs_table           = BizCity_Twin_DB_Installer::runs_table();
-			$this->resume_signals_table = BizCity_Twin_DB_Installer::hil_table();
-		} else {
-			global $wpdb;
-			$this->runs_table           = $wpdb->prefix . 'bizcity_twin_runs';
-			$this->resume_signals_table = $wpdb->prefix . 'bizcity_twin_hil';
-		}
-
 		if ( $this->tables_ready ) {
 			return;
 		}
@@ -163,12 +145,6 @@ class BizCity_Trace_Store {
 
 		dbDelta( $sql_traces );
 		dbDelta( $sql_tasks );
-
-		// runs + HIL tables are now managed by BizCity_Twin_DB_Installer (core/runtime).
-		// Call installer here as fallback in case runtime bootstrap hasn't run yet.
-		if ( class_exists( 'BizCity_Twin_DB_Installer' ) ) {
-			BizCity_Twin_DB_Installer::maybe_install();
-		}
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION );
 		$this->tables_ready = true;
@@ -427,262 +403,8 @@ class BizCity_Trace_Store {
 		) ?: [];
 	}
 
-	/* ================================================================
-	 * CLEANUP
-	 * ================================================================ */
-
-	/* ================================================================
-	 * PHASE 0.13 — RUN STATE MANAGEMENT
-	 *
-	 * These methods manage bizcity_trace_runs (RunState persistence).
-	 * Column mapping vs Phase 0.13 spec:
-	 *   spec bizcity_runs     → bizcity_trace_runs  (same data, different prefix)
-	 *   spec bizcity_run_events → bizcity_trace_tasks (reuse: trace_id=run_id, step=event_type, output_json=payload)
-	 * ================================================================ */
-
-	/**
-	 * Create a new run record.
-	 *
-	 * @param string $run_id          Unique run ID (run_<uuid>)
-	 * @param string $conversation_id Conversation this run belongs to
-	 * @param string $agent_name      Agent being run
-	 * @param int    $user_id
-	 * @param string $state_json      Serialized RunState (BizCity_Twin_RunState::to_string())
-	 * @param array  $opts            {trace_id, parent_run_id, context_snapshot}
-	 * @return bool
-	 */
-	public function create_run(
-		string $run_id,
-		string $conversation_id,
-		string $agent_name,
-		int $user_id,
-		string $state_json,
-		array $opts = []
-	): bool {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$result = $wpdb->insert( $this->runs_table, [
-			'run_id'           => $run_id,
-			'conversation_id'  => $conversation_id,
-			'agent_name'       => $agent_name,
-			'user_id'          => $user_id,
-			'status'           => 'running',
-			'state_json'       => $state_json,
-			'interruptions'    => null,
-			'context_snapshot' => isset( $opts['context_snapshot'] ) ? wp_json_encode( $opts['context_snapshot'], JSON_UNESCAPED_UNICODE ) : null,
-			'parent_run_id'    => $opts['parent_run_id'] ?? null,
-			'trace_id'         => $opts['trace_id'] ?? self::$current_trace_id,
-			'created_at'       => current_time( 'mysql' ),
-			'updated_at'       => current_time( 'mysql' ),
-		] );
-
-		return $result !== false;
-	}
-
-	/**
-	 * Load a run by run_id.
-	 *
-	 * @param string $run_id
-	 * @return array|null Row as associative array, or null if not found.
-	 */
-	public function load_run( string $run_id ): ?array {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$row = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT * FROM `{$this->runs_table}` WHERE `run_id` = %s",
-				$run_id
-			),
-			ARRAY_A
-		);
-
-		return $row ?: null;
-	}
-
-	/**
-	 * Persist updated RunState after each turn.
-	 *
-	 * @param string $run_id
-	 * @param string $state_json  New serialized state
-	 * @param string $status      running|paused_hil|completed|failed
-	 * @param array  $interruptions  Current interruptions array
-	 */
-	public function save_run_state(
-		string $run_id,
-		string $state_json,
-		string $status,
-		array $interruptions = []
-	): void {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$wpdb->update(
-			$this->runs_table,
-			[
-				'status'        => $status,
-				'state_json'    => $state_json,
-				'interruptions' => ! empty( $interruptions ) ? wp_json_encode( $interruptions, JSON_UNESCAPED_UNICODE ) : null,
-				'updated_at'    => current_time( 'mysql' ),
-			],
-			[ 'run_id' => $run_id ]
-		);
-	}
-
-	/**
-	 * Record an SSE event for replay.
-	 *
-	 * Reuses bizcity_trace_tasks columns:
-	 *   trace_id   = run_id
-	 *   seq        = event sequence number
-	 *   step       = event_type  (node_start|node_end|tool_call|state_diff|interrupt|final)
-	 *   output_json = event payload JSON
-	 *
-	 * @param string $run_id
-	 * @param int    $seq
-	 * @param string $event_type
-	 * @param array  $payload
-	 */
-	public function append_run_event(
-		string $run_id,
-		int $seq,
-		string $event_type,
-		array $payload
-	): void {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$wpdb->insert( $this->tasks_table, [
-			'trace_id'   => $run_id,
-			'task_id'    => $run_id . '_e' . $seq,
-			'seq'        => $seq,
-			'step'       => $event_type,
-			'title'      => $event_type,
-			'status'     => 'done',
-			'output_json' => wp_json_encode( $payload, JSON_UNESCAPED_UNICODE ),
-			'created_at' => current_time( 'mysql' ),
-		] );
-	}
-
-	/**
-	 * Get SSE events for a run (for replay from last_seq).
-	 *
-	 * @param string $run_id
-	 * @param int    $last_seq  Return events with seq > last_seq
-	 * @return array
-	 */
-	public function get_run_events( string $run_id, int $last_seq = 0 ): array {
-		$this->ensure_tables();
-		global $wpdb;
-
-		return $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT `seq`, `step` AS `event_type`, `output_json` AS `payload`, `created_at`
-				FROM `{$this->tasks_table}`
-				WHERE `trace_id` = %s AND `seq` > %d
-				ORDER BY `seq` ASC",
-				$run_id,
-				$last_seq
-			),
-			ARRAY_A
-		) ?: [];
-	}
-
-	/**
-	 * Write a HIL decision (approve/reject) to the resume_signals inbox.
-	 *
-	 * Called when user clicks Approve/Reject in <TwinApprovalCards/>.
-	 * Runner polls this table when resuming a paused_hil run.
-	 *
-	 * @param string $run_id
-	 * @param string $call_id    Tool call ID being decided
-	 * @param string $decision   'approved' | 'rejected'
-	 * @param string $reason     Optional rejection reason
-	 * @param int    $decided_by User ID
-	 */
-	public function write_decision(
-		string $run_id,
-		string $call_id,
-		string $decision,
-		string $reason = '',
-		int $decided_by = 0
-	): bool {
-		$this->ensure_tables();
-		global $wpdb;
-
-		// decision values whitelist
-		if ( ! in_array( $decision, [ 'approved', 'rejected' ], true ) ) {
-			return false;
-		}
-
-		$result = $wpdb->replace( $this->resume_signals_table, [
-			'run_id'     => $run_id,
-			'call_id'    => $call_id,
-			'decision'   => $decision,
-			'reason'     => $reason ?: null,
-			'decided_by' => $decided_by ?: get_current_user_id(),
-			'created_at' => current_time( 'mysql' ),
-		] );
-
-		return $result !== false;
-	}
-
-	/**
-	 * Fetch all decisions for a run (called by Runner on resume).
-	 *
-	 * @param string $run_id
-	 * @return array  [ call_id => [ decision, reason ], ... ]
-	 */
-	public function get_decisions( string $run_id ): array {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT `call_id`, `decision`, `reason` FROM `{$this->resume_signals_table}` WHERE `run_id` = %s",
-				$run_id
-			),
-			ARRAY_A
-		) ?: [];
-
-		$out = [];
-		foreach ( $rows as $row ) {
-			$out[ $row['call_id'] ] = [
-				'decision' => $row['decision'],
-				'reason'   => $row['reason'],
-			];
-		}
-		return $out;
-	}
-
-	/**
-	 * Get paused runs waiting for HIL decision (for admin Working Panel).
-	 *
-	 * @param int $user_id
-	 * @return array
-	 */
-	public function get_paused_runs( int $user_id = 0 ): array {
-		$this->ensure_tables();
-		global $wpdb;
-
-		$where = $user_id > 0
-			? $wpdb->prepare( 'WHERE `status` = %s AND `user_id` = %d', 'paused_hil', $user_id )
-			: $wpdb->prepare( 'WHERE `status` = %s', 'paused_hil' );
-
-		return $wpdb->get_results(
-			"SELECT `run_id`, `conversation_id`, `agent_name`, `user_id`, `interruptions`, `created_at`, `updated_at`
-			FROM `{$this->runs_table}` {$where}
-			ORDER BY `updated_at` DESC LIMIT 50",
-			ARRAY_A
-		) ?: [];
-	}
-
-	/**
-	 * Expose table names for external classes (Runner, REST controller).
-	 */
-	public function runs_table(): string          { return $this->runs_table; }
-	public function resume_signals_table(): string { return $this->resume_signals_table; }
+	// [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the run-state / HIL methods (create_run · load_run · save_run_state · append_run_event ·
+	// get_run_events · write_decision · get_decisions · get_paused_runs) served only the archived PHP agent loop (core/_archived/runtime-agent-loop-20261022/).
 
 	/* ================================================================
 	 * CLEANUP

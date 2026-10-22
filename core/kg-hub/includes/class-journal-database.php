@@ -388,6 +388,50 @@ final class BizCity_Journal_Database {
 	}
 
 	/**
+	 * [2026-10-22 09:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo ㉑ (U19, chủ 20:2x "3 GB / 50 GB") — bytes the person's second brain keeps: every live row
+	 * with an original file, ALL rows (not the 500 newest), one count per file (attachment_id, else sha256). Reads only `metadata`; cached 60 s in BizCity_Cache group CACHE_GROUP like the brain map (every journal write flushes it). @return array{bytes:int, files:int, capped:bool}
+	 */
+	public function storage_bytes( int $owner_user_id, int $cap = 20000 ): array {
+		global $wpdb;
+		$key = 'storage_' . $owner_user_id;
+		$hit = class_exists( 'BizCity_Cache' ) ? BizCity_Cache::get( self::CACHE_GROUP, $key ) : false; // same cache as the brain map: every journal write flushes this group
+		if ( is_array( $hit ) ) {
+			return $hit;
+		}
+		$rows = $wpdb->get_col( $wpdb->prepare(
+			"SELECT metadata FROM {$this->table} WHERE owner_user_id = %d AND status NOT IN ('archived','void') AND metadata LIKE %s LIMIT %d",
+			$owner_user_id, '%' . $wpdb->esc_like( '"size"' ) . '%', max( 1, $cap )
+		) ) ?: array();
+		$out = self::storage_from_metadata( $rows );
+		$out['capped'] = count( $rows ) >= $cap;
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( self::CACHE_GROUP, $key, $out, 60 );
+		}
+		return $out;
+	}
+
+	/** Pure: JSON `metadata` strings ⇒ {bytes, files}; a file is counted once (attachment_id, else sha256, else the row). */
+	public static function storage_from_metadata( array $rows ): array {
+		$seen  = array();
+		$bytes = 0;
+		foreach ( $rows as $i => $raw ) {
+			$m = is_array( $raw ) ? $raw : json_decode( (string) $raw, true );
+			$o = is_array( $m['original'] ?? null ) ? $m['original'] : array();
+			$size = (int) ( $o['size'] ?? $o['bytes'] ?? 0 );
+			if ( $size <= 0 ) {
+				continue;
+			}
+			$id = (int) ( $o['attachment_id'] ?? 0 ) > 0 ? 'a' . (int) $o['attachment_id'] : ( '' !== (string) ( $o['sha256'] ?? '' ) ? 's' . $o['sha256'] : 'r' . $i );
+			if ( isset( $seen[ $id ] ) ) {
+				continue;
+			}
+			$seen[ $id ] = true;
+			$bytes      += $size;
+		}
+		return array( 'bytes' => $bytes, 'files' => count( $seen ) );
+	}
+
+	/**
 	 * [2026-10-17 11:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 Q121-8 web — rows OTHER people (staff) filed from documents they sent into one of `$bridge_ids`
 	 * (Q121-17: their book; Q121-8: the number's owner may read them). Joined on the private original's workspace
 	 * `u<sender>|zalo_account:<bridge>`; only `TL-<attachment>` rows qualify.

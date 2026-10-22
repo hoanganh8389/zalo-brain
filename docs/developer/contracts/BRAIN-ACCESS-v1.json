@@ -39,7 +39,7 @@
     "journal.find / journal.get (MCP + REST) — BizCity_Journal_MCP_Tools",
     "doc_index@3 pack per principal — BizCity_Journal_Doc_Index_Pack_Exporter::build( owner, principal )",
     "private file route + document.file.link — BizCity_KG_Private_File_Store::may_read → BizCity_Brain_Access::decide_file",
-    "journal.record / file / void — write / state",
+    "journal.record / file / void — write / state (journal.file: decide(write) AT THE ROW, S126-M4; the CRM contact keeps its own contact_visible() check)",
     "knowledge.search · kg.* — W3 (S126-M1), not yet: entry_ids are owner-scoped by the notebook layer today"
   ]
 }

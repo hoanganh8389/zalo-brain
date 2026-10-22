@@ -6,6 +6,8 @@
  * |---|---|---|---|
  * | skills.list | read | owner, staff | never |
  * | skills.get | read | owner, staff | never |
+ * | skills.resource | read (one file of the skill folder) | owner, staff | never |  ← [2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK7
+ * | skills.lesson | write (LESSONS.md of the folder + journal row; never the skill) | owner | never |  ← [2026-10-22 04:46 PM Johnny Chu - Chu Hoàng Anh] S127-SK8
  * | skills.propose | write (draft only) | owner (the cell after a harness job) | never |
  * | skills.save | write | owner | always + preview |
  * | skills.set_status | write | owner | always + preview |
@@ -86,7 +88,7 @@ final class BizCity_Skills_MCP_Tools {
 			'title'          => 'Đọc một skill',
 			'description'    => 'Trả toàn bộ một skill theo tên: mô tả, tools, trạng thái, bản và thân Markdown (≤ 8 KB) để làm theo.',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name' ), 'properties' => array( 'name' => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{1,62}$' ) ) ),
-			'output_schema'  => $R::envelope_schema( array_merge( $skill_props, array( 'body_md' => array( 'type' => 'string' ), 'has_previous' => array( 'type' => 'boolean' ) ) ), array( 'name', 'body_md' ) ),
+			'output_schema'  => $R::envelope_schema( array_merge( $skill_props, array( 'body_md' => array( 'type' => 'string' ), 'has_previous' => array( 'type' => 'boolean' ), 'resources' => array( 'type' => 'array', 'items' => array( 'type' => 'object' ) ) ) ), array( 'name', 'body_md' ) ), // S127-SK7: + resources
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
@@ -98,6 +100,57 @@ final class BizCity_Skills_MCP_Tools {
 			'llm_alias'      => 'skills_get',
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
+		) );
+
+		// [2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK7 — Agent Skills tier ③ "execution": a file the skill ships beside its SKILL.md, read WHEN needed
+		// @mcp bizcity-mcp-standard@1 tool skills.resource
+		$R::register( 'skills.resource', array(
+			'title'          => 'Đọc tài liệu kèm skill',
+			'description'    => 'Đọc MỘT tệp tài liệu kèm theo một skill (vd references/nguon-tin-cay.md) khi làm theo skill cần đến nó. Danh sách tệp có trong skills.get (resources). Chỉ đọc, chỉ tệp .md trong thư mục của skill.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name', 'path' ), 'properties' => array(
+				'name' => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
+				'path' => array( 'type' => 'string', 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_./-]+\\.md$' ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array( 'name' => array( 'type' => 'string' ), 'path' => array( 'type' => 'string' ), 'content' => array( 'type' => 'string' ), 'bytes' => array( 'type' => 'integer' ) ), array( 'name', 'path', 'content' ) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( __CLASS__, 'resource' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'skills_resource',
+			'fallback_pack'  => null,
+			'since'          => '0.128.0',
+		) );
+
+		// [2026-10-22 04:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK8 — a lesson about a skill from a finished job (feedback 👎 / "sửa …"): appended to the skill
+		// folder's LESSONS.md + one skill.lesson journal row. Never edits SKILL.md (Q-SK-1: the client owns the skill; the owner applies it in a new version).
+		// @mcp bizcity-mcp-standard@1 tool skills.lesson
+		$R::register( 'skills.lesson', array(
+			'title'          => 'Ghi bài học cho skill',
+			'description'    => 'Ghi một bài học rút ra từ một việc đã xong về một skill (vd chủ chê "thiếu bảng liều lượng") vào sổ bài học của skill. KHÔNG sửa skill: chủ đọc và tự quyết đưa vào bản mới.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name', 'lesson' ), 'properties' => array(
+				'name'       => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
+				'lesson'     => array( 'type' => 'string', 'minLength' => 4, 'maxLength' => 400 ),
+				'job_ref'    => array( 'type' => 'string', 'maxLength' => 44 ),
+				'rubric_add' => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 160 ), 'maxItems' => 3 ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array( 'name' => array( 'type' => 'string' ), 'path' => array( 'type' => 'string' ), 'added' => array( 'type' => 'boolean' ), 'count' => array( 'type' => 'integer' ) ), array( 'name', 'added' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts', // = self::CAP (literal for the R19 marker check)
+			'handler'        => array( __CLASS__, 'lesson' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'skills_lesson',
+			'fallback_pack'  => null,
+			'since'          => '0.128.0',
 		) );
 
 		// @mcp bizcity-mcp-standard@1 tool skills.propose
@@ -217,7 +270,24 @@ final class BizCity_Skills_MCP_Tools {
 			return self::err( new WP_Error( 'skill_not_found', 'Không có skill "' . (string) ( $args['name'] ?? '' ) . '".' ) );
 		}
 		unset( $s['path'] );
+		// S127-SK7: the files the skill ships beside SKILL.md (tier ③ — read with skills.resource when needed); names relative to the skill folder, no library path
+		$s['resources'] = array_map( static function ( $r ) { return array( 'path' => $r['path'], 'bytes' => $r['bytes'] ); }, BizCity_Skills_Service::resources( $s['name'] ) );
 		return $s;
+	}
+
+	/** S127-SK8 — a lesson about a skill (LESSONS.md of its folder + a skill.lesson journal row); never edits the skill */
+	public static function lesson( array $args, array $ctx ) {
+		$r = BizCity_Skills_Service::add_lesson( $args );
+		return is_wp_error( $r ) ? self::err( $r ) : $r;
+	}
+
+	/** S127-SK7 — one resource of a skill, read only (inside its folder, .md only, never SKILL.md / the sidecar) */
+	public static function resource( array $args, array $ctx ) {
+		$r = BizCity_Skills_Service::read_resource( (string) ( $args['name'] ?? '' ), (string) ( $args['path'] ?? '' ) );
+		if ( is_wp_error( $r ) ) {
+			return self::err( 'resource_not_found' === $r->get_error_code() ? new WP_Error( 'skill_not_found', $r->get_error_message() ) : $r );
+		}
+		return $r;
 	}
 
 	public static function propose( array $args, array $ctx ) {

@@ -1,0 +1,89 @@
+{
+    "contract": "twin-sheet@1.1.0",
+    "_stamp": "[2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W6 — machine-readable contract of Twin Sheet (\"Sổ\"), the data engine of Zalo Brain. Rule: docs/rules/PHASE-0-RULE-TWIN-SHEET.md (R-TWIN-SHEET). Prose + reasons: core/channel-gateway/docs/PHASE-0.123-TWIN-DATA-ENGINE/20-SHEET-SCHEMA-CONTRACT.md. tests/unit/TwinSheetContractS123Test.php checks every list below against the code (routes, MCP tools, error codes, limits, seams).",
+    "owner": "core/kg-hub/includes/twin-sheet/",
+    "ui": "modules/twinchat/ui/src/components/twin-sheet/ (TwinChat › Journal › Sổ; Q123-17 — never a second UI elsewhere)",
+    "changelog": [
+        { "version": "1.0.0", "date": "2026-10-19", "change": "W1–W3: sheets = journal kinds; list / describe / rows / aggregate / changes; custom sheets (CPT twin_sheet); builtin contract TWIN-SHEET-BUILTIN-v1." },
+        { "version": "1.1.0", "date": "2026-10-22", "change": "W4–W8: checkpoints (sheet.snapshot, CS-), period lock at the journal door, structure versions + compare, history archive, journal-door card check for custom sheets, templates, contains / range filters, owner/staff gate, UI in TwinChat with the `ledger` URL key." }
+    ],
+    "storage": {
+        "rows": "bizcity_journal_entries (one row per line of a sheet; no table of its own — R-LEAN-4, D123-1)",
+        "custom_definitions": "post type twin_sheet (post_content = definition JSON, revisions 20) + post meta _twin_versions (≤ 20 structure snapshots)",
+        "frozen_rows": "option twinsheet_frozen_<snapshot entry id>, autoload no",
+        "history_archive": "BizCity_Business_JSONL_File_Store contract kg_hub.twinsheet_history (encrypted, 3650 days)",
+        "new_tables": 0
+    },
+    "kinds": {
+        "builtin": "core/kg-hub/contracts/TWIN-SHEET-BUILTIN-v1.json (fin.cash, fin.debt, fin.plan, task.progress, task.todo, biz.contract)",
+        "custom": { "pattern": "^data\\.s[0-9]{1,12}$", "layer": "twin_sheet", "owner_only": true },
+        "checkpoint": { "kind": "sheet.snapshot", "ref_code": "CS", "layer": "twin_sheet", "learn": "none" }
+    },
+    "rest": {
+        "namespace": "bizcity-knowledge/v2",
+        "key_pattern": "[a-z][a-z0-9_]{0,23}\\.[a-z0-9_]{1,23}",
+        "routes": [
+            { "method": "GET", "path": "/twinsheets", "returns": "{items, total, templates}" },
+            { "method": "POST", "path": "/twinsheets", "does": "create a custom sheet" },
+            { "method": "GET", "path": "/twinsheets/<key>", "returns": "definition" },
+            { "method": "GET", "path": "/twinsheets/<key>/rows", "params": "view period from to q sort limit offset f_<col>=v | a,b (in) | ~text (contains) | a..b (range)" },
+            { "method": "GET", "path": "/twinsheets/<key>/aggregate", "params": "fn field group_by split_by headline + the row filters" },
+            { "method": "POST", "path": "/twinsheets/<key>/settings", "does": "display_name / icon / folder / archived (custom only)" },
+            { "method": "POST", "path": "/twinsheets/<key>/changes", "does": "the ONE write door of the grid (≤ 100 changes, change_id idempotent, expected_rev)" },
+            { "method": "POST", "path": "/twinsheets/<key>/snapshot", "does": "checkpoint a period (+ lock)" },
+            { "method": "GET", "path": "/twinsheets/<key>/snapshots", "returns": "checkpoints newest first" },
+            { "method": "GET", "path": "/twinsheets/<key>/snapshots/<id>", "returns": "compare with now" },
+            { "method": "POST", "path": "/twinsheets/<key>/snapshots/<id>/lock", "does": "lock / unlock" },
+            { "method": "POST", "path": "/twinsheets/<key>/snapshots/<id>/restore", "does": "dry_run then apply; an automatic checkpoint first; web only" },
+            { "method": "POST", "path": "/twinsheets/<key>/structure", "does": "ops (all or nothing), expected_version" },
+            { "method": "GET", "path": "/twinsheets/<key>/structure/versions", "params": "a & b ⇒ compare any two versions" },
+            { "method": "POST", "path": "/twinsheets/<key>/structure/restore", "does": "restore version v as a NEW version, expected_version; web only" }
+        ]
+    },
+    "mcp_tools": ["twinsheet.list", "twinsheet.describe", "twinsheet.rows", "twinsheet.aggregate", "twinsheet.create", "twinsheet.update", "twinsheet.snapshot"],
+    "assistant_never": ["restore a checkpoint", "restore a structure version", "unlock a period", "change a column's type", "delete a column"],
+    "access": {
+        "tools": "owner and staff of the number only (BizCity_Twin_Sheet_API::gate); customer / group_member / contact / automation / unknown ⇒ 404 not_found (access_denied)",
+        "rest": "logged-in user, owner from the session — never from a query parameter",
+        "custom_sheet": "only its author"
+    },
+    "error_codes": {
+        "_note": "every refusal carries code · message · hint · help_code (S123-TS-<code>), R-ERROR-UX",
+        "codes": [
+            "aggregate_invalid", "changes_empty", "changes_too_many", "checkpoint_not_restorable", "field_not_canonical", "field_not_queryable",
+            "field_out_of_range", "field_readonly", "field_required", "field_too_long", "field_type_invalid", "field_unknown", "group_invalid", "group_unknown", "journal_unavailable",
+            "op_invalid", "period_invalid", "period_locked", "rest_forbidden", "restore_too_big", "restore_unavailable", "save_failed",
+            "sheet_invalid", "sheet_limit_reached", "sheet_not_custom", "sheet_not_found", "sheet_read_only", "sheet_row_not_found",
+            "snapshot_not_found", "snapshot_too_big", "structure_invalid", "version_conflict", "version_not_found", "view_unknown"
+        ]
+    },
+    "limits": {
+        "BizCity_Twin_Sheet_Builder::MAX_USER_FIELDS": 28,
+        "BizCity_Twin_Sheet_Builder::MAX_SHEETS": 50,
+        "BizCity_Twin_Sheet_Builder::MAX_OPTIONS": 20,
+        "BizCity_Twin_Sheet_Schema::PAGE_MAX": 100,
+        "BizCity_Twin_Sheet_Schema::SCAN_MAX": 50000,
+        "BizCity_Twin_Sheet_Schema::MAX_QUERYABLE": 8,
+        "BizCity_Twin_Sheet_Schema::TEXT_MAX": 200,
+        "BizCity_Twin_Sheet_Schema::LONG_TEXT_MAX": 2000,
+        "BizCity_Twin_Sheet_Journal_Writer::HISTORY_MAX": 20,
+        "BizCity_Twin_Sheet_Service::MAX_CHANGES": 100,
+        "BizCity_Twin_Sheet_Snapshot::FREEZE_MAX": 2000,
+        "BizCity_Twin_Sheet_Snapshot::FREEZE_BYTES": 400000,
+        "BizCity_Twin_Sheet_Snapshot::RESTORE_MAX": 500,
+        "BizCity_Twin_Sheet_Structure::MAX_OPS": 20,
+        "BizCity_Twin_Sheet_Structure::KEEP": 20
+    },
+    "seams": {
+        "filters": ["bizcity_journal_pre_add", "bizcity_journal_pre_state", "bizcity_journal_kinds", "bizcity_twin_sheet_templates"],
+        "bizcity_journal_pre_add": "( null, owner, kind, doc_date, idempotency_key, entry ) — WP_Error refuses; Twin Sheet hooks the period lock (10) and the custom-sheet card check (11)",
+        "bizcity_journal_pre_state": "( null, owner, kind, doc_date, state ) — the period lock"
+    },
+    "url": {
+        "carrier": "ledger=<urlencoded query> (the Twin shell carries only allowlisted keys into the TwinChat iframe)",
+        "keys": ["mode", "sheet", "view", "period", "q", "sort", "offset", "chart", "cm", "ct", "new", "f_<col>"],
+        "opening_a_sheet": "push",
+        "filters_search_page": "replace"
+    },
+    "debt": ["Google Sheet mirror (Q123-18)", "B6 benchmark", "B8/B19 cell receipts + eval", "B17 DB concurrency + switch_to_blog", "A18 owner panel brain.sheets", "A1 sparkline", "A3 multi-column sort / column order / width", "A10 empty row at the end"]
+}

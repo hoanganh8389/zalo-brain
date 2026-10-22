@@ -194,20 +194,7 @@ class BizCity_TwinChat_Learning_Stream {
 		if ( $cnt > 0 ) {
 			return false;
 		}
-		if ( class_exists( 'BizCity_TwinChat_Welcome_Database' ) ) {
-			$wtbl = BizCity_TwinChat_Welcome_Database::instance()->table_jobs();
-			// Suppress errors in case the welcome table hasn't been installed yet.
-			$prev = $wpdb->suppress_errors( true );
-			$wcnt = (int) $wpdb->get_var( $wpdb->prepare(
-				"SELECT COUNT(*) FROM {$wtbl}
-				  WHERE notebook_id = %d AND status IN ('queued','running')",
-				$notebook_id
-			) );
-			$wpdb->suppress_errors( $prev );
-			if ( $wcnt > 0 ) {
-				return false;
-			}
-		}
+		// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the welcome queue is gone (tc_welcome_jobs quarantined): only learning jobs keep a notebook "active".
 		return true;
 	}
 

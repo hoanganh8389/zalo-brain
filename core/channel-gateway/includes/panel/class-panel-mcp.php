@@ -44,6 +44,8 @@ final class BizCity_Panel_MCP {
 				'panel'  => array( 'type' => 'string', 'enum' => $ids ),
 				// [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — the job a jobs.quest link opens on (sent by the cell when a planned job starts)
 				'job_id' => array( 'type' => 'string', 'pattern' => '^job_[0-9A-Za-z]{10,40}$' ),
+				// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — the journal row a brain.map link opens on
+				'entry_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array(
 				'panel'      => array( 'type' => 'string' ),
@@ -98,7 +100,8 @@ final class BizCity_Panel_MCP {
 		if ( '' !== $gate ) {
 			return self::fail( $gate );
 		}
-		$r = BizCity_Panel_Link::issue( $who, $panel, (string) ( $ctx['turn_id'] ?? '' ), 'jobs.quest' === $panel ? (string) ( $args['job_id'] ?? '' ) : '' );
+		// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — focus from focus_of(): jobs.quest ⇒ job id, brain.map ⇒ entry:<id>
+		$r = BizCity_Panel_Link::issue( $who, $panel, (string) ( $ctx['turn_id'] ?? '' ), self::focus_of( $panel, $args ) );
 		if ( empty( $r['ok'] ) ) {
 			return self::fail( (string) $r['code'] );
 		}
@@ -109,6 +112,17 @@ final class BizCity_Panel_MCP {
 			'expires_at' => gmdate( 'c', (int) $r['expires_at'] ),
 			'expires_in' => BizCity_Panel_Link::TICKET_TTL,
 		);
+	}
+
+	/** Pure ([2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2): the focus a link carries — the job of jobs.quest, the row of brain.map, else ''. */
+	public static function focus_of( string $panel, array $args ): string {
+		if ( 'jobs.quest' === $panel ) {
+			return (string) ( $args['job_id'] ?? '' );
+		}
+		if ( 'brain.map' === $panel && is_numeric( $args['entry_id'] ?? null ) && (int) $args['entry_id'] > 0 ) {
+			return 'entry:' . (int) $args['entry_id'];
+		}
+		return '';
 	}
 
 	/** @return array|WP_Error */

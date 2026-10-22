@@ -133,6 +133,7 @@ foreach ( array(
 	'class-journal-tool-axis.php'                 => 'kg_hub.journal_tool_axis', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — write tools that declare `journal` feed the spine
 	'class-journal-skill-link.php'                => 'kg_hub.journal_skill_link', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — skill.define / revision / state rows (KN-)
 	'class-journal-layer-rows.php'                => 'kg_hub.journal_layer_rows', // [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — notebook (NB-) and person-made sheet (SO-) rows
+	'class-journal-brain-map.php'                 => 'kg_hub.journal_brain_map', // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — Bản đồ não (brain-map@1): a view over the person's rows, after the index + pack exporter it reads
 	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
 	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
 	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
@@ -191,6 +192,10 @@ if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
 }
 if ( class_exists( 'BizCity_Journal_REST', false ) ) {
 	BizCity_Journal_REST::init();
+}
+// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — GET bizcity-knowledge/v2/journal/map (TwinChat › Journal › Bản đồ)
+if ( class_exists( 'BizCity_Journal_Brain_Map', false ) ) {
+	BizCity_Journal_Brain_Map::init();
 }
 if ( class_exists( 'BizCity_Journal_Purge', false ) ) {
 	BizCity_Journal_Purge::init(); // [2026-10-18 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-K1 — MCP journal.purge

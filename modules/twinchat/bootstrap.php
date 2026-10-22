@@ -174,10 +174,9 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-t
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-share-adapter.php', 'twinchat.learning_share_adapter' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-rest-learning.php', 'twinchat.rest_learning' );
 
-// Sprint 5.1 — AI Welcome Message after Upload.
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-database.php', 'twinchat.welcome_database' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-job-queue.php', 'twinchat.welcome_job_queue' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'welcome/class-twinchat-welcome-runner.php', 'twinchat.welcome_runner' );
+// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "tc_welcome_jobs không dùng; cell là trục não, không suy luận bằng PHP") — the AI welcome bubble after an upload
+// (Welcome_Database / Job_Queue / Runner, one LLM call in PHP) is removed: files moved to modules/_archived/twinchat-welcome-20261022/, table tc_welcome_jobs → legacy-table policy
+// quarantine (rows stay, no writer, no DROP). The welcome_job event schema stays in the taxonomy (a registry, not behaviour).
 
 if ( is_admin() ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php', 'twinchat.admin_menu' );
@@ -194,9 +193,6 @@ add_action( 'init', static function () {
 	}
 	if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
 		BizCity_TwinChat_Learning_Database::instance()->maybe_install();
-	}
-	if ( class_exists( 'BizCity_TwinChat_Welcome_Database' ) ) {
-		BizCity_TwinChat_Welcome_Database::instance()->maybe_install();
 	}
 	if ( class_exists( 'BizCity_Studio_Job_Manager' ) ) {
 		BizCity_Studio_Job_Manager::maybe_install();
@@ -294,47 +290,6 @@ add_action( 'bizcity_twinchat_studio_run', static function ( $output_id, $notebo
 		BizCity_TwinChat_Studio::instance()->run_background_job( $output_id, $notebook_id, $tool_type, $user_id, $opts );
 	}
 }, 10, 5 );
-
-// Sprint 5.1 — schedule welcome job after each TwinChat source ingest.
-// Fires alongside the existing learning auto-enqueue listener — both are
-// independent so a slow learning extract does not delay the welcome bubble.
-add_action( 'bizcity_twinchat_after_ingest', static function ( $scope_id, $user_id, $result, $payload ) {
-	if ( ! is_array( $result ) || empty( $result['source_id'] ) ) {
-		return;
-	}
-	if ( ! empty( $result['duplicate'] ) ) {
-		return; // dedup — the source's welcome already fired previously.
-	}
-	if ( ! class_exists( 'BizCity_TwinChat_Welcome_Job_Queue' ) ) {
-		error_log( '[twinchat-welcome] listener: queue class missing, abort' );
-		return;
-	}
-	$res = BizCity_TwinChat_Welcome_Job_Queue::instance()->enqueue( [
-		'notebook_id' => (int) $scope_id,
-		'source_id'   => (int) $result['source_id'],
-		'user_id'     => (int) $user_id,
-	] );
-	if ( is_wp_error( $res ) ) {
-		error_log( sprintf( '[twinchat-welcome] enqueue skipped (nb=%d, src=%d): %s',
-			(int) $scope_id, (int) $result['source_id'], $res->get_error_message() ) );
-	} else {
-		error_log( sprintf( '[twinchat-welcome] enqueued job#%d (nb=%d, src=%d)',
-			(int) $res, (int) $scope_id, (int) $result['source_id'] ) );
-	}
-}, 9, 4 ); // priority 9 — run BEFORE learning enqueue so welcome row exists first.
-
-// Sprint 5.1 — async worker callback.
-// NOTE: Use string literal (not BizCity_TwinChat_Welcome_Job_Queue::HOOK_RUN) — same reason as above.
-add_action( 'bizcity_twinchat_welcome_run', static function ( $job_id ) {
-	// [2026-08-20 Johnny Chu] HOTFIX-DIAGNOSTICS-CLI — do not execute queued
-	// production welcome jobs while the headless diagnostics runner is alive.
-	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
-		return;
-	}
-	if ( class_exists( 'BizCity_TwinChat_Welcome_Runner' ) ) {
-		BizCity_TwinChat_Welcome_Runner::instance()->run_job( (int) $job_id );
-	}
-}, 10, 1 );
 
 // Phase 4.9 — auto-enqueue a learning job after every TwinChat source ingest.
 add_action( 'bizcity_twinchat_after_ingest', static function ( $scope_id, $user_id, $result, $payload ) {

@@ -23,3 +23,12 @@ metadata:
 **Hỏi "tuần này học tới đâu":** `connected_apps_read` op `sheets.report` book `progress` (lọc theo môn) và book `checklist`. Trả lời: đã xong gì · còn gì trong tuần · có đang chậm không. Chỉ dùng số máy trả về.
 
 Động viên một câu ngắn, thực tế (vd "còn 3 buổi là kịp"), không sáo rỗng.
+
+## Uỷ quyền (để trợ lý chia việc)
+Khối dưới đây dạy trợ lý chia việc thành các mảnh khi chạy nhiều bước (twin-skill@1.1). Sửa ở Skill Editor; trợ lý kiểm lại trước khi dùng.
+
+```delegation
+[{"piece": "hoi_muc_tieu", "goal": "Hỏi từng câu ngắn: học gì, hạn cuối, mỗi ngày dành bao nhiêu phút", "group": "notebook", "output": "goal", "bounds": "mỗi lần hỏi một câu", "rubric": ["đủ 3 thông tin: môn, hạn, phút mỗi ngày"]},
+{"piece": "lap_ke_hoach", "goal": "Đề xuất kế hoạch từng tuần (tối đa 4 tuần, mỗi tuần 1–3 đầu việc) và hỏi chủ đồng ý chưa", "group": "document", "output": "plan", "bounds": "tối đa 4 tuần một lượt", "rubric": ["mỗi tuần 1–3 đầu việc", "có hỏi chủ đồng ý"], "depends_on": ["hoi_muc_tieu"]},
+{"piece": "luu_ke_hoach", "goal": "Chủ đồng ý thì lưu kế hoạch vào sổ ghi chú và thêm đầu việc tuần này vào danh sách việc (bản nháp chờ duyệt)", "group": "apps", "output": "draft", "tools": ["notebook_remember", "connected_apps_draft"], "rubric": ["đầu việc là bản nháp chờ chủ duyệt"], "depends_on": ["lap_ke_hoach"]}]
+```

@@ -36,8 +36,17 @@ final class BizCity_Skills_Service {
 	const MAX_SKILLS  = 60;
 	const MAX_BODY    = 8192;
 	const MAX_TOOLS   = 12;
-	const MAX_DESC    = 300;
-	const NAME_RE     = '/^[a-z0-9][a-z0-9-]{1,62}$/';
+	/** [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 (owner 16:31: Q-SK-1 client owns skills · Q-SK-4 standard structure like Claude Code / Obsidian):
+	 * description ≤ 1024 (Agent Skills standard, was 300) — it says WHAT the skill does and WHEN to use it */
+	const MAX_DESC    = 1024;
+	/** Agent Skills `name`: 1–64 of a-z 0-9 -, no leading / trailing -, no -- ; must equal its folder (`skills/<name>/SKILL.md`). New and saved skills only. */
+	const NAME_RE     = '/^(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/';
+	/** the rule before SK10 — still READ so an old flat skill keeps working until it is converted */
+	const LEGACY_NAME_RE = '/^[a-z0-9][a-z0-9-]{1,62}$/';
+	/** the one file that IS the skill inside its folder (`skills/<name>/SKILL.md`); everything else in the folder is a resource */
+	const SKILL_FILE  = 'SKILL.md';
+	/** per-blog marker: the one-time conversion of flat `<name>.md` files ran (SK10, Q-SK-4) */
+	const LAYOUT_OPTION = 'bizcity_skills_layout';
 	const TOOL_RE     = '/^[a-z][a-z0-9_]*(\.[a-z0-9_]+){0,3}$/'; // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L3 — {0,3}: tool của cell không có dấu chấm (web_search, create_excel_file)
 
 	/** @var callable|null test seam: () => BizCity_Skill_Manager */
@@ -58,7 +67,8 @@ final class BizCity_Skills_Service {
 		$source = isset( $filter['source'] ) ? (string) $filter['source'] : '';
 		$q      = isset( $filter['q'] ) ? self::fold( (string) $filter['q'] ) : '';
 		$out    = array();
-		foreach ( self::mgr()->get_all_skills() as $file ) {
+		self::ensure_layout(); // S127-SK10: convert old flat skills once per blog
+		foreach ( self::skill_files() as $file ) {
 			$s = self::from_raw( (string) $file['raw'], (string) $file['path'], (int) $file['lastModified'] );
 			if ( ! $s ) {
 				continue;
@@ -85,7 +95,8 @@ final class BizCity_Skills_Service {
 		if ( '' === $name ) {
 			return null;
 		}
-		foreach ( self::mgr()->get_all_skills() as $file ) {
+		self::ensure_layout();
+		foreach ( self::skill_files() as $file ) {
 			$s = self::from_raw( (string) $file['raw'], (string) $file['path'], (int) $file['lastModified'] );
 			if ( $s && $s['name'] === $name ) {
 				$s['has_previous'] = ! is_wp_error( self::mgr()->resolve_path( self::history_path( $name, $s['version'] - 1 ) ) )
@@ -109,7 +120,7 @@ final class BizCity_Skills_Service {
 	public static function propose( array $in ) {
 		$name = self::clean_name( (string) ( $in['name'] ?? '' ) );
 		if ( '' === $name ) {
-			return new WP_Error( 'skill_invalid', 'Tên skill chỉ gồm chữ thường, số và gạch nối (2–63 ký tự).' );
+			return new WP_Error( 'skill_invalid', 'Tên skill chỉ gồm chữ thường, số và gạch nối (1–64 ký tự, không bắt đầu / kết thúc bằng gạch, không hai gạch liền).' );
 		}
 		$body = self::clean_body( (string) ( $in['body_md'] ?? '' ) );
 		if ( is_wp_error( $body ) ) {
@@ -129,6 +140,8 @@ final class BizCity_Skills_Service {
 			'status'   => 'draft',
 			'version'  => $existing ? (int) $existing['version'] + 1 : 1,
 			'from_job' => self::clean_job( (string) ( $in['from_job'] ?? '' ) ),
+			'license'  => $existing ? (string) ( $existing['license'] ?? '' ) : '',
+			'compatibility' => $existing ? (string) ( $existing['compatibility'] ?? '' ) : '',
 		);
 		$desc = self::clean_desc( (string) ( $in['description'] ?? '' ) );
 		if ( '' === $desc ) {
@@ -315,8 +328,18 @@ final class BizCity_Skills_Service {
 		return (string) wp_json_encode( $skill );
 	}
 
+	/** [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] S127-SK10 — the sidecar lives in the skill's folder; a not-yet-converted flat skill still has `<name>.twin.json` */
 	private static function twin_path( string $name ): string {
-		return '/' . self::FOLDER . '/' . $name . '.twin.json';
+		$abs = self::mgr()->resolve_path( '/' . self::FOLDER . '/' . $name . '.twin.json' );
+		if ( ! is_wp_error( $abs ) && is_file( $abs ) && ! self::is_folder_skill( $name ) ) {
+			return '/' . self::FOLDER . '/' . $name . '.twin.json';
+		}
+		return self::folder_of( $name ) . '/twin.json';
+	}
+
+	private static function is_folder_skill( string $name ): bool {
+		$abs = self::mgr()->resolve_path( self::default_path( $name ) );
+		return ! is_wp_error( $abs ) && is_file( $abs );
 	}
 
 	/* ── Plans (shared by write + preview) ─────────────────────────────── */
@@ -324,7 +347,7 @@ final class BizCity_Skills_Service {
 	private static function save_plan( array $in ) {
 		$name = self::clean_name( (string) ( $in['name'] ?? '' ) );
 		if ( '' === $name ) {
-			return new WP_Error( 'skill_invalid', 'Tên skill chỉ gồm chữ thường, số và gạch nối (2–63 ký tự).' );
+			return new WP_Error( 'skill_invalid', 'Tên skill chỉ gồm chữ thường, số và gạch nối (1–64 ký tự, không bắt đầu / kết thúc bằng gạch, không hai gạch liền).' );
 		}
 		$existing = self::get( $name );
 		$changed  = array();
@@ -371,6 +394,8 @@ final class BizCity_Skills_Service {
 			'status'   => $existing ? $existing['status'] : 'draft',
 			'version'  => $existing ? ( $changed ? (int) $existing['version'] + 1 : (int) $existing['version'] ) : 1,
 			'from_job' => $existing ? $existing['from_job'] : '',
+			'license'  => $existing ? (string) ( $existing['license'] ?? '' ) : '',
+			'compatibility' => $existing ? (string) ( $existing['compatibility'] ?? '' ) : '',
 		);
 		return array(
 			'name'     => $name,
@@ -412,16 +437,22 @@ final class BizCity_Skills_Service {
 	/** @return array|null Normalised skill or null when the file is not a skill (no `name`). */
 	public static function from_raw( string $raw, string $path = '', int $mtime = 0 ) {
 		$p    = self::parse_skill( $raw );
-		$name = self::clean_name( (string) ( $p['frontmatter']['name'] ?? '' ) );
+		$name = self::read_name( (string) ( $p['frontmatter']['name'] ?? '' ) );
 		if ( '' === $name ) {
 			return null;
 		}
-		$bz = isset( $p['frontmatter']['metadata']['bizcity'] ) && is_array( $p['frontmatter']['metadata']['bizcity'] ) ? $p['frontmatter']['metadata']['bizcity'] : array();
+		$bz      = self::bizcity_meta( (array) ( $p['frontmatter']['metadata'] ?? array() ) );
 		$updated = (string) ( $bz['updated_at'] ?? '' );
+		// S127-SK10: tools = the standard `allowed-tools` (a space- or comma-separated list), else the old `metadata.bizcity.tools`
+		$allowed = $p['frontmatter']['allowed-tools'] ?? null;
+		$tools   = null !== $allowed ? ( is_array( $allowed ) ? $allowed : preg_split( '/[\s,]+/', (string) $allowed, -1, PREG_SPLIT_NO_EMPTY ) ) : ( $bz['tools'] ?? array() );
 		return array(
 			'name'        => $name,
 			'description' => self::clean_desc( (string) ( $p['frontmatter']['description'] ?? '' ) ),
-			'tools'       => self::clean_tools( $bz['tools'] ?? array() ),
+			'license'     => mb_substr( (string) ( $p['frontmatter']['license'] ?? '' ), 0, 120 ),
+			'compatibility' => mb_substr( (string) ( $p['frontmatter']['compatibility'] ?? '' ), 0, 500 ),
+			'layout'      => basename( '/' . ltrim( $path, '/' ) ) === self::SKILL_FILE ? 'folder' : 'flat',
+			'tools'       => self::clean_tools( is_array( $tools ) ? $tools : array() ),
 			'scope'       => self::clean_enum( (string) ( $bz['scope'] ?? '' ), self::SCOPES, 'number' ),
 			'source'      => self::clean_enum( (string) ( $bz['source'] ?? '' ), self::SOURCES, 'manual' ),
 			'status'      => self::clean_enum( (string) ( $bz['status'] ?? '' ), self::STATUSES, 'draft' ),
@@ -435,17 +466,47 @@ final class BizCity_Skills_Service {
 		);
 	}
 
-	/** Build the SKILL.md text. */
+	/**
+	 * The BizCity fields of a skill's `metadata` (pure): the standard form is a map STRING ⇒ STRING with flat keys `bizcity.status`, `bizcity.version`… (SK10);
+	 * the form before SK10 is the nested `metadata.bizcity {status, version, tools[]…}` — both are read, the flat key wins.
+	 */
+	public static function bizcity_meta( array $metadata ): array {
+		$out = isset( $metadata['bizcity'] ) && is_array( $metadata['bizcity'] ) ? $metadata['bizcity'] : array();
+		foreach ( $metadata as $k => $v ) {
+			if ( is_string( $k ) && 0 === strpos( $k, 'bizcity.' ) && ! is_array( $v ) ) {
+				$out[ substr( $k, 8 ) ] = $v;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Build the SKILL.md text — [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] S127-SK10: the Agent Skills standard frontmatter (Claude Code / Obsidian-readable):
+	 * `name` · `description` · optional `license` / `compatibility` · `allowed-tools` (space-separated) · `metadata` = flat STRING ⇒ STRING keys `bizcity.*`.
+	 */
 	public static function build( string $name, string $description, array $meta, string $body ): string {
-		$lines   = array( '---', 'name: ' . $name, 'description: "' . str_replace( array( '\\', '"' ), array( '\\\\', '\\"' ), $description ) . '"', 'metadata:', '  bizcity:' );
-		$lines[] = '    scope: ' . $meta['scope'];
-		$lines[] = '    tools: [' . implode( ', ', (array) $meta['tools'] ) . ']';
-		$lines[] = '    source: ' . $meta['source'];
-		$lines[] = '    status: ' . $meta['status'];
-		$lines[] = '    version: ' . (int) $meta['version'];
-		$lines[] = '    updated_at: ' . gmdate( 'Y-m-d\TH:i:s\Z' );
+		$q       = static function ( string $s ): string {
+			return '"' . str_replace( array( '\\', '"', "\n", "\r" ), array( '\\\\', '\\"', ' ', '' ), $s ) . '"';
+		};
+		$lines   = array( '---', 'name: ' . $name, 'description: ' . $q( $description ) );
+		if ( '' !== (string) ( $meta['license'] ?? '' ) ) {
+			$lines[] = 'license: ' . $q( (string) $meta['license'] );
+		}
+		if ( '' !== (string) ( $meta['compatibility'] ?? '' ) ) {
+			$lines[] = 'compatibility: ' . $q( (string) $meta['compatibility'] );
+		}
+		$tools = self::clean_tools( $meta['tools'] ?? array() ); // a space-separated list: a junk "Bad Tool" must never become two tools
+		if ( $tools ) {
+			$lines[] = 'allowed-tools: ' . implode( ' ', $tools );
+		}
+		$lines[] = 'metadata:';
+		$lines[] = '  bizcity.scope: ' . $q( (string) $meta['scope'] );
+		$lines[] = '  bizcity.source: ' . $q( (string) $meta['source'] );
+		$lines[] = '  bizcity.status: ' . $q( (string) $meta['status'] );
+		$lines[] = '  bizcity.version: ' . $q( (string) (int) $meta['version'] );
+		$lines[] = '  bizcity.updated_at: ' . $q( gmdate( 'Y-m-d\TH:i:s\Z' ) );
 		if ( '' !== (string) ( $meta['from_job'] ?? '' ) ) {
-			$lines[] = '    from_job: ' . $meta['from_job'];
+			$lines[] = '  bizcity.from_job: ' . $q( (string) $meta['from_job'] );
 		}
 		$lines[] = '---';
 		$lines[] = '';
@@ -556,7 +617,7 @@ final class BizCity_Skills_Service {
 	public static function unique_name( string $title ): string {
 		$base  = self::slugify_name( $title );
 		$taken = array();
-		foreach ( self::mgr()->get_all_skills() as $file ) {
+		foreach ( self::skill_files() as $file ) {
 			$s = self::from_raw( (string) $file['raw'], (string) $file['path'] );
 			if ( $s ) {
 				$taken[ $s['name'] ] = true;
@@ -617,6 +678,12 @@ final class BizCity_Skills_Service {
 		return preg_match( self::NAME_RE, $name ) ? $name : '';
 	}
 
+	/** a name as READ from a file: the standard rule, or the old one (a flat skill named before SK10 still lists until it is converted) */
+	public static function read_name( string $name ): string {
+		$name = strtolower( trim( $name ) );
+		return preg_match( self::NAME_RE, $name ) || preg_match( self::LEGACY_NAME_RE, $name ) ? $name : '';
+	}
+
 	public static function clean_desc( string $d ): string {
 		$d = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $d ) ) );
 		return function_exists( 'mb_substr' ) ? mb_substr( $d, 0, self::MAX_DESC ) : substr( $d, 0, self::MAX_DESC );
@@ -656,8 +723,254 @@ final class BizCity_Skills_Service {
 		return strtolower( function_exists( 'remove_accents' ) ? remove_accents( $s ) : $s );
 	}
 
-	private static function default_path( string $name ): string {
-		return '/' . self::FOLDER . '/' . $name . '.md';
+	/** [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] S127-SK10 — the standard layout: one folder per skill, `SKILL.md` inside (resources beside it) */
+	public static function default_path( string $name ): string {
+		return '/' . self::FOLDER . '/' . $name . '/' . self::SKILL_FILE;
+	}
+
+	/** the folder of a skill (`/skills/<name>`) */
+	public static function folder_of( string $name ): string {
+		return '/' . self::FOLDER . '/' . $name;
+	}
+
+	/**
+	 * What a library .md file is (pure). `skill` = a SKILL.md (or an old flat `<name>.md` not inside a skill folder) · `resource` = any other file inside a
+	 * skill folder (`/skills/<name>/references/x.md`) · `history` = under `_history/`. $skill_dirs = the folders that hold a SKILL.md.
+	 *
+	 * @return array{kind:string,skill:string,rel:string}
+	 */
+	public static function classify_path( string $path, array $skill_dirs ): array {
+		$path = '/' . ltrim( str_replace( '\\', '/', $path ), '/' );
+		if ( 0 === strpos( $path, '/' . self::HISTORY . '/' ) ) {
+			return array( 'kind' => 'history', 'skill' => '', 'rel' => '' );
+		}
+		if ( basename( $path ) === self::SKILL_FILE ) {
+			return array( 'kind' => 'skill', 'skill' => basename( dirname( $path ) ), 'rel' => self::SKILL_FILE );
+		}
+		foreach ( $skill_dirs as $dir ) {
+			$dir = rtrim( (string) $dir, '/' );
+			if ( '' !== $dir && 0 === strpos( $path, $dir . '/' ) ) {
+				return array( 'kind' => 'resource', 'skill' => basename( $dir ), 'rel' => substr( $path, strlen( $dir ) + 1 ) );
+			}
+		}
+		return array( 'kind' => 'skill', 'skill' => '', 'rel' => '' );
+	}
+
+	/**
+	 * [2026-10-22 04:41 PM Johnny Chu - Chu Hoàng Anh] S127-SK10 — a file was written / removed by the skill file routes: when it sits INSIDE a skill folder (a resource),
+	 * tell the journal (`bizcity_skill_resource_changed`, one `skill.resource` row per file — owner 16:31 "Journal have all vault"). Returns the skill name or ''.
+	 */
+	public static function notify_resource( string $path, string $op, string $raw = '' ): string {
+		$path = '/' . ltrim( str_replace( '\\', '/', $path ), '/' );
+		$dirs = self::skill_dirs( self::mgr()->get_all_skills() );
+		// a removed file is no longer listed: its own folder still counts when that folder holds a SKILL.md
+		if ( 'delete' === $op && preg_match( '#^(/' . self::FOLDER . '/[^/]+)/#', $path, $m ) && self::is_folder_skill( basename( $m[1] ) ) ) {
+			$dirs[] = $m[1];
+		}
+		$c = self::classify_path( $path, $dirs );
+		if ( 'resource' !== $c['kind'] ) {
+			return '';
+		}
+		do_action( 'bizcity_skill_resource_changed', $c['skill'], $c['rel'], 'delete' === $op ? 'delete' : 'write', substr( $raw, 0, 2000 ) );
+		return $c['skill'];
+	}
+
+	const LESSONS_FILE = 'LESSONS.md';
+	const LESSONS_MAX  = 30;
+
+	/**
+	 * [2026-10-22 04:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK8 (T126-L6, G-SK-8; Q-SK-1 the client owns skills) — what the brain learned from a finished job about
+	 * a skill. It NEVER edits the skill: the lesson is appended to the skill folder's `LESSONS.md` (a resource ⇒ its own journal row) and recorded as a `skill.lesson`
+	 * row; the owner reads them in the Skill Editor and decides what goes into SKILL.md (a new version through save). The same lesson twice is one entry; at most
+	 * LESSONS_MAX are kept in the file (oldest dropped — every one stays in the journal).
+	 *
+	 * @param array $in {name, lesson, job_ref?, rubric_add?: string[]}
+	 * @return array{name:string,path:string,added:bool,count:int}|WP_Error
+	 */
+	public static function add_lesson( array $in ) {
+		$name   = self::read_name( (string) ( $in['name'] ?? '' ) );
+		$lesson = trim( (string) preg_replace( '/\s+/', ' ', wp_strip_all_tags( (string) ( $in['lesson'] ?? '' ) ) ) );
+		$lesson = function_exists( 'mb_substr' ) ? mb_substr( $lesson, 0, 400 ) : substr( $lesson, 0, 400 );
+		if ( '' === $name || mb_strlen( $lesson ) < 4 ) {
+			return new WP_Error( 'skill_invalid', 'Cần tên skill và nội dung bài học (≥ 4 ký tự).' );
+		}
+		$s = self::get( $name );
+		if ( ! $s ) {
+			return new WP_Error( 'skill_not_found', 'Không có skill "' . $name . '".' );
+		}
+		$job     = preg_match( '/^job_[0-9A-Za-z]{10,40}$/', (string) ( $in['job_ref'] ?? '' ) ) ? (string) $in['job_ref'] : '';
+		$rubric  = array_slice( array_values( array_filter( array_map( static function ( $r ) { return trim( wp_strip_all_tags( (string) $r ) ); }, (array) ( $in['rubric_add'] ?? array() ) ), 'strlen' ) ), 0, 3 );
+		$rel     = self::LESSONS_FILE;
+		$path    = 'folder' === ( $s['layout'] ?? 'flat' ) ? self::folder_of( $name ) . '/' . $rel : '';
+		if ( '' === $path ) {
+			return new WP_Error( 'skill_flat', 'Skill này chưa ở dạng thư mục (chưa chuyển đổi) — bài học chỉ ghi khi skill có thư mục.' );
+		}
+		$cur     = self::mgr()->read_file( $path );
+		$text    = is_wp_error( $cur ) ? '' : (string) $cur['raw'];
+		$entries = array_values( array_filter( preg_split( '/\n(?=- \[)/', preg_replace( '/\A#[^\n]*\n+/', '', $text ) ), static function ( $e ) { return '' !== trim( $e ); } ) );
+		$key     = substr( hash( 'sha256', $lesson ), 0, 10 );
+		$added   = false === strpos( $text, '(' . $key . ')' );
+		if ( $added ) {
+			$line = '- [' . gmdate( 'Y-m-d' ) . '] ' . $lesson . ( $job ? ' — việc ' . $job : '' ) . ' (' . $key . ')';
+			foreach ( $rubric as $r ) {
+				$line .= "\n  - tiêu chí đề xuất: " . $r;
+			}
+			$entries[] = $line;
+			$entries   = array_slice( $entries, -self::LESSONS_MAX );
+			$raw       = "# Bài học của skill " . $name . "\n\n" . implode( "\n", array_map( 'rtrim', $entries ) ) . "\n";
+			$w         = self::mgr()->write_file( $path, $raw );
+			if ( is_wp_error( $w ) ) {
+				return $w;
+			}
+			self::notify_resource( $path, 'write', $raw );
+			do_action( 'bizcity_skill_lesson_added', $name, $lesson, $job, $key );
+		}
+		return array( 'name' => $name, 'path' => $rel, 'added' => $added, 'count' => count( $entries ) );
+	}
+
+	/** @var bool one conversion check per request */
+	private static $layout_checked = false;
+
+	/** Run the one-time conversion of flat skills for this blog (per-blog option; a failure leaves the option unset so the next request retries). */
+	public static function ensure_layout(): void {
+		if ( self::$layout_checked ) {
+			return;
+		}
+		self::$layout_checked = true;
+		if ( function_exists( 'get_option' ) && 'v2' === get_option( self::LAYOUT_OPTION ) ) {
+			return;
+		}
+		$r = self::migrate_layout();
+		if ( empty( $r['errors'] ) && function_exists( 'update_option' ) ) {
+			update_option( self::LAYOUT_OPTION, 'v2', false );
+		}
+	}
+
+	/** tests: forget that the conversion ran in this request */
+	public static function reset_layout_check(): void {
+		self::$layout_checked = false;
+	}
+
+	/**
+	 * [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 (Q-SK-4 = yes, owner 16:31) — convert every flat `<name>.md` skill to `/skills/<name>/SKILL.md`
+	 * with the standard frontmatter, its sidecar to `/skills/<name>/twin.json`. Status, version, body and steps are kept byte for byte (the cell's plan stays
+	 * valid: body hash + twin hash unchanged). The old file is COPIED to `_history/<name>.flat.md` before it is removed — nothing is lost. A name that breaks the
+	 * standard rule (`--`, trailing `-`) is left flat and reported: renaming would cut the cell's pins to it.
+	 *
+	 * @return array{converted:string[],kept:array,errors:array}
+	 */
+	public static function migrate_layout(): array {
+		$out = array( 'converted' => array(), 'kept' => array(), 'errors' => array() );
+		foreach ( self::skill_files() as $file ) {
+			$path = '/' . ltrim( (string) $file['path'], '/' );
+			if ( basename( $path ) === self::SKILL_FILE ) {
+				continue;
+			}
+			$s = self::from_raw( (string) $file['raw'], $path, (int) ( $file['lastModified'] ?? 0 ) );
+			if ( ! $s ) {
+				continue;
+			}
+			$name = $s['name'];
+			if ( '' === self::clean_name( $name ) ) {
+				$out['kept'][] = array( 'name' => $name, 'why' => 'name_not_standard' );
+				continue;
+			}
+			$history = '/' . self::HISTORY . '/' . $name . '.flat.md';
+			$copy    = self::mgr()->write_file( $history, (string) $file['raw'] );
+			if ( is_wp_error( $copy ) ) {
+				$out['errors'][] = array( 'name' => $name, 'code' => $copy->get_error_code() );
+				continue;
+			}
+			if ( self::is_folder_skill( $name ) ) {
+				// the folder already holds this skill: it wins, the flat copy is kept in history only
+				self::mgr()->delete_file( $path );
+				$out['kept'][] = array( 'name' => $name, 'why' => 'folder_exists' );
+				continue;
+			}
+			$meta = array( 'scope' => $s['scope'], 'tools' => $s['tools'], 'source' => $s['source'], 'status' => $s['status'], 'version' => $s['version'], 'from_job' => $s['from_job'], 'license' => $s['license'] ?? '', 'compatibility' => $s['compatibility'] ?? '' );
+			$w    = self::mgr()->write_file( self::default_path( $name ), self::build( $name, $s['description'], $meta, $s['body_md'] ) );
+			if ( is_wp_error( $w ) ) {
+				$out['errors'][] = array( 'name' => $name, 'code' => $w->get_error_code() );
+				continue;
+			}
+			$flat_twin = '/' . self::FOLDER . '/' . $name . '.twin.json';
+			$twin      = self::mgr()->read_file( $flat_twin );
+			if ( ! is_wp_error( $twin ) ) {
+				$tw = self::mgr()->write_sidecar( self::folder_of( $name ) . '/twin.json', (string) $twin['raw'] );
+				if ( ! is_wp_error( $tw ) ) {
+					self::mgr()->delete_file( $flat_twin );
+				}
+			}
+			self::mgr()->delete_file( $path );
+			$out['converted'][] = $name;
+		}
+		if ( $out['converted'] ) {
+			self::invalidate_pack();
+		}
+		return $out;
+	}
+
+	/** the folders of the library that hold a SKILL.md */
+	private static function skill_dirs( array $files ): array {
+		$dirs = array();
+		foreach ( $files as $f ) {
+			$p = '/' . ltrim( str_replace( '\\', '/', (string) ( $f['path'] ?? '' ) ), '/' );
+			if ( basename( $p ) === self::SKILL_FILE ) {
+				$dirs[] = dirname( $p );
+			}
+		}
+		return $dirs;
+	}
+
+	/** the skill files of the library (SKILL.md + not-yet-converted flat ones), never resources or history */
+	private static function skill_files(): array {
+		$all  = self::mgr()->get_all_skills();
+		$dirs = self::skill_dirs( $all );
+		return array_values( array_filter( $all, static function ( $f ) use ( $dirs ) {
+			return 'skill' === self::classify_path( (string) $f['path'], $dirs )['kind'];
+		} ) );
+	}
+
+	/**
+	 * The resources of one skill (Agent Skills tier ③ "execution": files the agent reads WHEN it needs them). Paths relative to the skill folder.
+	 *
+	 * @return array [{path, bytes, updated_at}]
+	 */
+	public static function resources( string $name ): array {
+		$name = self::read_name( $name );
+		if ( '' === $name ) {
+			return array();
+		}
+		$all  = self::mgr()->get_all_skills();
+		$dirs = self::skill_dirs( $all );
+		$out  = array();
+		foreach ( $all as $f ) {
+			$c = self::classify_path( (string) $f['path'], $dirs );
+			if ( 'resource' === $c['kind'] && $c['skill'] === $name ) {
+				$out[] = array( 'path' => $c['rel'], 'bytes' => strlen( (string) $f['raw'] ), 'updated_at' => ! empty( $f['lastModified'] ) ? gmdate( 'Y-m-d\TH:i:s\Z', (int) $f['lastModified'] ) : '' );
+			}
+		}
+		usort( $out, static function ( $a, $b ) { return strcmp( $a['path'], $b['path'] ); } );
+		return array_slice( $out, 0, 50 );
+	}
+
+	/**
+	 * Read ONE resource of a skill (S127-SK7, `skills.resource`): only inside that skill's folder, only an existing .md, never SKILL.md / the sidecar.
+	 *
+	 * @return array{name:string,path:string,content:string,bytes:int}|WP_Error
+	 */
+	public static function read_resource( string $name, string $rel ) {
+		$name = self::read_name( $name );
+		$rel  = ltrim( str_replace( '\\', '/', $rel ), '/' );
+		if ( '' === $name || '' === $rel || false !== strpos( $rel, '..' ) || self::SKILL_FILE === $rel || 'md' !== pathinfo( $rel, PATHINFO_EXTENSION ) ) {
+			return new WP_Error( 'resource_invalid', 'Tài nguyên không hợp lệ (chỉ tệp .md trong thư mục của skill).' );
+		}
+		$f = self::mgr()->read_file( self::folder_of( $name ) . '/' . $rel );
+		if ( is_wp_error( $f ) ) {
+			return new WP_Error( 'resource_not_found', 'Skill "' . $name . '" không có tài nguyên ' . $rel . '.' );
+		}
+		$content = (string) $f['raw'];
+		return array( 'name' => $name, 'path' => $rel, 'content' => substr( $content, 0, 16384 ), 'bytes' => strlen( $content ) );
 	}
 
 	private static function history_path( string $name, int $version ): string {

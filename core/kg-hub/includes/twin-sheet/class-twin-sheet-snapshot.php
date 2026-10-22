@@ -38,7 +38,7 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Snapshot', false ) ) {
 		const FP_MAX = 5000;
 		const LIST_MAX = 100;
 		const FREEZE_MAX   = 2000;   // rows frozen per checkpoint
-		const FREEZE_BYTES = 400000; // gzip+base64 size cap of metadata.frozen
+		const FREEZE_BYTES = 400000; // gzip+base64 size cap of the frozen rows (non-autoloaded option twinsheet_frozen_<id> since 2026-10-21) // [2026-10-22 05:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W6 (audit) — comment matched the code
 		const RESTORE_MAX  = 500;    // operations one restore may apply
 
 		/** @return array|WP_Error [from, to] for 'YYYY-MM' | 'YYYY' | 'all' */

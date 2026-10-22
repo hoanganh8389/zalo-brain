@@ -233,6 +233,7 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Engine', false ) ) {
 				'values'     => $values,
 				// [2026-10-20 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — row history (newest last), only changes to declared columns
 				'history'    => self::history_of( $entry, $sheet ),
+				'history_archived' => (int) ( $entry['sheet_history_archived'] ?? 0 ), // [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B10)
 			);
 		}
 
@@ -478,6 +479,8 @@ if ( ! class_exists( 'BizCity_Twin_Sheet_Journal_Store', false ) ) {
 					if ( is_array( $meta ) && ! empty( $meta['history'] ) && is_array( $meta['history'] ) ) {
 						$one['sheet_history'] = array_slice( $meta['history'], -20 );
 					}
+					// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B10) — how many older edits live in the archive store
+					$one['sheet_history_archived'] = is_array( $meta ) ? (int) ( $meta['history_archived'] ?? 0 ) : 0;
 					$entries[] = $one;
 				}
 			}

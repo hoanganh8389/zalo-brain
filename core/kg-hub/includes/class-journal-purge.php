@@ -320,6 +320,8 @@ final class BizCity_Journal_Purge {
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never', // the two steps live inside the tool (code bound to owner + entry, typed by the owner)
 			'llm_alias'      => 'delete_document',
+			// [2026-10-22 01:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-M1 (knowledge-tools@1) — found by validate-mcp-standard §11: a destructive write on a document row
+			'brain'          => array( 'layer' => 'document', 'permission' => 'write', 'crud' => 'write' ),
 			'fallback_pack'  => null,
 			'since'          => '0.122.0',
 		) );

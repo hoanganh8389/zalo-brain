@@ -1,0 +1,70 @@
+{
+  "$schema": "https://bizcity.vn/schema/brain-ledger-v1.json",
+  "contract": "brain-ledger@1.0.0",
+  "conforms_to": "twin-sheet@1.0.0",
+  "_stamp": "[2026-10-22 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-U1 (doc 20 §2, doc 30) — the machine form of the BrainLedger screen (TwinChat, default tab of the right panel): modes, columns, labels, the customer switch, the Job steps. Until now these lived only in modules/twinchat/ui/src/components/journal/BrainLedger.tsx; this file is the contract and tests/unit/BrainLedgerContractS126Test.php proves the screen and the contract agree (a label or a mode changed in one place only fails the test).",
+  "rule": "R-BRAIN-SKELETON BS-1 (one vertical axis: the ledger is a VIEW over bizcity_journal_entries — no second table, no second grid) · BS-7/BS-8 (access decided at the source; the customer switch is set by a PERSON on the web, never by MCP)",
+  "sheet_key": "brain.ledger",
+  "origin": "builtin",
+  "kind": "*",
+  "display_name": "Sổ cái",
+  "source": { "route": "GET bizcity-knowledge/v2/journal/find", "overview": "GET bizcity-knowledge/v2/documents/overview", "export": "GET bizcity-knowledge/v2/journal/export", "entry_shape": "journal-entry@1.2.0" },
+  "page_size": 30,
+  "wide_breakpoint_px": 760,
+  "search": { "debounce_ms": 350, "scope": "title and summary (a file's name is its title)" },
+  "modes": [
+    { "id": "all",        "url": "all",       "label": "Tất cả",   "layer": null,         "screen": "rows" },
+    { "id": "document",   "url": "documents", "label": "Tài liệu", "layer": "document",   "screen": "rows" },
+    { "id": "notebook",   "url": "notebooks", "label": "Notebook", "layer": "notebook",   "screen": "rows" },
+    { "id": "twin_sheet", "url": "sheets",    "label": "Sổ",       "layer": "twin_sheet", "screen": "twin-sheet-panel", "note": "the Twin Sheet screen (PHASE-0.123); no row list here" },
+    { "id": "skill",      "url": "skills",    "label": "Kỹ năng",  "layer": "skill",      "screen": "rows" },
+    { "id": "job",        "url": "jobs",      "label": "Việc",     "layer": "job",        "screen": "rows" },
+    { "id": "map",        "url": "map",       "label": "Bản đồ",   "layer": null,         "screen": "brain-map", "note": "brain-map@1 (PHASE-0.129)" }
+  ],
+  "deep_link": { "params": ["mode", "q", "job", "entry", "contact", "group"], "job": "^JB-\\d+$", "group": "^\\d{3,30}$", "note": "R-ROUTE: the mode lives in the URL; replace-state; other keys (sheet, period, f_*) are kept" },
+  "layer_labels": { "document": "Tài liệu", "notebook": "Notebook", "twin_sheet": "Sổ", "skill": "Kỹ năng", "job": "Việc", "output": "Sản phẩm" },
+  "columns": [
+    { "key": "ref_code",  "label": "Mã",         "path": "ref_code",                              "note": "a JB- code opens the Job drawer" },
+    { "key": "title",     "label": "Tên",        "path": "title" },
+    { "key": "layer",     "label": "Loại",       "path": "layer" },
+    { "key": "notebook",  "label": "Notebook",   "path": "belongs.notebook_id",                   "note": "an NB- row is the notebook itself: no 'belongs' text" },
+    { "key": "group",     "label": "Nhóm",       "path": "belongs.group.name" },
+    { "key": "contact",   "label": "Liên hệ",    "path": "belongs.contact_id" },
+    { "key": "version",   "label": "Bản",        "path": "version.n",                             "layers": ["document", "output", "skill"] },
+    { "key": "tier",      "label": "Tầng ⓘ",     "path": "tier",                                  "layers": ["document", "notebook"], "empty": "—", "note": "tier is the maturity of a DOCUMENT / notebook source only (doc 05 §4)" },
+    { "key": "customer",  "label": "Cho khách",  "path": "access.customer",                       "layers": ["document", "notebook"], "editable": "person-on-web", "locked_for": "flags.sensitive" },
+    { "key": "job",       "label": "Việc",       "path": "job.job_ref" },
+    { "key": "state",     "label": "Trạng thái", "path": "state | card.status (layer job)" }
+  ],
+  "tier_hint": "Instant: tìm theo tên, ngày, mã · Đã embed: tìm theo nội dung · Đã KG: tìm theo quan hệ. Con số và câu chữ gốc luôn lấy từ tài liệu.",
+  "stats": [
+    { "label": "Tài liệu",       "from": "overview.by_layer.document" },
+    { "label": "Cho khách",      "from": "overview.public_count" },
+    { "label": "Đã embed",       "from": "overview.by_tier.L2" },
+    { "label": "Đã KG",          "from": "overview.by_tier.L3" },
+    { "label": "Việc đang chạy", "from": "overview.jobs_running" },
+    { "label": "Chưa gắn",       "from": "overview.unassigned" }
+  ],
+  "customer_switch": {
+    "values": ["off", "view", "download"],
+    "labels": { "off": "Tắt", "view": "Xem", "download": "Tải" },
+    "default": "off",
+    "set_by": "PATCH journal/{id} { customer, expected_rev } — a person on the web (brain-access@1 row_access)",
+    "sensitive_label": { "finance": "tài chính", "health": "sức khoẻ", "child": "trẻ em", "personal": "cá nhân" },
+    "sensitive_rule": "a row with flags.sensitive shows a lock and never the switch; the site refuses it too (400 audience_locked)"
+  },
+  "job_status": { "pending": "Chờ", "running": "Đang chạy", "reviewing": "Chờ duyệt", "blocked": "Bị chặn", "done": "Xong", "failed": "Lỗi" },
+  "status_chips": {
+    "verified": "Đã xác minh",
+    "review": "Cần xem lại",
+    "failed": "Lưu lỗi",
+    "default": "Đã lưu"
+  },
+  "job_drawer": {
+    "route": "GET bizcity-knowledge/v2/journal/find?job=JB-…",
+    "steps": ["NHẬN", "NHỚ", "HIỂU", "LÀM", "BÁO CÁO", "HỌC"],
+    "roles": ["input", "output", "evidence", "lesson"],
+    "waiting_block": "header.card.waiting_on (job-event@1.2): question, numbered options (1 = the assistant's suggestion), expires_at"
+  },
+  "never_on_screen": ["url", "storage_url", "sha256", "phone", "zalo_uid", "user_id", "owner_user_id"]
+}

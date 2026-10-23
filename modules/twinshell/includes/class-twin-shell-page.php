@@ -510,7 +510,8 @@ class BizCity_Twin_Shell_Page {
 					$p['lock_kind']     = $kind;
 					$p['plan_locked']   = false; // the shell navigates in place, no full-page reload to a standalone card
 					$p['plugin_locked'] = false;
-					$p['plan_badge']    = 'premium' === $kind ? 'PREMIUM' : ( '' !== (string) $p['badge'] ? (string) $p['badge'] : 'PRO' );
+					// [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — one lock badge: PRO (gold) for every locked add-on; the notice text still names the Premium plan.
+					$p['plan_badge']    = 'premium' === $kind ? 'PRO' : ( '' !== (string) $p['badge'] ? (string) $p['badge'] : 'PRO' );
 					$p['mode']          = 'link';
 					$p['target_url']    = self::shell_url( array( 'twin_locked' => $p['id'] ) );
 					$p['route_mode']    = 'legacy';
@@ -1104,8 +1105,9 @@ class BizCity_Twin_Shell_Page {
 		$links     = array();
 
 		if ( 'premium' === $kind ) {
-			$badge   = 'PREMIUM';
-			$badge_bg = 'linear-gradient(135deg,#8b5cf6,#6d28d9)';
+			// [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — one lock badge: PRO (gold) for every locked add-on; the notice text still names the Premium plan.
+			$badge   = 'PRO';
+			$badge_bg = 'linear-gradient(135deg,#f59e0b,#d97706)';
 			$lines   = array(
 				sprintf( '%s chỉ dùng được khi tài khoản 1API master của website ở gói Premium trở lên.', $label ),
 				sprintf( 'Tài khoản hiện tại: gói %s.', isset( $tiers[ $tier ] ) ? $tiers[ $tier ] : ucfirst( $tier ) ),

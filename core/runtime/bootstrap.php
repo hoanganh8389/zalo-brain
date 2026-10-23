@@ -50,4 +50,4 @@ if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
 
 // [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the PHP agent loop is gone (cell is the brain): BizCity_Twin_Runner, Twin_Run_State,
 // Twin_Rolling_Session, Twin_Session, TwinShell_Event_Bus, Twin_DB_Installer and the REST POST bizcity-twin/v1/run + GET /events/{run_id} live in
-// core/_archived/runtime-agent-loop-20261022/. Tables bizcity_twin_runs / bizcity_twin_hil are quarantined (rows kept, nothing installs or writes them).
+// core/_archived/runtime-agent-loop-20261022/. Tables bizcity_twin_runs / bizcity_twin_hil are retired and dropped once per site (PHASE-0.126 Q126-36, BizCity_Legacy_Table_Policy::drop_owner_retired).

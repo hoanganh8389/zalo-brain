@@ -440,6 +440,11 @@ final class BizCity_Journal_Job_Link {
 				$card['cancelled'] = true;
 			}
 		}
+		// [2026-10-23 12:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-FB5 (D127-18 RF-6) — quest-view@1.9 `continues_from`: this job continues a broken one (the header says so; journal.find / Map read it)
+		$cf = (string) ( $e['quest']['continues_from'] ?? '' );
+		if ( 1 === preg_match( '/^job_[0-9A-Za-z]{10,40}$/', $cf ) ) {
+			$card['continues'] = $cf;
+		}
 		BizCity_Journal_Index::file( $hid, $owner, array( 'card' => $card ) );
 		$state = self::TO_STATE[ $status ];
 		if ( $state !== (string) ( $header['state'] ?? '' ) && 'verified' !== (string) ( $header['state'] ?? '' ) ) {

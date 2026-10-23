@@ -117,10 +117,8 @@ class BizCity_Twin_AI {
         delete_option( 'bizcity_twinchat_rewrite_flushed_v1' );
         flush_rewrite_rules();
 
-        // Install Phase 0.13 runtime DB tables immediately on activation.
-        if ( class_exists( 'BizCity_Twin_DB_Installer' ) ) {
-            BizCity_Twin_DB_Installer::install();
-        }
+        // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 (owner: "bỏ luôn ra khỏi install khi active") — no runtime-table install on
+        // activation: BizCity_Twin_DB_Installer (bizcity_twin_runs / bizcity_twin_hil) is archived and both tables are dropped by the legacy policy.
 
         // Retire a deployed mu-plugin compat loader (WP-11 C1c — no longer needed).
         self::sync_compat_loader();

@@ -126,51 +126,20 @@ class BizCity_TwinChat_Public_Page {
 
 		$dist_dir = BIZCITY_TWINCHAT_UI_DIR . 'dist/';
 		$dist_url = trailingslashit( BIZCITY_TWINCHAT_URL ) . 'ui/dist/';
-		$manifest = $dist_dir . '.vite/manifest.json';
-		if ( ! file_exists( $manifest ) ) {
-			$manifest = $dist_dir . 'manifest.json';
-		}
-		if ( ! file_exists( $manifest ) ) {
-			return;
-		}
-
-		$json = json_decode( (string) file_get_contents( $manifest ), true );
-		if ( ! is_array( $json ) ) {
-			return;
-		}
-
-		$entry_js  = '';
-		$chunk_js  = [];
-		$entry_css = [];
-
-		foreach ( $json as $key => $asset ) {
-			if ( ! isset( $asset['file'] ) ) {
-				continue;
-			}
-			$is_entry = ! empty( $asset['isEntry'] );
-			$file_url = $dist_url . $asset['file'];
-
-			if ( $is_entry && preg_match( '/\.js$/', $asset['file'] ) ) {
-				$entry_js = $file_url;
-			}
-			if ( ! $is_entry && preg_match( '/\.js$/', $asset['file'] ) ) {
-				$chunk_js[] = $file_url;
-			}
-			if ( ! empty( $asset['css'] ) ) {
-				foreach ( $asset['css'] as $css_file ) {
-					$entry_css[] = $dist_url . $css_file;
-				}
-			}
-		}
+		// [2026-10-23 02:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 (sự cố veganhub.net 2026-10-23) — one reader for both surfaces; it checks the entry file exists (a stale manifest no longer prints 404 URLs)
+		$dist      = self::read_dist_assets( $dist_dir, $dist_url );
+		$entry_js  = $dist['entry_js'];
+		$chunk_js  = $dist['chunks'];
+		$entry_css = $dist['entry_css'];
 
 		if ( ! $entry_js ) {
 			return;
 		}
 
-		// Cache-bust by manifest mtime — bump tự động khi `npm run build`.
+		// Cache-bust by manifest mtime (or the recovered entry file's) — bump tự động khi `npm run build`.
 		$ver = (string) BIZCITY_TWINCHAT_VERSION;
-		if ( file_exists( $manifest ) ) {
-			$ver .= '.' . filemtime( $manifest );
+		if ( $dist['stamp'] > 0 ) {
+			$ver .= '.' . $dist['stamp'];
 		}
 
 		// CSS.
@@ -408,40 +377,11 @@ class BizCity_TwinChat_Public_Page {
 		// fataled at `BizCity_TwinSearch_Asset_Loader::inline_for_full_page(null)`.
 		$ver = defined( 'BIZCITY_TWINCHAT_VERSION' ) ? (string) BIZCITY_TWINCHAT_VERSION : '0.0.0';
 
-		// Load Vite manifest.
-		$manifest = $dist_dir . '.vite/manifest.json';
-		if ( ! file_exists( $manifest ) ) {
-			$manifest = $dist_dir . 'manifest.json';
-		}
-
-		$entry_js   = '';
-		$entry_css  = [];
-		$chunk_urls = [];
-
-		if ( file_exists( $manifest ) ) {
-			$json = json_decode( (string) file_get_contents( $manifest ), true );
-			if ( is_array( $json ) ) {
-				foreach ( $json as $asset ) {
-					if ( ! isset( $asset['file'] ) ) {
-						continue;
-					}
-					$is_entry = ! empty( $asset['isEntry'] );
-					$file_url = $dist_url . $asset['file'];
-
-					if ( $is_entry && preg_match( '/\.js$/', $asset['file'] ) ) {
-						$entry_js = $file_url;
-					}
-					if ( ! $is_entry && preg_match( '/\.js$/', $asset['file'] ) ) {
-						$chunk_urls[] = $file_url;
-					}
-					if ( ! empty( $asset['css'] ) ) {
-						foreach ( $asset['css'] as $css_file ) {
-							$entry_css[] = $dist_url . $css_file;
-						}
-					}
-				}
-			}
-		}
+		// Load Vite manifest ([2026-10-23 02:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 (sự cố veganhub.net 2026-10-23): shared reader, entry file checked on disk).
+		$dist       = self::read_dist_assets( $dist_dir, $dist_url );
+		$entry_js   = $dist['entry_js'];
+		$entry_css  = $dist['entry_css'];
+		$chunk_urls = $dist['chunks'];
 
 		// Build inline config (same logic as enqueue_assets).
 		$user_id = get_current_user_id();
@@ -558,8 +498,8 @@ class BizCity_TwinChat_Public_Page {
 			// password are edited on the WordPress profile page (the membership REST is gone).
 			'profileUrl'    => esc_url_raw( admin_url( 'profile.php' ) ),
 		] );
-		if ( file_exists( $manifest ) ) {
-			$ver .= '.' . filemtime( $manifest );
+		if ( $dist['stamp'] > 0 ) {
+			$ver .= '.' . $dist['stamp'];
 		}
 		$site_name = esc_html( get_bloginfo( 'name' ) );
 		$lang      = esc_attr( get_bloginfo( 'language' ) );
@@ -889,4 +829,67 @@ class BizCity_TwinChat_Public_Page {
 			? BizCity_Twin_Shell_Registry::apps_manage_target( get_current_user_id() )
 			: null;
 	}
+
+	/**
+	 * [2026-10-23 02:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 (sự cố veganhub.net 2026-10-23) — the TwinChat bundle as the browser must load it: entry JS, entry CSS, chunk preloads, cache stamp.
+	 *
+	 * Reads `dist/.vite/manifest.json` (Vite 5) or `dist/manifest.json`, and KEEPS it only when the entry file it names exists on disk.
+	 * A deploy that replaced `dist/assets/` but not the hidden `.vite/` folder (veganhub.net 2026-10-23: every JS 404, blank page) or
+	 * that has no manifest at all falls back to the newest `assets/index-*.js` / `index-*.css` (chunks are then loaded by the entry itself;
+	 * no preload list). `recovered` says which path ran; an error_log line names it so the bad upload is visible.
+	 *
+	 * @return array{manifest:string,entry_js:string,entry_css:string[],chunks:string[],stamp:int,recovered:bool}
+	 */
+	public static function read_dist_assets( string $dist_dir, string $dist_url ): array {
+		$out = array( 'manifest' => '', 'entry_js' => '', 'entry_css' => array(), 'chunks' => array(), 'stamp' => 0, 'recovered' => false );
+		foreach ( array( $dist_dir . '.vite/manifest.json', $dist_dir . 'manifest.json' ) as $path ) {
+			if ( ! is_file( $path ) ) {
+				continue;
+			}
+			$json = json_decode( (string) file_get_contents( $path ), true );
+			if ( ! is_array( $json ) ) {
+				continue;
+			}
+			$entry = '';
+			$css   = array();
+			$chunk = array();
+			foreach ( $json as $asset ) {
+				if ( ! isset( $asset['file'] ) || ! preg_match( '/.js$/', (string) $asset['file'] ) ) {
+					continue;
+				}
+				if ( ! empty( $asset['isEntry'] ) ) {
+					$entry = (string) $asset['file'];
+				} else {
+					$chunk[] = $dist_url . $asset['file'];
+				}
+				foreach ( (array) ( $asset['css'] ?? array() ) as $css_file ) {
+					$css[] = $dist_url . $css_file;
+				}
+			}
+			if ( '' !== $entry && is_file( $dist_dir . $entry ) ) {
+				return array( 'manifest' => $path, 'entry_js' => $dist_url . $entry, 'entry_css' => $css, 'chunks' => $chunk, 'stamp' => (int) @filemtime( $path ), 'recovered' => false );
+			}
+			if ( '' !== $entry ) {
+				error_log( '[twinchat] stale ui/dist manifest: ' . $path . ' names ' . $entry . ' which is not on disk — upload dist/.vite/manifest.json together with dist/assets' );
+			}
+		}
+		$js = glob( $dist_dir . 'assets/index-*.js' );
+		if ( is_array( $js ) && $js ) {
+			usort( $js, static function ( $a, $b ) {
+				return (int) @filemtime( $b ) <=> (int) @filemtime( $a );
+			} );
+			$out['entry_js']  = $dist_url . 'assets/' . basename( $js[0] );
+			$out['stamp']     = (int) @filemtime( $js[0] );
+			$out['recovered'] = true;
+			$css = glob( $dist_dir . 'assets/index-*.css' );
+			if ( is_array( $css ) && $css ) {
+				usort( $css, static function ( $a, $b ) {
+					return (int) @filemtime( $b ) <=> (int) @filemtime( $a );
+				} );
+				$out['entry_css'] = array( $dist_url . 'assets/' . basename( $css[0] ) );
+			}
+		}
+		return $out;
+	}
+
 }

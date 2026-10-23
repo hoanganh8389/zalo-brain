@@ -481,6 +481,18 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/**
+	 * [2026-10-22 11:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo S128-U15 / U17 — one fixed GET per view: `scoreboard` (track-view@1 of the number)
+	 * · `accounts` (bot-accounts@1 of the tenant). Anything else is refused here, before the Hub.
+	 */
+	public function tz_view_call( string $view, string $bridge_account_id ): array {
+		$id = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		if ( '' === $id || ! in_array( $view, array( 'scoreboard', 'accounts' ), true ) ) {
+			return $this->degraded( 'tz_view_not_allowed' );
+		}
+		return $this->get( '/zalo-personal-bridge/brain/' . $view . '?' . http_build_query( array( 'account_id' => $id ), '', '&', PHP_QUERY_RFC3986 ) );
+	}
+
+	/**
 	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
 	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
 	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.

@@ -46,6 +46,17 @@ final class BizCity_Panel_Link {
 	const OPT_ISSUED   = 'bizcity_panel_issued';   // timestamps of recent issues (rate limit)
 	const OPT_LOG      = 'bizcity_panel_log';      // [{at, ev, panel?, reason?}] newest first
 
+	// [2026-10-23 08:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S128-CL4 (doc 67 A + B, Q128-10 = đề xuất 1): a TwinZalo opened with a ticket remembers THIS
+	// device for 90 days (`bzc_panel_dev` = did.uid.sig, sig over did + uid with the person's device key). Back on `/?bzpanel=open` with no live session ⇒ a new session of scope `view`
+	// (read only); a write needs a fresh ticket (the assistant sends one into Zalo) = scope `write`. "Đổi khoá" (kv) forgets every device at once.
+	const DEV_COOKIE   = 'bzc_panel_dev';
+	const DEVICE_TTL   = 7776000; // 90 days
+	const MAX_DEVICES  = 5;
+	const OPT_DEVICES  = 'bizcity_panel_devices';  // [{h, ua, added_at, last_at}] oldest first
+	// the device key is NOT the panel key: the panel key rotates by itself every 24–48 h (R-PL-5), a device must live 90 days; only "Đổi khoá" (user) and bad tickets renew it
+	const OPT_DEV_KEY  = 'bizcity_panel_dev_key';
+	const DEVICE_PANEL = 'twinzalo';
+
 	/**
 	 * Seam for tests: array of callables
 	 *   tget(k) tset(k, v, ttl) tdel(k) · uget(uid, k) uset(uid, k, v) · now() · rand(n) · catalog() (optional: the panel list)
@@ -191,6 +202,11 @@ final class BizCity_Panel_Link {
 		self::uset( $uid, self::OPT_TICKETS, array() );
 		self::uset( $uid, self::OPT_SESSIONS, array() );
 		self::uset( $uid, self::OPT_BAD, 0 );
+		// [2026-10-23 08:12 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — "Đổi khoá" / bad tickets forget every remembered device (list + device key); the automatic 24–48 h rotation does not
+		if ( 'auto_24h' !== $reason && 'auto_48h' !== $reason ) {
+			self::uset( $uid, self::OPT_DEVICES, array() );
+			self::uset( $uid, self::OPT_DEV_KEY, '' );
+		}
 		self::write_key( $uid, $kv );
 		self::log( $uid, array( 'ev' => 'key_reset', 'reason' => $reason ) );
 	}
@@ -309,7 +325,8 @@ final class BizCity_Panel_Link {
 	 *
 	 * @return array{ok:true, cookie:string, panel:array, max_age:int}|array{ok:false, code:string}
 	 */
-	public static function consume( string $token, string $ua = '' ): array {
+	// [2026-10-23 08:10 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — `$remember` (the gate decides: owner of a number or site admin) ⇒ a TwinZalo ticket also returns `device` (the device cookie value)
+	public static function consume( string $token, string $ua = '', bool $remember = false ): array {
 		$p = self::peek( $token );
 		if ( empty( $p['ok'] ) ) {
 			return $p;
@@ -329,28 +346,146 @@ final class BizCity_Panel_Link {
 		self::uset( $uid, self::OPT_TICKETS, $tickets );
 		self::uset( $uid, self::OPT_BAD, 0 );
 
+		$cookie = self::open_session( $uid, (string) $t['panel'], (string) $t['group'], (int) $t['kv'], self::clean_focus( (string) ( $t['focus'] ?? '' ) ), $ua, 'write' );
+		self::log( $uid, array( 'ev' => 'opened', 'panel' => (string) $t['panel'] ) );
+		self::unlock( $lock );
+		$out = array( 'ok' => true, 'cookie' => $cookie, 'panel' => $p['panel'], 'max_age' => self::SESSION_MAX );
+		if ( $remember && self::DEVICE_PANEL === (string) $t['panel'] ) {
+			$out['device']         = self::remember_device( $uid, $ua );
+			$out['device_max_age'] = self::DEVICE_TTL;
+		}
+		return $out;
+	}
+
+	/** One narrow session (transient + the person's session list, ≤ MAX_SESSIONS); returns the cookie value. `scope` = write (ticket) | view (device reopen). */
+	private static function open_session( int $uid, string $panel, string $group, int $kv, string $focus, string $ua, string $scope ): string {
+		$now = self::now();
 		$sid = self::b64url( self::rand( 24 ) );
 		$h   = hash( 'sha256', $sid );
 		self::tset( self::T_SESSION . $h, array(
 			'user_id'   => $uid,
-			'panel'     => (string) $t['panel'],
-			'group'     => (string) $t['group'],
-			'kv'        => (int) $t['kv'],
+			'panel'     => $panel,
+			'group'     => $group,
+			'kv'        => $kv,
 			'opened_at' => $now,
 			'last_at'   => $now,
 			'hard_exp'  => $now + self::SESSION_MAX,
-			'focus'     => self::clean_focus( (string) ( $t['focus'] ?? '' ) ),
+			'focus'     => $focus,
+			'scope'     => 'view' === $scope ? 'view' : 'write',
 		), self::SESSION_MAX );
 		$list   = self::live_sessions( $uid );
-		$list[] = array( 'h' => $h, 'panel' => (string) $t['panel'], 'opened_at' => $now, 'ua' => self::ua_label( $ua ) );
+		$list[] = array( 'h' => $h, 'panel' => $panel, 'opened_at' => $now, 'ua' => self::ua_label( $ua ) );
 		while ( count( $list ) > self::MAX_SESSIONS ) {
 			$old = array_shift( $list ); // R-PL-10: the 4th session pushes out the oldest
 			self::tdel( self::T_SESSION . (string) $old['h'] );
 		}
 		self::uset( $uid, self::OPT_SESSIONS, $list );
-		self::log( $uid, array( 'ev' => 'opened', 'panel' => (string) $t['panel'] ) );
-		self::unlock( $lock );
-		return array( 'ok' => true, 'cookie' => $sid . '.' . self::sign( $uid, $sid, (int) $t['kv'] ), 'panel' => $p['panel'], 'max_age' => self::SESSION_MAX );
+		return $sid . '.' . self::sign( $uid, $sid, $kv );
+	}
+
+	// ── remembered devices (S128-CL4, doc 67) ────────────────────────────
+
+	/** A new device id for this person (≤ MAX_DEVICES, the oldest pushed out); returns the device cookie value `did.uid.sig`. */
+	private static function remember_device( int $uid, string $ua ): string {
+		$now  = self::now();
+		$did  = self::b64url( self::rand( 16 ) );
+		$list = array_values( array_filter( self::uarr( $uid, self::OPT_DEVICES ), static function ( $d ) use ( $now ) { return is_array( $d ) && (int) ( $d['added_at'] ?? 0 ) + self::DEVICE_TTL > $now; } ) );
+		$list[] = array( 'h' => hash( 'sha256', $did ), 'ua' => self::ua_label( $ua ), 'added_at' => $now, 'last_at' => $now );
+		while ( count( $list ) > self::MAX_DEVICES ) {
+			array_shift( $list );
+		}
+		self::uset( $uid, self::OPT_DEVICES, $list );
+		self::log( $uid, array( 'ev' => 'device_added' ) );
+		return $did . '.' . $uid . '.' . self::sign_device( $uid, $did );
+	}
+
+	/** Pure: `did.uid.sig` ⇒ [did, uid, sig] or null (shape only; the signature is checked by `reopen`). */
+	public static function parse_device_cookie( string $v ): ?array {
+		$p = explode( '.', $v );
+		if ( 3 !== count( $p ) || 1 !== preg_match( '/^[A-Za-z0-9_-]{16,30}$/', $p[0] ) || 1 !== preg_match( '/^[1-9][0-9]{0,18}$/', $p[1] ) || 1 !== preg_match( '/^[A-Za-z0-9_-]{30,60}$/', $p[2] ) ) {
+			return null;
+		}
+		return array( $p[0], (int) $p[1], $p[2] );
+	}
+
+	/**
+	 * Back on `/?bzpanel=open` with no live session: a remembered device (signature over the CURRENT key version, still listed, < 90 days) opens a new
+	 * TwinZalo session of scope `view`. Never a write session, never another panel. Logs `reopen`.
+	 *
+	 * @return array{ok:true, cookie:string, max_age:int}|array{ok:false, code:string}
+	 */
+	public static function reopen( string $device_cookie, string $ua = '' ): array {
+		$d = self::parse_device_cookie( $device_cookie );
+		if ( ! $d ) {
+			return array( 'ok' => false, 'code' => 'no_device' );
+		}
+		list( $did, $uid, $sig ) = $d;
+		self::ensure_key( $uid, false );
+		$kv = (int) self::uget( $uid, self::OPT_KV );
+		if ( ! hash_equals( self::sign_device( $uid, $did ), $sig ) ) {
+			return array( 'ok' => false, 'code' => 'device_unknown' );
+		}
+		$now  = self::now();
+		$h    = hash( 'sha256', $did );
+		$list = self::uarr( $uid, self::OPT_DEVICES );
+		$i    = null;
+		foreach ( $list as $k => $row ) {
+			if ( is_array( $row ) && hash_equals( (string) ( $row['h'] ?? '' ), $h ) ) {
+				$i = $k;
+				break;
+			}
+		}
+		if ( null === $i || (int) ( $list[ $i ]['added_at'] ?? 0 ) + self::DEVICE_TTL <= $now ) {
+			return array( 'ok' => false, 'code' => 'device_unknown' );
+		}
+		$list[ $i ]['last_at'] = $now;
+		self::uset( $uid, self::OPT_DEVICES, $list );
+		$cookie = self::open_session( $uid, self::DEVICE_PANEL, self::group_of( self::DEVICE_PANEL ), $kv, '', $ua, 'view' );
+		self::log( $uid, array( 'ev' => 'reopen', 'panel' => self::DEVICE_PANEL ) );
+		return array( 'ok' => true, 'cookie' => $cookie, 'max_age' => self::SESSION_MAX );
+	}
+
+	/** The person's remembered devices for the Link screen (no hash leaves: `id` = 10 chars of it); `current` = this request's device. */
+	public static function devices( int $uid, string $device_cookie = '' ): array {
+		$now = self::now();
+		$cur = self::parse_device_cookie( $device_cookie );
+		$ch  = $cur && $cur[1] === $uid ? hash( 'sha256', $cur[0] ) : '';
+		$out = array();
+		foreach ( self::uarr( $uid, self::OPT_DEVICES ) as $row ) {
+			if ( ! is_array( $row ) || (int) ( $row['added_at'] ?? 0 ) + self::DEVICE_TTL <= $now ) {
+				continue;
+			}
+			$out[] = array( 'id' => substr( (string) $row['h'], 0, 10 ), 'ua' => (string) ( $row['ua'] ?? '' ), 'added_at' => (int) $row['added_at'], 'last_at' => (int) ( $row['last_at'] ?? 0 ), 'expires_at' => (int) $row['added_at'] + self::DEVICE_TTL, 'current' => '' !== $ch && hash_equals( (string) $row['h'], $ch ) );
+		}
+		return $out;
+	}
+
+	/** Forget one device (`id` from `devices()`); true when one was removed. */
+	public static function forget_device( int $uid, string $id ): bool {
+		if ( 1 !== preg_match( '/^[0-9a-f]{10}$/', $id ) ) {
+			return false;
+		}
+		$list = self::uarr( $uid, self::OPT_DEVICES );
+		$keep = array_values( array_filter( $list, static function ( $d ) use ( $id ) { return ! is_array( $d ) || 0 !== strpos( (string) ( $d['h'] ?? '' ), $id ); } ) );
+		if ( count( $keep ) === count( $list ) ) {
+			return false;
+		}
+		self::uset( $uid, self::OPT_DEVICES, $keep );
+		self::log( $uid, array( 'ev' => 'device_forgotten' ) );
+		return true;
+	}
+
+	/** Pure: may this person's device be remembered? The owner of a number (owned row with role owner) or a site admin — never staff only. */
+	public static function device_allowed( array $owned_rows, bool $admin ): bool {
+		if ( $admin ) {
+			return true;
+		}
+		foreach ( $owned_rows as $r ) {
+			if ( 'owner' === (string) ( $r['role'] ?? '' ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** A bad opening of one person's ticket; the 3rd in a row rotates the key. Returns true when it rotated. */
@@ -399,6 +534,7 @@ final class BizCity_Panel_Link {
 			self::tset( self::T_SESSION . $h, $s, max( 1, (int) $s['hard_exp'] - $now ) );
 		}
 		$s['expires_at'] = min( (int) $s['hard_exp'], (int) $s['last_at'] + self::SESSION_IDLE );
+		$s['scope']      = 'view' === ( $s['scope'] ?? '' ) ? 'view' : 'write'; // [2026-10-23 08:12 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — a session from before CL4 is a ticket (write) session
 		$s['h']          = $h;
 		return $s;
 	}
@@ -472,6 +608,16 @@ final class BizCity_Panel_Link {
 	private static function sign( int $uid, string $sid, int $kv ): string {
 		$key = (string) self::uget( $uid, self::OPT_KEY );
 		return self::b64url( hash_hmac( 'sha256', $sid . '|' . $uid . '|' . $kv, $key . ( function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '' ), true ) );
+	}
+
+	/** Device signature: HMAC over did + uid with the person's device key (made on first use, renewed by a user / bad-ticket reset). */
+	private static function sign_device( int $uid, string $did ): string {
+		$key = (string) self::uget( $uid, self::OPT_DEV_KEY );
+		if ( '' === $key ) {
+			$key = self::b64url( self::rand( 32 ) );
+			self::uset( $uid, self::OPT_DEV_KEY, $key );
+		}
+		return self::b64url( hash_hmac( 'sha256', 'dev|' . $did . '|' . $uid, $key . ( function_exists( 'wp_salt' ) ? wp_salt( 'auth' ) : '' ), true ) );
 	}
 
 	private static function log( int $uid, array $e ): void {

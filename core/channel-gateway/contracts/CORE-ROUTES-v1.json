@@ -1,0 +1,392 @@
+{
+  "$schema": "https://bizcity.vn/schema/core-routes-v1.json",
+  "contract": "core-routes@1.1.0",
+  "_stamp": "[2026-10-23 02:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 scoreboard gate B1 (doc 72 §11) — REST routes the CORE must register by itself, with NO add-on installed (owner Q126-30: a site without /gpt/ is complete). bin/validate-core-routes.mjs fails when one is missing or is registered only by an add-on. The bizcity-twinweb/v1 list is generated from tools/reduction-route-detail.mjs (Q126-31…33 core set, ai-reply excluded: it answers 410). After R126-T3 each of those also lives at target_ns; after R126-T6 the old namespace may go (then edit `accept_ns`).",
+  "rule": "R-BRAIN-SKELETON + doc 72 §0: the core is Channel Gateway (configure, administer, connect) + TwinChat + skills + TwinShell + journal / Twin Sheet + the cell forwarder.",
+  "addon_dirs": [
+    "bizcity-twinweb-addon",
+    "bizcity-twin-brain-addon",
+    "bizcity-twin-crm",
+    "bizcity-automation"
+  ],
+  "axes": {
+    "channel-gateway · mychannels / me / skills / admin Guru / mcp (today in core/twinweb-axis)": {
+      "ns": "bizcity-twinweb/v1",
+      "accept_ns": [
+        "bizcity-channel/v1"
+      ],
+      "target_ns": "bizcity-channel/v1",
+      "consumers": [
+        "CG SPA",
+        "TwinChat UI",
+        "twin-crm SPA"
+      ],
+      "routes": [
+        {
+          "path": "/mychannels",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts",
+          "methods": [
+            "GET",
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts/{id}/qr",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts/{id}/qr/reset",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts/{id}/status",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts/{id}",
+          "methods": [
+            "DELETE"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/accounts/{id}/bot",
+          "methods": [
+            "GET",
+            "PUT"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/conversations",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/conversations/{id}",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/conversations/{id}/messages",
+          "methods": [
+            "GET",
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo-personal/conversations/{id}/notes",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/bots",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/select",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/link-status",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/recent-chats",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/conversation",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/send",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/link-command",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mychannels/zalo/pin-chat",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/me",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/me/agent-gurus",
+          "methods": [
+            "GET",
+            "POST"
+          ]
+        },
+        {
+          "path": "/skills",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/grounding",
+          "methods": [
+            "GET",
+            "PUT"
+          ]
+        },
+        {
+          "path": "/admin/guru-catalog",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/guru-workspaces",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/guru-workspaces/{guru_id}",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/guru-policy/{guru_id}",
+          "methods": [
+            "GET",
+            "PUT"
+          ]
+        },
+        {
+          "path": "/admin/guru-policy/preview",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/admin/usage",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/connections",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/astro",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/admin/automation",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mcp/keys",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mcp/keys",
+          "methods": [
+            "POST"
+          ]
+        },
+        {
+          "path": "/mcp/keys/{id}",
+          "methods": [
+            "DELETE"
+          ]
+        },
+        {
+          "path": "/mcp/logs",
+          "methods": [
+            "GET"
+          ]
+        },
+        {
+          "path": "/mcp/policy",
+          "methods": [
+            "GET"
+          ]
+        }
+      ]
+    },
+    "crm spine (inbox, conversations, contacts)": {
+      "ns": "bizcity-crm/v1",
+      "consumers": [
+        "CG SPA",
+        "twin-crm SPA"
+      ],
+      "routes": [
+        {
+          "path": "/inboxes"
+        },
+        {
+          "path": "/inboxes/{id}"
+        },
+        {
+          "path": "/conversations"
+        },
+        {
+          "path": "/conversations/{id}"
+        },
+        {
+          "path": "/conversations/{id}/messages"
+        },
+        {
+          "path": "/conversations/{id}/notes"
+        },
+        {
+          "path": "/conversations/{id}/resolve"
+        },
+        {
+          "path": "/conversations/{id}/assignee"
+        },
+        {
+          "path": "/teams"
+        },
+        {
+          "path": "/contacts/{id}"
+        }
+      ]
+    },
+    "twinchat": {
+      "ns": "bizcity-twinchat/v1",
+      "consumers": [
+        "TwinChat UI"
+      ],
+      "routes": [
+        {
+          "path": "/chat/{notebook_id}/stream"
+        },
+        {
+          "path": "/chat/{notebook_id}/turn"
+        },
+        {
+          "path": "/sessions/{notebook_id}"
+        },
+        {
+          "path": "/messages/{session_id}"
+        },
+        {
+          "path": "/sources/{notebook_id}"
+        },
+        {
+          "path": "/sources/{notebook_id}/{source_id}"
+        },
+        {
+          "path": "/search-documents"
+        },
+        {
+          "path": "/gurus/list"
+        }
+      ]
+    },
+    "journal / second brain": {
+      "ns": "bizcity-knowledge/v2",
+      "consumers": [
+        "TwinChat UI (BrainLedger)",
+        "twin-crm SPA"
+      ],
+      "routes": [
+        {
+          "path": "/journal/find"
+        },
+        {
+          "path": "/journal/{id}"
+        },
+        {
+          "path": "/documents/overview"
+        },
+        {
+          "path": "/journal/export"
+        },
+        {
+          "path": "/journal/versions"
+        },
+        {
+          "path": "/documents/for-conversation"
+        }
+      ]
+    },
+    "twinbrain forwarder (cell)": {
+      "ns": "bizcity-twinbrain/v1",
+      "consumers": [
+        "TwinChat UI (Ask Brain, Cell Chat, Canvas)"
+      ],
+      "routes": [
+        {
+          "path": "/turn/stream"
+        },
+        {
+          "path": "/cell-chat/numbers"
+        },
+        {
+          "path": "/cell-chat/history"
+        },
+        {
+          "path": "/cell-chat/media/{media_id}"
+        },
+        {
+          "path": "/outputs"
+        },
+        {
+          "path": "/tool/confirm"
+        },
+        {
+          "path": "/sessions"
+        },
+        {
+          "path": "/sessions/{session_id}"
+        },
+        {
+          "path": "/sessions/{session_id}/turns"
+        },
+        {
+          "path": "/memory/me"
+        }
+      ]
+    }
+  }
+}

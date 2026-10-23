@@ -64,12 +64,17 @@ final class BizCity_Panel_Gate {
 				self::render_dead( 'invalid' );
 				exit;
 			}
-			$r = BizCity_Panel_Link::consume( $v, $ua );
+			// [2026-10-23 08:11 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S128-CL4 — a TwinZalo ticket of the owner of a number (or a site admin) also remembers this device (doc 67 A)
+			$pk = BizCity_Panel_Link::peek( $v, false );
+			$r  = BizCity_Panel_Link::consume( $v, $ua, self::may_remember( (int) ( $pk['ticket']['user_id'] ?? 0 ) ) );
 			if ( empty( $r['ok'] ) ) {
 				self::render_dead( (string) $r['code'] );
 				exit;
 			}
 			self::set_cookie( (string) $r['cookie'], (int) $r['max_age'] );
+			if ( ! empty( $r['device'] ) ) {
+				self::set_cookie( (string) $r['device'], (int) $r['device_max_age'], BizCity_Panel_Link::DEV_COOKIE );
+			}
 			wp_safe_redirect( self::open_url( (string) $r['panel']['id'] ), 303 );
 			exit;
 		}
@@ -84,17 +89,31 @@ final class BizCity_Panel_Gate {
 	}
 
 	/** The panel cookie: HttpOnly, Secure on https, SameSite=Lax (sent on the top-level return from Composio / Google, never on a cross-site POST). */
-	public static function set_cookie( string $value, int $max_age ): void {
+	public static function set_cookie( string $value, int $max_age, string $name = '' ): void {
 		if ( headers_sent() ) {
 			return;
 		}
-		setcookie( BizCity_Panel_Link::COOKIE, $value, array(
+		setcookie( '' !== $name ? $name : BizCity_Panel_Link::COOKIE, $value, array(
 			'expires'  => '' === $value ? time() - 3600 : time() + $max_age,
 			'path'     => '/',
 			'secure'   => is_ssl() || 0 === strpos( home_url( '/' ), 'https://' ), // behind a proxy that hides https, the site url still says it
 			'httponly' => true,
 			'samesite' => 'Lax',
 		) );
+	}
+
+	/** [2026-10-23 08:11 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — the device cookie of this request ('' when none). */
+	public static function current_device_cookie(): string {
+		return isset( $_COOKIE[ BizCity_Panel_Link::DEV_COOKIE ] ) ? sanitize_text_field( wp_unslash( (string) $_COOKIE[ BizCity_Panel_Link::DEV_COOKIE ] ) ) : '';
+	}
+
+	/** S128-CL4 — only the owner of a number or a site admin gets a remembered device (staff never: doc 67 A). */
+	public static function may_remember( int $uid ): bool {
+		if ( $uid <= 0 ) {
+			return false;
+		}
+		$rows = class_exists( 'BizCity_Twin_Web_Turn' ) && method_exists( 'BizCity_Twin_Web_Turn', 'owned_rows' ) ? BizCity_Twin_Web_Turn::owned_rows( $uid ) : array();
+		return BizCity_Panel_Link::device_allowed( $rows, function_exists( 'user_can' ) && user_can( $uid, 'manage_options' ) );
 	}
 
 	/** Live session of this request's cookie, or null. */
@@ -151,6 +170,19 @@ final class BizCity_Panel_Gate {
 	private static function render_app(): void {
 		$s = self::current_session();
 		if ( ! $s ) {
+			// [2026-10-23 08:11 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — no live session but a remembered device ⇒ a new READ-ONLY TwinZalo session, then the same page again
+			$dev = self::current_device_cookie();
+			$try = ! isset( $_GET['dv'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- one try only: a browser that drops cookies must not loop
+			if ( '' !== $dev && $try ) {
+				$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? (string) wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+				$r  = BizCity_Panel_Link::reopen( $dev, $ua );
+				if ( ! empty( $r['ok'] ) ) {
+					self::set_cookie( (string) $r['cookie'], (int) $r['max_age'] );
+					wp_safe_redirect( add_query_arg( 'dv', '1', self::open_url( BizCity_Panel_Link::DEVICE_PANEL ) ), 303 );
+					return;
+				}
+				self::set_cookie( '', 0, BizCity_Panel_Link::DEV_COOKIE ); // a forgotten / renewed-key device: drop the stale cookie
+			}
 			self::render_dead( 'gone' );
 			return;
 		}

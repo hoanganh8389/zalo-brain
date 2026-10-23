@@ -46,6 +46,9 @@ final class BizCity_Panel_REST {
 			array( '/session', 'GET', 'get_session', '' ),
 			array( '/key', 'GET', 'get_key', '' ),
 			array( '/key/reset', 'POST', 'post_key_reset', '' ),
+			// [2026-10-23 08:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S128-CL4 / U8 — "Thiết bị đã ghi nhớ" of the Link screen: list · forget one (forget all = key reset)
+			array( '/devices', 'GET', 'devices', '' ),
+			array( '/devices/(?P<id>[0-9a-f]{10})/forget', 'POST', 'device_forget', '' ),
 			array( '/connect/status', 'GET', 'connect_status', 'connect' ),
 			array( '/connect/start', 'POST', 'connect_start', 'connect' ),
 			array( '/connect/refresh', 'POST', 'connect_refresh', 'connect' ),
@@ -70,6 +73,20 @@ final class BizCity_Panel_REST {
 			array( '/jobs/(?P<id>job_[0-9A-Za-z]{10,40})/feedback', 'POST', 'job_feedback', 'jobs' ), // [2026-10-21 11:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C3 — 👍 / 👎 / "sửa…" on a finished job from the Quest Map
 			array( '/jobs/(?P<id>[A-Za-z0-9_.:\-]{4,80})', 'GET', 'job', 'jobs' ),
 			array( '/tz/ask', 'POST', 'tz_ask', 'twinzalo' ), // [2026-10-22 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U5 — the ask sheet = Cell Chat of the owner's number (SSE)
+			// [2026-10-22 11:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U15 ⑭ · U17 ⑱ — views built by BizCity_Panel_TZ_Views (web-83: cell → Hub → site); admin check for accounts is inside it
+			array( '/tz/track', 'GET', 'tz_track', 'twinzalo' ),
+			array( '/tz/accounts', 'GET', 'tz_accounts', 'twinzalo' ),
+			// [2026-10-23 07:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U17 ⑱ "Thêm số QR" (chủ "code tiếp" = đề xuất 1: route panel bọc luồng QR, chỉ admin) —
+			// wraps the wp-admin zalo-bridge routes with rest_do_request as the panel person, so their own `can_manage` check still decides; only numbers this person owns
+			// [2026-10-23 07:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U10 ④ — the person's pending Composio drafts (email · Fanpage · sheet) next to the job questions;
+			// approve = the only send path of the cell (R2), reject, or approve with corrected text. Same composio pipe as job_answer (the cell scopes them to this person).
+			array( '/drafts', 'GET', 'drafts', 'connect' ),
+			// [2026-10-23 07:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo ② U9 (Q128-9) — the person's own Google Calendar (Composio read `calendar.events`, next 7 days)
+			array( '/calendar/google', 'GET', 'calendar_google', 'connect' ),
+			array( '/drafts/(?P<id>act_[A-Za-z0-9_-]{8,40})/(?P<decision>approve|reject)', 'POST', 'draft_decide', 'connect' ),
+			array( '/tz/number', 'POST', 'tz_number_create', 'twinzalo' ),
+			array( '/tz/number/(?P<id>[A-Za-z0-9_.:\-]{1,80})/qr', 'POST', 'tz_number_qr', 'twinzalo' ),
+			array( '/tz/number/(?P<id>[A-Za-z0-9_.:\-]{1,80})/qr-status', 'GET', 'tz_number_qr_status', 'twinzalo' ),
 		);
 		foreach ( $routes as $r ) {
 			$group = $r[3];
@@ -110,6 +127,12 @@ final class BizCity_Panel_REST {
 		if ( true !== $v ) {
 			return new WP_Error( $v, 'expired' === $v ? 'Bảng nhanh đã hết hạn hoặc đã bị khoá. Nhắn trợ lý trên Zalo để lấy link mới.' : 'Bảng nhanh này không mở được mục này.', array( 'status' => 'expired' === $v ? 401 : 403 ) );
 		}
+		// [2026-10-23 08:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S128-CL4 (doc 67 B) — a session reopened by a remembered device is READ ONLY: any write route answers
+		// `stepup_required` (the panel then asks the assistant for a fresh one-time link in Zalo = a write session). Asking the assistant is not a panel write:
+		// the same person can already type it in their own Zalo, and the cell's own gates (R2 / R3) still ask. Revoking (key reset, forget a device) is always allowed.
+		if ( true === $v && ! self::scope_allows( (string) ( $s['scope'] ?? 'write' ), strtoupper( (string) $request->get_method() ), $callback ) ) {
+			return new WP_Error( 'stepup_required', 'Đang ở chế độ xem (thiết bị đã ghi nhớ). Thao tác này cần xác nhận qua Zalo.', array( 'status' => 403, 'hint' => 'Bấm "Xác nhận qua Zalo": em gửi link mới vào Zalo của anh, mở link đó là làm được.' ) );
+		}
 		self::$session = $s;
 		wp_set_current_user( (int) $s['user_id'] );
 		// [2026-10-18 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 review fix — the panel person is the current user for THIS route only; no later hook of the same request runs as them
@@ -122,6 +145,14 @@ final class BizCity_Panel_REST {
 			}, 999 );
 		}
 		return true;
+	}
+
+	/** S128-CL4 — what a READ-ONLY (device) session may still do besides reading: ask the assistant, revoke (key reset, forget a device). */
+	const VIEW_WRITES_OK = array( 'tz_ask', 'post_key_reset', 'device_forget' );
+
+	/** Pure: may a session of `$scope` call `$callback` with `$method`? A write session: everything; a view session: GET + VIEW_WRITES_OK. */
+	public static function scope_allows( string $scope, string $method, string $callback ): bool {
+		return 'view' !== $scope || 'GET' === $method || 'HEAD' === $method || in_array( $callback, self::VIEW_WRITES_OK, true );
 	}
 
 	/** Pure: true, or the refusal code (`expired` · `bad_header` · `wrong_group`). */
@@ -164,7 +195,27 @@ final class BizCity_Panel_REST {
 			'panels'     => $mine,
 			'focus'      => (string) ( $s['focus'] ?? '' ), // [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — the job of a Quest Map link
 			'zalo_hint'  => self::suggestions( (string) $s['panel'] ),
+			'scope'      => 'view' === ( $s['scope'] ?? '' ) ? 'view' : 'write', // [2026-10-23 08:14 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — view = reopened by a remembered device (read only)
 		), 200 );
+	}
+
+	/** [2026-10-23 08:14 PM Johnny Chu - Chu Hoàng Anh] S128-CL4 — the person's remembered devices (no hash: a 10-char id), `current` = this browser. */
+	public static function devices(): WP_REST_Response {
+		return new WP_REST_Response( array( 'ok' => true, 'devices' => BizCity_Panel_Link::devices( (int) self::$session['user_id'], BizCity_Panel_Gate::current_device_cookie() ), 'ttl_days' => (int) ( BizCity_Panel_Link::DEVICE_TTL / 86400 ) ), 200 );
+	}
+
+	/** S128-CL4 — forget one remembered device (always allowed, even read only: it only takes access away). Forgetting THIS browser also drops its cookie. */
+	public static function device_forget( WP_REST_Request $request ): WP_REST_Response {
+		$uid = (int) self::$session['user_id'];
+		$id  = (string) $request['id'];
+		$cur = array_values( array_filter( BizCity_Panel_Link::devices( $uid, BizCity_Panel_Gate::current_device_cookie() ), static function ( $d ) use ( $id ) { return $d['id'] === $id && $d['current']; } ) );
+		if ( ! BizCity_Panel_Link::forget_device( $uid, $id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Không thấy thiết bị này.', 'hint' => 'Tải lại danh sách.' ), 404 );
+		}
+		if ( $cur ) {
+			BizCity_Panel_Gate::set_cookie( '', 0, BizCity_Panel_Link::DEV_COOKIE );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'forgotten' => $id ), 200 );
 	}
 
 	public static function get_key(): WP_REST_Response {
@@ -408,6 +459,179 @@ final class BizCity_Panel_REST {
 			'account_id' => self::tz_account( BizCity_Twin_Web_Turn::owned_rows( $uid ) ),
 		) );
 		exit;
+	}
+
+	/**
+	 * [2026-10-22 11:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U15 ⑭ — track-view@1.0.0 (week of jobs · gate rates · feedback) of the panel person.
+	 * The view class (web-83) is a separate file; without it the route says so instead of fataling.
+	 */
+	public static function tz_track(): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Panel_TZ_Views' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'view_missing', 'message' => 'Website chưa có màn Theo dõi.', 'hint' => 'Cập nhật plugin BizCity Twin AI rồi mở lại.' ), 503 );
+		}
+		$v = BizCity_Panel_TZ_Views::track( (int) self::$session['user_id'] );
+		return new WP_REST_Response( $v, (int) ( $v['status'] ?? 200 ) );
+	}
+
+	/** [2026-10-22 11:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U17 ⑱ — bot-accounts@1.0.0; only a site admin gets rows (403 `admin_only` inside the view). */
+	public static function tz_accounts(): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Panel_TZ_Views' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'view_missing', 'message' => 'Website chưa có màn Tài khoản bot.', 'hint' => 'Cập nhật plugin BizCity Twin AI rồi mở lại.' ), 503 );
+		}
+		$v = BizCity_Panel_TZ_Views::accounts( (int) self::$session['user_id'] );
+		return new WP_REST_Response( $v, (int) ( $v['status'] ?? 200 ) );
+	}
+
+	// ── ④ Nháp chờ duyệt (U10) ────────────────────────────────────────────
+	// [2026-10-23 07:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo — composio-connect@1 `GET /actions?status=pending` · `POST /actions/{id}/(approve|reject) {text?}`.
+
+	/** GET drafts — the panel person's pending drafts (≤ 20), as the cell's action view (no token, no Composio id). */
+	public static function drafts(): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Connect_Composio_REST' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'composio_missing', 'message' => 'Website chưa bật kết nối ứng dụng.', 'hint' => 'Cập nhật plugin BizCity Twin AI.' ), 503 );
+		}
+		$r = self::inner( 'GET', '/actions' );
+		$r->set_param( 'status', 'pending' );
+		$r->set_param( 'limit', 20 );
+		return BizCity_Connect_Composio_REST::pipe( $r );
+	}
+
+	/**
+	 * [2026-10-23 07:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo ② U9 — GET calendar/google: the cell reads the person's OWN Google Calendar (composio read
+	 * `calendar.events`, 7 days, ≤ 25 events). Not connected / several Google logins ⇒ the cell's own answer (code + message + hint) goes back as it is.
+	 */
+	public static function calendar_google(): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Connect_Composio_REST' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'composio_missing', 'message' => 'Website chưa bật kết nối ứng dụng.' ), 503 );
+		}
+		return BizCity_Connect_Composio_REST::pipe( self::inner( 'POST', '/read', array( 'op' => 'calendar.events', 'input' => array( 'days' => 7, 'max_results' => 25 ) ) ) );
+	}
+
+	/** Pure: the body of a draft decision — `text` only when the owner corrected it (approve), ≤ 5000 chars. */
+	public static function draft_body( string $decision, $p ): array {
+		$text = 'approve' === $decision && is_array( $p ) && is_string( $p['text'] ?? null ) ? trim( (string) $p['text'] ) : '';
+		return '' !== $text ? array( 'text' => mb_substr( sanitize_textarea_field( $text ), 0, 5000 ) ) : array();
+	}
+
+	/** POST drafts/{id}/(approve|reject) {text?} — approve sends (the cell's only send path), reject drops it. */
+	public static function draft_decide( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Connect_Composio_REST' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'composio_missing', 'message' => 'Website chưa bật kết nối ứng dụng.' ), 503 );
+		}
+		$decision = (string) $request['decision'];
+		return BizCity_Connect_Composio_REST::pipe( self::inner( 'POST', '/actions/' . (string) $request['id'] . '/' . $decision, self::draft_body( $decision, $request->get_json_params() ) ) );
+	}
+
+	// ── ⑱ Thêm số QR (U17) ────────────────────────────────────────────────
+	// [2026-10-23 07:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo — the add-number flow of Bot Studio (AddZaloNumberSheet: members/{uid}/accounts → accounts/{id}/qr
+	// → qr-status) for the panel person, from the phone. The original routes keep deciding (permission `can_manage`, quota, R-SETUP-4 checks inside create);
+	// the panel only adds: site admin first, the number is the person's own (mapping owner_user_id), and a short answer (never a token, never a path).
+
+	const NUMBER_NS = '/bizcity-channel/v1/zalo-bridge';
+
+	/** Pure: the label of a new number from the request body ('' when missing), ≤ 60 chars, one line. */
+	public static function tz_number_label( $p ): string {
+		$raw = is_array( $p ) ? (string) ( $p['label'] ?? '' ) : '';
+		return mb_substr( trim( (string) preg_replace( '/\s+/u', ' ', sanitize_text_field( $raw ) ) ), 0, 60 );
+	}
+
+	/** Pure: what the panel returns of a QR answer — the picture (base64 PNG), the status and an error code; nothing else of the sidecar's reply. */
+	public static function tz_qr_view( array $d, int $status ): array {
+		$qr   = (string) ( $d['qr_base64'] ?? '' );
+		$code = (string) ( $d['code'] ?? $d['reason_bucket'] ?? '' );
+		$ok   = $status < 400 && ( '' !== $qr || 'already_connected' === $code || ! empty( $d['status'] ) );
+		$out  = array(
+			'ok'     => $ok,
+			'status' => substr( sanitize_key( (string) ( $d['status'] ?? ( 'already_connected' === $code ? 'connected' : ( '' !== $qr ? 'waiting' : '' ) ) ) ), 0, 30 ),
+		);
+		if ( '' !== $qr && 1 === preg_match( '/^(data:image\/png;base64,)?[A-Za-z0-9+\/=\r\n]{100,}$/', $qr ) ) {
+			$out['qr_base64'] = $qr;
+		}
+		if ( ! $ok ) {
+			$out['code']    = '' !== $code ? substr( sanitize_key( $code ), 0, 40 ) : 'qr_failed';
+			$out['message'] = mb_substr( (string) ( $d['message'] ?? 'Chưa tạo được mã QR.' ), 0, 200 );
+			$out['hint']    = mb_substr( (string) ( $d['hint'] ?? 'Thử lại sau ít phút, hoặc thêm số trong Bot Studio trên website.' ), 0, 200 );
+		}
+		return $out;
+	}
+
+	/** The person may add numbers (site admin — same capability the Bot Studio routes check) ⇒ null, else the 403 answer. */
+	private static function tz_number_guard(): ?WP_REST_Response {
+		$can = class_exists( 'BizCity_Zalo_Bridge_REST' ) && method_exists( 'BizCity_Zalo_Bridge_REST', 'can_manage' ) ? BizCity_Zalo_Bridge_REST::can_manage() : current_user_can( 'manage_options' );
+		if ( ! $can ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'admin_only', 'message' => 'Chỉ quản trị viên website thêm được số Zalo.', 'hint' => 'Nhờ quản trị viên thêm số, hoặc nhắn trợ lý.' ), 403 );
+		}
+		return null;
+	}
+
+	/** The number `$id` is one this panel person owns (never a number of another member). */
+	private static function tz_number_mine( string $id ): bool {
+		if ( ! class_exists( 'BizCity_Zalo_Mapping_Repo' ) || ! method_exists( 'BizCity_Zalo_Mapping_Repo', 'find_account_by_bridge_id' ) ) {
+			return false;
+		}
+		$a = BizCity_Zalo_Mapping_Repo::find_account_by_bridge_id( 'personal', $id );
+		return is_array( $a ) && (int) ( $a['owner_user_id'] ?? 0 ) === (int) self::$session['user_id'];
+	}
+
+	/** One inner call to a zalo-bridge route as the current (panel) user; [data array, status]. */
+	private static function tz_bridge( string $method, string $path, array $body = array() ): array {
+		$r = new WP_REST_Request( $method, self::NUMBER_NS . $path );
+		if ( $body ) {
+			$r->set_header( 'content-type', 'application/json' );
+			$r->set_body( (string) wp_json_encode( $body ) );
+		}
+		$res = rest_do_request( $r );
+		$d   = $res->is_error() ? (array) ( $res->as_error()->get_error_data() ?: array() ) + array( 'code' => $res->as_error()->get_error_code(), 'message' => $res->as_error()->get_error_message() ) : (array) $res->get_data();
+		return array( $d, (int) $res->get_status() );
+	}
+
+	/** POST tz/number {label} — create the number for the panel person, then start its QR (one tap on the phone). */
+	public static function tz_number_create( WP_REST_Request $request ): WP_REST_Response {
+		$deny = self::tz_number_guard();
+		if ( $deny ) {
+			return $deny;
+		}
+		$label = self::tz_number_label( $request->get_json_params() );
+		if ( '' === $label ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Nhập tên cho số Zalo.', 'hint' => 'Ví dụ: "Nick CSKH chính".' ), 400 );
+		}
+		$uid          = (int) self::$session['user_id'];
+		list( $c, $s ) = self::tz_bridge( 'POST', '/members/' . $uid . '/accounts', array( 'label' => $label, 'kind' => 'personal' ) );
+		$id           = (string) ( $c['id'] ?? '' );
+		if ( $s >= 400 || '' === $id ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => substr( sanitize_key( (string) ( $c['code'] ?? 'create_failed' ) ), 0, 40 ), 'message' => mb_substr( (string) ( $c['message'] ?? 'Chưa tạo được số.' ), 0, 200 ), 'hint' => mb_substr( (string) ( $c['hint'] ?? 'Kiểm tra hạn mức số của gói rồi thử lại.' ), 0, 200 ) ), $s >= 400 ? $s : 500 );
+		}
+		list( $q, $qs ) = self::tz_bridge( 'POST', '/accounts/' . rawurlencode( $id ) . '/qr' );
+		return new WP_REST_Response( array( 'account_id' => $id, 'label' => $label ) + self::tz_qr_view( $q, $qs ), 200 );
+	}
+
+	/** POST tz/number/{id}/qr {relogin?} — a new QR for the person's own number (expired code, or sign the number in again). */
+	public static function tz_number_qr( WP_REST_Request $request ): WP_REST_Response {
+		$deny = self::tz_number_guard();
+		if ( $deny ) {
+			return $deny;
+		}
+		$id = (string) $request['id'];
+		if ( ! self::tz_number_mine( $id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_yours', 'message' => 'Đây không phải số Zalo của anh/chị.', 'hint' => 'Mở danh sách Tài khoản bot rồi chọn lại.' ), 403 );
+		}
+		$relogin        = ! empty( ( (array) $request->get_json_params() )['relogin'] );
+		list( $q, $qs ) = self::tz_bridge( 'POST', '/accounts/' . rawurlencode( $id ) . ( $relogin ? '/qr/reset' : '/qr' ) );
+		return new WP_REST_Response( array( 'account_id' => $id ) + self::tz_qr_view( $q, $qs ), 200 );
+	}
+
+	/** GET tz/number/{id}/qr-status — polled every 3 s while the QR is on screen. */
+	public static function tz_number_qr_status( WP_REST_Request $request ): WP_REST_Response {
+		$deny = self::tz_number_guard();
+		if ( $deny ) {
+			return $deny;
+		}
+		$id = (string) $request['id'];
+		if ( ! self::tz_number_mine( $id ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_yours', 'message' => 'Đây không phải số Zalo của anh/chị.' ), 403 );
+		}
+		list( $q, $qs ) = self::tz_bridge( 'GET', '/accounts/' . rawurlencode( $id ) . '/qr-status' );
+		return new WP_REST_Response( array( 'account_id' => $id ) + self::tz_qr_view( $q, $qs ), 200 );
 	}
 
 	/** Pure: the number TwinZalo asks through — the first the person OWNS, else '' (web home). Staff rows are not a TwinZalo owner's. */

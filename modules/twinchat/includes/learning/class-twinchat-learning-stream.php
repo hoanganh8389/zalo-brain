@@ -194,7 +194,7 @@ class BizCity_TwinChat_Learning_Stream {
 		if ( $cnt > 0 ) {
 			return false;
 		}
-		// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the welcome queue is gone (tc_welcome_jobs quarantined): only learning jobs keep a notebook "active".
+		// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the welcome queue is gone (tc_welcome_jobs retired + dropped, Q126-36): only learning jobs keep a notebook "active".
 		return true;
 	}
 

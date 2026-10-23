@@ -570,6 +570,14 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			self::send_receipt( $job, $owner, $bridge_id, array( 'failed' => $all_failed ) );
 			return;
 		}
+		// [2026-10-23 09:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 (chủ 21:3x: biên nhận "Đã lưu an toàn … TL-7249" KHÔNG kèm link Bản đồ não) — the receipt went out BEFORE the
+		// journal rows existed: `map_link_for()` / `register_rows_for()` look the new file's row up by its TL- code and found nothing ⇒ no map link, no register rows.
+		// Now: index first (K4), then the receipt. A failing index never blocks the receipt (the original file is kept either way — R-JN-2).
+		try {
+			self::index_captured_items( $job, $owner, $bridge_id, $day_key, $card_meta, $res );
+		} catch ( \Throwable $e ) {
+			self::log( 'knowledge_capture_index_failed', array( 'account_id' => $bridge_id, 'reason' => get_class( $e ) ), 'error' );
+		}
 		self::send_receipt( $job, $owner, $bridge_id, $res );
 		// [2026-10-12 01:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L17 (R-JOURNAL R-JN-1/R-JN-3/R-JN-6) —
 		// K4 "đánh chỉ mục": every item the bridge actually captured (succeeded now, or queued for async KG ingest)
@@ -577,8 +585,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		// above) plus its kind shelf / per-subject notebook (BizCity_Journal_Filer). A card-less item still gets a
 		// row (kind falls back to common.*, flags.review=true inside BizCity_Journal_Index::add() — R-JN-2: the
 		// original file is never blocked on this). Duplicates (same idempotency_key as an earlier capture) are
-		// skipped — they already have a row.
-		self::index_captured_items( $job, $owner, $bridge_id, $day_key, $card_meta, $res );
+		// skipped — they already have a row. (Called above, before the receipt — 2026-10-23.)
 		// [2026-10-01] capture_batch() returns a normal array even when an item failed (download/sideload before any placeholder
 		// source exists) — it used to be reported as "done" with succeeded=0, so a lost file left no trace here. Surface it.
 		$failed = self::failed_items_summary( $res );
@@ -927,8 +934,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	/** Best effort: a receipt that cannot be sent is logged, never retried in W1 (the notebook still has the file). */
 	private static function send_receipt( array $job, int $owner, string $bridge_id, array $res ): void {
 		// PHASE-0.124 W2: tệp nhóm lưu THEO LỆNH ⇒ chủ nhận biên nhận (kèm tên nhóm); tự lưu khi theo dõi ⇒ im lặng (không spam chủ)
+		// [2026-10-23 09:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ 21:3x: "Lưu tệp nhóm cần thông báo đã lưu rõ ràng như bên zalo cá nhân" ⇒ tự lưu khi theo dõi CŨNG gửi
+		// biên nhận (vào chat riêng của chủ, kèm "📁 Nhóm …"), như lưu theo lệnh. Mỗi tin có tệp = một biên nhận; tin không có tài liệu không gửi gì.
 		$origin    = (string) ( $job['origin'] ?? '' );
-		$group_cmd = 'group_capture' === $origin && 'command' === (string) ( $job['trigger'] ?? '' );
+		$group_cmd = 'group_capture' === $origin;
 		if ( ( 'owner_capture' !== $origin && ! $group_cmd ) || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::enabled() ) {
 			return;
 		}
@@ -936,7 +945,22 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		if ( null === $receipt ) {
 			return;
 		}
-		if ( $group_cmd ) {
+		// [2026-10-23 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ 22:3x: "khi gửi yêu cầu lưu file vào nhóm, thay vì trả lời luôn trong nhóm, trợ lý lại nhắn tin riêng" ⇒ a save
+		// someone ASKED for (trigger command) is answered IN the group: the letter names the group (`deliver_group`, cell ≥ q45 posts the text there; older cells ignore the key
+		// and the owner's 1-1 gets it as before), the words fit the whole group ("chủ" not "anh/chị"). The map link stays the owner's (1-1). A silent follow save ⇒ 1-1 as before.
+		$gid_of = static function ( array $j ): string {
+			foreach ( (array) ( $j['items'] ?? array() ) as $it ) {
+				$g = is_array( $it ) && is_array( $it['group'] ?? null ) ? (string) ( $it['group']['gid'] ?? '' ) : '';
+				if ( 1 === preg_match( '/^[0-9]{3,30}$/', $g ) ) {
+					return $g;
+				}
+			}
+			return '';
+		};
+		$in_group = $group_cmd && 'command' === (string) ( $job['trigger'] ?? '' ) ? $gid_of( $job ) : '';
+		if ( '' !== $in_group ) {
+			$receipt['text'] = str_replace( '(bản gốc chỉ anh/chị xem được)', '(bản gốc chỉ chủ xem được)', $receipt['text'] );
+		} elseif ( $group_cmd ) {
 			$receipt['text'] = '📁 Nhóm ' . ( '' !== (string) ( $job['group_name'] ?? '' ) ? '"' . (string) $job['group_name'] . '"' : 'Zalo' ) . "\n" . $receipt['text'];
 		}
 		$ctx = array( 'account_id' => $bridge_id, 'event_type' => $receipt['event_type'], 'stored' => $receipt['stored'], 'duplicate' => $receipt['duplicate'], 'failed' => $receipt['failed'] );
@@ -955,6 +979,9 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 			BizCity_Scheduler_Hub_Pipe::ensure_registered( $target, $instance );
 			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ) );
+			if ( '' !== $in_group ) {
+				$letter['job']['deliver_group'] = array( 'gid' => $in_group ); // [2026-10-23 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — answer in the group that asked
+			}
 			// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-2 (S121-R5, I-5) — the sender keeps a docs_v1 book ("Sổ của tôi" › TaiLieu): the cell mirrors these rows
 			// AFTER the journal rows exist (R-JN-15) and reports back with journal.mirror. No book ⇒ no key (older cells ignore it anyway).
 			if ( self::wants_register_rows( $owner ) ) {
@@ -969,7 +996,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 (brain-map@1 receipt_link) — 1-1 owner capture with a KEPT file: a one-time "Bản đồ não" link opening on
 			// that row (the row exists now, so it can say "Đã lưu · TL-… · L1" honestly). The URL rides `job.panel_link` only: the cell sends it as its own fixed sentence and
 			// never puts it in history / the log (R-PL-8). ≤ 1 / 10 min, off by the person. Older cells drop the unknown key.
-			$panel_link = 'owner_capture' === $origin ? self::map_link_for( $res, $owner ) : null;
+			// [2026-10-23 09:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — a group file the owner keeps gets the same "Bản đồ não" link (chủ: "Gửi link panel secondbrain để nhìn thấy file")
+			$panel_link = 'owner_capture' === $origin || 'group_capture' === $origin ? self::map_link_for( $res, $owner ) : null;
 			if ( null !== $panel_link ) {
 				$letter['job']['panel_link'] = $panel_link;
 			}

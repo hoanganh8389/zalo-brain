@@ -138,8 +138,7 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'workspace/class-
 // Service must load before controller (controller depends on BizCity_TwinChat_Notes_Service).
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-service.php', 'twinchat.notes_service' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-notes-controller.php', 'twinchat.notes_controller' );
-// PHASE-6.4-KGHub-IMAGE Wave B — context-bundle endpoint feeding embedded Doc/Image Studio tabs.
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_DIR . 'notebooklm/includes/class-twinchat-context-bundle-controller.php', 'twinchat.context_bundle_controller' );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the context-bundle endpoint fed the embedded Doc/Image Studio tabs (archived 2026-10-22); no bundle calls it ⇒ archived in modules/_archived/twinchat-studio-20261024/.
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-public-page.php', 'twinchat.public_page' );
 
 // Phase 0.7 / Wave D0 — Pro Learning Diagnostic (admin Tools page).
@@ -150,14 +149,8 @@ if ( is_admin() && is_file( BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-l
 	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'diagnostics/class-pro-learning-diagnostic.php', 'twinchat.pro_learning_diagnostic' );
 }
 
-// Phase 0.7 — Studio (port of BCN_Studio for TwinChat notebook scope).
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-input-builder.php', 'twinchat.studio_input_builder' );
-// Phase 0.8 — Job Manager: generic async job layer (must load before studio class).
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-studio-job-manager.php', 'twinchat.studio_job_manager' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio.php', 'twinchat.studio' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-rest.php', 'twinchat.studio_rest' );
-// Wave 0.7.D — built-in Mindmap tool (Graph-RAG markmap output).
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'studio/class-twinchat-studio-tools-mindmap.php', 'twinchat.studio_tools_mindmap' );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the notebook Studio (PHP generate / outputs / jobs / mindmap; it called the LLM from PHP) has no UI caller since the Canvas cut
+// (StudioPanel is imported nowhere, no bundle calls /studio/*) ⇒ archived in modules/_archived/twinchat-studio-20261024/. Documents are made by the cell.
 
 // Phase 4.9 — backend learning pipeline + SSE.
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-database.php', 'twinchat.learning_database' );
@@ -176,7 +169,7 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-t
 
 // [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "tc_welcome_jobs không dùng; cell là trục não, không suy luận bằng PHP") — the AI welcome bubble after an upload
 // (Welcome_Database / Job_Queue / Runner, one LLM call in PHP) is removed: files moved to modules/_archived/twinchat-welcome-20261022/, table tc_welcome_jobs → legacy-table policy
-// quarantine (rows stay, no writer, no DROP). The welcome_job event schema stays in the taxonomy (a registry, not behaviour).
+// retired + dropped once per site (Q126-36, BizCity_Legacy_Table_Policy::drop_owner_retired). The welcome_job event schema stays in the taxonomy (a registry, not behaviour).
 
 if ( is_admin() ) {
 	BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-admin-menu.php', 'twinchat.admin_menu' );
@@ -193,9 +186,6 @@ add_action( 'init', static function () {
 	}
 	if ( class_exists( 'BizCity_TwinChat_Learning_Database' ) ) {
 		BizCity_TwinChat_Learning_Database::instance()->maybe_install();
-	}
-	if ( class_exists( 'BizCity_Studio_Job_Manager' ) ) {
-		BizCity_Studio_Job_Manager::maybe_install();
 	}
 	// Bind background workers / hooks.
 	if ( class_exists( 'BizCity_TwinChat_Learning_Pipeline' ) ) {
@@ -246,8 +236,6 @@ add_action( 'rest_api_init', static function () {
 	}
 	BizCity_TwinChat_REST_Learning::instance()->register_routes();
 	BizCity_TwinChat_Notes_Controller::instance()->register_routes();
-	BizCity_TwinChat_Context_Bundle_Controller::instance()->register_routes();
-	BizCity_TwinChat_Studio_REST::instance()->register_routes();
 	if ( class_exists( 'BizCity_TwinChat_Workspace_REST' ) ) {
 		BizCity_TwinChat_Workspace_REST::instance()->register_routes();
 	}
@@ -270,26 +258,7 @@ add_action( 'bizcity_kg_notebook_before_delete', static function ( $notebook_id 
 	}
 }, 10, 1 );
 
-// Wave 0.7.D — boot built-in Studio tool callbacks (registers via bcn_register_notebook_tools).
-add_action( 'init', static function () {
-	if ( class_exists( 'BizCity_TwinChat_Studio_Tools_Mindmap' ) ) {
-		BizCity_TwinChat_Studio_Tools_Mindmap::instance();
-	}
-}, 5 );
-
-// Wave 0.7.D — async studio background worker (WP-Cron / Action Scheduler).
-// NOTE: Use string literal (not BizCity_TwinChat_Studio::HOOK_RUN) so a missing class file
-// during partial deploys / OPcache race never causes a top-level fatal.
-add_action( 'bizcity_twinchat_studio_run', static function ( $output_id, $notebook_id, $tool_type, $user_id, $opts = [] ) {
-	// [2026-08-20 Johnny Chu] R-CLI-ASYNC-ISOLATION — queued Studio callbacks
-	// must not enter the production worker during diagnostics CLI.
-	if ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI ) {
-		return;
-	}
-	if ( class_exists( 'BizCity_TwinChat_Studio' ) ) {
-		BizCity_TwinChat_Studio::instance()->run_background_job( $output_id, $notebook_id, $tool_type, $user_id, $opts );
-	}
-}, 10, 5 );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — Studio mindmap tool + async worker (bizcity_twinchat_studio_run) removed with the Studio; a queued event left on a site runs no callback.
 
 // Phase 4.9 — auto-enqueue a learning job after every TwinChat source ingest.
 add_action( 'bizcity_twinchat_after_ingest', static function ( $scope_id, $user_id, $result, $payload ) {

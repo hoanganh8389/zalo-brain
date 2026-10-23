@@ -50,7 +50,7 @@ Mở `/gpt/` trên site của bạn sau khi kích hoạt plugin:
 3. **Quét QR bằng Zalo** — số của bạn được gắn với tài khoản đang đăng nhập.
 4. **Chọn Agent Guru** — đã chọn sẵn trợ lý mặc định; bấm "Bắt đầu" là trò chuyện được ngay.
 
-Không cần multisite, không cần cấu hình máy chủ.
+Bật plugin là kết nối Zalo
 
 <p align="center"><a href="https://libedemo.bizcity.vn/gpt/"><img src="https://media.bizcity.vn/uploads/sites/1258/2026/05/Screenshot-2026-05-06-003857-scaled.png" alt="Zalo Brain — trợ lý trên /gpt/" width="820"></a></p>
 

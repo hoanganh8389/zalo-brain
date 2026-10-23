@@ -86,7 +86,30 @@ final class BizCity_Legacy_Table_Policy {
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-3 (owner: "có DROP bảng") — Goal Contract
 		// projection; its only writer (Goal_Contract_Store) is archived with the Goal Loop. core/twinbrain/bootstrap.php drops it once per site.
 		'bizcity_twin_goal_contracts',
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 (owner 2026-10-24: "các bảng … cần được bỏ hẳn, bỏ luôn ra khỏi install khi active") —
+		// writers archived: welcome queue (modules/_archived/twinchat-welcome-20261022/), PHP agent loop run-state + HIL decisions
+		// (core/_archived/runtime-agent-loop-20261022/), TwinChat notebook Studio jobs + outputs (modules/_archived/twinchat-studio-20261024/).
+		// Never installed again; DROPPED once per site by drop_owner_retired() (rows are not migrated: nothing reads them).
+		'tc_welcome_jobs',
+		'bizcity_twin_runs',
+		'bizcity_twin_hil',
+		'bizcity_webchat_studio_jobs',
+		'bizcity_webchat_studio_outputs',
 	);
+
+	/**
+	 * [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 — tables the owner ordered dropped: approval ref → tables, plus the
+	 * schema-version options of their old installers (deleted with the table so nothing believes the table is installed).
+	 */
+	const OWNER_DROP_REF = 'owner-2026-10-24-q126-36-drop';
+	private static $owner_drop = array(
+		'tc_welcome_jobs'                => 'bizcity_twinchat_welcome_db_version',
+		'bizcity_twin_runs'              => 'bizcity_twin_db_version',
+		'bizcity_twin_hil'               => 'bizcity_twin_db_version',
+		'bizcity_webchat_studio_jobs'    => 'bizcity_twinchat_studio_jobs_db_version',
+		'bizcity_webchat_studio_outputs' => '',
+	);
+	const OWNER_DROP_DONE_OPTION = 'bizcity_legacy_owner_drop_q126_36';
 
 	/** [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — early fallback names before Diagnostics registry loading. */
 	private static $quarantine = array(
@@ -94,11 +117,8 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_crm_flows',
 		// [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — the Gmail SMTP account store is retired (Gmail → cell + Composio); rows stay, no writer, no DROP.
 		'bizcity_crm_gmail_smtp_accounts',
-		// [2026-10-22 05:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: tc_welcome_jobs không dùng) — the AI welcome-after-upload queue is removed (files in modules/_archived/twinchat-welcome-20261022); the table was never in a changelog. Rows stay, no writer, no DROP.
-		'tc_welcome_jobs',
-		// [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "gỡ, chấp nhận mất Image Studio, Studio Builder và thẻ duyệt HIL") — the PHP agent loop
-		// (BizCity_Twin_Runner + REST bizcity-twin/v1/run) is archived in core/_archived/runtime-agent-loop-20261022/; its run-state and HIL-decision tables have no writer. Rows stay, no DROP.
-		'bizcity_twin_runs', 'bizcity_twin_hil',
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 — tc_welcome_jobs, bizcity_twin_runs, bizcity_twin_hil, bizcity_webchat_studio_jobs and
+		// bizcity_webchat_studio_outputs moved to $retired (owner: bỏ hẳn) — dropped once per site by drop_owner_retired().
 		'bizcity_memory_users', 'bizcity_memory_episodic',
 		'bizcity_memory_rolling', 'bizcity_memory_session', 'bizcity_memory_notes',
 		'bizcity_kg_usage_log',
@@ -453,6 +473,42 @@ final class BizCity_Legacy_Table_Policy {
 			$results[ $table ] = self::drop_approved_empty( $table );
 		}
 		return $results;
+	}
+
+	/**
+	 * [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 — drop the owner-retired tables of this site, once.
+	 * Each table: approve (OWNER_DROP_REF) → purge rows → DROP through the zero-row gate → delete its installer version option.
+	 * The done-flag is written only when every table is gone, so a failed step retries on a later admin / cron request.
+	 *
+	 * @return array<string,bool> table => dropped (or already absent)
+	 */
+	public static function drop_owner_retired() {
+		if ( function_exists( 'get_option' ) && get_option( self::OWNER_DROP_DONE_OPTION, false ) ) {
+			return array();
+		}
+		$results = array();
+		foreach ( self::$owner_drop as $table => $version_option ) {
+			if ( self::get_state( $table ) !== self::STATE_DROPPED ) {
+				self::mark_ready_to_drop( $table, self::OWNER_DROP_REF );
+				if ( ! self::purge_approved_migrated( $table ) || ! self::drop_approved_empty( $table ) ) {
+					$results[ $table ] = false;
+					continue;
+				}
+			}
+			if ( '' !== $version_option && function_exists( 'delete_option' ) ) {
+				delete_option( $version_option );
+			}
+			$results[ $table ] = true;
+		}
+		if ( ! in_array( false, $results, true ) && function_exists( 'update_option' ) ) {
+			update_option( self::OWNER_DROP_DONE_OPTION, 1, true );
+		}
+		return $results;
+	}
+
+	/** Tables drop_owner_retired() handles (tests, diagnostics). */
+	public static function owner_drop_tables() {
+		return array_keys( self::$owner_drop );
 	}
 
 	public static function physical_name( $table ) {

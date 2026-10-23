@@ -283,7 +283,7 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-graph-service.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-triplet-extractor.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-reranker.php';
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-retriever.php';
-require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-adapter-studio.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — class-kg-source-adapter-studio.php archived (core/_archived/kg-studio-adapter-20261024/): its writer (TwinChat Studio) is gone.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-rest-controller.php';
 // PHASE 0.31 T-S1.6 — public workflow REST surface (token-gated).
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-public-api.php';
@@ -380,8 +380,6 @@ add_action( 'init', static function () {
 	if ( $runtime_context ) {
 		BizCity_KG_Database::instance();
 	}
-	// Phase 0.5 Sprint 2 — hook studio output → KG adapter.
-	BizCity_KG_Source_Adapter_Studio::instance()->boot();
 	// Phase 0.5 Sprint 4.5g — auto-promote chat messages to KG passages.
 	BizCity_KG_Auto_Promoter::instance()->boot();
 }, 5 );

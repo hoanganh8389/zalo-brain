@@ -25,9 +25,10 @@
 
 defined( 'ABSPATH' ) || exit;
 
-if ( class_exists( 'BizCity_Journal_MCP_Tools', false ) ) {
-	return;
-}
+// [2026-10-24 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — ROOT CAUSE of tranghana.vn "MCP_TOOL_NOT_FOUND" (group.files.save, journal.record): PHP binds this
+// non-inheriting class EARLY (at compile time of this very file), so a bare class_exists() here was already true ⇒ return ⇒ init() at the
+// bottom never ran ⇒ none of this file's tools were ever registered (wp eval: class loaded, hooked=false). Guard DROPPED (same fix as context-producers
+// 2026-10-12): the loader's require_once already prevents a second load. Pinned by tests/unit/McpToolsFreshLoadS128Test.php.
 
 final class BizCity_Journal_MCP_Tools {
 
@@ -41,10 +42,21 @@ final class BizCity_Journal_MCP_Tools {
 		}
 		self::$hooked = true;
 		add_action( 'bizcity_mcp_register_tools', array( __CLASS__, 'register_tools' ) );
+		// [2026-10-24 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — case tranghana.vn 23/10–24/10: the site catalog had every other tool but none of this file's ⇒ never depend on
+		// load order: the registry already booted (hook fired) ⇒ register now; register() is idempotent (same handler = no clash log).
+		if ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) {
+			self::register_tools();
+		}
 	}
 
 	public static function register_tools(): void {
 		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) || ! class_exists( 'BizCity_Journal_Index', false ) ) {
+			// [2026-10-24 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — the owner class was not loaded yet when the registry booted ⇒ one retry at init (late), and a log line so the case is visible.
+			if ( function_exists( 'add_action' ) && function_exists( 'did_action' ) && ! did_action( 'init' ) && ! has_action( 'init', array( __CLASS__, 'register_tools' ) ) ) {
+				add_action( 'init', array( __CLASS__, 'register_tools' ), 99 );
+			} else {
+				error_log( '[bizcity-mcp] BizCity_Journal_MCP_Tools skipped: ' . ( class_exists( 'BizCity_MCP_Tool_Registry' ) ? 'BizCity_Journal_Index not loaded' : 'registry not loaded' ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			}
 			return;
 		}
 		$R = 'BizCity_MCP_Tool_Registry';

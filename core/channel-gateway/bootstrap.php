@@ -144,6 +144,7 @@ require_once $gateway_dir . 'connect/class-connect-composio.php';
 BizCity_Connect_Composio_REST::init();
 add_action( 'init', static function () { if ( class_exists( 'BizCity_User_Workspace_Pusher' ) ) { BizCity_User_Workspace_Pusher::init(); } }, 20 );
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Job_View_REST' ) ) { BizCity_Job_View_REST::init(); } }, 20 );
+add_action( 'init', static function () { if ( class_exists( 'BizCity_Channel_Core_REST' ) ) { BizCity_Channel_Core_REST::init(); } }, 20 ); // [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Sheet_Bindings' ) ) { BizCity_Sheet_Bindings::init(); } }, 20 ); // [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7 — adopt a book the cell created // [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
 require_once $gateway_dir . 'connect/class-connect-widget.php';
 BizCity_Connect_Widget::init();
@@ -151,6 +152,7 @@ BizCity_Connect_Widget::init();
 require_once $gateway_dir . 'panel/class-panel-link.php';
 require_once $gateway_dir . 'panel/class-panel-gate.php';
 require_once $gateway_dir . 'panel/class-panel-rest.php';
+require_once $gateway_dir . 'panel/class-panel-tz-views.php'; // [2026-10-22 11:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo S128-U15 / U17 — ⑭ track · ⑱ accounts (routes tz/track · tz/accounts in class-panel-rest.php)
 require_once $gateway_dir . 'panel/class-panel-mcp.php';
 BizCity_Panel_Gate::init();
 BizCity_Panel_REST::init();
@@ -371,6 +373,9 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'class-sheet-bindings.php'           => 'channel.sheet_bindings',
 	// [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 — "Việc đã làm": the person's assistant Jobs folded from the twin event stream.
 	$gateway_dir . 'class-job-view-rest.php'            => 'channel.job_view_rest',
+	// [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3 — the core serves its own core routes (mychannels · me · skills · admin Guru/kết nối/mức dùng · mcp keys) under bizcity-channel/v1; generated from twinweb-rest by tools/reduction-gen-core-rest.mjs.
+	$gateway_dir . 'core-routes/class-channel-core-identity.php' => 'channel.core_identity',
+	$gateway_dir . 'core-routes/class-channel-core-rest.php'     => 'channel.core_rest',
 	$gateway_dir . 'class-user-workspace-builder.php'   => 'channel.user_workspace_builder',
 	$gateway_dir . 'class-executor-policy.php'            => 'channel.executor_policy', // [2026-10-18 08:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-MX / Q117-MX-1
 	// [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5 — sends that packet to the cell (login / role change / profile save; newer rev only).

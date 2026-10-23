@@ -205,7 +205,7 @@ final class BizCity_Twin_Addon_License {
 		);
 		$html  = '<div class="bizcity-addon-notice" data-lock="premium" style="max-width:520px;margin:48px auto;background:#171a21;border:1px solid #262b36;border-radius:16px;padding:32px;text-align:center;color:#e6e6e6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;">';
 		$html .= '<div style="font-size:48px;line-height:1;margin-bottom:12px;">🔒</div>';
-		$html .= '<div style="display:inline-block;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.8px;color:#fff;margin-bottom:16px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);">PREMIUM</div>';
+		$html .= '<div style="display:inline-block;padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.8px;color:#fff;margin-bottom:16px;background:linear-gradient(135deg,#f59e0b,#d97706);">PRO</div>'; // [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — one lock badge: PRO (gold) for every locked add-on; the notice text still names the Premium plan.
 		$html .= '<h1 style="font-size:22px;font-weight:600;margin:0 0 8px;color:#fff;">' . $esc( $label ) . '</h1>';
 		foreach ( $lines as $line ) {
 			$html .= '<p style="font-size:14px;line-height:1.6;color:#a1a8b7;margin:0 0 8px;">' . $esc( $line ) . '</p>';

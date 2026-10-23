@@ -216,12 +216,7 @@ class BizCity_KG_Rest_Controller {
 			'permission_callback' => $perm,
 		] );
 
-		// ── Phase 0.5 Sprint 2 — Studio adapter ───────────────────────────
-		register_rest_route( $ns, '/studio/backfill', [
-			'methods'  => 'POST',
-			'callback' => [ $this, 'studio_backfill' ],
-			'permission_callback' => $perm,
-		] );
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — /studio/backfill removed with the KG studio mirror (no caller).
 
 		// ── Phase 0.5 Sprint 1 — Cost telemetry ───────────────────────────
 		register_rest_route( $ns, '/cost/today', [
@@ -1071,16 +1066,6 @@ class BizCity_KG_Rest_Controller {
 		if ( is_wp_error( $owner ) ) { return $owner; }
 		$res  = BizCity_KG_Graph_Service::instance()->create_manual_relation( (array) $data );
 		return is_wp_error( $res ) ? $res : rest_ensure_response( $res );
-	}
-
-	// ─── Phase 0.5 Sprint 2: studio backfill ───────────────────────────────
-
-	public function studio_backfill( WP_REST_Request $req ) {
-		$data  = $req->get_json_params() ?: $req->get_params();
-		$limit = max( 1, min( 200, (int) ( $data['limit'] ?? 50 ) ) );
-		return rest_ensure_response(
-			BizCity_KG_Source_Adapter_Studio::instance()->run_backfill_batch( $limit )
-		);
 	}
 
 	// ─── Phase 0.5 Sprint 1: cost telemetry ────────────────────────────────

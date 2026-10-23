@@ -110,6 +110,14 @@ if ( class_exists( 'BizCity_Log_Index', false ) && method_exists( 'BizCity_Log_I
 }
 // [2026-08-26 Johnny Chu] PHASE-LEGACY-TABLES — load the central quarantine/install/drop policy before legacy callers and installers run.
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-legacy-table-policy.php', 'helper.legacy_table_policy' );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-36 (owner: "bỏ hẳn") — drop the owner-retired tables once per site. Admin / cron
+// requests only (the row purge must never slow a visitor's page); the policy writes its done-flag only after every table is gone.
+add_action( 'init', static function () {
+	if ( ! ( is_admin() || ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) ) || ! class_exists( 'BizCity_Legacy_Table_Policy', false ) || ! method_exists( 'BizCity_Legacy_Table_Policy', 'drop_owner_retired' ) ) {
+		return;
+	}
+	BizCity_Legacy_Table_Policy::drop_owner_retired();
+}, 30 );
 if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b — Rolling/Episodic memory (and their traces) are owned by core/memory; the contract ids keep the `core.intent.` prefix (stored data + Context Bank refs).
 	BizCity_File_Contract_Registry::register( 'core.intent.episodic_memory', array(

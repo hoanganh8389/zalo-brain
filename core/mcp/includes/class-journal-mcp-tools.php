@@ -129,6 +129,8 @@ final class BizCity_Journal_MCP_Tools {
 				'offset'       => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Bỏ qua bao nhiêu dòng (trang sau = offset + limit).' ),
 				// [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — the row of ONE cell output (a background job proves its product by it, D125-7)
 				'output_id'    => array( 'type' => 'string', 'pattern' => '^co_[a-f0-9]{24}$', 'description' => 'Hệ thống: dòng của một sản phẩm cell (co_…). Mô hình không cần dùng.' ),
+				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: layers / scope job / scope group narrow the page; absent ⇒ unchanged
+				'context_scope' => self::context_scope_schema(),
 			) ),
 			'output_schema'  => $R::envelope_schema( array( 'items' => array( 'type' => 'array', 'items' => array( 'type' => 'object', 'properties' => $entry_props ) ), 'total' => array( 'type' => 'integer' ) ), array( 'items', 'total' ) ),
 			'read_only'      => true,
@@ -156,6 +158,8 @@ final class BizCity_Journal_MCP_Tools {
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'ref'      => array( 'type' => 'string', 'maxLength' => 16, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}\\s*$', 'description' => 'Mã dòng, vd "TL-47", "JB-31". Ưu tiên dùng cái này.' ),
 				'entry_id' => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Số entry_id lấy từ kết quả journal.find (khi không có mã).' ),
+				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: version "<root_ref>@<n>" picks that version; layers / group only narrow
+				'context_scope' => self::context_scope_schema(),
 			) ),
 			'output_schema'  => $R::envelope_schema( $entry_props, array( 'entry_id', 'kind' ) ),
 			'read_only'      => true,
@@ -220,7 +224,8 @@ final class BizCity_Journal_MCP_Tools {
 					'doc_date'        => array( 'type' => 'string', 'maxLength' => 10 ),
 					'card'            => array( 'type' => 'object' ),
 					'source_ref'      => array( 'type' => 'string', 'maxLength' => 120 ),
-					'idempotency_key' => array( 'type' => 'string', 'maxLength' => 110, 'pattern' => '^job:[A-Za-z0-9_.-]{3,100}$' ),
+					// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L4 — ":" allowed inside: a step key job:job_<id>:<step> (never leading / trailing)
+					'idempotency_key' => array( 'type' => 'string', 'maxLength' => 110, 'pattern' => '^job:[A-Za-z0-9_.-](?:[A-Za-z0-9_.:-]{1,98}[A-Za-z0-9_.-])?$' ),
 					// [2026-10-18 02:15 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-M (doc 80 §3) — meeting cover / action items
 					'tags'            => array( 'type' => 'array', 'maxItems' => 10, 'items' => array( 'type' => 'string', 'maxLength' => 60 ) ),
 					'derived_from'    => array( 'type' => 'array', 'maxItems' => 30, 'items' => array( 'type' => 'integer', 'minimum' => 1 ) ),
@@ -576,11 +581,26 @@ final class BizCity_Journal_MCP_Tools {
 	/* ── journal.* handlers ──────────────────────────────────────────── */
 
 	public static function find( array $args, array $ctx ) {
+		// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 (context-scope@1, doc 20 §2) — the scope only NARROWS; decide() below runs exactly as before.
+		$cs    = self::context_scope( $args );
+		$scope = (string) ( $cs['scope'] ?? '' );
+		unset( $args['context_scope'] );
+		if ( 'job' === $scope ) {
+			// scope job ⇒ the same `job` filter; the job of the scope and an explicit `job` must agree, else nothing (narrowing, never widening)
+			$jr = (string) ( $cs['job_ref'] ?? '' );
+			if ( '' === $jr || ( '' !== (string) ( $args['job'] ?? '' ) && (string) $args['job'] !== $jr ) ) {
+				return array( 'items' => array(), 'total' => 0 );
+			}
+			$args['job'] = $jr;
+		}
 		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-2) — one code ⇒ that row (0 or 1), through the same access decision
 		if ( '' !== trim( (string) ( $args['ref'] ?? '' ) ) ) {
 			$row = BizCity_Journal_Index::find_by_ref( (string) $args['ref'], self::owner( $ctx ) );
 			if ( $row && class_exists( 'BizCity_Brain_Access' ) ) {
 				$row = BizCity_Brain_Access::filter( array( $row ), BizCity_Brain_Access::principal( $ctx ), 'meta.read' )[0] ?? null;
+			}
+			if ( $row && ! self::scope_keeps( $row, $cs ) ) {
+				$row = null; // S131-L3: outside the requested layers / group ⇒ not in this scope
 			}
 			return $row ? array( 'items' => array( $row ), 'total' => 1 ) : array( 'items' => array(), 'total' => 0 );
 		}
@@ -590,10 +610,43 @@ final class BizCity_Journal_MCP_Tools {
 				return array( 'items' => array(), 'total' => 0 );
 			}
 			$row = BizCity_Journal_Index::get_by_idempotency_key( self::output_key( $oid ), self::owner( $ctx ) );
+			if ( $row && ! self::scope_keeps( $row, $cs ) ) {
+				$row = null;
+			}
 			return $row ? array( 'items' => array( $row ), 'total' => 1 ) : array( 'items' => array(), 'total' => 0 );
 		}
 		$filter = $args;
 		$filter['owner_user_id'] = self::owner( $ctx );
+		// S131-L3: scope group:<gid> ⇒ the group's journal tag (`grp-<gid>`, PHASE-0.124) joins the tag filter — the index already filters by tags; a non-group id ⇒ nothing
+		if ( 0 === strpos( $scope, 'group:' ) ) {
+			$gtag = method_exists( 'BizCity_Journal_Index', 'group_tag' ) ? BizCity_Journal_Index::group_tag( substr( $scope, 6 ) ) : '';
+			if ( '' === $gtag ) {
+				return array( 'items' => array(), 'total' => 0 );
+			}
+			$filter['tags'] = array_values( array_unique( array_merge( array_map( 'strval', (array) ( $filter['tags'] ?? array() ) ), array( $gtag ) ) ) );
+		}
+		// S131-L3: scope layers ⇒ the kinds of those layers (intersected with an explicit kind / kinds, never widened); an explicit `layer` outside them ⇒ nothing
+		$layers = self::scope_layers( $cs );
+		if ( $layers && method_exists( 'BizCity_Journal_Kinds', 'layer_of' ) ) {
+			if ( '' !== (string) ( $args['layer'] ?? '' ) ) {
+				if ( ! in_array( (string) $args['layer'], $layers, true ) ) {
+					return array( 'items' => array(), 'total' => 0 );
+				}
+				$layers = array( (string) $args['layer'] ); // both given ⇒ the one layer they share
+			}
+			$wanted = ! empty( $filter['kinds'] ) ? array_map( 'strval', (array) $filter['kinds'] ) : ( ! empty( $filter['kind'] ) ? array( (string) $filter['kind'] ) : array_map( 'strval', array_keys( (array) BizCity_Journal_Kinds::all()['kinds'] ) ) );
+			$kinds  = array();
+			foreach ( $wanted as $k ) {
+				if ( in_array( BizCity_Journal_Kinds::layer_of( $k ), $layers, true ) ) {
+					$kinds[] = $k;
+				}
+			}
+			$filter['kinds'] = $kinds ?: array( '__none__' );
+			unset( $filter['kind'], $filter['kind_prefix'] );
+			if ( '' === (string) ( $args['layer'] ?? '' ) ) {
+				unset( $filter['layer'] );
+			}
+		}
 		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 (job-link@1) — `job` ⇒ the header's tag; an unknown / foreign job ⇒ an empty page (never 404: no existence leak).
 		if ( '' !== (string) ( $args['job'] ?? '' ) ) {
 			$tag = class_exists( 'BizCity_Journal_Job_Link' ) ? BizCity_Journal_Job_Link::tag_for_query( $filter['owner_user_id'], (string) $args['job'] ) : '';
@@ -658,6 +711,26 @@ final class BizCity_Journal_MCP_Tools {
 		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-2/F-5) — by code or by id; a miss says what to do next
 		$ref = trim( (string) ( $args['ref'] ?? '' ) );
 		$row = '' !== $ref ? BizCity_Journal_Index::find_by_ref( $ref, self::owner( $ctx ) ) : BizCity_Journal_Index::get( (int) ( $args['entry_id'] ?? 0 ), self::owner( $ctx ) );
+		// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 (context-scope@1) — version "<root_ref>@<n>" ⇒ THAT version of the chain (R-FILE-VERSION version{n, root_ref}); layers / group only narrow.
+		$cs  = self::context_scope( $args );
+		$ver = (string) ( $cs['version'] ?? '' );
+		if ( '' !== $ver && 'current' !== $ver ) {
+			$row = null;
+			if ( 1 === preg_match( '/^([A-Za-z]{2}-[0-9]{1,12})@([0-9]{1,6})$/', $ver, $vm ) ) {
+				$owner = self::owner( $ctx );
+				$pool  = array();
+				if ( class_exists( 'BizCity_Journal_Database' ) && method_exists( 'BizCity_Journal_Database', 'instance' ) && method_exists( BizCity_Journal_Database::instance(), 'register_rows' ) && method_exists( 'BizCity_Journal_Index', 'to_journal_entry' ) ) {
+					$pool = array_map( array( 'BizCity_Journal_Index', 'to_journal_entry' ), BizCity_Journal_Database::instance()->register_rows( $owner, 500 ) );
+				} elseif ( method_exists( 'BizCity_Journal_Index', 'find_by_ref' ) ) {
+					$root = BizCity_Journal_Index::find_by_ref( $vm[1], $owner );
+					$pool = $root ? array( $root ) : array();
+				}
+				$row = self::pick_version( $pool, $vm[1], (int) $vm[2] );
+			}
+		}
+		if ( $row && ! self::scope_keeps( $row, $cs ) ) {
+			$row = null;
+		}
 		if ( ! $row ) {
 			return self::err( new WP_Error( 'journal_not_found', '' !== $ref ? 'Không có dòng ' . strtoupper( $ref ) . ' trong sổ của chủ. Tìm lại bằng journal.find (q = vài từ trong tên) để lấy mã đúng.' : 'Không tìm thấy mục nhật ký. Cần ref (vd "TL-47") hoặc entry_id từ kết quả journal.find.' ) );
 		}
@@ -908,7 +981,8 @@ final class BizCity_Journal_MCP_Tools {
 	}
 
 	public static function job_key( string $raw ): string {
-		return 1 === preg_match( '/^job:([A-Za-z0-9_.-]{3,100})$/', $raw, $m ) ? 'job:' . get_current_blog_id() . ':' . $m[1] : '';
+		// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L4 — a step key `job:job_<id>:<step>:<n>` carries ":" segments (job-link@1); the stored key stays job:<blog>:<rest>
+		return 1 === preg_match( '/^job:([A-Za-z0-9_.-](?:[A-Za-z0-9_.:-]{1,98}[A-Za-z0-9_.-])?)$/', $raw, $m ) && strlen( $m[1] ) >= 3 ? 'job:' . get_current_blog_id() . ':' . $m[1] : '';
 	}
 
 	public static function record( array $args, array $ctx ) {
@@ -927,6 +1001,21 @@ final class BizCity_Journal_MCP_Tools {
 			$key  = self::job_key( $sent );
 			if ( '' === $key ) {
 				return self::err( new WP_Error( 'journal_invalid_entry', 'idempotency_key phải dạng job:<mã>.' ) );
+			}
+			// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L4 (doc 20 §5, G3 evidence) — a background-job STEP key (`job:job_<id>:…`) without a job block:
+			// stage 1 (default) one JSONL warn + still written; stage 2 (option bizcity_journal_require_job=1) refused 400 query_invalid "thiếu job". `chat:` keys never ask.
+			$has_job = is_array( $e['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) && BizCity_Journal_Job_Link::is_job_id( (string) ( $e['job']['job_id'] ?? '' ) );
+			if ( self::is_job_step_key( $sent ) && ! $has_job ) {
+				if ( self::require_job() ) {
+					return new WP_Error( 'query_invalid', 'Dòng ghi trong bước việc nền thiếu job (job_id, step_ref, role).', array( 'status' => 400, 'reason' => 'journal_job_missing', 'hint' => 'Gửi lại kèm job{job_id, step_ref, role} của bước đang chạy.', 'help_code' => 'journal_job_missing' ) );
+				}
+				if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+					try {
+						BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'journal_record_job_missing', 'journal.record step key without job block (stage 1: written)', array( 'module' => 'core/mcp', 'kind' => (string) ( $e['kind'] ?? '' ) ) );
+					} catch ( Throwable $t ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+						// never blocks the write
+					}
+				}
 			}
 			$had = BizCity_Journal_Index::get_by_idempotency_key( $key, $owner );
 			$row = bizcity_journal_record( array(

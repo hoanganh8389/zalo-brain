@@ -197,6 +197,11 @@ final class BizCity_MCP_Admin_REST {
 			return rest_ensure_response( array( 'success' => true, 'tools' => array(), '_degraded' => true ) );
 		}
 		$out = array( 'success' => true, 'tools' => BizCity_MCP_Tool_Registry::catalog_for_settings() );
+		// [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 — same door flag as MCP tools/list (_meta.bizcity.brain) so tools/journal-door-selfcheck.js reads one truth from the admin route.
+		$brain = class_exists( 'BizCity_Journal_MCP_Tools' ) && method_exists( 'BizCity_Journal_MCP_Tools', 'door_state' )
+			? BizCity_Journal_MCP_Tools::door_state()
+			: array( 'journal' => 'missing', 'reason' => 'journal_tools_class_absent', 'as_of' => gmdate( 'c' ) );
+		$out['_meta'] = array( 'bizcity' => apply_filters( 'bizcity_mcp_tools_list_meta', array( 'brain' => $brain ), array( 'surface' => 'admin_rest' ) ) );
 		// [2026-10-11 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-S2 — ?detail=1: the full public descriptors (bizcity-mcp-tool@1: inputSchema +
 		// _meta.bizcity confirm/roles/scope/mode) of every registered tool, admin policy ignored, so the browser selfcheck reads the real contract.
 		// Same data as MCP tools/list (no handler, no secret); still behind this route's admin gate.

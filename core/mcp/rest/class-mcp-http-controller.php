@@ -313,6 +313,12 @@ final class BizCity_MCP_HTTP_Controller {
 		} elseif ( $method === 'tools/list' ) {
 			// [2026-10-01 Claude Opus 5.5] PHASE-0.88 L3-1 — the context decides: admin allowlist (external) or mode gate (delegated).
 			$result = array( 'tools' => BizCity_MCP_Tool_Registry::list_descriptors( true, $auth_ctx ) );
+			// [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 (brain-api@1 doc 20 §6) — the door flag of the journal family rides on the LIST result (_meta.bizcity.brain), not on a tool:
+			// the cell's door.ts reads it before deciding "ready | missing"; per-tool _meta.bizcity stays untouched. Other modules may add keys through the filter.
+			$brain = class_exists( 'BizCity_Journal_MCP_Tools' ) && method_exists( 'BizCity_Journal_MCP_Tools', 'door_state' )
+				? BizCity_Journal_MCP_Tools::door_state()
+				: array( 'journal' => 'missing', 'reason' => 'journal_tools_class_absent', 'as_of' => gmdate( 'c' ) );
+			$result['_meta'] = array( 'bizcity' => apply_filters( 'bizcity_mcp_tools_list_meta', array( 'brain' => $brain ), $auth_ctx ) );
 		} elseif ( $method === 'tools/call' ) {
 			$tool_name = isset( $params['name'] ) ? (string) $params['name'] : '';
 			$tool_args = isset( $params['arguments'] ) && is_array( $params['arguments'] ) ? $params['arguments'] : array();

@@ -155,10 +155,14 @@ if ( ! class_exists( 'BizCity_Framework_CLI' ) ) {
 			// [2026-08-27 Johnny Chu] PHASE-1.31 — run the bounded local health allowlist.
 			// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-13 B-11 — Diagnostics ships only in local dev (D-35):
 			// without the engine, answer an explicit skip (never pass, never a usage error).
+			// [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L2 (doc 20 §6) — journal_tools answers truthfully on a SERVER too (ready | missing + reason), in both branches; never a skip.
+			$journal_tools = class_exists( 'BizCity_Journal_MCP_Tools' ) && method_exists( 'BizCity_Journal_MCP_Tools', 'door_state' )
+				? BizCity_Journal_MCP_Tools::door_state()
+				: [ 'journal' => 'unknown', 'reason' => 'journal_tools_class_absent' ];
 			if ( ! class_exists( 'BizCity_Diagnostics_Smoke_Runner' ) ) {
 				$payload = self::aggregate(
 					[ [ 'id' => 'diagnostics.package', 'status' => 'skip', 'error' => 'diagnostics_package_absent', 'skip_reason' => 'diagnostics_package_absent', 'duration_ms' => 0 ] ],
-					[ 'command' => 'health', 'health_degraded' => true, 'health_skip_reasons' => [ 'diagnostics.package:diagnostics_package_absent' ], 'fix' => 'Diagnostics runs in local development only (D-35). Run `wp bizcity health` there.' ]
+					[ 'command' => 'health', 'health_degraded' => true, 'health_skip_reasons' => [ 'diagnostics.package:diagnostics_package_absent' ], 'fix' => 'Diagnostics runs in local development only (D-35). Run `wp bizcity health` there.', 'journal_tools' => $journal_tools ]
 				);
 				self::emit( $payload, $assoc_args, self::exit_code( $payload, $assoc_args ) );
 				return;
@@ -181,7 +185,7 @@ if ( ! class_exists( 'BizCity_Framework_CLI' ) ) {
 				}
 				$results[] = BizCity_Diagnostics_Smoke_Runner::run_probe( $id, [ 'skip_network' => true ] );
 			}
-			$payload = self::aggregate( $results, [ 'command' => 'health' ] );
+			$payload = self::aggregate( $results, [ 'command' => 'health', 'journal_tools' => $journal_tools ] ); // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L2
 			// [2026-08-29 Johnny Chu] PHASE-1.32-CI-HEALTH — intentional health precondition skips degrade to WARN with explicit evidence; only an executed FAIL blocks the health smoke.
 			if ( (string) ( $payload['verdict'] ?? '' ) === 'skip' ) {
 				$skipped = array();

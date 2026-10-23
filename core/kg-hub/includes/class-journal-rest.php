@@ -150,7 +150,7 @@ final class BizCity_Journal_REST {
 		if ( ! class_exists( 'BizCity_Journal_MCP_Tools' ) ) {
 			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S100-JN-REST-1' ), 503 );
 		}
-		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer' ) ); // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
+		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer', 'context_scope' ) ); // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — + context_scope (context-scope@1), one handler two doors // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
 		$args = self::scope_filter( $args, (int) $request->get_param( 'contact_id' ), (string) $request->get_param( 'group' ) ); // [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID
 		$res  = BizCity_Journal_MCP_Tools::find( $args, self::ctx() );
 		return self::respond( $res );

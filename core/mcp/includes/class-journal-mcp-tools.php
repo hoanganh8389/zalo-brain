@@ -36,6 +36,10 @@ final class BizCity_Journal_MCP_Tools {
 
 	private static $hooked = false;
 
+	// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 — the door state of the journal.* family (brain-api@1 doc 20 §6): null until register_tools() ran.
+	/** @var array|null {journal: ready|missing, reason?, count?, as_of} */
+	private static $door = null;
+
 	public static function init(): void {
 		if ( self::$hooked ) {
 			return;
@@ -49,8 +53,34 @@ final class BizCity_Journal_MCP_Tools {
 		}
 	}
 
+	/**
+	 * [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 (doc 20 §6) — the flag `tools/list` (_meta.bizcity.brain) and `wp bizcity health` (journal_tools) read:
+	 * {journal: "ready"|"missing", reason?, count?, since, as_of}. `missing` + `register_not_run` when nobody fired the register action yet (pure read, no DB).
+	 */
+	public static function door_state(): array {
+		$state = is_array( self::$door ) ? self::$door : array( 'journal' => 'missing', 'reason' => 'register_not_run', 'as_of' => gmdate( 'c' ) );
+		$state['since'] = self::SINCE;
+		return $state;
+	}
+
+	/** S131-L1 — an early return of register_tools() must be heard: door state + ONE JSONL warn line (R-CH-FILE-LOG; reason only, no PII). */
+	private static function door_missing( string $reason ): void {
+		self::$door = array( 'journal' => 'missing', 'reason' => $reason, 'as_of' => gmdate( 'c' ) );
+		if ( ! class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			return;
+		}
+		try {
+			// the generic gateway channel: `mcp` has no channel contract of its own (contract_id() would refuse the line) and this channel needs no account scope
+			BizCity_Channel_File_Logger::write( BizCity_Channel_File_Logger::CH_CHANNEL_GATEWAY, BizCity_Channel_File_Logger::LEVEL_WARN, 'journal_tools_skipped', 'journal.* not registered', array( 'reason' => $reason, 'module' => 'core/mcp' ) );
+		} catch ( Throwable $t ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			// a logger failure never breaks tool registration
+		}
+	}
+
 	public static function register_tools(): void {
 		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) || ! class_exists( 'BizCity_Journal_Index', false ) ) {
+			// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 — record WHY (registry_absent | journal_index_absent) for tools/list + health, and one JSONL warn line (case 2026-10-23, site 100001 stayed silent).
+			self::door_missing( class_exists( 'BizCity_MCP_Tool_Registry' ) ? 'journal_index_absent' : 'registry_absent' );
 			// [2026-10-24 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — the owner class was not loaded yet when the registry booted ⇒ one retry at init (late), and a log line so the case is visible.
 			if ( function_exists( 'add_action' ) && function_exists( 'did_action' ) && ! did_action( 'init' ) && ! has_action( 'init', array( __CLASS__, 'register_tools' ) ) ) {
 				add_action( 'init', array( __CLASS__, 'register_tools' ), 99 );

@@ -1,6 +1,6 @@
 {
   "$schema": "https://bizcity.vn/schema/core-routes-v1.json",
-  "contract": "core-routes@1.1.0",
+  "contract": "core-routes@1.2.0",
   "_stamp": "[2026-10-23 02:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 scoreboard gate B1 (doc 72 §11) — REST routes the CORE must register by itself, with NO add-on installed (owner Q126-30: a site without /gpt/ is complete). bin/validate-core-routes.mjs fails when one is missing or is registered only by an add-on. The bizcity-twinweb/v1 list is generated from tools/reduction-route-detail.mjs (Q126-31…33 core set, ai-reply excluded: it answers 410). After R126-T3 each of those also lives at target_ns; after R126-T6 the old namespace may go (then edit `accept_ns`).",
   "rule": "R-BRAIN-SKELETON + doc 72 §0: the core is Channel Gateway (configure, administer, connect) + TwinChat + skills + TwinShell + journal / Twin Sheet + the cell forwarder.",
   "addon_dirs": [
@@ -10,7 +10,143 @@
     "bizcity-automation"
   ],
   "axes": {
-    "channel-gateway · mychannels / me / skills / admin Guru / mcp (today in core/twinweb-axis)": {
+    "crm spine (inbox, conversations, contacts)": {
+      "ns": "bizcity-crm/v1",
+      "consumers": [
+        "CG SPA",
+        "twin-crm SPA"
+      ],
+      "routes": [
+        {
+          "path": "/inboxes"
+        },
+        {
+          "path": "/inboxes/{id}"
+        },
+        {
+          "path": "/conversations"
+        },
+        {
+          "path": "/conversations/{id}"
+        },
+        {
+          "path": "/conversations/{id}/messages"
+        },
+        {
+          "path": "/conversations/{id}/notes"
+        },
+        {
+          "path": "/conversations/{id}/resolve"
+        },
+        {
+          "path": "/conversations/{id}/assignee"
+        },
+        {
+          "path": "/teams"
+        },
+        {
+          "path": "/contacts/{id}"
+        }
+      ]
+    },
+    "twinchat": {
+      "ns": "bizcity-twinchat/v1",
+      "consumers": [
+        "TwinChat UI"
+      ],
+      "routes": [
+        {
+          "path": "/chat/{notebook_id}/stream"
+        },
+        {
+          "path": "/chat/{notebook_id}/turn"
+        },
+        {
+          "path": "/sessions/{notebook_id}"
+        },
+        {
+          "path": "/messages/{session_id}"
+        },
+        {
+          "path": "/sources/{notebook_id}"
+        },
+        {
+          "path": "/sources/{notebook_id}/{source_id}"
+        },
+        {
+          "path": "/search-documents"
+        },
+        {
+          "path": "/gurus/list"
+        }
+      ]
+    },
+    "journal / second brain": {
+      "ns": "bizcity-knowledge/v2",
+      "consumers": [
+        "TwinChat UI (BrainLedger)",
+        "twin-crm SPA"
+      ],
+      "routes": [
+        {
+          "path": "/journal/find"
+        },
+        {
+          "path": "/journal/{id}"
+        },
+        {
+          "path": "/documents/overview"
+        },
+        {
+          "path": "/journal/export"
+        },
+        {
+          "path": "/journal/versions"
+        },
+        {
+          "path": "/documents/for-conversation"
+        }
+      ]
+    },
+    "twinbrain forwarder (cell)": {
+      "ns": "bizcity-twinbrain/v1",
+      "consumers": [
+        "TwinChat UI (Ask Brain, Cell Chat, Canvas)"
+      ],
+      "routes": [
+        {
+          "path": "/turn/stream"
+        },
+        {
+          "path": "/cell-chat/numbers"
+        },
+        {
+          "path": "/cell-chat/history"
+        },
+        {
+          "path": "/cell-chat/media/{media_id}"
+        },
+        {
+          "path": "/outputs"
+        },
+        {
+          "path": "/tool/confirm"
+        },
+        {
+          "path": "/sessions"
+        },
+        {
+          "path": "/sessions/{session_id}"
+        },
+        {
+          "path": "/sessions/{session_id}/turns"
+        },
+        {
+          "path": "/memory/me"
+        }
+      ]
+    },
+    "channel-gateway · mychannels / me / skills / admin Guru (today in core/twinweb-axis)": {
       "ns": "bizcity-twinweb/v1",
       "accept_ns": [
         "bizcity-channel/v1"
@@ -219,174 +355,38 @@
           "methods": [
             "GET"
           ]
-        },
+        }
+      ]
+    },
+    "mcp admin keys / logs / tools (core/mcp, Q126-32)": {
+      "ns": "bizcity-channel/v1",
+      "consumers": [
+        "CG SPA redux/api/mcpApi.js",
+        "DeveloperKitCard"
+      ],
+      "routes": [
         {
           "path": "/mcp/keys",
-          "methods": [
-            "GET"
-          ]
+          "methods": "GET|POST"
         },
         {
-          "path": "/mcp/keys",
-          "methods": [
-            "POST"
-          ]
-        },
-        {
-          "path": "/mcp/keys/{id}",
-          "methods": [
-            "DELETE"
-          ]
+          "path": "/mcp/keys/(?P<id>\\d+)",
+          "methods": "DELETE"
         },
         {
           "path": "/mcp/logs",
-          "methods": [
-            "GET"
-          ]
+          "methods": "GET"
         },
         {
-          "path": "/mcp/policy",
-          "methods": [
-            "GET"
-          ]
-        }
-      ]
-    },
-    "crm spine (inbox, conversations, contacts)": {
-      "ns": "bizcity-crm/v1",
-      "consumers": [
-        "CG SPA",
-        "twin-crm SPA"
-      ],
-      "routes": [
-        {
-          "path": "/inboxes"
+          "path": "/mcp/tools",
+          "methods": "GET|POST"
         },
         {
-          "path": "/inboxes/{id}"
-        },
-        {
-          "path": "/conversations"
-        },
-        {
-          "path": "/conversations/{id}"
-        },
-        {
-          "path": "/conversations/{id}/messages"
-        },
-        {
-          "path": "/conversations/{id}/notes"
-        },
-        {
-          "path": "/conversations/{id}/resolve"
-        },
-        {
-          "path": "/conversations/{id}/assignee"
-        },
-        {
-          "path": "/teams"
-        },
-        {
-          "path": "/contacts/{id}"
-        }
-      ]
-    },
-    "twinchat": {
-      "ns": "bizcity-twinchat/v1",
-      "consumers": [
-        "TwinChat UI"
-      ],
-      "routes": [
-        {
-          "path": "/chat/{notebook_id}/stream"
-        },
-        {
-          "path": "/chat/{notebook_id}/turn"
-        },
-        {
-          "path": "/sessions/{notebook_id}"
-        },
-        {
-          "path": "/messages/{session_id}"
-        },
-        {
-          "path": "/sources/{notebook_id}"
-        },
-        {
-          "path": "/sources/{notebook_id}/{source_id}"
-        },
-        {
-          "path": "/search-documents"
-        },
-        {
-          "path": "/gurus/list"
-        }
-      ]
-    },
-    "journal / second brain": {
-      "ns": "bizcity-knowledge/v2",
-      "consumers": [
-        "TwinChat UI (BrainLedger)",
-        "twin-crm SPA"
-      ],
-      "routes": [
-        {
-          "path": "/journal/find"
-        },
-        {
-          "path": "/journal/{id}"
-        },
-        {
-          "path": "/documents/overview"
-        },
-        {
-          "path": "/journal/export"
-        },
-        {
-          "path": "/journal/versions"
-        },
-        {
-          "path": "/documents/for-conversation"
-        }
-      ]
-    },
-    "twinbrain forwarder (cell)": {
-      "ns": "bizcity-twinbrain/v1",
-      "consumers": [
-        "TwinChat UI (Ask Brain, Cell Chat, Canvas)"
-      ],
-      "routes": [
-        {
-          "path": "/turn/stream"
-        },
-        {
-          "path": "/cell-chat/numbers"
-        },
-        {
-          "path": "/cell-chat/history"
-        },
-        {
-          "path": "/cell-chat/media/{media_id}"
-        },
-        {
-          "path": "/outputs"
-        },
-        {
-          "path": "/tool/confirm"
-        },
-        {
-          "path": "/sessions"
-        },
-        {
-          "path": "/sessions/{session_id}"
-        },
-        {
-          "path": "/sessions/{session_id}/turns"
-        },
-        {
-          "path": "/memory/me"
+          "path": "/mcp/role-groups",
+          "methods": "GET|PUT"
         }
       ]
     }
-  }
+  },
+  "note_1_2_0": "[2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — mcp/* removed from the twinweb core copy: bizcity-channel/v1/mcp/* already belongs to core/mcp (admin key screens). The /gpt/ member MCP self-service stays with the add-on."
 }

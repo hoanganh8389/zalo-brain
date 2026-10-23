@@ -473,6 +473,104 @@ final class BizCity_Journal_MCP_Tools {
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
+
+		// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L1 — the door is open: ready + how many journal.*/track.* names the registry holds (count omitted when the registry cannot say).
+		self::$door = array( 'journal' => 'ready', 'as_of' => gmdate( 'c' ) );
+		if ( method_exists( $R, 'all_registered_tool_names' ) ) {
+			$n = 0;
+			foreach ( (array) $R::all_registered_tool_names() as $name ) {
+				if ( 0 === strpos( (string) $name, 'journal.' ) || 0 === strpos( (string) $name, 'track.' ) ) {
+					$n++;
+				}
+			}
+			self::$door['count'] = $n;
+		}
+	}
+
+	/* ── context-scope@1 (PHASE-0.131 S131-L3, doc 20 §2) ─────────────────── */
+
+	/** [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — the optional `context_scope` object of journal.find / journal.get (one schema, two tools). */
+	private static function context_scope_schema(): array {
+		return array(
+			'type'        => 'object',
+			'description' => 'Hệ thống (context-scope@1): lúc này cần đọc gì — chỉ THU HẸP, không mở rộng quyền. Thiếu ⇒ như cũ (own + current + mọi lớp).',
+			'properties'  => array(
+				'principal' => array( 'type' => 'object', 'description' => 'Bỏ qua phía site: người gọi lấy từ phiên MCP, không từ tham số.' ),
+				'job_ref'   => array( 'type' => 'string', 'maxLength' => 48, 'pattern' => '^(JB-[0-9]{1,12}|job_[0-9A-Za-z]{10,40})$', 'description' => 'Việc đang chạy; dùng với scope="job".' ),
+				'layers'    => array( 'type' => 'array', 'maxItems' => 6, 'items' => array( 'type' => 'string', 'enum' => array( 'document', 'notebook', 'twin_sheet', 'skill', 'job', 'output' ) ), 'description' => 'Chỉ các lớp này.' ),
+				'version'   => array( 'type' => 'string', 'maxLength' => 32, 'pattern' => '^(current|[A-Za-z]{2}-[0-9]{1,12}@[0-9]{1,6})$', 'description' => '"current" (mặc định) hoặc "<root_ref>@<n>" (vd "TL-47@2") — chỉ journal.get.' ),
+				'scope'     => array( 'type' => 'string', 'maxLength' => 48, 'pattern' => '^(own|job|group:[0-9]{3,30})$', 'description' => 'own (mặc định) · job (chỉ dòng của job_ref) · group:<gid> (sổ nhóm Zalo).' ),
+			),
+		);
+	}
+
+	/** Pure: a well-formed context_scope or array() when absent / not an object. */
+	public static function context_scope( array $args ): array {
+		return is_array( $args['context_scope'] ?? null ) ? $args['context_scope'] : array();
+	}
+
+	/** Pure: the layers requested (validated against the six), array() = no narrowing. */
+	public static function scope_layers( array $cs ): array {
+		$out = array();
+		foreach ( (array) ( $cs['layers'] ?? array() ) as $l ) {
+			if ( in_array( (string) $l, array( 'document', 'notebook', 'twin_sheet', 'skill', 'job', 'output' ), true ) && ! in_array( (string) $l, $out, true ) ) {
+				$out[] = (string) $l;
+			}
+		}
+		return $out;
+	}
+
+	/** Pure: does ONE row survive the scope (layers · group)? Used where a single row comes back by code / output id, and on journal.get. */
+	public static function scope_keeps( array $row, array $cs ): bool {
+		$layers = self::scope_layers( $cs );
+		if ( $layers ) {
+			$layer = (string) ( $row['layer'] ?? ( method_exists( 'BizCity_Journal_Kinds', 'layer_of' ) ? BizCity_Journal_Kinds::layer_of( (string) ( $row['kind'] ?? '' ) ) : 'document' ) );
+			if ( ! in_array( $layer, $layers, true ) ) {
+				return false;
+			}
+		}
+		$scope = (string) ( $cs['scope'] ?? '' );
+		if ( 0 === strpos( $scope, 'group:' ) ) {
+			$gid = substr( $scope, 6 );
+			if ( $gid !== (string) ( $row['belongs']['group']['gid'] ?? $row['group']['gid'] ?? '' ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Pure: "<root_ref>@<n>" ⇒ the entry of that version from a page of entries (rows whose version.root_ref or own ref_code equals root_ref), null when absent.
+	 * n = 1 and no version block ⇒ the root row itself (a file never versioned is its own v1).
+	 */
+	public static function pick_version( array $entries, string $root_ref, int $n ) {
+		$root = strtoupper( trim( $root_ref ) );
+		foreach ( $entries as $e ) {
+			if ( ! is_array( $e ) || 'void' === (string) ( $e['state'] ?? '' ) ) {
+				continue;
+			}
+			$own = strtoupper( (string) ( $e['ref_code'] ?? '' ) );
+			$vr  = strtoupper( (string) ( $e['version']['root_ref'] ?? '' ) );
+			if ( $root !== $own && ( '' === $vr || $root !== $vr ) ) {
+				continue;
+			}
+			if ( $n === (int) ( $e['version']['n'] ?? 1 ) ) {
+				return $e;
+			}
+		}
+		return null;
+	}
+
+	/* ── journal.record job gate (PHASE-0.131 S131-L4, doc 20 §5) ───────────── */
+
+	/** Pure: a key of a background-job STEP (`job:job_<id>:…`); a `chat:` key or a plain `job:<record id>` never asks for a job block. */
+	public static function is_job_step_key( string $key ): bool {
+		return 1 === preg_match( '/^job:job_[0-9A-Za-z]{10,40}:/', $key );
+	}
+
+	/** Pure: stage 2 is on when option bizcity_journal_require_job == '1' (stage 1 = log and still write). */
+	public static function require_job(): bool {
+		return function_exists( 'get_option' ) && '1' === (string) get_option( 'bizcity_journal_require_job', '0' );
 	}
 
 	/* ── journal.* handlers ──────────────────────────────────────────── */

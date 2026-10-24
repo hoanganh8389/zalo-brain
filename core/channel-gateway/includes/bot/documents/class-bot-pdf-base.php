@@ -14,8 +14,14 @@
 // [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4
 defined( 'ABSPATH' ) || exit;
 
-require_once dirname( __DIR__, 3 ) . '/lib/tfpdf/tfpdf.php';
-require_once dirname( __DIR__, 3 ) . '/lib/tfpdf/font/unifont/ttfonts.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — lib/tfpdf was removed from the repo (owner, 2026-10-22): without it this file declares
+// nothing (BizCity_Bot_Doc_Pdf::render() already returns '' first, so a PDF request degrades instead of fataling on a missing require).
+if ( is_readable( dirname( __DIR__, 3 ) . '/lib/tfpdf/tfpdf.php' ) && is_readable( dirname( __DIR__, 3 ) . '/lib/tfpdf/font/unifont/ttfonts.php' ) ) {
+	require_once dirname( __DIR__, 3 ) . '/lib/tfpdf/tfpdf.php';
+	require_once dirname( __DIR__, 3 ) . '/lib/tfpdf/font/unifont/ttfonts.php';
+} else {
+	return;
+}
 
 class BizCity_Bot_PDF_Base extends tFPDF {
 

@@ -590,6 +590,10 @@ class BizCity_TwinChat_REST_Controller {
 			return $agent;
 		}
 
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B1 — the PHP stream handler (emergency constant only) is the brain add-on's now.
+		if ( ! class_exists( 'BizCity_TwinChat_Stream_Handler' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'brain_addon_missing', 'message' => 'Đường dự phòng PHP cần add-on BizCity Twin Brain.', 'hint' => 'Cài bizcity-twin-brain-addon, hoặc bỏ hằng BIZCITY_TWIN_WEB_TURN_FORCE_PHP để bộ não (cell) trả lời.', 'help_code' => 'S126-BRAIN-ADDON-MISSING' ), 503 );
+		}
 		// Hand off to the SSE handler — it will write directly + exit.
 		BizCity_TwinChat_Stream_Handler::instance()->handle( $args );
 		// Stop WP from appending JSON envelope.

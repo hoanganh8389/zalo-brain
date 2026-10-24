@@ -195,7 +195,9 @@ class BizCity_TwinBrain_REST {
 		// chạy full MPR pipeline (notebook perspectives) thay vì stream_astro_mode.
 		// [2026-08-11 Johnny Chu] PHASE-TWB-WOO-BIZOPS — accept mode; resolver enforces admin capability before data access.
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-2 — modes come from the add-on; without it every vertical mode is 'off'.
-		return in_array( $v, BizCity_TwinBrain_Runtime::vertical_modes(), true ) ? $v : 'off';
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — Runtime is the brain add-on's (twinbrain-mpr/): without it no vertical mode exists.
+		$modes = class_exists( 'BizCity_TwinBrain_Runtime' ) ? BizCity_TwinBrain_Runtime::vertical_modes() : array();
+		return in_array( $v, $modes, true ) ? $v : 'off';
 	}
 
 	/**
@@ -562,6 +564,10 @@ class BizCity_TwinBrain_REST {
 			return new WP_REST_Response( [ 'ok' => false, 'code' => 'brain_chat_on_cell', 'message' => 'Câu hỏi thường của bộ não do trợ lý (cell) trả lời qua luồng chat.', 'hint' => 'Gọi /turn/stream (chế độ chuyên môn gửi kèm web_mode).', 'help_code' => 'S126-BRAIN-TURN-SYNC' ], 409 );
 		}
 
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — the emergency PHP turn needs the MPR from bizcity-twin-brain-addon/twinbrain-mpr/.
+		if ( ! class_exists( 'BizCity_TwinBrain_Runtime' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'code' => 'brain_addon_missing', 'message' => 'Đường dự phòng PHP cần add-on BizCity Twin Brain.', 'hint' => 'Cài bizcity-twin-brain-addon, hoặc bỏ hằng BIZCITY_TWIN_WEB_TURN_FORCE_PHP để bộ não (cell) trả lời.', 'help_code' => 'S126-BRAIN-ADDON-MISSING' ], 503 );
+		}
 		$runtime = BizCity_TwinBrain_Runtime::instance();
 		$start   = $runtime->start_turn( $prompt, $opts );
 
@@ -676,6 +682,11 @@ class BizCity_TwinBrain_REST {
 			}
 		}
 		// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — Conversation_Router / Conversation_Confirmation (pending Có/Không replies) removed: the PHP intent layer is gone.
+
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — this legacy stream is the emergency PHP path; it needs the MPR from the brain add-on.
+		if ( ! class_exists( 'BizCity_TwinBrain_Runtime' ) ) {
+			return new WP_REST_Response( [ 'ok' => false, 'code' => 'brain_addon_missing', 'message' => 'Đường dự phòng PHP cần add-on BizCity Twin Brain.', 'hint' => 'Cài bizcity-twin-brain-addon, hoặc bỏ hằng BIZCITY_TWIN_WEB_TURN_FORCE_PHP để bộ não (cell) trả lời.', 'help_code' => 'S126-BRAIN-ADDON-MISSING' ], 503 );
+		}
 
 		$sse = new BizCity_Twin_SSE_Writer( true );
 		// PHASE-0.89 S89-S3 (twin-stream@1 rule 5): the legacy pipeline says so first; its own events follow unchanged
@@ -800,11 +811,23 @@ class BizCity_TwinBrain_REST {
 		}
 		$parsed = BizCity_Guru_Token_Parser::parse( (string) $prompt );
 		$guru_id = (int) ( $parsed['guru_id'] ?? 0 );
-		if ( $guru_id <= 0 ) {
-			return new WP_Error( 'guru_notebook_focus_invalid', 'Notebook focus cần Guru Workspace hợp lệ.', array( 'status' => 400 ) );
-		}
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+		if ( $guru_id <= 0 ) {
+			// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — INCIDENT: a notebook picked in the Brain Chat + a plain message ("ao") answered 400 "Notebook focus cần Guru
+			// Workspace hợp lệ". The Guru-token rule protected the PHP MPR from widening its scope; the cell answers now and needs no Guru for a focused notebook. The
+			// ownership rule stays: the notebook must be the user's own, or a business / guru knowledge base.
+			$nb = $wpdb->get_row( $wpdb->prepare( 'SELECT owner_id, notebook_scope FROM ' . $db->tbl_notebooks() . ' WHERE id = %d LIMIT 1', (int) $notebook_id ), ARRAY_A );
+			if ( ! is_array( $nb ) ) {
+				return new WP_Error( 'guru_notebook_focus_invalid', 'Không tìm thấy notebook đang chọn.', array( 'status' => 400 ) );
+			}
+			$nb_owner = (int) ( $nb['owner_id'] ?? 0 );
+			$nb_scope = sanitize_key( (string) ( $nb['notebook_scope'] ?? 'personal' ) );
+			if ( ! ( ( $nb_owner > 0 && $nb_owner === (int) $user_id ) || ( 0 === $nb_owner && in_array( $nb_scope, array( 'business_kb', 'guru_kb' ), true ) ) ) ) {
+				return new WP_Error( 'guru_notebook_focus_invalid', 'Notebook focus không thuộc phạm vi được phép.', array( 'status' => 403 ) );
+			}
+			return array( 'valid' => true, 'policy' => 'augment' );
+		}
 		$guru_uuid = (string) $wpdb->get_var( $wpdb->prepare( 'SELECT guru_uuid FROM ' . $wpdb->prefix . 'bizcity_characters WHERE id = %d LIMIT 1', $guru_id ) );
 		if ( $guru_uuid === '' ) {
 			return new WP_Error( 'guru_notebook_focus_invalid', 'Guru Workspace không thuộc site hiện tại.', array( 'status' => 400 ) );

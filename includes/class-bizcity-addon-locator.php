@@ -322,3 +322,36 @@ if ( function_exists( 'add_action' ) ) {
 	}
 	unset( $_bizcity_addon_hook );
 }
+
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T5 — moved here from core/twinweb-axis/bootstrap.php when the whole axis went to the add-on:
+// the placeholder is exactly the "add-on absent" case, so it belongs to the core (always loaded, cheap: one init hook).
+if ( function_exists( 'add_action' ) ) {
+	// ── No /gpt/ add-on: a page still holding [bizcity_twin] must never print the raw shortcode ──────────────────────────
+	// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L8 — owner round 1: Channel Gateway is the home. A signed-in user who opens the old /gpt/ page is sent to the Twin Shell (opens 'Zalo Setup'); a guest, or an admin who wants to know why, gets one short card. The add-on registers the real [bizcity_twin] at init priority 10; this placeholder (priority 99) only fills the gap.
+	add_action( 'init', function () {
+		if ( shortcode_exists( 'bizcity_twin' ) ) {
+			return;
+		}
+		// The redirect has to happen before any output, so it lives on template_redirect; the shortcode below is only the card.
+		// Never when the /gpt/ part IS available (bizcity_twinweb_url() would then point back at /gpt/ — a loop).
+		add_action( 'template_redirect', function () {
+			if ( ! is_user_logged_in() || ! is_singular() || ( function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available() ) ) {
+				return;
+			}
+			$post = get_post();
+			if ( $post && has_shortcode( (string) $post->post_content, 'bizcity_twin' ) ) {
+				wp_safe_redirect( bizcity_twinweb_url() );
+				exit;
+			}
+		}, 5 );
+		add_shortcode( 'bizcity_twin', function () {
+			$admin = current_user_can( 'manage_options' );
+			return '<div class="bizcity-twinweb-missing" data-bizcity-addon-missing="twinweb" style="max-width:560px;margin:48px auto;padding:20px 24px;border:1px solid #e3e5ea;border-radius:12px;font:15px/1.5 system-ui,sans-serif">'
+				. '<strong>' . esc_html__( 'The web assistant is not open on this site yet.', 'bizcity-twin-ai' ) . '</strong><br>'
+				. esc_html( $admin
+					? __( 'This page runs on the BizCity TwinWeb add-on (bizcity-twinweb-addon), which is not active here. Install and activate it to bring the /gpt/ assistant back; everything else keeps working.', 'bizcity-twin-ai' )
+					: __( 'You can keep chatting through Zalo, or go back to the home page.', 'bizcity-twin-ai' ) )
+				. ' <a href="' . esc_url( home_url( '/' ) ) . '">' . esc_html__( 'Home', 'bizcity-twin-ai' ) . '</a></div>';
+		} );
+	}, 99 );
+}

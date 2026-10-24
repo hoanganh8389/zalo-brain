@@ -916,9 +916,9 @@ if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
 // [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — the CORE half of TwinWeb (REST controller + the classes it calls, Ask Brain tools,
 // artifact jobs, tables) is core/twinweb-axis and loads under the same gate, FIRST; modules/twinweb (the /gpt/ page, SPA, projects / CRM REST) follows and
 // does nothing without the axis. From W2 (ST102-L17) the second require goes through BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' ).
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/twinweb-axis/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/twinweb-axis/bootstrap.php';
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T5 (owner: "move toàn bộ core/twinweb-axis ra addon") — the axis is the add-on's now
+// (bizcity-twinweb-addon/axis/, required by its bootstrap.php below). The core serves its own routes under bizcity-channel/v1
+// (BizCity_Channel_Core_REST) and keeps the "no /gpt/" placeholder in includes/class-bizcity-addon-locator.php.
 // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L17 — the /gpt/ half comes from BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' ): the add-on bizcity-twinweb-addon when it is installed and active (any folder name), otherwise nothing — Zalo Brain is complete without it.
 $_bizcity_twinweb_bootstrap = BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' );
 if ( ! $_bizcity_twinchat_admin_shell_request && '' !== $_bizcity_twinweb_bootstrap ) {

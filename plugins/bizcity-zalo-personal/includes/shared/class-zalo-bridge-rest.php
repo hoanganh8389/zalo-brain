@@ -23,6 +23,12 @@
 // [2026-06-07 Johnny Chu] PHASE-0.39 — REST proxy controller (R-CH-NS bizcity-channel/v1)
 defined( 'ABSPATH' ) || exit;
 
+// [2026-10-24 01:42 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 HOTFIX — declare once: the same file reached through two path spellings (Windows drive-letter case,
+// suite-level PHPUnit load) fataled with "Cannot declare class BizCity_Zalo_Bridge_REST". Same guard as class-journal-mcp-tools.php; no behaviour change at runtime.
+if ( class_exists( 'BizCity_Zalo_Bridge_REST', false ) ) {
+	return;
+}
+
 class BizCity_Zalo_Bridge_REST {
 
 	const NS     = 'bizcity-channel/v1';

@@ -175,58 +175,10 @@ require_once $twin_includes . '/class-twin-prompt-parser.php';
 // Memory Table Migration — rename scattered tables to unified bizcity_memory_* prefix
 require_once $twin_includes . '/class-memory-table-migration.php';
 
-// Sprint 0A — Focus Gate (always loaded when flag enabled)
-if ( BIZCITY_TWIN_FOCUS_ENABLED ) {
-    require_once $twin_includes . '/class-focus-router.php';
-    require_once $twin_includes . '/class-focus-gate.php';
-    // [2026-10-10 11:30 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — class-twin-suggest.php archived
-    // (core/_archived/z8b-20261010/twin-core/includes/): its only caller was the retired Chat Gateway (Z-3b).
-
-    // Hook Focus Gate at priority 1 — BEFORE all context injectors
-    add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Focus_Gate', 'gate_context' ], 1, 2 );
-}
-
-// Sprint 0C — Twin Snapshot Builder
-if ( BIZCITY_TWIN_SNAPSHOT_ENABLED ) {
-    require_once $twin_includes . '/class-twin-snapshot-builder.php';
-
-    // Event-driven snapshot invalidation — hook names match actual do_action() calls
-    add_action( 'bizcity_webchat_message_saved',  [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bizcity_intent_processed',       [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bizcity_chat_message_processed', [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bcn_note_created',               [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bcn_note_updated',               [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bcn_source_added',               [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bizcity_knowledge_ingested',     [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-    add_action( 'bizcity_tool_registry_changed',  [ 'BizCity_Twin_Snapshot_Builder', 'invalidate' ] );
-}
-
-// Sprint 0B — Twin Context Resolver (always loaded — unified prompt builder)
-require_once $twin_includes . '/class-twin-context-resolver.php';
-
-// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b (R-IM-5) — the prompt-layer classes moved here from core/intent
-// (they build / record the system prompt that the resolver above assembles). Same class names and hook names.
-if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-    BizCity_Safe_Loader::require_file( $twin_includes . '/class-context-layers-capture.php', 'twin_core.context_layers_capture' );
-    BizCity_Safe_Loader::require_file( $twin_includes . '/class-context-builder.php', 'twin_core.context_builder' );
-} else {
-    error_log( '[bizcity] twin_core_prompt_layers_skipped: BizCity_Safe_Loader unavailable' );
-}
-if ( class_exists( 'BizCity_Context_Layers_Capture', false ) ) {
-    /* ── Phase 1.6: Context Layers Capture — 100% prompt observability ── */
-    // Listener for bizcity_system_prompt_built (fired by twin_resolver)
-    add_action( 'bizcity_system_prompt_built', [ 'BizCity_Context_Layers_Capture', 'on_prompt_built' ], 10, 3 );
-    // Universal capture: ensure started @0, capture final @99, persist on message @15
-    add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'ensure_started' ], 0, 2 );
-    add_filter( 'bizcity_chat_system_prompt', [ 'BizCity_Context_Layers_Capture', 'capture_final_prompt' ], 99, 2 );
-    add_action( 'bizcity_chat_message_processed', [ 'BizCity_Context_Layers_Capture', 'persist_on_message' ], 15, 1 );
-}
-add_action( 'plugins_loaded', function () {
-    // Context builder (5-layer priority chain)
-    if ( class_exists( 'BizCity_Context_Builder' ) ) {
-        BizCity_Context_Builder::instance();
-    }
-}, 5 );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B1 (owner: "Cell là trục não chính, ko dùng php để suy luận") — the PHP chat pipeline left the core for
+// bizcity-twin-brain-addon/twinbrain-mpr/agent/: Focus_Router / Focus_Gate, Snapshot_Builder (+ its invalidation hooks), Context_Resolver,
+// Context_Layers_Capture + Context_Builder (+ their bizcity_chat_system_prompt hooks — fired only by that resolver). Without the brain add-on
+// none of it exists and no PHP turn can run; the cell answers.
 
 /* ── Sprint 4.7 — TWIN AGENT CORE (RULE CAO NHẤT) ─────────────── */
 // See PHASE-0-RULE-AGENTIC-CORE.md. Mọi main LLM call PHẢI qua BizCity_Twin_Agent::run().
@@ -261,25 +213,10 @@ require_once $twin_includes . '/class-twin-content-registry.php';
 if ( class_exists( 'BizCity_Twin_Content_Registry' ) ) {
     BizCity_Twin_Content_Registry::boot();
 }
-require_once $twin_includes . '/class-twin-tool-registry.php';
-require_once $twin_includes . '/class-twin-citation-id-generator.php';
-require_once $twin_includes . '/class-twin-citation-validator.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B1 — Tool_Registry (+ Typed_Tool_Adapter), Citation_Id_Generator / Validator, the agent loop (BizCity_Twin_Agent) and the four
+// PHP agent tools (search_kg, list_sources, fetch_url, query_entity) → bizcity-twin-brain-addon/twinbrain-mpr/agent/. The SSE writer stays
+// (core/twinbrain's forwarder and TwinChat stream through it).
 require_once $twin_includes . '/class-twin-sse-writer.php';
-require_once $twin_includes . '/class-twin-agent-loop.php';
-
-// Register the 4 core tools (lazy — load class files on demand via filter).
-add_filter( 'bizcity_twin_register_tool', function ( $registry ) use ( $twin_includes ) {
-	if ( ! is_array( $registry ) ) $registry = [];
-	require_once $twin_includes . '/tools/class-tool-search-kg.php';
-	require_once $twin_includes . '/tools/class-tool-list-sources.php';
-	require_once $twin_includes . '/tools/class-tool-fetch-url.php';
-	require_once $twin_includes . '/tools/class-tool-query-entity.php';
-	$registry['search_kg']    = new BizCity_Tool_Search_KG();
-	$registry['list_sources'] = new BizCity_Tool_List_Sources();
-	$registry['fetch_url']    = new BizCity_Tool_Fetch_Url();
-	$registry['query_entity'] = new BizCity_Tool_Query_Entity();
-	return $registry;
-}, 5 );
 
 /* ── BizChat Menu — Unified Admin Menu Registry ───────────────── */
 // [2026-09-23 R-SAFE-LOADER] guard the call — this exact unguarded require_once +

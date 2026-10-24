@@ -72,60 +72,46 @@ if ( ! defined( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD' ) ) {
 	define( 'BIZCITY_TWINBRAIN_TOOL_AUTOSUGGEST_THRESHOLD', 0.7 );
 }
 
-// [2026-07-19 Johnny Chu] PHASE-TBR-NB-MULTIMODAL — default attachment/vision/file intake layer before Notebook retrieval.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-multimodal-intake-layer.php';
-// [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 (owner: "lớp intent PHP bỏ") — the PHP intent /
-// orchestrator layer is archived to core/_archived/twinbrain-intent-20261007/: Pre_MPR_Triage, Conversation_Router,
-// Conversation_Confirmation, Intent_Compat_Adapter, Workflow_Pipeline (/skill) and Builtin_Skills. The cell agent owns intent.
-// [2026-08-16 Johnny Chu] MPR-V5-TEMPORAL — load the deterministic temporal context resolver before Runtime hooks.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-temporal-context-resolver.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-runtime.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-selector.php';
-// [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-1 — Goal Loop (State, Repository, Contract
-// Store, Delta, Parser, Alignment, Reflector, Question Engine, REST, Scheduler, Runtime) and Agent_Runner archived to
-// core/_archived/twinbrain-goal-loop-20261006/: the cell owns goal/orchestration for reply turns. Every Runtime call was
-// already behind class_exists(); result keys goal_loop_state / goal_contract stay, empty.
-// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — Goal_Loop_Intent_Adapter retired with the Intent_Conversation read (R-ORPHAN-FILE stage 1).
-// [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-1 — HIL (spec, compiler, state, extractor,
-// runtime, repository, media candidate resolver, /hil/compile REST) moved to bizcity-twin-brain-addon/hil/. Only the
-// bizcity-automation plugin uses it; without the add-on its HIL workflows answer 503 module_not_loaded.
-// [2026-10-08 04:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.94-HIL-OFF — the add-on HIL module (hil/, /hil/compile) is no longer loaded: Automation has no HIL; the cell gathers every input.
-// [2026-10-08 Johnny Chu - Chu Hoàng Anh] CELL-FIRST E-1 R-12 — and it is archived: bizcity-twin-brain-addon/_archived/hil-20261008/.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-tool-intent-matcher.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-perspective-runner.php';
-// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Source File Deep Layer before Notebook Source Layer builds file briefs.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-source-file-deep-layer.php';
-// [2026-07-18 Johnny Chu] PHASE-TBR-NB-MOAT — load Notebook Source Layer before runtime turn compose uses source maps.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-notebook-source-layer.php';
-// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-1.33C-C2 — read-only trace calculator; no
-// runtime dependency on it, loaded eagerly like every other side-effect-free TwinBrain class
-// so `wp bizcity brain trace` and any future diagnostics probe can reach it without a lazy gate.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-trace-calculator.php';
-// [2026-07-19 Johnny Chu] PHASE-TWIN-GPT-PROFILE-GROUNDING — subject-first customer profile layer for Notebook/vertical personalization.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-subject-profile-layer.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-synthesizer.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-rest.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-schema.php';
-// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — one Brain retrieval facade shared by Twin GPT and MCP.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-brain-retrieval-facade.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 (owner Q126-34: MPR → bizcity-twin-brain-addon, with /gpt/ and the vertical modes; "Cell là trục não chính, ko dùng php để suy luận") —
+// the PHP reasoning pipeline (Runtime, Perspective_Runner, Synthesizer, Final_Composer, Notebook / Source / Subject-profile / Multimodal /
+// Temporal layers, Memory recall + writer + tools, Mode memory, Channel adapters, Progress notices, Guru web flag, Sheets enricher,
+// scheduler / ingest tools, profile templates) lives in bizcity-twin-brain-addon/twinbrain-mpr/. The core keeps the cell forwarder below.
+// Without the add-on no PHP turn can run: the emergency constant BIZCITY_TWIN_WEB_TURN_FORCE_PHP answers 503 instead of an MPR answer.
+// Loaded HERE (where the MPR classes always loaded) so the vertical modes further down still find them.
+$_bizcity_twinbrain_mpr = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'twinbrain-mpr/bootstrap.php' ) : '';
+if ( '' !== $_bizcity_twinbrain_mpr ) {
+	require_once $_bizcity_twinbrain_mpr;
+}
+unset( $_bizcity_twinbrain_mpr );
+
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — INCIDENT 2026-10-24: after a partial upload the site fataled in wp-cron / every page ("Failed opening required …/class-twinbrain-schema.php").
+// A core file that is missing on disk is logged and skipped from now on; the code that uses its class is guarded below.
+$_bizcity_tb_require = static function ( $relative ) {
+	$file = BIZCITY_TWINBRAIN_DIR . $relative;
+	if ( is_readable( $file ) ) {
+		require_once $file;
+		return true;
+	}
+	error_log( '[twinbrain] missing core file, skipped: core/twinbrain/' . $relative . ' — re-upload it (see 95-DEPLOY-LIST: files that must stay in core/twinbrain/includes)' );
+	return false;
+};
+
+// ── Cell forwarder (core) ─────────────────────────────────────────────────────
+$_bizcity_tb_require( 'includes/class-twinbrain-rest.php' );
+$_bizcity_tb_require( 'includes/class-twinbrain-schema.php' );
+// [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — one Brain retrieval facade shared by Twin GPT and MCP (Context Bank pack, not MPR).
+$_bizcity_tb_require( 'includes/class-brain-retrieval-facade.php' );
 
 // [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Conversation thread manager
 // + REST surface (/sessions CRUD). Spec:
 // core/twinbrain/docs/sessions/TWINBRAIN-FEATURE-BRAIN-SESSIONS.md §11.
 // Reorg 2026-06-03: BS group consolidated under includes/sessions/ for
 // discoverability (manager + REST + future companion-context controller).
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-manager.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/sessions/class-twinbrain-sessions-rest.php';
-// [2026-08-01 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G3 — expose the shared channel boundary and dual-owner session resolver.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-brain-session-resolver.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapter.php';
-// [2026-08-02 Johnny Chu] PHASE-TWIN-GOAL-LOOP-G10 — load concrete channel identity policy adapters.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-channel-adapters.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-progress-notice-policy.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-progress-notice-projector.php';
-BizCity_TwinBrain_Progress_Notice_Projector::init();
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-vertical-bridge-registry.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-focus-validator.php';
+$_bizcity_tb_require( 'includes/sessions/class-twinbrain-sessions-manager.php' );
+$_bizcity_tb_require( 'includes/sessions/class-twinbrain-sessions-rest.php' );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — channel adapters, dual-owner session resolver and progress notices are MPR plumbing: bizcity-twin-brain-addon/twinbrain-mpr/.
+$_bizcity_tb_require( 'includes/class-twinbrain-vertical-bridge-registry.php' );
+$_bizcity_tb_require( 'includes/class-twinbrain-guru-focus-validator.php' );
 // [2026-09-21 PHASE-0.63A] Goal Loop stale scanning is disabled pending the replacement workflow.
 // [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-1 — scheduler class archived; keep the
 // one-shot cron cleanup with the literal hook name so sites that never ran it still drop the event.
@@ -167,135 +153,49 @@ if ( '' !== $_bizcity_twinbrain_verticals ) {
 }
 unset( $_bizcity_twinbrain_verticals );
 // [2026-08-14 Johnny Chu] PHASE-TWB-GURU-POLICY — load the shared sensitive-capability decision boundary before vertical engines.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-policy.php';
+$_bizcity_tb_require( 'includes/class-twinbrain-guru-policy.php' );
 
 // [2026-10-07 10:05 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON Q-2 — Workflow-Driven Brain Pipeline (/skill)
 // and Builtin_Skills archived with the PHP intent layer. [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L6 — `#workflow` commands are removed too (Q102-6).
 
-// Phase 0.36-UNIFIED TBR.W11 (2026-05-21) — Guru `allow_web_fallback` flag:
-// schema migration + filter `bizcity_twinbrain_web_mode_effective` gate +
-// REST GET/POST `/guru/{id}/web-fallback` (manage_options only).
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-guru-web-flag.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — Guru web-fallback flag → bizcity-twin-brain-addon/twinbrain-mpr/ (it gates the MPR web mode only).
 
 // Phase 0.36-UNIFIED TBR.W10 (2026-05-21) — Citation Resolver baseline
 // (R-BRAIN-2). Single source of truth cho citation token → resolved record.
 // Cover 6 namespaces: mem|faq|nb|src|ent|web. REST GET /citations/resolve.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-citation-resolver.php';
+$_bizcity_tb_require( 'includes/class-twinbrain-citation-resolver.php' );
 
 
-// Phase 0.36-UNIFIED TBR.W16 (2026-05-21) — Final Composer (Layer 4.5).
-// Streams câu trả lời cuối cùng cho user qua SSE (`final_token` events) sau
-// khi Synthesizer (Layer 4) trả về structured output. Dùng
-// BizCity_LLM_Client::chat_stream() → gateway /llm/router/v1/chat/stream.
-// Degrade gracefully về synthesizer.answer_md khi gateway down.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-final-composer.php';
-
-// [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-1 — Agent ReAct Runner (`mode=agent`) archived
-// to core/_archived/twinbrain-goal-loop-20261006/; the cell agent replaces it. The Runtime branch already degrades when
-// the class is missing.
-
-// Phase 0.36-UNIFIED Wave 2.8 (2026-05-22) — Memory Layer.
-// TBR.MEM-2: Memory_Recall (Layer 0.5) — pulls 4 tiers of user memory and
-// renders a Memory_Block injected into Final_Composer system prompt.
-// TBR.MEM-4: Memory_Writer (Layer 4.7) — Mode 1 regex extracts explicit
-// "hãy nhớ ..." phrases after final_done and persists to memory_users.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-memory-recall.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-memory-writer.php';
-
-// [2026-06-04 Johnny Chu] PHASE-A C.3c — Mode Context Memory (Layer 4.8).
-// Reusable standard: bất kỳ mode nào (astro/web/law…) persist 1 context
-// summary của lượt hỏi vào memory tier gắn session_id + provenance source_url.
-// Spec: core/docs/CORE-PHASE-A-MODE-MEMORY.md. Reuse bizcity_memory_users
-// (tier=extracted) → KHÔNG đụng schema → R-DCL không phát sinh.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-mode-memory.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — Final Composer, Memory recall / writer and Mode memory → bizcity-twin-brain-addon/twinbrain-mpr/.
 
 // Phase 0.36-UNIFIED Wave 2.8c (2026-05-24) TBR.MEM-C1 — Owner-self Memory
 // Hub REST endpoints (/memory/me) cho FE BrainMemoryButton + MemoryHubDrawer.
 // Permission: is_user_logged_in + force user_id = current.
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-rest-memory-me.php';
+$_bizcity_tb_require( 'includes/class-twinbrain-rest-memory-me.php' );
 
-// Phase 0.36-UNIFIED Wave 2.8 (2026-05-24) TBR.MEM-6 — Memory Tool Dispatcher
-// (Mode 3 MemGPT-style function-call). 3 tool: memory_remember / memory_forget
-// / memory_recall đăng ký qua filter `bizcity_twin_register_tool`. Final
-// Composer inject prompt section khi flag `bizcity_twinbrain_memory_tools_enabled`
-// ON. Runtime gọi dispatcher sau final_done → parse text → execute → emit
-// memory_tool_call / memory_tool_result / memory_tool_error events.
-// Tools (reorganized 2026-05-24): `core/twinbrain/tools/<domain>/<file>.php`.
-// Domains hiện có: memory, sheet. Plan thêm: producer, distributor, canvas.
-// Memory dispatcher (runtime infra) vẫn nằm ở `includes/`.
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/memory/class-twinbrain-memory-tool-remember.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/memory/class-twinbrain-memory-tool-forget.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/memory/class-twinbrain-memory-tool-recall.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'includes/class-twinbrain-memory-tool-dispatcher.php';
-
-add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
-	if ( ! is_array( $registry ) ) $registry = [];
-	$registry['memory_remember'] = new BizCity_TwinBrain_Memory_Tool_Remember();
-	$registry['memory_forget']   = new BizCity_TwinBrain_Memory_Tool_Forget();
-	$registry['memory_recall']   = new BizCity_TwinBrain_Memory_Tool_Recall();
-	return $registry;
-}, 10 );
-
-// Phase 0.36-UNIFIED Wave 2.8e (2026-05-24) TBR.TOOL-S1..S3 — TwinBrain
-// Sheets producer tool. Installer dbDelta 2 bảng (`bizcity_sheets`,
-// `bizcity_sheet_cells`) gated bởi option `bizcity_twinbrain_sheets_db_ver`.
-// Enricher port LangGraph 3-stage Tavily Sheets pipeline (search → extract
-// → store) qua gateway `BizCity_Research_Tool_Router` (R-GW-1). Tool
-// `sheet_enrich` đăng ký vào registry để LLM emit text-tool block hoặc FE
-// gọi qua REST. Citation token format `[sheet:S#<id>/r<row>c<col>]`.
-// [2026-06-04 Johnny Chu] PHASE-A A.0 — canonical paths after sheets→tools/sheet move.
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-installer.php';
-// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3c (R-LEAN-4, Q-W16-3) — the Tavily gateway wrapper moved here with modules/twinsearch archived.
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-research-tool-router.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-enricher.php';
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/sheet/class-twinbrain-sheet-tool-enrich.php';
-BizCity_TwinBrain_Sheets_Installer::instance();
-
-add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
-	if ( ! is_array( $registry ) ) $registry = [];
-	$registry['sheet_enrich'] = new BizCity_TwinBrain_Sheet_Tool_Enrich();
-	return $registry;
-}, 11 );
-
-// [2026-06-03 Johnny Chu] SCH-NC W6 — Scheduler HIL tool. LLM master xuất
-// `<tool name="scheduler_set_reminder">{...}</tool>` → tạo event status='draft'
-// → gửi confirm envelope qua Gateway Sender → user reply OK/Hủy/Sửa được match
-// bởi `BizCity_Scheduler_HIL_Router`. Reminder thật fire qua cron sau khi
-// status flip 'active'.
-require_once BIZCITY_TWINBRAIN_DIR . 'tools/scheduler/class-twinbrain-scheduler-tool-set-reminder.php';
-
-add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
-	if ( ! is_array( $registry ) ) $registry = [];
-	$registry['scheduler_set_reminder'] = new BizCity_TwinBrain_Scheduler_Tool_Set_Reminder();
-	return $registry;
-}, 12 );
-
-// [2026-06-13 Johnny Chu] PHASE-0.40 G3 P6 — ingest_document producer tool.
-// Allows admin/staff to ingest text or URL into the guru's attached notebook via chat.
-// tool_class = 'P' (Producer) — requires allow_producer in admin-chat grant.
-// [2026-06-21 Johnny Chu] HOTFIX — guard file_exists to prevent fatal cascade when file
-// is missing on server (caused twinweb routes to 404 via PHP crash on REST requests).
-if ( file_exists( BIZCITY_TWINBRAIN_DIR . 'tools/knowledge/class-twinbrain-tool-ingest-document.php' ) ) {
-	require_once BIZCITY_TWINBRAIN_DIR . 'tools/knowledge/class-twinbrain-tool-ingest-document.php';
-
-	add_filter( 'bizcity_twin_register_tool', static function ( $registry ) {
-		if ( ! is_array( $registry ) ) $registry = [];
-		$registry['ingest_document'] = new BizCity_TwinBrain_Tool_Ingest_Document();
-		return $registry;
-	}, 13 );
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — the PHP agent tools (memory_* , sheet_enrich + Sheets installer, scheduler_set_reminder, ingest_document) →
+// bizcity-twin-brain-addon/twinbrain-mpr/ (they only ever served the PHP agent loop / MPR).
 
 add_action( 'rest_api_init', static function () {
-	BizCity_TwinBrain_REST::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinBrain_REST' ) ) {
+		BizCity_TwinBrain_REST::instance()->register_routes();
+	}
 	// [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-1 — /goals/*, /goal/* routes archived with Goal Loop.
-	BizCity_TwinBrain_REST_Memory_Me::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinBrain_REST_Memory_Me' ) ) {
+		BizCity_TwinBrain_REST_Memory_Me::instance()->register_routes();
+	}
 	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — /sessions CRUD routes.
-	BizCity_TwinBrain_Sessions_REST::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinBrain_Sessions_REST' ) ) {
+		BizCity_TwinBrain_Sessions_REST::instance()->register_routes();
+	}
 } );
 
 // Ensure the bizcity_brain_turns VIEW + perspective columns exist per-blog
 // (both idempotent, version-gated).
 add_action( 'init', static function () {
+	if ( ! class_exists( 'BizCity_TwinBrain_Schema' ) ) {
+		return;
+	}
 	BizCity_TwinBrain_Schema::ensure_view();
 	BizCity_TwinBrain_Schema::ensure_notebook_perspective_columns();
 	// [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-1 — sessions VIEW projection.

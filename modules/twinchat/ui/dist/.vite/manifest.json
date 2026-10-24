@@ -1,46 +1,46 @@
 {
-  "_shield-check-zCCQ8uN_.js": {
-    "file": "assets/shield-check-zCCQ8uN_.js",
+  "_shield-check-1Z2SekLr.js": {
+    "file": "assets/shield-check-1Z2SekLr.js",
     "name": "shield-check",
     "imports": [
       "index.html"
     ]
   },
-  "_vendor-graph-CL8HYJUj.js": {
-    "file": "assets/vendor-graph-CL8HYJUj.js",
+  "_vendor-graph-BhECgBoW.js": {
+    "file": "assets/vendor-graph-BhECgBoW.js",
     "name": "vendor-graph",
     "imports": [
-      "_vendor-query-D509jcZr.js"
+      "_vendor-query-CgEA1WW4.js"
     ]
   },
-  "_vendor-md-BYxt_V2H.js": {
-    "file": "assets/vendor-md-BYxt_V2H.js",
+  "_vendor-md-C5OUP-_3.js": {
+    "file": "assets/vendor-md-C5OUP-_3.js",
     "name": "vendor-md",
     "imports": [
-      "_vendor-query-D509jcZr.js"
+      "_vendor-query-CgEA1WW4.js"
     ]
   },
-  "_vendor-query-D509jcZr.js": {
-    "file": "assets/vendor-query-D509jcZr.js",
+  "_vendor-query-CgEA1WW4.js": {
+    "file": "assets/vendor-query-CgEA1WW4.js",
     "name": "vendor-query"
   },
-  "_vendor-react-CkLhF1le.js": {
-    "file": "assets/vendor-react-CkLhF1le.js",
+  "_vendor-react-Ckiw1zON.js": {
+    "file": "assets/vendor-react-Ckiw1zON.js",
     "name": "vendor-react",
     "imports": [
-      "_vendor-query-D509jcZr.js"
+      "_vendor-query-CgEA1WW4.js"
     ]
   },
   "index.html": {
-    "file": "assets/index-Dmvigxkv.js",
+    "file": "assets/index-C7s42f9m.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-query-CgEA1WW4.js",
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ],
     "dynamicImports": [
       "src/components/KGGraphViewNexus.tsx",
@@ -56,97 +56,97 @@
     ]
   },
   "src/components/KGGraphViewNexus.tsx": {
-    "file": "assets/KGGraphViewNexus-C9FKZmWq.js",
+    "file": "assets/KGGraphViewNexus-DZ2cy6ll.js",
     "name": "KGGraphViewNexus",
     "src": "src/components/KGGraphViewNexus.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/components/guru/GuruWorkspacePanel.tsx": {
-    "file": "assets/GuruWorkspacePanel-CmHL7lmb.js",
+    "file": "assets/GuruWorkspacePanel-CKXOg0x2.js",
     "name": "GuruWorkspacePanel",
     "src": "src/components/guru/GuruWorkspacePanel.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
-      "_shield-check-zCCQ8uN_.js",
+      "_vendor-query-CgEA1WW4.js",
+      "_shield-check-1Z2SekLr.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/components/workspace/HistoryWorkspace.tsx": {
-    "file": "assets/HistoryWorkspace-BtvD8u1w.js",
+    "file": "assets/HistoryWorkspace-DaVxRJfk.js",
     "name": "HistoryWorkspace",
     "src": "src/components/workspace/HistoryWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/components/workspace/IntegrationsWorkspace.tsx": {
-    "file": "assets/IntegrationsWorkspace-CFTiNMFl.js",
+    "file": "assets/IntegrationsWorkspace-X73KiKjS.js",
     "name": "IntegrationsWorkspace",
     "src": "src/components/workspace/IntegrationsWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/components/workspace/PlansAndApiKeyWorkspace.tsx": {
-    "file": "assets/PlansAndApiKeyWorkspace-hPo36bY_.js",
+    "file": "assets/PlansAndApiKeyWorkspace-Cjy4e2Cj.js",
     "name": "PlansAndApiKeyWorkspace",
     "src": "src/components/workspace/PlansAndApiKeyWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_shield-check-zCCQ8uN_.js",
+      "_shield-check-1Z2SekLr.js",
       "src/components/workspace/UsageWorkspace.tsx",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/components/workspace/UsageWorkspace.tsx": {
-    "file": "assets/UsageWorkspace-BYIRVdyG.js",
+    "file": "assets/UsageWorkspace-DYuywTPd.js",
     "name": "UsageWorkspace",
     "src": "src/components/workspace/UsageWorkspace.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   },
   "src/pages/AccountPage.tsx": {
-    "file": "assets/AccountPage-ClTZy1Ge.js",
+    "file": "assets/AccountPage-DXvrxTrf.js",
     "name": "AccountPage",
     "src": "src/pages/AccountPage.tsx",
     "isDynamicEntry": true,
     "imports": [
-      "_vendor-query-D509jcZr.js",
+      "_vendor-query-CgEA1WW4.js",
       "index.html",
-      "_vendor-react-CkLhF1le.js",
-      "_vendor-md-BYxt_V2H.js",
-      "_vendor-graph-CL8HYJUj.js"
+      "_vendor-react-Ckiw1zON.js",
+      "_vendor-md-C5OUP-_3.js",
+      "_vendor-graph-BhECgBoW.js"
     ]
   }
 }

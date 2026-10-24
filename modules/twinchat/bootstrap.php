@@ -121,8 +121,8 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-d
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-database.php', 'twinchat.sources_database' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-chunker.php', 'twinchat.chunker' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-sources-service.php', 'twinchat.sources_service' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-context-builder.php', 'twinchat.context_builder' );
-BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-stream-handler.php', 'twinchat.stream_handler' );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B1 — the PHP stream pipeline (Stream_Handler + its Context_Builder + Runtime_SSE_Writer) runs only under the emergency constant
+// BIZCITY_TWIN_WEB_TURN_FORCE_PHP: it moved to bizcity-twin-brain-addon/twinbrain-mpr/agent/ (loaded with the MPR).
 // [2026-07-14 Johnny Chu] PHASE-0.43 — core keyword search engine for notebook/all-notebook document search.
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-engine.php', 'twinchat.search_engine' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php', 'twinchat.rest_controller' );

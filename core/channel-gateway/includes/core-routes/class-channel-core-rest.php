@@ -1,14 +1,14 @@
 <?php
 /**
  * BizCity_Channel_Core_REST — the CORE routes of Zalo Brain under `bizcity-channel/v1`: personal-Zalo / Zalo Bot channels (`mychannels/*`),
- * `me` + `me/agent-gurus`, `skills`, the admin Guru / connection / usage screens (`admin/*`) and the MCP key screens (`mcp/*`).
+ * `me` + `me/agent-gurus`, `skills` and the admin Guru / connection / usage screens (`admin/*`). The MCP key screens are core/mcp's.
  *
- * The core serves them itself (owner Q126-30: a site without the /gpt/ add-on is complete). GENERATED from core/twinweb-axis/includes/class-twinweb-rest.php by
+ * The core serves them itself (owner Q126-30: a site without the /gpt/ add-on is complete). GENERATED from bizcity-twinweb-addon/axis/includes/class-twinweb-rest.php by
  * core/channel-gateway/docs/PHASE-0.126-JOURNAL-LEDGER-BRAIN-INDEX/tools/reduction-gen-core-rest.mjs — change the generator, not this file
- * (`--check` fails on drift). The old namespace `bizcity-twinweb/v1` keeps answering until the UIs are rebuilt (R126-T4 → T6).
+ * (`--check` fails on drift). The namespace `bizcity-twinweb/v1` belongs to the /gpt/ add-on (its axis); core UIs call bizcity-channel/v1 (R126-T4).
  * No LLM here; identity = the logged-in WordPress user (BizCity_Channel_Core_Identity), never the /gpt/ guest cookie.
  *
- * [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3 — new (generated).
+ * [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3 — new (generated). [2026-10-24] R126-T5 — source moved to the add-on; /gpt/ classes guarded.
  */
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
@@ -649,7 +649,7 @@ class BizCity_Channel_Core_REST {
 	private function log_mychannels_zalo_outbound( $user_id, $bot_id, array $target, array $link_status, $message, $result ) {
 		// [2026-07-21 Johnny Chu] PHASE-2-TWIN-GPT-CHANNEL-AUTOMATION — persist My Channels outbound messages so inbox refresh shows bot replies.
 		if ( ! class_exists( 'BizCity_Zalo_Bot_Database' ) ) {
-			$database_file = dirname( __DIR__, 3 ) . '/plugins/bizcity-zalo-bot/includes/class-database.php';
+			$database_file = rtrim( BIZCITY_TWIN_AI_DIR, '/' ) . '/plugins/bizcity-zalo-bot/includes/class-database.php';
 			if ( is_readable( $database_file ) ) {
 				require_once $database_file;
 			}
@@ -3728,14 +3728,18 @@ class BizCity_Channel_Core_REST {
 	/* ── Appearance / skin policy helpers ──────────────────────────────── */
 
 	private function get_access_policy( $blog_id ) {
-		return BizCity_TwinWeb_Access_Policy::get_access_policy( $blog_id );
+		return class_exists( 'BizCity_TwinWeb_Access_Policy' ) ? BizCity_TwinWeb_Access_Policy::get_access_policy( $blog_id ) : (array) get_option( 'bizcity_twinweb_access_policy_' . (int) $blog_id, array() );
 	}
 
 	private function bump_control_plane_version( $blog_id ) {
-		BizCity_TwinWeb_Access_Policy::bump_control_plane_version( $blog_id );
+		if ( class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			BizCity_TwinWeb_Access_Policy::bump_control_plane_version( $blog_id );
+		}
 	}
 
 	private function flush_effective_config_cache( $blog_id ) {
-		BizCity_TwinWeb_Access_Policy::flush_effective_config_cache( $blog_id );
+		if ( class_exists( 'BizCity_TwinWeb_Access_Policy' ) ) {
+			BizCity_TwinWeb_Access_Policy::flush_effective_config_cache( $blog_id );
+		}
 	}
 }

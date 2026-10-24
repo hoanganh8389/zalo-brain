@@ -981,6 +981,11 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ) );
 			if ( '' !== $in_group ) {
 				$letter['job']['deliver_group'] = array( 'gid' => $in_group ); // [2026-10-23 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — answer in the group that asked
+				// [2026-10-24 01:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — + the group's title: the owner's private notice says which group ("📁 Nhóm …"); older cells drop the unknown key
+				$gname = trim( (string) preg_replace( '/\s+/u', ' ', (string) ( $job['group_name'] ?? '' ) ) );
+				if ( '' !== $gname ) {
+					$letter['job']['deliver_group']['name'] = function_exists( 'mb_substr' ) ? mb_substr( $gname, 0, 120 ) : substr( $gname, 0, 120 );
+				}
 			}
 			// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-2 (S121-R5, I-5) — the sender keeps a docs_v1 book ("Sổ của tôi" › TaiLieu): the cell mirrors these rows
 			// AFTER the journal rows exist (R-JN-15) and reports back with journal.mirror. No book ⇒ no key (older cells ignore it anyway).

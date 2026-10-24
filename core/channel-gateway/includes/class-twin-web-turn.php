@@ -87,6 +87,11 @@ final class BizCity_Twin_Web_Turn {
 	const PARTS_MAX      = 20; // cell envelope: ≤ 20 parts (1 text + ≤ 19 images)
 	const TIMEOUT        = 310; // Hub relay allows 300 s per turn
 	const ERR_BODY_MAX   = 65536;
+	// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — INCIDENT 2026-10-24 (tranghana.vn): a long prompt kept the cell silent > 100 s ⇒ Cloudflare 524 (HTML in the chat). Nothing was written to the
+	// browser before the cell's first frame. Now: no byte from the cell after KEEPALIVE_AFTER s ⇒ open the SSE early; then a comment frame every HEARTBEAT s of silence.
+	const KEEPALIVE_AFTER = 15;
+	const HEARTBEAT       = 10;
+	private static $sse_open = false;
 
 	/** Vietnamese R-ERROR-UX texts of the site side: code ⇒ [status, message, hint]. */
 	const ERRORS = array(
@@ -842,6 +847,10 @@ final class BizCity_Twin_Web_Turn {
 			CURLOPT_TIMEOUT        => 110,
 			CURLOPT_CONNECTTIMEOUT => 5,
 			CURLOPT_FOLLOWLOCATION => false,
+			CURLOPT_NOPROGRESS     => null === $on_tick,
+			CURLOPT_PROGRESSFUNCTION => static function ( ...$a ) use ( $on_tick ) {
+				return ( null !== $on_tick && $on_tick() ) ? 1 : 0; // non-zero aborts the transfer (the browser left)
+			},
 			CURLOPT_HEADERFUNCTION => static function ( $ch, $line ) use ( &$status ) {
 				if ( preg_match( '#^HTTP/\S+\s+(\d{3})#', $line, $m ) ) {
 					$status = (int) $m[1];
@@ -1215,7 +1224,8 @@ final class BizCity_Twin_Web_Turn {
 		if ( empty( $env['account_id'] ) && in_array( (string) ( $env['role'] ?? '' ), array( 'owner', 'staff' ), true ) && class_exists( 'BizCity_Twin_Web_Home' ) ) {
 			BizCity_Twin_Web_Home::ensure_pushed();
 		}
-		$st = (object) array( 'opened' => false, 'buf' => '', 'err' => '', 'ctype' => '', 'ended' => false, 'fallback' => false, 'status' => 0, 'aborted' => false, 'staff' => 'staff' === ( $env['role'] ?? '' ), 'home' => empty( $env['account_id'] ), 'shape' => $shape );
+		self::$sse_open = false;
+		$st = (object) array( 'early' => false, 'last_out' => self::now(), 'opened' => false, 'buf' => '', 'err' => '', 'ctype' => '', 'ended' => false, 'fallback' => false, 'status' => 0, 'aborted' => false, 'staff' => 'staff' === ( $env['role'] ?? '' ), 'home' => empty( $env['account_id'] ), 'shape' => $shape );
 		$on_bytes = static function ( string $chunk, int $status, string $ctype ) use ( $st, $flag, $persist, $env ): bool {
 			$st->status = $status;
 			$st->ctype  = substr( (string) $ctype, 0, 60 );
@@ -1254,13 +1264,31 @@ final class BizCity_Twin_Web_Turn {
 				$st->buf .= $chunk;
 			}
 			self::forward( $st, $persist, (string) $env['trace_id'] );
+			$st->last_out = self::now();
 			if ( function_exists( 'connection_aborted' ) && connection_aborted() ) {
 				$st->aborted = true;
 				return false;                       // the browser left ⇒ drop the Hub stream ⇒ the cell sees the disconnect
 			}
 			return true;
 		};
-		$res = self::transport( $target, (string) self::json( $env ), $on_bytes );
+		$t0   = self::now();
+		$tick = static function () use ( $st, $t0 ): bool {
+			$now = self::now();
+			if ( ! $st->opened && ! $st->early && ! $st->fallback && $now - $t0 >= self::KEEPALIVE_AFTER ) {
+				self::open();          // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126: headers + 4 KB primer go out now; the cell's own first frame follows when it comes
+				$st->early    = true;
+				$st->last_out = $now;
+			} elseif ( ( $st->opened || $st->early ) && $now - $st->last_out >= self::HEARTBEAT ) {
+				self::out( ": hb\n\n" );
+				$st->last_out = $now;
+			}
+			if ( ( $st->opened || $st->early ) && function_exists( 'connection_aborted' ) && connection_aborted() ) {
+				$st->aborted = true;
+				return true;
+			}
+			return false;
+		};
+		$res = self::transport( $target, (string) self::json( $env ), $on_bytes, $tick );
 		self::$errno = (int) ( $res['errno'] ?? 0 );
 		if ( '' === (string) $st->ctype ) {
 			$st->ctype = substr( (string) ( $res['ctype'] ?? '' ), 0, 60 ); // an empty body never reaches on_bytes, so the header is read from the transport
@@ -1269,7 +1297,13 @@ final class BizCity_Twin_Web_Turn {
 			if ( '' !== $st->buf ) {
 				$st->err = substr( $st->buf, 0, self::ERR_BODY_MAX );
 			}
-			return self::upstream_failure( $st, (int) ( $res['status'] ?? $st->status ), $flag );
+			$fail = self::upstream_failure( $st, (int) ( $res['status'] ?? $st->status ), $flag );
+			if ( $st->early ) {
+				// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — the SSE is already open (keepalive): a JSON error or a php fallback can no longer be returned; say it as a frame
+				$d = $fail instanceof WP_REST_Response ? (array) $fail->get_data() : array();
+				return self::stream_error( (string) ( $d['code'] ?? 'hub_unreachable' ), (string) ( $d['message'] ?? '' ), (string) ( $d['hint'] ?? '' ), (string) ( $d['help_code'] ?? '' ) );
+			}
+			return $fail;
 		}
 		if ( '' !== $st->buf ) {
 			self::out( $st->buf );
@@ -1583,9 +1617,9 @@ final class BizCity_Twin_Web_Turn {
 	/* ── transport (transition bridge) ────────────────────────────── */
 
 	/** @return array{ok:bool,status:int} */
-	private static function transport( array $target, string $body, callable $on_bytes ): array {
+	private static function transport( array $target, string $body, callable $on_bytes, ?callable $on_tick = null ): array {
 		if ( isset( self::$readers['transport'] ) ) {
-			return (array) call_user_func( self::$readers['transport'], $target, $body, $on_bytes );
+			return (array) call_user_func( self::$readers['transport'], $target, $body, $on_bytes, $on_tick );
 		}
 		if ( ! function_exists( 'curl_init' ) ) {
 			return array( 'ok' => false, 'status' => 0 );
@@ -1637,6 +1671,10 @@ final class BizCity_Twin_Web_Turn {
 			call_user_func( self::$readers['open'] );
 			return;
 		}
+		if ( self::$sse_open ) {
+			return; // already opened early by the keepalive: headers + primer are out
+		}
+		self::$sse_open = true;
 		if ( ! headers_sent() ) {
 			header_remove( 'Content-Type' );
 			header_remove( 'Content-Length' );

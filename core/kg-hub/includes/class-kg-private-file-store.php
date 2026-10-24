@@ -97,6 +97,8 @@ final class BizCity_KG_Private_File_Store {
 	const MCP_TOOL      = 'document.file.link';
 	const MCP_TEXT_TOOL = 'document.text.read'; // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-4 (S121-A4, I-3)
 	const MCP_LEARN_TOOL = 'document.learn.set'; // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-2 (S121-K7, I-7)
+	const MCP_SUMMARY_TOOL = 'document.summary.set'; // [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — the cell's automatic summary of a saved file ⇒ the journal row
+	const SUMMARY_MAX = 1500;
 	const TEXT_PAGE_MAX = 6000;
 
 	/**
@@ -210,6 +212,83 @@ final class BizCity_KG_Private_File_Store {
 			'fallback_pack'  => null,
 			'since'          => '0.121.0',
 		) );
+
+		// [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ: "gửi file ⇒ tự lưu, tự tóm tắt, lưu tóm tắt vào journal" (chat riêng). The cell reads the
+		// text (document.text.read), summarises it with its own model (the site never calls a model) and writes the summary back HERE: the row's summary (body) + a
+		// card note of who / when. Same read rights as document.text.read (a person can only summarise what they may read); the original file is never touched.
+		// @mcp bizcity-mcp-standard@1 tool document.summary.set
+		$R::register( self::MCP_SUMMARY_TOOL, array(
+			'executor'       => 'document.summary.set',
+			'title'          => 'Lưu tóm tắt của một tài liệu đã lưu',
+			'description'    => 'Ghi bản tóm tắt (≤ 1500 ký tự) vào dòng sổ của MỘT tài liệu theo mã TL-…. Chỉ ghi tóm tắt + dấu "ai tóm, lúc nào"; bản gốc không bao giờ bị sửa. Quyền như document.text.read.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'doc_code', 'summary' ), 'properties' => array(
+				'doc_code' => array( 'type' => 'string', 'maxLength' => 24 ),
+				'summary'  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => self::SUMMARY_MAX ),
+				'source'   => array( 'type' => 'string', 'enum' => array( 'cell_auto', 'cell_asked' ) ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'doc_code' => array( 'type' => 'string' ),
+				'entry_id' => array( 'type' => 'integer' ),
+				'saved'    => array( 'type' => 'boolean' ),
+			), array( 'doc_code', 'saved' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'handler'        => array( __CLASS__, 'mcp_summary_set' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'document_summary_set',
+			'brain'          => array( 'layer' => 'document', 'permission' => 'write', 'crud' => 'state' ),
+			'fallback_pack'  => null,
+			'since'          => '0.128.0',
+		) );
+	}
+
+	/**
+	 * [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — summary text as stored: no tags, collapsed blank lines, ≤ SUMMARY_MAX chars. Pure.
+	 */
+	public static function clean_summary( string $s ): string {
+		$s = trim( (string) preg_replace( "/\n{3,}/", "\n\n", str_replace( "\r", '', wp_strip_all_tags( $s ) ) ) );
+		return function_exists( 'mb_substr' ) ? mb_substr( $s, 0, self::SUMMARY_MAX ) : substr( $s, 0, self::SUMMARY_MAX );
+	}
+
+	/** [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — MCP handler of `document.summary.set`. */
+	public static function mcp_summary_set( array $args, array $ctx ) {
+		$invalid   = class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::QUERY_INVALID : 'query_invalid';
+		$not_found = new WP_Error( class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::NOT_FOUND : 'not_found', 'Không tìm thấy tài liệu có mã này (hoặc không có quyền).', array( 'status' => 404 ) );
+		if ( ! class_exists( 'BizCity_Journal_Database' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return $not_found;
+		}
+		$summary = self::clean_summary( (string) ( $args['summary'] ?? '' ) );
+		if ( '' === $summary ) {
+			return new WP_Error( $invalid, 'Tóm tắt rỗng.', array( 'status' => 400 ) );
+		}
+		$attach = self::id_of_code( (string) ( $args['doc_code'] ?? '' ) );
+		if ( $attach <= 0 ) {
+			return new WP_Error( $invalid, 'Mã tài liệu phải có dạng TL-123.', array( 'status' => 400 ) );
+		}
+		$user_id = (int) ( $ctx['user_id'] ?? 0 );
+		$role    = (string) ( $ctx['role'] ?? '' );
+		if ( ! self::is_private( $attach ) || ! self::may_read( (int) get_post_meta( $attach, self::META_OWNER, true ), (string) get_post_meta( $attach, self::META_WORKSPACE, true ), $user_id, $role, (string) ( $ctx['account_id'] ?? '' ) ) ) {
+			return $not_found;
+		}
+		$code = self::doc_code( $attach );
+		$row  = BizCity_Journal_Database::instance()->get_by_source_ref( $code );
+		if ( ! $row ) {
+			return $not_found;
+		}
+		$source = 'cell_asked' === (string) ( $args['source'] ?? '' ) ? 'cell_asked' : 'cell_auto';
+		$r      = BizCity_Journal_Index::file( (int) $row['id'], (int) $row['owner_user_id'], array(
+			'summary' => $summary,
+			'card'    => array( 'summary_by' => $source, 'summary_at' => gmdate( 'c' ) ),
+		) );
+		if ( is_wp_error( $r ) ) {
+			return $not_found;
+		}
+		return array( 'doc_code' => $code, 'entry_id' => (int) $row['id'], 'saved' => true );
 	}
 
 	/**

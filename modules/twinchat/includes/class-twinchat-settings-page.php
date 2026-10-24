@@ -350,10 +350,10 @@ class BizCity_TwinChat_Settings_Page {
 			array( 'id' => 'bizcity-doc',          'label' => '📄 BizCity Doc',                              'desc' => 'Tiện ích Pro cho document/export; framework hoạt động độc lập khi thiếu plugin.', 'status' => 'pro' ),
 			array( 'id' => 'bizcity-openrouter-mu','label' => '🔌 BizCity OpenRouter (mu-plugin)',           'desc' => 'Thin proxy: BizCity_LLM/Search/Video Client.',           'status' => 'ok' ),
 			array( 'id' => 'bizcity-tool-image',   'label' => '🎨 BizCity Tool — Image',                     'desc' => 'Tiện ích Pro cho Image Studio; không thuộc framework must-load.', 'status' => 'pro' ),
-			array( 'id' => 'bizcity-video-kling',  'label' => '🎬 BizCity Video Kling',                      'desc' => 'Tiện ích Pro cho video; không thuộc framework must-load.', 'status' => 'pro' ),
+			// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — bizcity-video-kling removed (owner: bỏ hẳn).
 			// [2026-10-05 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LOC — Automation is the own sibling plugin bizcity-automation (Pro/Premium add-on), not deprecated.
 			array( 'id' => 'bizcity-automation',   'label' => '🤖 BizCity Automation (plugin riêng, Premium)', 'desc' => 'Workflow runner + kịch bản cho cell, plugin riêng wp-content/plugins/bizcity-automation (ngoài bizcity-twin-ai) — dùng BizCity_LLM_Client.', 'status' => ( class_exists( 'BizCity_Addon_Locator' ) && '' !== BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) ) ? 'ok' : 'pro' ),
-			array( 'id' => 'bizcity-zalo-bot',     'label' => '💬 BizCity Zalo Bot',                         'desc' => 'Memory extraction qua BizCity_LLM_Client::chat() (fixed 2026-06-02).', 'status' => 'ok' ),
+			array( 'id' => 'bizcity-zalo-bot',     'label' => '💬 BizCity Zalo Bot',                         'desc' => 'Kênh Zalo Bot (OA bot) — trả lời qua Guru runtime / Automation; chuyển sang cell ở PHASE-0.118.', 'status' => 'ok' ),
 		);
 		$list = apply_filters( 'bizcity_llm_consumer_plugins', $default );
 		return is_array( $list ) ? $list : $default;
@@ -661,7 +661,6 @@ class BizCity_TwinChat_Settings_Page {
 			'bizcity-tool-content'     => '🗒 Tool Content (Template)',
 			'bizcity-doc'              => '📄 Doc Studio (Word/Excel/PPT)',
 			'bizcity-tool-image'       => '🖼 Image Studio',
-			'bizcity-video-kling'      => '🎬 Video Studio (Kling/Veo3)',
 			'bizcity-pagebuilder'      => '🌐 Page Builder (AI website)',
 			'bizcoach-pro'             => '🎴 BizCoach Pro',
 			'bizcity-twin-crm'         => '👥 Twin CRM',

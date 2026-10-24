@@ -156,7 +156,8 @@ final class BizCity_Twin_Job_Event_REST {
 		return new WP_REST_Response( array( 'ok' => true, 'duplicate' => false, 'result_omitted' => $result_omitted ), 200 );
 	}
 
-	const GATE_KINDS  = array( 'approve', 'decide', 'info' );
+	// [2026-10-24 05:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — + continue (the cell's broken-step question since S127-FB2, was dropped here) + start (D128-14 R-ONE-ASK: the one confirm card)
+	const GATE_KINDS  = array( 'approve', 'decide', 'info', 'continue', 'start' );
 	const MAX_GATE_KB = 4;
 
 	/**

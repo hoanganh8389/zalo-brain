@@ -98,6 +98,103 @@ final class BizCity_Journal_REST {
 			'callback'            => array( __CLASS__, 'versions' ),
 			'permission_callback' => array( __CLASS__, 'permission' ),
 		) );
+		// [2026-10-24 05:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma / S133-V4 / S133-K3 — a PERSON edits the readable part (owner_edit locks it), decides a
+		// proposed value, reads the Markdown of a source and its revisions. Same access decision as the MCP doors (one handler, two doors).
+		register_rest_route( self::NS, '/journal/(?P<id>\d+)/meta', array(
+			'methods'             => 'POST, PATCH',
+			'callback'            => array( __CLASS__, 'meta_edit' ),
+			'permission_callback' => array( __CLASS__, 'permission' ),
+		) );
+		register_rest_route( self::NS, '/journal/(?P<id>\d+)/candidates/(?P<cid>[a-z0-9_]{1,24})', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'candidate_decide' ),
+			'permission_callback' => array( __CLASS__, 'permission' ),
+		) );
+		register_rest_route( self::NS, '/journal/(?P<id>\d+)/vault', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'vault' ),
+			'permission_callback' => array( __CLASS__, 'permission' ),
+		) );
+	}
+
+	/** POST journal/{id}/meta {meta: entry-meta@1 part, expected_rev?} — the person's hand: source owner_edit, the fields changed become locked. */
+	public static function meta_edit( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Journal_Entry_Meta' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S133-JN-REST-1' ), 503 );
+		}
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : (array) $request->get_body_params();
+		$row  = BizCity_Journal_MCP_Tools::get( array( 'entry_id' => (int) $request->get_param( 'id' ) ), self::ctx() );
+		if ( is_wp_error( $row ) ) {
+			return self::respond( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
+		}
+		$out = BizCity_Journal_Entry_Meta::set( (int) get_current_user_id(), array( 'entry_id' => (int) $row['entry_id'] ), is_array( $body['meta'] ?? null ) ? $body['meta'] : array(), array(
+			'merge'        => true,
+			'expected_rev' => (int) ( $body['expected_rev'] ?? 0 ),
+			'source'       => 'owner_edit',
+		) );
+		return is_wp_error( $out ) ? self::respond( $out ) : self::respond( BizCity_Journal_MCP_Tools::card_of( $out ) );
+	}
+
+	/** POST journal/{id}/candidates/{cid} {decision: approve|reject} — approve books the target row (derived_from + page anchor); reject only marks it. */
+	public static function candidate_decide( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Journal_Entry_Meta' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S133-JN-REST-1' ), 503 );
+		}
+		$owner    = (int) get_current_user_id();
+		$decision = (string) $request->get_param( 'decision' );
+		$cid      = (string) $request->get_param( 'cid' );
+		$row      = BizCity_Journal_Index::get( (int) $request->get_param( 'id' ), $owner );
+		if ( null === $row ) {
+			return self::respond( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
+		}
+		$list = (array) ( $row['candidates'] ?? array() );
+		$cand = null;
+		foreach ( $list as $c ) {
+			if ( is_array( $c ) && (string) ( $c['id'] ?? '' ) === $cid ) {
+				$cand = $c;
+			}
+		}
+		if ( null === $cand || 'proposed' !== (string) ( $cand['status'] ?? '' ) || ! in_array( $decision, array( 'approve', 'reject' ), true ) ) {
+			return new WP_REST_Response( array( 'code' => 'candidate_not_open', 'message' => 'Đề xuất này không còn chờ duyệt.', 'hint' => 'Tải lại thẻ để xem trạng thái mới.', 'help_code' => 'S133-JN-REST-409' ), 409 );
+		}
+		$row_ref = '';
+		if ( 'approve' === $decision ) {
+			$def   = class_exists( 'BizCity_Journal_Kinds' ) ? (array) ( BizCity_Journal_Kinds::get( (string) ( $cand['target_kind'] ?? '' ) ) ?? array() ) : array();
+			$entry = BizCity_Journal_Entry_Meta::candidate_entry( $row, $cand, $owner, $def );
+			if ( null === $entry ) {
+				return new WP_REST_Response( array( 'code' => 'candidate_no_target', 'message' => 'Đề xuất chưa nói ghi vào sổ nào.', 'hint' => 'Sửa tay giá trị vào sổ cần ghi.', 'help_code' => 'S133-JN-REST-400' ), 400 );
+			}
+			$booked = BizCity_Journal_Index::add( $entry );
+			if ( is_wp_error( $booked ) ) {
+				return self::respond( $booked );
+			}
+			$row_ref = (string) ( $booked['ref_code'] ?? '' );
+		}
+		$next = BizCity_Journal_Entry_Meta::decide_candidate( $list, $cid, $decision, $owner, $row_ref );
+		$out  = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, array( 'candidates' => (array) $next ) );
+		return is_wp_error( $out ) ? self::respond( $out ) : new WP_REST_Response( array( 'candidates' => $out['candidates'] ?? array(), 'row_ref' => $row_ref ), 200 );
+	}
+
+	/** GET journal/{id}/vault?rev=&offset=&limit= | ?list=1 — the Markdown of a source (Source Drawer tab "Bản đọc") or its revisions. */
+	public static function vault( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Journal_MCP_Tools' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S133-JN-REST-1' ), 503 );
+		}
+		$row = BizCity_Journal_Index::get( (int) $request->get_param( 'id' ), (int) get_current_user_id() );
+		if ( null === $row || '' === (string) ( $row['ref_code'] ?? '' ) ) {
+			return self::respond( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
+		}
+		$args = array( 'ref' => (string) $row['ref_code'] );
+		if ( $request->get_param( 'list' ) ) {
+			return self::respond( BizCity_Journal_MCP_Tools::vault_revision( $args, self::ctx() ) );
+		}
+		foreach ( array( 'rev', 'offset', 'limit' ) as $k ) {
+			if ( null !== $request->get_param( $k ) ) {
+				$args[ $k ] = (int) $request->get_param( $k );
+			}
+		}
+		return self::respond( BizCity_Journal_MCP_Tools::vault_get( $args, self::ctx() ) );
 	}
 
 	/** Pure: the version chain of `$root_ref` from a page of entries (rows whose version.root_ref or own code equals it), by version.n then id. */
@@ -150,7 +247,7 @@ final class BizCity_Journal_REST {
 		if ( ! class_exists( 'BizCity_Journal_MCP_Tools' ) ) {
 			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S100-JN-REST-1' ), 503 );
 		}
-		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer', 'context_scope' ) ); // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — + context_scope (context-scope@1), one handler two doors // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
+		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer', 'context_scope', 'terms', 'match', 'person', 'has', 'source_uuid' ) ); // [2026-10-24 05:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — + find v2 // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — + context_scope (context-scope@1), one handler two doors // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
 		$args = self::scope_filter( $args, (int) $request->get_param( 'contact_id' ), (string) $request->get_param( 'group' ) ); // [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID
 		$res  = BizCity_Journal_MCP_Tools::find( $args, self::ctx() );
 		return self::respond( $res );
@@ -178,6 +275,17 @@ final class BizCity_Journal_REST {
 			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S100-JN-REST-1' ), 503 );
 		}
 		$res = BizCity_Journal_MCP_Tools::get( array( 'entry_id' => (int) $request->get_param( 'id' ) ), self::ctx() );
+		// [2026-10-24 05:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 81 §7) — ?view=card: the read shape; the preview link is signed only when this person may fetch the file
+		if ( is_array( $res ) && ! isset( $res['code'] ) && 'card' === (string) $request->get_param( 'view' ) && method_exists( 'BizCity_Journal_MCP_Tools', 'card_of' ) ) {
+			$attach = (int) ( $res['original']['attachment_id'] ?? 0 );
+			$may    = ! class_exists( 'BizCity_Brain_Access' ) || BizCity_Brain_Access::decide( BizCity_Brain_Access::principal( self::ctx() ), $res, 'file.get' )['allow'];
+			$url    = $attach > 0 && $may && class_exists( 'BizCity_KG_Private_File_Store' ) && method_exists( 'BizCity_KG_Private_File_Store', 'signed_url' ) ? BizCity_KG_Private_File_Store::signed_url( $attach ) : '';
+			$card   = BizCity_Journal_MCP_Tools::card_of( $res, $url );
+			if ( '' !== $url ) {
+				$card['download_url'] = $url; // UI gap 3: any file type, same signed link (file.get decided above)
+			}
+			return new WP_REST_Response( $card, 200 );
+		}
 		if ( is_wp_error( $res ) || ! is_array( $res ) || isset( $res['code'] ) ) {
 			$team = self::team_entries( (int) get_current_user_id(), (int) $request->get_param( 'id' ) ); // [2026-10-17 11:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 Q121-8 web
 			if ( array() !== $team ) {
@@ -674,12 +782,21 @@ final class BizCity_Journal_REST {
 			$by_code = array( 'journal_not_found' => 404, 'journal_revision_conflict' => 409, 'audience_locked' => 400, 'access_denied' => 404 ); // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P3 — brain-access@1 errors
 			$status  = is_array( $data ) && ! empty( $data['status'] ) ? (int) $data['status'] : ( $by_code[ $res->get_error_code() ] ?? 400 );
 			$hints = array( 'journal_revision_conflict' => 'Người khác vừa sửa tài liệu này — đã tải bản mới, xem lại rồi lưu lần nữa.', 'journal_not_found' => 'Tài liệu không còn trong sổ của anh/chị.', 'audience_locked' => 'Loại nhạy cảm luôn đóng với khách.' );
-			return new WP_REST_Response( array(
-				'code'      => $res->get_error_code(),
+			// [2026-10-24 06:21 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (UI gap 1) — keep the service's own reason / hint / fields (entry_meta_invalid · entry_meta_conflict · vault_not_found) instead of a generic body
+			$code = is_array( $data ) && '' !== (string) ( $data['reason'] ?? '' ) ? (string) $data['reason'] : $res->get_error_code();
+			$out  = array(
+				'code'      => $code,
 				'message'   => $res->get_error_message(),
-				'hint'      => $hints[ $res->get_error_code() ] ?? '',
-				'help_code' => 'S100-JN-REST-' . $status,
-			), $status );
+				'hint'      => is_array( $data ) && '' !== (string) ( $data['hint'] ?? '' ) ? (string) $data['hint'] : ( $hints[ $code ] ?? '' ),
+				'help_code' => is_array( $data ) && '' !== (string) ( $data['help_code'] ?? '' ) ? (string) $data['help_code'] : 'S100-JN-REST-' . $status,
+			);
+			if ( is_array( $data ) && is_array( $data['fields'] ?? null ) ) {
+				$out['fields'] = array_values( array_map( 'strval', $data['fields'] ) );
+			}
+			if ( is_array( $data ) && isset( $data['rev'] ) ) {
+				$out['rev'] = (int) $data['rev'];
+			}
+			return new WP_REST_Response( $out, $status );
 		}
 		return new WP_REST_Response( $res, 200 );
 	}

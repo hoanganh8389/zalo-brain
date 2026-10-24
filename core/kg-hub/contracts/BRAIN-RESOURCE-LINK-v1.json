@@ -1,0 +1,72 @@
+{
+  "$schema": "https://bizcity.vn/schema/brain-resource-link-v1.json",
+  "contract": "brain-resource-link@1.0.0",
+  "_stamp": "[2026-10-24 05:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-V1/V2 (doc 20 §1-§2, R-SOURCE-FIRST-VAULT SF-1…6 / VA-1…6) — the identity of ONE logical source on its journal row (metadata.resource) and the Markdown representation the Vault keeps of it (brain-markdown@1). Runtime JSON (core/kg-hub/contracts): code = BizCity_Brain_Resource_Link + BizCity_Brain_Vault_Store; docs/ is never read at runtime.",
+  "rule": "docs/rules/PHASE-0-RULE-SOURCE-FIRST-VAULT.md",
+  "block": "journal-entry@1.2.metadata.resource",
+  "writer": "site only (BizCity_Journal_Index::derive after add / file); callers may send links / knowledge, never source_ref / source_uuid / original",
+  "keys": {
+    "source_ref":      { "type": "string", "pattern": "^[A-Z]{2}-\\d{1,12}@v\\d{1,6}$", "note": "row code + version: TL-47@v2 (what a person / the model cites)" },
+    "source_uuid":     { "type": "uuid", "version": 7, "note": "one logical source across versions: reused from the version root, else from the same sha256 (n ≤ 1), else minted" },
+    "original":        { "type": "object", "shape": { "ref": "asset://TL-47/v2 (locator, never a path / URL)", "sha256": "64 hex", "mime": "string", "bytes": "int", "origin": "surface", "captured_at": "ISO-8601" } },
+    "representations": { "type": "array", "max": 12, "items": { "kind": "markdown", "ref": "vault://TL-47/v2/r1", "rev": "int ≥ 1", "content_sha256": "64 hex of the stored file", "extract": { "kind": "pdf_text|pdf_ocr|pdf_text_or_ocr|image_vision|image_ocr|image_vision_ocr|sheet_parser|docx_text|audio_transcript|note_text|other", "engine": "parser|ocr|vision|transcript|model|person", "status": "pending|completed|failed|skipped", "reviewed": "bool", "run_id": "string" }, "at": "ISO-8601" } },
+    "knowledge":       { "type": "object", "shape": { "kg_source_id": "int", "indexed_rev": "int (the representation rev the KG holds)", "status": "ready|stale|none" }, "note": "VA-5: a new rev ≠ indexed_rev ⇒ stale (rebuilt alone)" },
+    "links":           { "type": "object", "shape": { "notebook_ref": "NB-…", "job_refs": "JB-…[]", "sheet_refs": "TC-…/CN-…[]", "group_ref": "grp-…", "contact_ref": "ct_…" } }
+  },
+  "markdown": {
+    "contract": "brain-markdown@1.0.0",
+    "store": "BizCity_Brain_Vault_Store — root BIZCITY_VAULT_ROOT / option bizcity_vault_root (outside the web root, D133-5), else uploads/bizcity-vault/ + deny files; <root>/<blog>/<namespace>/<REF>/v<n>/r<rev>.md (+ .map.json sidecar)",
+    "namespaces": ["documents", "images", "notes", "sheet-descriptors", "job-summaries", "skills"],
+    "frontmatter": {
+      "schema": "brain-markdown@1",
+      "type": "document|image|note|sheet-descriptor|job-summary",
+      "ref_code": "TL-47",
+      "version_ref": "TL-47@v2",
+      "original_ref": "asset://TL-47/v2",
+      "original_sha256": "64 hex",
+      "representation_rev": "int",
+      "kind": "journal kind",
+      "extraction": { "kind": "…", "engine": "…", "status": "…", "reviewed": "bool" },
+      "access": "inherit_from_source (always)",
+      "belongs": { "notebook_ref": "NB-… (optional)" },
+      "doc_date": "YYYY-MM-DD (optional)"
+    },
+    "forbidden_keys": ["approved", "customer", "public", "verified", "amount", "amounts", "total", "status_job", "job_status", "owner", "tenant", "permissions", "acl", "delivered_to"],
+    "body": "# <title> + the source's own words verbatim; AI notes only under '## Ghi chú AI (không phải văn bản gốc)' as a quote (VA-3)"
+  },
+  "tools": {
+    "vault.get": "read one revision (offset / limit ≤ 6000 chars), content.read decided at the source",
+    "vault.materialize": "cell writes body_md (+ ai_notes, extraction, sidecar); same composed bytes ⇒ unchanged",
+    "vault.revision": "revisions newest first + knowledge state"
+  },
+  "examples": {
+    "pdf_text": {
+      "contract": "brain-resource-link@1.0.0",
+      "source_ref": "TL-47@v1",
+      "source_uuid": "019a1b2c-3d4e-7f50-8a61-72b3c4d5e6f7",
+      "original": { "ref": "asset://TL-47/v1", "sha256": "4f1c0a9e2b7d3c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6a", "mime": "application/pdf", "bytes": 182044, "origin": "zalo", "captured_at": "2026-10-24T09:12:00Z" },
+      "representations": [ { "kind": "markdown", "ref": "vault://TL-47/v1/r1", "rev": 1, "content_sha256": "9a8b7c6d5e4f30211203f4e5d6c7b8a99a8b7c6d5e4f30211203f4e5d6c7b8a9", "extract": { "kind": "pdf_text", "engine": "parser", "status": "completed", "reviewed": false, "run_id": "ex_01" }, "at": "2026-10-24T09:12:40Z" } ],
+      "knowledge": { "kg_source_id": 812, "indexed_rev": 1, "status": "ready" },
+      "links": { "notebook_ref": "NB-12", "job_refs": [], "sheet_refs": [], "group_ref": "", "contact_ref": "" }
+    },
+    "photo": {
+      "contract": "brain-resource-link@1.0.0",
+      "source_ref": "TL-51@v1",
+      "source_uuid": "019a1b2d-0000-7a11-9b22-33c44d55e66f",
+      "original": { "ref": "asset://TL-51/v1", "sha256": "0b1c2d3e4f5061728394a5b6c7d8e9f00b1c2d3e4f5061728394a5b6c7d8e9f0", "mime": "image/jpeg", "bytes": 94211, "origin": "zalo", "captured_at": "2026-10-24T10:02:00Z" },
+      "representations": [ { "kind": "markdown", "ref": "vault://TL-51/v1/r1", "rev": 1, "content_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "extract": { "kind": "image_vision_ocr", "engine": "vision", "status": "completed", "reviewed": false, "run_id": "ex_02" }, "at": "2026-10-24T10:02:20Z" } ],
+      "knowledge": { "kg_source_id": 0, "indexed_rev": 0, "status": "none" },
+      "links": { "notebook_ref": "", "job_refs": [], "sheet_refs": [], "group_ref": "grp-7788", "contact_ref": "" }
+    },
+    "contract_v2_stale": {
+      "contract": "brain-resource-link@1.0.0",
+      "source_ref": "TL-60@v2",
+      "source_uuid": "019a1b2c-3d4e-7f50-8a61-72b3c4d5e6f7",
+      "original": { "ref": "asset://TL-60/v2", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "bytes": 40211, "origin": "web", "captured_at": "2026-10-24T11:00:00Z" },
+      "representations": [ { "kind": "markdown", "ref": "vault://TL-60/v2/r2", "rev": 2, "content_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "extract": { "kind": "docx_text", "engine": "parser", "status": "completed", "reviewed": true, "run_id": "ex_03" }, "at": "2026-10-24T11:01:00Z" } ],
+      "knowledge": { "kg_source_id": 820, "indexed_rev": 1, "status": "stale" },
+      "links": { "notebook_ref": "NB-12", "job_refs": ["JB-31"], "sheet_refs": [], "group_ref": "", "contact_ref": "" },
+      "_note": "version 2 keeps the source_uuid of version 1 (TL-47 chain in this example); the KG still holds rev 1 ⇒ stale"
+    }
+  }
+}

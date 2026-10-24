@@ -173,11 +173,40 @@ final class BizCity_MCP_Tool_Registry {
 	 * @return array|WP_Error
 	 */
 	public static function knowledge_search_counted( array $args, array $ctx ) {
+		$args   = self::source_refs_to_entry_ids( $args, $ctx );
+		if ( array( 0 ) === ( $args['entry_ids'] ?? null ) ) {
+			return array( 'retrieval_snapshot_id' => '', 'passages' => array(), 'allowed_citations' => array(), 'note' => 'source_refs_not_found' ); // scoped to codes the caller does not have ⇒ nothing (never the unscoped search)
+		}
 		$result = BizCity_Brain_MCP_Service::instance()->search( $args, $ctx );
 		if ( class_exists( 'BizCity_Journal_Brain_Map', false ) ) {
 			BizCity_Journal_Brain_Map::note_search( $args, $ctx, $result );
 		}
 		return $result;
+	}
+
+	/**
+	 * [2026-10-24 05:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-K1 — `source_refs` ("TL-47", "TL-47@v2") ⇒ the caller's own rows' entry_ids (the existing filter, applied
+	 * before ranking and still inside the allowed notebooks). A code that is not the caller's adds nothing; refs only narrow, so all unknown ⇒ entry_ids [0], which knowledge_search_counted answers with an empty result (no leak, no widening).
+	 */
+	public static function source_refs_to_entry_ids( array $args, array $ctx ): array {
+		$refs = array_slice( array_filter( array_map( 'strval', (array) ( $args['source_refs'] ?? array() ) ), 'strlen' ), 0, 10 );
+		unset( $args['source_refs'] );
+		if ( ! $refs || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return $args;
+		}
+		$owner = (int) ( $ctx['owner_user_id'] ?? $ctx['user_id'] ?? 0 );
+		$ids   = array_map( 'intval', (array) ( $args['entry_ids'] ?? array() ) );
+		$found = 0;
+		foreach ( $refs as $r ) {
+			$code = 1 === preg_match( '/^\s*([A-Za-z]{2}-\d{1,12})(?:@v\d{1,6})?\s*$/', $r, $m ) ? strtoupper( $m[1] ) : '';
+			$row  = '' !== $code && $owner > 0 ? BizCity_Journal_Index::find_by_ref( $code, $owner ) : null;
+			if ( $row ) {
+				$ids[] = (int) $row['entry_id'];
+				$found++;
+			}
+		}
+		$args['entry_ids'] = $found > 0 ? array_slice( array_values( array_unique( array_filter( $ids ) ) ), 0, 10 ) : array( 0 );
+		return $args;
 	}
 
 	/** PHASE-0.103 RK-15 — same callable? (class + method for [object|class, method]; identity for closures/functions). null on either side ⇒ treated as the same (nothing to compare). */
@@ -900,6 +929,8 @@ final class BizCity_MCP_Tool_Registry {
 				// kg source ids, or journal entry ids the site maps to them; filtered BEFORE ranking, still within allowed notebooks.
 				'source_ids'         => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ), 'maxItems' => 10 ),
 				'entry_ids'          => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ), 'maxItems' => 10 ),
+				// [2026-10-24 05:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-K1 — the codes a person / the journal speaks ("TL-47", "TL-47@v2"); the site maps them to entry_ids (same filter)
+				'source_refs'        => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 24, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}(@v[0-9]{1,6})?\\s*$' ), 'maxItems' => 10 ),
 				'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
 				'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
 				'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),

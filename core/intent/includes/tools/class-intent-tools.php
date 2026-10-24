@@ -75,19 +75,8 @@ class BizCity_Intent_Tools {
         // so it could only answer "not available". Their stale bizcity_tool_registry rows are deactivated by
         // BizCity_Intent_Tool_Index::sync_builtin_tools(). Admin work goes through CRM / Automation instead.
 
-        // ── Tool: create_video → bridges to bizcity-video-kling ──
-        if ( ! $this->has( 'create_video' ) ) {
-        $this->register( 'create_video', [
-            'description'  => 'Tạo video bằng AI (Kling)',
-            'input_fields' => [
-                'content'      => [ 'required' => true,  'type' => 'text' ],
-                'title'        => [ 'required' => false, 'type' => 'text' ],
-                'duration'     => [ 'required' => false, 'type' => 'number', 'default' => 5 ],
-                'aspect_ratio' => [ 'required' => false, 'type' => 'choice', 'default' => '9:16' ],
-                'image_url'    => [ 'required' => false, 'type' => 'image' ],
-            ],
-        ], [ $this, 'builtin_create_video' ] );
-        }
+        // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — built-in create_video (bridge to bizcity-video-kling) removed with the plugin; its
+        // bizcity_tool_registry row is deactivated by BizCity_Intent_Tool_Index::sync_builtin_tools() like the WP-12 R5 built-ins.
 
         // Note: bizcity_intent_tools_ready hook is now fired from
         // Provider Registry boot() at init:25 (after this method + DB sync).
@@ -477,104 +466,6 @@ class BizCity_Intent_Tools {
      *  Built-in tool implementations
      * ================================================================ */
 
-    /**
-     * Built-in: Create video via Kling — saves script, returns link for generation.
-     * This is async: script saved immediately, video generation queued separately.
-     */
-    public function builtin_create_video( array $slots ) {
-        if ( class_exists( 'BizCity_Video_Kling_Database' ) ) {
-            // Guard: verify save_script() method exists — prevents fatal if Kling plugin
-            // renamed or restructured the Database class.
-            if ( ! method_exists( 'BizCity_Video_Kling_Database', 'save_script' ) ) {
-                error_log( '[INTENT-TOOLS] create_video: BizCity_Video_Kling_Database exists but save_script() method not found' );
-                return [
-                    'success' => false,
-                    'message' => 'Plugin Kling đã cài nhưng thiếu method save_script(). Vui lòng cập nhật plugin.',
-                    'data'    => [],
-                ];
-            }
-
-            $title        = $slots['title'] ?? ( 'Video: ' . mb_substr( $slots['content'] ?? '', 0, 40 ) );
-            $content      = $slots['content'] ?? '';
-            $duration     = intval( $slots['duration'] ?? 5 );
-            $aspect_ratio = $slots['aspect_ratio'] ?? '9:16';
-            // Sanitize image_url: must be a valid URL, not user text leaking from slot filling
-            $image_url    = $slots['image_url'] ?? '';
-            if ( $image_url && ! filter_var( $image_url, FILTER_VALIDATE_URL ) ) {
-                $image_url = '';
-            }
-
-            $script_data = [
-                'title'        => $title,
-                'content'      => $content,
-                'duration'     => $duration,
-                'aspect_ratio' => $aspect_ratio,
-                'model'        => 'kling-v2',
-                'status'       => 'active',
-                'metadata'     => wp_json_encode( [
-                    'image_url'  => $image_url,
-                    'source'     => 'intent_engine',
-                    'created_by' => get_current_user_id(),
-                ] ),
-            ];
-
-            if ( class_exists( 'BizCity_Execution_Logger' ) ) {
-                BizCity_Execution_Logger::log( 'tool_step', [
-                    'tool_name' => 'create_video', 'sub_step' => '1/2 save_script',
-                    'status' => 'running', 'title' => $title,
-                ] );
-            }
-
-            // [2026-09-25 Claude Opus 5.5] FATAL-SWEEP — the Kling repo exposes create_script(), not save_script().
-            $script_id = method_exists( 'BizCity_Video_Kling_Database', 'save_script' )
-                ? BizCity_Video_Kling_Database::save_script( $script_data )
-                : BizCity_Video_Kling_Database::create_script( $script_data );
-
-            if ( $script_id ) {
-                do_action( 'bizcity_intent_tool_create_video', $slots, $script_id );
-
-                $edit_url = admin_url( 'admin.php?page=bizcity-kling-scripts&action=generate&id=' . $script_id );
-
-                if ( class_exists( 'BizCity_Execution_Logger' ) ) {
-                    BizCity_Execution_Logger::log( 'tool_step', [
-                        'tool_name' => 'create_video', 'sub_step' => '1/2 save_script',
-                        'status' => 'success', 'post_id' => $script_id, 'title' => $title, 'url' => $edit_url,
-                    ] );
-                    BizCity_Execution_Logger::log( 'tool_step', [
-                        'tool_name' => 'create_video', 'sub_step' => '2/2 queue_generation',
-                        'status' => 'skipped', 'message' => 'Async — user must click Generate link',
-                    ] );
-                }
-
-                return [
-                    'success'  => true,
-                    'complete' => true,  // Script saved = goal achieved
-                    'message'  => sprintf(
-                        "🎬 Đã tạo script video \"%s\" (%d giây, %s).\n👉 Bấm vào đây để tạo video: %s",
-                        $title, $duration, $aspect_ratio, $edit_url
-                    ),
-                    'data' => [ 'script_id' => $script_id, 'url' => $edit_url ],
-                ];
-            }
-
-            if ( class_exists( 'BizCity_Execution_Logger' ) ) {
-                BizCity_Execution_Logger::error( 'tool_error', 'create_video: save_script thất bại', [
-                    'tool' => 'create_video', 'title' => $title,
-                ] );
-            }
-
-            return [
-                'success' => false,
-                'message' => 'Không thể tạo script video. Vui lòng thử lại.',
-                'data'    => [],
-            ];
-        }
-
-        return [
-            'success' => false,
-            'message' => 'Plugin tạo video (Kling) chưa được cài đặt.',
-            'data'    => [],
-        ];
-    }
+    // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — builtin_create_video() removed with the bizcity-video-kling plugin (owner: bỏ hẳn).
 
 }

@@ -27,6 +27,10 @@ final class BizCity_Journal_Brain_Map {
 	const CONTRACT = 'brain-map@1.0.0';
 	// [2026-10-22 08:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 doc 68 (owner 20:2x) — 1.1.0 adds only hub kinds sheet / skill hanging off a drawn job (edges writes_sheet / uses_skill)
 	const CONTRACT_V11    = 'brain-map@1.1.0';
+	// [2026-10-24 05:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc (doc 81 §8) — 1.2.0 adds person / topic hubs from entry-meta@1 (edges mentions_person / about_topic); only when one is drawn
+	const CONTRACT_V12    = 'brain-map@1.2.0';
+	const META_PEOPLE_PER_DOC = 3;
+	const META_TOPICS_PER_DOC = 2;
 	const SKILL_NAME_RE   = '/^[a-z0-9][a-z0-9-]{0,63}$/';
 	const LADDER   = 'knowledge-ladder@1.0.0';
 
@@ -500,6 +504,14 @@ final class BizCity_Journal_Brain_Map {
 					$edges[] = array( 'from' => 'd' . $src, 'to' => $nid, 'type' => 'derived_from' );
 				}
 			}
+			// PHASE-0.133 S133-Mc — the people a row names and its topics (entry-meta@1), one hub per folded name; a sensitive row never draws them
+			if ( '' === (string) ( $e['flags']['sensitive'] ?? '' ) ) {
+				foreach ( self::meta_hubs( $e ) as $h ) {
+					if ( $hub( $h['id'], array( 'kind' => $h['kind'], 'label' => $h['label'], 'ref_code' => '' ) ) ) {
+						$edges[] = array( 'from' => $nid, 'to' => $h['id'], 'type' => 'person' === $h['kind'] ? 'mentions_person' : 'about_topic' );
+					}
+				}
+			}
 		}
 
 		$focus = null;
@@ -516,14 +528,17 @@ final class BizCity_Journal_Brain_Map {
 		}
 
 		$v11 = false;
+		$v12 = false;
 		foreach ( $nodes as $n ) {
 			if ( in_array( (string) ( $n['kind'] ?? '' ), array( 'sheet', 'skill' ), true ) ) {
 				$v11 = true;
-				break;
+			}
+			if ( in_array( (string) ( $n['kind'] ?? '' ), array( 'person', 'topic' ), true ) ) {
+				$v12 = true;
 			}
 		}
 		return array(
-			'contract'  => $v11 ? self::CONTRACT_V11 : self::CONTRACT, // 1.1.0 only when a sheet / skill hub is drawn; else the 1.0.0 bytes
+			'contract'  => $v12 ? self::CONTRACT_V12 : ( $v11 ? self::CONTRACT_V11 : self::CONTRACT ), // 1.1.0 / 1.2.0 only when such a hub is drawn; else the 1.0.0 bytes
 			'ladder'    => self::LADDER,
 			'as_of'     => gmdate( 'Y-m-d\TH:i:s\Z', (int) strtotime( $now . ' UTC' ) ),
 			'focus'     => $focus,
@@ -532,6 +547,33 @@ final class BizCity_Journal_Brain_Map {
 			'edges'     => $edges,
 			'truncated' => count( $kept ) < count( $docs ),
 		);
+	}
+
+	/**
+	 * [2026-10-24 05:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc — person / topic hubs of one row from its entry-meta@1: ≤ 3 people (by folded name, honorifics
+	 * dropped), ≤ 2 topics; ids are short hashes of the folded key so the same name on two rows meets at one hub. Pure.
+	 *
+	 * @return array<int,array{id:string,kind:string,label:string}>
+	 */
+	public static function meta_hubs( array $e ): array {
+		$meta = is_array( $e['meta'] ?? null ) ? $e['meta'] : array();
+		$out  = array();
+		$fold = class_exists( 'BizCity_Journal_Entry_Meta' );
+		foreach ( array_slice( (array) ( $meta['people'] ?? array() ), 0, self::META_PEOPLE_PER_DOC ) as $p ) {
+			$name = is_array( $p ) ? trim( (string) ( $p['name'] ?? '' ) ) : '';
+			$key  = is_array( $p ) && '' !== (string) ( $p['norm'] ?? '' ) ? (string) $p['norm'] : ( $fold ? BizCity_Journal_Entry_Meta::person_norm( $name ) : mb_strtolower( $name ) );
+			if ( '' !== $key && '' !== $name ) {
+				$out[] = array( 'id' => 'p' . substr( md5( $key ), 0, 10 ), 'kind' => 'person', 'label' => mb_substr( $name, 0, 60 ) );
+			}
+		}
+		foreach ( array_slice( (array) ( $meta['topics'] ?? array() ), 0, self::META_TOPICS_PER_DOC ) as $t ) {
+			$t   = trim( (string) $t );
+			$key = $fold ? BizCity_Journal_Entry_Meta::fold( $t ) : mb_strtolower( $t );
+			if ( '' !== $key ) {
+				$out[] = array( 'id' => 't' . substr( md5( $key ), 0, 10 ), 'kind' => 'topic', 'label' => mb_substr( $t, 0, 60 ) );
+			}
+		}
+		return $out;
 	}
 
 	/**

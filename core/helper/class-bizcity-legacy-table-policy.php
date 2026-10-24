@@ -113,6 +113,9 @@ final class BizCity_Legacy_Table_Policy {
 
 	/** [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — early fallback names before Diagnostics registry loading. */
 	private static $quarantine = array(
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — per-Guru media keys of the PHP bot engine (removed: the cell answers);
+		// no reader or writer is left. Rows (encrypted keys) stay until the owner orders a DROP.
+		'bizcity_bot_secrets',
 		// [2026-10-20 09:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-B2 — the Flows port is gone (owner: bizgpt-custom-flows retired); rows stay, no writer, no DROP.
 		'bizcity_crm_flows',
 		// [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — the Gmail SMTP account store is retired (Gmail → cell + Composio); rows stay, no writer, no DROP.

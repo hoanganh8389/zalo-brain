@@ -105,6 +105,43 @@ final class BizCity_Zalo_Hub_Events {
 		return self::build_outbound_echo( $body );
 	}
 
+	/**
+	 * [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — `bizcity_bot_turn_completed` (Automation trigger "sau khi bot trả lời")
+	 * used to be fired by the PHP turn runner, which left the core: the cell answers every channel. Fire it here instead, once per
+	 * cell reply — on its LAST part, and only for a real agent reply (the runner never fired it for its fallback apology either).
+	 * Same payload keys as before. A throwing listener must not turn an accepted reply into an error for the Hub.
+	 */
+	private static function emit_turn_completed( int $crm_message_id, array $norm, array $body ): void {
+		$meta = (array) ( $norm['ai_metadata'] ?? array() );
+		if ( $crm_message_id <= 0 || 'agent' !== (string) ( $meta['reply_kind'] ?? 'agent' ) || (int) ( $meta['part'] ?? 1 ) < (int) ( $meta['parts'] ?? 1 ) || ! function_exists( 'do_action' ) ) {
+			return;
+		}
+		$conversation_id = 0;
+		if ( class_exists( 'BizCity_CRM_Repository' ) ) {
+			$row             = BizCity_CRM_Repository::get_message( $crm_message_id );
+			$conversation_id = is_array( $row ) ? (int) ( $row['conversation_id'] ?? 0 ) : 0;
+		}
+		if ( $conversation_id <= 0 ) {
+			return;
+		}
+		$account_id = (string) ( $body['account_id'] ?? '' );
+		$binding    = class_exists( 'BizCity_Channel_Binding' ) ? BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', $account_id ) : null;
+		try {
+			do_action( 'bizcity_bot_turn_completed', array(
+				'conversation_id' => $conversation_id,
+				'contact_id'      => method_exists( 'BizCity_CRM_Repository', 'get_conversation_contact_id' ) ? (int) BizCity_CRM_Repository::get_conversation_contact_id( $conversation_id ) : 0,
+				'character_id'    => is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0,
+				'message_id'      => $crm_message_id,
+				'account_id'      => $account_id,
+				'chat_id'         => (string) ( $norm['source_id'] ?? '' ),
+				'trace_id'        => (string) ( $meta['trace_ref'] ?? '' ),
+				'replier'         => 'cell',
+			) );
+		} catch ( \Throwable $e ) {
+			self::log( 'hub_turn_completed_listener_threw', array( 'account_id' => $account_id, 'error' => get_class( $e ) ) );
+		}
+	}
+
 	/** Zalo message id of the bot message; `idempotency_key` when the cell could not get one. */
 	public static function dedupe_key( array $body ): string {
 		$msg = (string) ( $body['message_id'] ?? '' );
@@ -141,6 +178,7 @@ final class BizCity_Zalo_Hub_Events {
 				if ( function_exists( 'do_action' ) ) {
 					do_action( 'bizcity_zalo_hub_bot_reply', $crm_id, $norm, $body );
 				}
+				self::emit_turn_completed( $crm_id, $norm, $body );
 				return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'claimed_echo' => true, 'crm_message_id' => $crm_id ) );
 			}
 			return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'duplicate' => true, 'crm_message_id' => $crm_id ) );
@@ -166,6 +204,7 @@ final class BizCity_Zalo_Hub_Events {
 		if ( function_exists( 'do_action' ) ) {
 			do_action( 'bizcity_zalo_hub_bot_reply', $msg_id, $norm, $body );
 		}
+		self::emit_turn_completed( $msg_id, $norm, $body );
 		return array( 'status' => 200, 'body' => array( 'ok' => true, 'accepted' => true, 'crm_message_id' => $msg_id ) );
 	}
 

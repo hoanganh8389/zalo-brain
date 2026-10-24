@@ -117,6 +117,11 @@ if ( class_exists( 'BizCity_Safe_Loader' ) ) {
 // index/filer (both read it), index before the pack exporter (the exporter reads the index/database directly).
 foreach ( array(
 	'class-journal-kinds.php'                    => 'kg_hub.journal_kinds',
+	// [2026-10-24 05:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — resource link · entry-meta · evidence · vault store (pure / file helpers the index reads; before it).
+	'class-brain-resource-link.php'              => 'kg_hub.brain_resource_link',
+	'class-journal-entry-meta.php'               => 'kg_hub.journal_entry_meta',
+	'class-journal-evidence.php'                 => 'kg_hub.journal_evidence',
+	'class-brain-vault-store.php'                => 'kg_hub.brain_vault_store',
 	'class-journal-index.php'                    => 'kg_hub.journal_index',
 	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
 	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
@@ -136,6 +141,7 @@ foreach ( array(
 	'class-journal-brain-map.php'                 => 'kg_hub.journal_brain_map', // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — Bản đồ não (brain-map@1): a view over the person's rows, after the index + pack exporter it reads
 	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
 	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
+	'class-journal-meta-backfill.php'             => 'kg_hub.journal_meta_backfill', // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc — find_text + resource for older rows, dry run first
 	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
 	// [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 — Twin Sheet ("Sổ"): definitions + read doors over journal rows (no table, D123-1). After the journal index they read.
 	'twin-sheet/class-twin-sheet-schema.php'      => 'kg_hub.twin_sheet_schema',
@@ -218,6 +224,9 @@ if ( class_exists( 'BizCity_Journal_Output_Listener', false ) ) {
 }
 if ( class_exists( 'BizCity_Journal_Backfill', false ) ) {
 	BizCity_Journal_Backfill::register();
+}
+if ( class_exists( 'BizCity_Journal_Meta_Backfill', false ) ) {
+	BizCity_Journal_Meta_Backfill::register(); // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc
 }
 // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J2 (job-link@1, BS-5) — a job-event@1.1 that reached the site opens / folds the JB- header row (after BizCity_Sheet_Bindings at 10).
 if ( class_exists( 'BizCity_Journal_Job_Link', false ) ) {

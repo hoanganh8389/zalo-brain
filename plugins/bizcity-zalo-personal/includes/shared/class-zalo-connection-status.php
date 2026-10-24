@@ -627,77 +627,16 @@ class BizCity_Zalo_Connection_Status {
 	}
 
 	/**
-	 * OB-7b — a zca-provider number: the binding's Guru, the same context builder + `chat_with_character()`
-	 * the real turn uses, but on conversation_id/contact_id = 0 (no real history read, no contact touched)
-	 * and no tool execution (`BizCity_Bot_Tools::plan()/run()` never called — a tool would fire for real).
-	 * Read-only end to end: never `run_turn()`, `claim_for_conversation()`, `on_normalized()`.
+	 * [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — a zca-provider number has no assistant any more: the PHP turn engine
+	 * (context builder + chat_with_character) left the core, the cell answers every channel, and the cell only reaches a number that
+	 * is connected through Zalo Hub. So the test says that plainly instead of running a PHP LLM call. Staff still answer from the Inbox.
 	 */
 	private static function bot_test_zca( string $account_id, string $text ): array {
-		$engine = array( 'engine' => 'zca', 'engine_label' => 'Bot website (zca-bridge)' );
-		$binding = self::read( 'binding', $account_id );
-		$character_id = is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0;
-		if ( $character_id <= 0 ) {
-			return self::test_error( 'no_character', 'Số này chưa gắn Guru nào để thử.', 'Vào Bot Studio, gắn một Guru cho số này rồi thử lại.', $engine );
-		}
-		$character = self::read( 'character', $character_id );
-		if ( ! $character ) {
-			return self::test_error( 'no_character', 'Guru đã gắn cho số này không còn tồn tại.', 'Gắn lại một Guru khác cho số này.', $engine );
-		}
-
-		$silence = array();
-		$mode = (string) ( $binding['mode'] ?? 'auto' );
-		if ( $mode === 'manual' ) {
-			$silence[] = array( 'code' => 'manual_mode', 'message' => 'Số này đang ở chế độ trả lời thủ công — bot thật sẽ không tự nhắn, nhân viên trả lời tay.' );
-		} elseif ( $mode === 'roundrobin' ) {
-			$silence[] = array( 'code' => 'roundrobin_mode', 'message' => 'Số này trả lời xoay vòng — Guru này chỉ trả lời khi tới lượt.' );
-		}
-		if ( 'ai_disabled' === (string) self::read( 'bot_gate', $account_id ) ) {
-			$silence[] = array( 'code' => 'ai_disabled', 'message' => 'Gói hiện tại đã tắt AI cho số này (vượt hạn mức tài khoản).' );
-		}
-		$office_hours = array();
-		if ( ! empty( $binding['office_hours_json'] ) ) {
-			$decoded = json_decode( (string) $binding['office_hours_json'], true );
-			if ( is_array( $decoded ) ) { $office_hours = $decoded; }
-		}
-		if ( class_exists( 'BizCity_Bot_Office_Hours' ) && BizCity_Bot_Office_Hours::is_staff_on_duty( $office_hours ) ) {
-			$silence[] = array( 'code' => 'office_hours_staff_on_duty', 'message' => 'Đang trong giờ trực của nhân viên — bot thật sẽ im lặng.' );
-		}
-
-		$built = (array) self::read( 'context_build', $character, array( 'query' => $text ) ); // PHASE-0.81 S81-R4 — the test text searches the Guru notebooks like a real turn
-		$messages = (array) ( $built['messages'] ?? array() );
-		$messages[] = array( 'role' => 'user', 'content' => $text );
-
-		$started = microtime( true );
-		try {
-			$result = self::read( 'chat', $character, $messages );
-		} catch ( \Throwable $e ) {
-			return self::test_error( 'provider_error', 'Không gọi được nguồn AI.', 'Kiểm tra API key và chế độ nguồn AI trong BizCity LLM.', $engine );
-		}
-		$latency_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
-		$result = is_array( $result ) ? $result : array();
-		if ( empty( $result['success'] ) ) {
-			return self::test_error( 'provider_error', (string) ( $result['error'] ?? 'Nguồn AI không phản hồi.' ), 'Kiểm tra API key và chế độ nguồn AI trong BizCity LLM.', $engine );
-		}
-		$reply = (string) ( $result['message'] ?? '' );
-		if ( '' === $reply ) {
-			return self::test_error( 'empty_reply', 'AI không trả về nội dung.', 'Thử một câu hỏi khác.', $engine );
-		}
-		$usage = (array) ( $result['usage'] ?? array() );
-		return array(
-			'success'      => true,
-			'engine'       => 'zca',
-			'engine_label' => 'Bot website (zca-bridge)',
-			'reply'        => $reply,
-			'blocked_prompt_leak' => false,
-			'would_reply'  => empty( $silence ),
-			'silence'      => $silence,
-			'meta'         => array(
-				'model'           => (string) ( $result['model'] ?? '' ),
-				'latency_ms'      => $latency_ms,
-				'total_tokens'    => (int) ( $usage['total_tokens'] ?? $usage['total'] ?? 0 ),
-				'steps'           => 1,
-				'simulated_tools' => array(),
-			),
+		return self::test_error(
+			'zca_no_assistant',
+			'Số này đang nối kiểu zca (thư viện trên website) — trợ lý AI không trả lời số này nữa.',
+			'Trợ lý chạy trên cell qua Zalo Hub: đăng nhập lại số này bằng Zalo Hub (Thiết lập Zalo › Bước 3) để bot tự trả lời. Trong lúc chờ, nhân viên trả lời từ Hộp thư.',
+			array( 'engine' => 'zca', 'engine_label' => 'zca (không còn bot)' )
 		);
 	}
 
@@ -786,10 +725,7 @@ class BizCity_Zalo_Connection_Status {
 				return class_exists( 'BizCity_Channel_Binding' ) ? BizCity_Channel_Binding::resolve( 'ZALO_PERSONAL', (string) $args[0] ) : null;
 			case 'character':
 				return class_exists( 'BizCity_Knowledge_Database' ) ? BizCity_Knowledge_Database::instance()->get_character( (int) $args[0] ) : null;
-			case 'context_build':
-				return class_exists( 'BizCity_Bot_Context_Builder' ) ? BizCity_Bot_Context_Builder::build( $args[0], 0, 0, (array) ( $args[1] ?? array() ) ) : array();
-			case 'chat':
-				return class_exists( 'BizCity_LLM_Client' ) ? BizCity_LLM_Client::instance()->chat_with_character( $args[0], (array) ( $args[1] ?? array() ) ) : array();
+			// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — `context_build` / `chat` (PHP test turn of a zca number) removed.
 			case 'bot_gate':
 				return class_exists( 'BizCity_Zalo_Account_Flags' ) ? BizCity_Zalo_Account_Flags::bot_gate( (string) $args[0] ) : '';
 		}

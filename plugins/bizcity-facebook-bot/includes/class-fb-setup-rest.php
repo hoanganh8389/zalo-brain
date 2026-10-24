@@ -489,7 +489,7 @@ final class BizCity_FB_Setup_REST {
 
 	/**
 	 * POST /fb/setup/answer {page_id, answer_path} — who answers the page. `cell_direct`: the cell answers when Meta calls it (the owner must have pointed the app's
-	 * Callback URL at the cell: ALL pages of that Meta app then go to the cell). `site_legacy`: the way back - the cell is told `enabled:false`, the old bot answers.
+	 * Callback URL at the cell: ALL pages of that Meta app then go to the cell). `site_legacy`: the cell is told `enabled:false` and NOBODY auto-answers ([2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB: the old PHP bot is gone) — the owner's "Tắt trợ lý" choice.
 	 */
 	public static function post_answer( $request ) {
 		$page = self::chosen_page( $request );
@@ -503,7 +503,7 @@ final class BizCity_FB_Setup_REST {
 		if ( BizCity_FB_Cell_Direct::PATH_CELL === $path && self::guru_of_page( $page ) <= 0 ) {
 			return self::err( 'invalid_param', 'Page chưa có Agent Guru.', 'Chọn Agent Guru cho page trước khi để máy chủ trả lời.', 400, 'S90-F1-GURU' );
 		}
-		// the owner's own choice beats the automatic adoption: "Bot cũ" = opted out (never adopted again), the cell = back in
+		// the owner's own choice beats the automatic adoption: "Tắt trợ lý" (site_legacy) = opted out (never adopted again), the cell = back in
 		BizCity_FB_Cell_Direct::save( $page, array( 'path' => $path, 'opt_out' => BizCity_FB_Cell_Direct::PATH_LEGACY === $path ) );
 		$push = BizCity_FB_Cell_Direct::push_page( $page );
 		if ( ! $push['ok'] ) {

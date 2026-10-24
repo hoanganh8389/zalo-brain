@@ -41,6 +41,13 @@ class BizCity_Skill_Manager {
 
 	/** `uploads/bizcity-skills/{blog_id}/` with a trailing slash — computed per call (after any switch_to_blog). */
 	public static function library_dir(): string {
+		// [2026-10-24 05:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-V2 (VA-1) — the skills library is the `skills` namespace of the Vault Store (same path).
+		if ( class_exists( 'BizCity_Brain_Vault_Store' ) ) {
+			$vault = BizCity_Brain_Vault_Store::namespace_dir( 'skills' );
+			if ( '' !== $vault ) {
+				return $vault;
+			}
+		}
 		$upload = wp_upload_dir( null, false );
 		$base   = is_array( $upload ) && ! empty( $upload['basedir'] ) ? (string) $upload['basedir'] : WP_CONTENT_DIR . '/uploads';
 		return rtrim( $base, '/\\' ) . '/bizcity-skills/' . (int) get_current_blog_id() . '/';

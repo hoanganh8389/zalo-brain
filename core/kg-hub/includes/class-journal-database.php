@@ -28,7 +28,8 @@ if ( class_exists( 'BizCity_Journal_Database', false ) ) {
 final class BizCity_Journal_Database {
 
 	// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J3 (R-JN-14, Q121-13) — 1.2.0: `status` ENUM + review / verified / failed / void (journal-entry@1.1.0 `state`); dbDelta alters the column in place.
-	const SCHEMA_VERSION = '1.2.0';
+	// [2026-10-24 05:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (R-ENTRY-META EM-7, D133-M1) — 1.3.0: + `find_text` (built by code from the row + entry-meta@1, as written and folded); the only new column of the phase.
+	const SCHEMA_VERSION = '1.3.0';
 	const SCHEMA_VERSION_KEY = 'bizcity_journal_db_version';
 	const CACHE_GROUP = 'journal';
 	// [2026-10-12 09:52 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15 — backfill batch size, bounded (R-JOURNAL R-JN-4).
@@ -95,6 +96,7 @@ final class BizCity_Journal_Database {
 			doc_date            DATE NULL DEFAULT NULL,
 			tags                VARCHAR(400) NOT NULL DEFAULT '',
 			metadata            LONGTEXT DEFAULT NULL,
+			find_text           MEDIUMTEXT NULL DEFAULT NULL,
 			created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
@@ -300,15 +302,38 @@ final class BizCity_Journal_Database {
 		// `q` narrows the already-structured-filtered set (R-JN-5: semantic search is a separate pass — knowledge.search).
 		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-3) — word by word, title OR summary: "hợp đồng thuê Cty A" finds
 		// "Cty A - HĐ thuê kho" (was one exact substring of the title, so any other word order found nothing).
+		// [2026-10-24 05:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (journal.find v2, doc 81 §4) — each word also matches `find_text` (summary + OCR + keywords + people, as written AND folded),
+		// so "nha truong" finds "nhà trường" written on a photo. Old rows without find_text still match on title / body as before.
 		foreach ( self::query_words( (string) ( $filter['q'] ?? '' ) ) as $w ) {
 			$like     = '%' . $wpdb->esc_like( $w ) . '%';
-			$where[]  = '(title LIKE %s OR body LIKE %s)';
+			$fold     = class_exists( 'BizCity_Journal_Entry_Meta' ) ? BizCity_Journal_Entry_Meta::fold( $w ) : $w;
+			$where[]  = '(title LIKE %s OR body LIKE %s OR find_text LIKE %s OR find_text LIKE %s)';
 			$params[] = $like;
 			$params[] = $like;
+			$params[] = $like;
+			$params[] = '%' . $wpdb->esc_like( $fold ) . '%';
+		}
+		// `terms` (folded phrases from the cell) — any ⇒ one of them (scored in PHP), all ⇒ each of them; matched on find_text / title / body
+		$terms = array_values( array_filter( array_map( 'strval', (array) ( $filter['terms_sql'] ?? array() ) ), 'strlen' ) );
+		if ( $terms ) {
+			$ors = array();
+			foreach ( array_slice( $terms, 0, 12 ) as $t ) {
+				$like  = '%' . $wpdb->esc_like( $t ) . '%';
+				$ors[] = '(find_text LIKE %s OR title LIKE %s OR body LIKE %s)';
+				$params[] = $like;
+				$params[] = $like;
+				$params[] = $like;
+			}
+			$where[] = '(' . implode( 'any' === (string) ( $filter['match'] ?? 'all' ) ? ' OR ' : ' AND ', $ors ) . ')';
+		}
+		// PHASE-0.133 S133-V1 — the rows of ONE logical source (every version keeps its source_uuid)
+		if ( ! empty( $filter['source_uuid'] ) && 1 === preg_match( '/^[0-9a-f-]{36}$/', (string) $filter['source_uuid'] ) ) {
+			$where[]  = 'metadata LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"source_uuid":"' . (string) $filter['source_uuid'] . '"' ) . '%';
 		}
 		$where_sql = implode( ' AND ', $where );
 		$total = (int) $wpdb->get_var( $params ? $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}", $params ) : "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}" );
-		$limit  = min( 50, max( 1, (int) ( $filter['limit'] ?? 20 ) ) );
+		$limit  = min( ! empty( $filter['cap'] ) ? 200 : 50, max( 1, (int) ( $filter['limit'] ?? 20 ) ) ); // PHASE-0.133: scored searches read up to 200 then page in PHP
 		$offset = max( 0, (int) ( $filter['offset'] ?? 0 ) );
 		$list_params = array_merge( $params, array( $limit, $offset ) );
 		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE {$where_sql} ORDER BY doc_date DESC, id DESC LIMIT %d OFFSET %d", $list_params ), ARRAY_A ) ?: array();
@@ -589,8 +614,20 @@ final class BizCity_Journal_Database {
 		if ( array_key_exists( 'tags', $data ) ) {
 			$write['tags'] = self::encode_tags( (array) $data['tags'] );
 		}
+		// PHASE-0.133 S133-Ma — `find_text` is rebuilt by BizCity_Journal_Index whenever the row or its meta changes; it is not a revision of its own.
+		$find_only = false;
+		if ( array_key_exists( 'find_text', $data ) ) {
+			$write['find_text'] = self::clean_find_text( (string) $data['find_text'] );
+			$find_only          = 1 === count( $write );
+		}
 		if ( empty( $write ) ) {
 			return $row;
+		}
+		if ( $find_only ) {
+			global $wpdb;
+			$wpdb->update( $this->table, $write, array( 'id' => $id ) );
+			$this->flush_cache();
+			return $this->get( $id, $owner_user_id, $all );
 		}
 		$write['revision'] = (int) $row['revision'] + 1;
 		global $wpdb;
@@ -695,7 +732,47 @@ final class BizCity_Journal_Database {
 			'doc_date'        => self::sanitize_doc_date( $data['doc_date'] ?? null ),
 			'tags'            => self::encode_tags( (array) ( $data['tags'] ?? array() ) ),
 			'metadata'        => is_array( $metadata ) ? wp_json_encode( $metadata, JSON_UNESCAPED_UNICODE ) : (string) $metadata,
+			'find_text'       => self::clean_find_text( (string) ( $data['find_text'] ?? '' ) ), // PHASE-0.133 S133-Ma
 		);
+	}
+
+	/**
+	 * [2026-10-24 05:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-V1 / S133-Ma — fields DERIVED by the site from a row it just wrote (metadata.resource,
+	 * find_text): written without a revision bump (not an edit by anyone), owner already checked by the caller.
+	 */
+	public function write_derived( int $id, array $data ) {
+		global $wpdb;
+		$write = array();
+		if ( array_key_exists( 'metadata', $data ) ) {
+			$write['metadata'] = is_array( $data['metadata'] ) ? wp_json_encode( $data['metadata'], JSON_UNESCAPED_UNICODE ) : (string) $data['metadata'];
+		}
+		if ( array_key_exists( 'find_text', $data ) ) {
+			$write['find_text'] = self::clean_find_text( (string) $data['find_text'] );
+		}
+		if ( ! $write || $id <= 0 ) {
+			return false;
+		}
+		$ok = $wpdb->update( $this->table, $write, array( 'id' => $id ) );
+		$this->flush_cache();
+		return false !== $ok;
+	}
+
+	/** PHASE-0.133 S133-V1 — the source_uuid an owner's earlier row with the same original bytes already carries ('' = none). */
+	public function source_uuid_by_sha256( int $owner_user_id, string $sha256 ): string {
+		global $wpdb;
+		if ( $owner_user_id <= 0 || 1 !== preg_match( '/^[0-9a-f]{64}$/', $sha256 ) ) {
+			return '';
+		}
+		$meta = (string) $wpdb->get_var( $wpdb->prepare( "SELECT metadata FROM {$this->table} WHERE owner_user_id = %d AND metadata LIKE %s AND metadata LIKE %s ORDER BY id ASC LIMIT 1", $owner_user_id, '%' . $wpdb->esc_like( '"sha256":"' . $sha256 . '"' ) . '%', '%' . $wpdb->esc_like( '"source_uuid":"' ) . '%' ) );
+		$m    = json_decode( $meta, true );
+		return is_array( $m ) ? (string) ( $m['resource']['source_uuid'] ?? '' ) : '';
+	}
+
+	/** find_text as stored: no markup, single spaces, ≤ 12 000 chars (PHASE-0.133). Pure apart from wp_strip_all_tags. */
+	public static function clean_find_text( string $s ): string {
+		$s = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $s ) : strip_tags( $s );
+		$s = (string) preg_replace( '/\s+/u', ' ', $s );
+		return mb_substr( trim( $s ), 0, 12000 );
 	}
 
 	/** `<family>.<kind>`, lowercase, dot + alnum/underscore only, ≤ 48 chars (journal-kinds@1). */

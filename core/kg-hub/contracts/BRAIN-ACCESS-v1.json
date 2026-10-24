@@ -40,6 +40,6 @@
     "doc_index@3 pack per principal — BizCity_Journal_Doc_Index_Pack_Exporter::build( owner, principal )",
     "private file route + document.file.link — BizCity_KG_Private_File_Store::may_read → BizCity_Brain_Access::decide_file",
     "journal.record / file / void — write / state (journal.file: decide(write) AT THE ROW, S126-M4; the CRM contact keeps its own contact_visible() check)",
-    "knowledge.search · kg.* — W3 (S126-M1), not yet: entry_ids are owner-scoped by the notebook layer today"
+    "knowledge.search · kg.* — W3 (S126-M1), not yet: entry_ids are owner-scoped by the notebook layer today", "[2026-10-24 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — journal.meta.set / journal.evidence.record (write on the row; owner_edit only via REST POST journal/{id}/meta), vault.get (content.read) / vault.materialize (write) / vault.revision (meta.read), journal.get view=card (content.read; preview link only with file.get), knowledge.search source_refs (the caller own codes only; none ⇒ empty, never widened) — BizCity_Journal_MCP_Tools::row_for / BizCity_Journal_Rest"
   ]
 }

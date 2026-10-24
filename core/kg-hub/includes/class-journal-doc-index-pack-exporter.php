@@ -335,12 +335,35 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 		$item['layer']      = (string) ( $e['layer'] ?? 'document' );
 		$item['tier']       = $e['tier'] ?? null;
 		$item['aud']        = (string) ( $e['audience'] ?? 'owner' );
-		$item['belongs']    = array( 'nb' => (int) ( $e['belongs']['notebook_id'] ?? 0 ), 'grp' => (string) ( $e['belongs']['group']['gid'] ?? '' ), 'contact' => (int) ( $e['belongs']['contact_id'] ?? 0 ) );
+		// [2026-10-24 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — belongs.nb falls back to the learning notebook (kg.notebook_ids[0], the `nb` above) when the row column is empty, so the two never disagree
+		$item['belongs']    = array( 'nb' => (int) ( $e['belongs']['notebook_id'] ?? 0 ) ?: $item['nb'], 'grp' => (string) ( $e['belongs']['group']['gid'] ?? '' ), 'contact' => (int) ( $e['belongs']['contact_id'] ?? 0 ) );
 		$item['ver']        = (int) ( $e['version']['n'] ?? 1 );
 		if ( '' !== (string) ( $e['job']['job_ref'] ?? '' ) ) {
 			$item['job_ref'] = (string) $e['job']['job_ref'];
 		}
+		$src = self::src_of( $e );
+		if ( null !== $src ) {
+			$item['src'] = $src;
+		}
 		return $item;
+	}
+
+	/**
+	 * [2026-10-24 05:54 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (doc 20 §6) — `src: {uuid8, v, md, kg}` (≤ 40 bytes): which logical source, which version, whether a Markdown
+	 * representation exists (read it with vault.get), and the knowledge state of that source. No about / OCR in the pack. null for rows without a resource. Pure.
+	 */
+	public static function src_of( array $e ): ?array {
+		$res = is_array( $e['resource'] ?? null ) ? $e['resource'] : null;
+		if ( null === $res || '' === (string) ( $res['source_uuid'] ?? '' ) ) {
+			return null;
+		}
+		$k = (string) ( $res['knowledge']['status'] ?? 'none' );
+		return array(
+			'uuid8' => substr( str_replace( '-', '', (string) $res['source_uuid'] ), 0, 8 ),
+			'v'     => (int) ( $e['version']['n'] ?? 1 ),
+			'md'    => ! empty( $res['representations'] ),
+			'kg'    => in_array( $k, array( 'ready', 'stale', 'none' ), true ) ? $k : 'none',
+		);
 	}
 
 	/**

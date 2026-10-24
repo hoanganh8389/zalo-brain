@@ -45,7 +45,8 @@ if ( ! defined( 'BIZCITY_INTENT_URL' ) ) {
 }
 
 /* ── Load sub-classes (skip if already loaded by legacy mu-plugin) ── */
-if ( class_exists( 'BizCity_Intent_Database' ) ) {
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-I1 — sentinel is the tool registry now (Intent_Database left for the brain add-on).
+if ( class_exists( 'BizCity_Intent_Tools' ) ) {
     // Legacy mu-plugin loaded core classes.
     // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Trace_Store / Execution_Logger are owned and loaded by core/runtime now.
     return;
@@ -54,14 +55,15 @@ if ( class_exists( 'BizCity_Intent_Database' ) ) {
 /* ── Data layer + Infrastructure (always loaded) ── */
 
 /* -- infrastructure/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/infrastructure/class-intent-database.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-I1 — BizCity_Intent_Database, BizCity_Intent_Conversation and BizCity_Intent_Router
+// (legacy PHP conversation state + 2-tier router; tables quarantined / retired, no writer) → bizcity-twin-brain-addon/twinbrain-mpr/intent/,
+// with their table / cron hooks and bizcity_intent_get_conversation(). Core keeps the tool registry (automation runs tools through it).
 // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — BizCity_Intent_Logger → core/_archived/z3-20261010/intent/:
 // nothing in any installed plugin calls it (its writers went with WP-11) and its retention job was already a no-op.
 // [2026-09-25 Claude Opus 5.5] WP-11 C5 — Prompt_Context_Logger retired (written only by the old classifier).
 // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Execution_Logger, Trace_Store, Job_Trace → core/runtime.
 
-/* -- conversation/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/conversation/class-intent-conversation.php';
+/* -- conversation/ -- (Intent_Conversation → brain add-on, R126-I1) */
 // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Rolling_Memory, Episodic_Memory → core/memory; Context_Builder → core/twin-core.
 
 /* -- providers/ -- */
@@ -69,8 +71,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider.php
 require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-simple-provider.php';
 require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider-registry.php';
 
-/* -- routing/ -- */
-require_once BIZCITY_INTENT_DIR . '/includes/routing/class-intent-router.php';
+/* -- routing/ -- (Intent_Router → brain add-on, R126-I1) */
 // [2026-09-24 Claude Opus 5] CORE-REDUCTION-WP-02 I-04 — class-knowledge-router.php retired
 // under R-ORPHAN-FILE. It declared BizCity_Knowledge_Provider_Registry and
 // BizCity_Knowledge_Router_Pipeline, neither referenced anywhere, and was parsed on every
@@ -116,31 +117,14 @@ BizCity_Tool_Evidence::init();
 
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {
-    // Database table check / creation
-    BizCity_Intent_Database::instance()->maybe_create_tables();
+    // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-I1 — the intent table check / creation, the stale-conversation cron and the
+    // prompt-log retention cron moved with BizCity_Intent_Database to bizcity-twin-brain-addon/twinbrain-mpr/intent/bootstrap.php.
 
     // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Context_Builder boots from core/twin-core; Rolling + Episodic memory boot from core/memory.
 
     // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Intent Engine retired (path C); get_ai_response never used it.
 
     // [2026-09-25 Claude Opus 5.5] WP-11 C3a — seed composite tools (Tool_Registry_Map) retired with the class.
-
-    // ── O10: WP-Cron for reliable stale conversation cleanup (v3.6.1) ──
-    // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — intent_conversations is write-refused (draining cohort),
-    // so the hourly expiry job is unscheduled instead of firing a no-op.
-    global $wpdb;
-    $bizcity_intent_conv_writable = class_exists( 'BizCity_Legacy_Table_Policy' )
-        && BizCity_Legacy_Table_Policy::allow_sql( $wpdb->prefix . 'bizcity_intent_conversations', 'write' );
-    if ( $bizcity_intent_conv_writable ) {
-        add_action( 'bizcity_intent_stale_cleanup', function () {
-            BizCity_Intent_Database::instance()->expire_stale();
-        } );
-        if ( ! wp_next_scheduled( 'bizcity_intent_stale_cleanup' ) ) {
-            wp_schedule_event( time(), 'hourly', 'bizcity_intent_stale_cleanup' );
-        }
-    } elseif ( wp_next_scheduled( 'bizcity_intent_stale_cleanup' ) ) {
-        wp_clear_scheduled_hook( 'bizcity_intent_stale_cleanup' );
-    }
 
     // [2026-09-25 Claude Opus 5.5] WP-11 C4b — the Episodic Memory daily aggregation cron is scheduled from core/memory.
 
@@ -157,8 +141,6 @@ add_action( 'plugins_loaded', function () {
     if ( wp_next_scheduled( 'bizcity_intent_logs_retention' ) ) {
         wp_clear_scheduled_hook( 'bizcity_intent_logs_retention' );
     }
-    add_action( 'init', array( 'BizCity_Intent_Database', 'register_retention_cron' ), 20 );
-    add_action( BizCity_Intent_Database::PROMPT_LOGS_RETENTION_HOOK, array( 'BizCity_Intent_Database', 'gc_prompt_logs' ) );
 
     // Monitor dashboard (admin only) — defer to current_screen to avoid
     // [2026-06-09 Johnny Chu] PERF-1 — instantiating these on EVERY admin page.
@@ -230,6 +212,25 @@ add_action( 'plugins_loaded', function () {
         delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
         update_option( 'bizcity_wp20_z3b_provider_rows_retired', 1, false );
     }, 31 );
+
+    // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — bizcity-video-kling removed (owner: không dùng, bỏ hẳn) with the built-in create_video
+    // that bridged to it. A memory sync only upserts, so deactivate the row once per blog — same R5 pattern; rows are kept, never deleted.
+    add_action( 'init', static function () {
+        if ( get_option( 'bizcity_q126_kling_rows_retired' ) ) {
+            return;
+        }
+        global $wpdb;
+        $table = $wpdb->prefix . 'bizcity_tool_registry';
+        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+            update_option( 'bizcity_q126_kling_rows_retired', 1, false );
+            return;
+        }
+        $prev = $wpdb->suppress_errors( true );
+        $wpdb->query( "UPDATE {$table} SET active = 0 WHERE active = 1 AND ( tool_key = 'builtin:create_video' OR ( plugin = 'builtin' AND tool_name = 'create_video' ) OR plugin IN ( 'bizcity-video-kling', 'video-kling' ) )" );
+        $wpdb->suppress_errors( $prev );
+        delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
+        update_option( 'bizcity_q126_kling_rows_retired', 1, false );
+    }, 32 );
 
     // ── Tool Registry: event-driven sync on plugin activate/deactivate ──
     // WordPress fires `activated_plugin` after activate_plugin() succeeds.
@@ -303,20 +304,4 @@ if ( ! function_exists( 'bizcity_intent_register_tool' ) ) {
     }
 }
 
-if ( ! function_exists( 'bizcity_intent_get_conversation' ) ) {
-    /**
-     * Get or create an active conversation for a user + channel.
-     *
-     * @param int    $user_id
-     * @param string $channel
-     * @param string $session_id
-     * @return array|null
-     */
-    function bizcity_intent_get_conversation( $user_id, $channel = 'webchat', $session_id = '' ) {
-        // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — no caller in any installed plugin; legacy, dev notice only.
-        if ( function_exists( 'bizcity_z3_legacy_api_notice' ) ) {
-            bizcity_z3_legacy_api_notice( 'bizcity_intent_get_conversation()', 'core/conversation message store' );
-        }
-        return BizCity_Intent_Conversation::instance()->get_active( $user_id, $channel, $session_id );
-    }
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-I1 — bizcity_intent_get_conversation() (no caller) moved with Intent_Conversation to the brain add-on.

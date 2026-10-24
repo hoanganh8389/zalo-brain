@@ -187,11 +187,31 @@ final class BizCity_Context_Producers {
 			$queued             = self::queue_text( array( 'producer' => $def['id'], 'notebook_id' => $notebook_id, 'owner' => $owner, 'day' => $day, 'title' => $title, 'text' => $text ) );
 		}
 		$card['as_of'] = gmdate( 'c' );
-		$saved = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, array( 'card' => $card ) );
+		$patch         = array( 'card' => $card );
+		// [2026-10-24 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 82 B6) — the day row's `about` is built by code from the totals (no model call), so the card reads a sentence, not `count`.
+		if ( class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			$stored         = is_array( $row['meta'] ?? null ) ? $row['meta'] : array();
+			$patch['meta']  = BizCity_Journal_Entry_Meta::merge( $stored, array( 'about' => self::about_of( $def, $card ) ), 'site_code' );
+			$patch['meta']['status'] = 'done';
+		}
+		$saved = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, $patch );
 		if ( is_wp_error( $saved ) ) {
 			return $saved;
 		}
 		return array( 'day' => $day, 'entry_id' => (int) $row['entry_id'], 'notebook_id' => $notebook_id, 'duplicate' => false, 'queued_text' => $queued, 'totals' => self::totals_of( $def, $card ) );
+	}
+
+	/** "Đội Zalo (CRM) hôm nay: 3 Khách được cập nhật, 12 Tin nhắn." — the code-built about of a day row (PHASE-0.133). Pure. */
+	public static function about_of( array $def, array $card ): string {
+		$parts = array();
+		foreach ( (array) ( $def['metrics'] ?? array() ) as $m => $label ) {
+			if ( isset( $card[ $m ] ) && is_numeric( $card[ $m ] ) && 0.0 !== (float) $card[ $m ] ) {
+				$n       = (float) $card[ $m ];
+				$parts[] = ( floor( $n ) === $n ? number_format( $n, 0, ',', '.' ) : number_format( $n, 2, ',', '.' ) ) . ' ' . mb_strtolower( (string) $label );
+			}
+		}
+		$count = (int) ( $card['count'] ?? 0 );
+		return (string) ( $def['label'] ?? '' ) . ': ' . ( $parts ? implode( ', ', $parts ) : $count . ' sự kiện' ) . '.';
 	}
 
 	/** The (source, day) journal row — created on the first record of the day together with that day's notebook. @return array|WP_Error */

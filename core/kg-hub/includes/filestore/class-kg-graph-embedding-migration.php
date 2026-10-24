@@ -199,7 +199,13 @@ class BizCity_KG_Graph_Embedding_Migration {
 
 		$bin_path = $this->bin_path( $kind, $notebook_id );
 		if ( is_wp_error( $bin_path ) ) {
-			error_log( '[KG Graph Embedding Migration] path error: ' . $bin_path->get_error_message() );
+			// [2026-10-24 05:15 PM Johnny Chu - Chu Hoàng Anh] HOTFIX log-noise — a notebook without uuid made every row of it log the same line (dozens per second). Log each distinct message once per hour per blog; the 'error' count still reaches the caller.
+			$msg = '[KG Graph Embedding Migration] path error: ' . $bin_path->get_error_message();
+			$key = 'bizcity_kg_gem_log_' . (int) get_current_blog_id() . '_' . md5( $msg );
+			if ( ! get_transient( $key ) ) {
+				set_transient( $key, 1, HOUR_IN_SECONDS );
+				error_log( $msg );
+			}
 			return 'error';
 		}
 

@@ -76,10 +76,7 @@ require_once $bizcity_crm_inc . 'class-contact-roles.php';
 require_once $bizcity_crm_inc . 'class-contact-custom-meta.php';
 require_once $bizcity_crm_inc . 'class-contact-signals.php'; // [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — crm_signal read projection
 require_once $bizcity_crm_inc . 'class-contact-enrichment.php';
-// [2026-10-10 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.95 D95-6 — person score vs cell score, one effective rule (guarded: new file).
-if ( is_readable( $bizcity_crm_inc . 'class-crm-lead-score.php' ) ) {
-	require_once $bizcity_crm_inc . 'class-crm-lead-score.php';
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-C2 — BizCity_CRM_Lead_Score moved to bizcity-twin-crm (its only reader, class_exists-guarded).
 require_once $bizcity_crm_inc . 'class-system-owner.php';
 // [2026-10-17 11:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.120 S120-L1 — danh bạ Zalo (cell) → CRM contacts + trang trace gửi thay (guarded: new file).
 if ( is_readable( $bizcity_crm_inc . 'class-crm-zalo-directory.php' ) ) {
@@ -121,7 +118,15 @@ unset( $bizcity_crm_adapter );
 require_once $bizcity_crm_inc . 'inbox/class-fb-ingestor.php';
 require_once $bizcity_crm_inc . 'class-crm-inbox-bridge.php';
 // [2026-10-20 10:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 G-C — BizCity_CRM_Gmail_SMTP_Repo retired (Gmail goes through the cell + Composio); table bizcity_crm_gmail_smtp_accounts is quarantined, rows stay.
-require_once $bizcity_crm_inc . 'class-email-send-log.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-C2 — BizCity_CRM_Email_Send_Log and BizCity_CRM_Lead_Score moved to bizcity-twin-crm (their only
+// readers); the email log table stays declared here. Deploy-order guard: while a site still has the old copies (an older twin-crm calls the log without
+// a class_exists), load them; once they are deleted from the site, twin-crm loads its own.
+foreach ( array( 'class-email-send-log.php', 'class-crm-lead-score.php' ) as $bizcity_crm_moved ) {
+	if ( is_readable( $bizcity_crm_inc . $bizcity_crm_moved ) ) {
+		require_once $bizcity_crm_inc . $bizcity_crm_moved;
+	}
+}
+unset( $bizcity_crm_moved );
 
 // ── Staff ↔ Zalo Bot magic links + admin-chat grants ──────────────────────────────────────────────────────────
 require_once $bizcity_crm_inc . 'admin-chat/class-magic-link.php';

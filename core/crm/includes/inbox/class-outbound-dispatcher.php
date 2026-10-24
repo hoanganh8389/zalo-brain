@@ -608,7 +608,17 @@ final class BizCity_CRM_Outbound_Dispatcher {
 
 	/** Allowed outbound MIME types; filterable but never empty. */
 	public static function allowed_mimes(): array {
-		$default  = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'text/csv' );
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — audio/mpeg + the generated-file types were added by BizCity_Bot_Media_Client's
+		// filters; that PHP engine is gone (the cell answers), the CRM composer and the cell's outputs still send these files.
+		// `text/html` stays out on purpose (script-carrying).
+		$default  = array(
+			'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf', 'text/plain', 'text/csv',
+			'audio/mpeg', 'audio/wav', 'audio/mp4', 'video/mp4',
+			'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+			'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+			'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+			'text/markdown',
+		);
 		$filtered = apply_filters( 'bizcity_crm_outbound_allowed_mimes', $default );
 		return is_array( $filtered ) && ! empty( $filtered ) ? array_values( array_unique( array_map( 'strval', $filtered ) ) ) : $default;
 	}

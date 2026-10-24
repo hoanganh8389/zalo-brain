@@ -8,14 +8,14 @@
  *   - receives the CRM records the cell sends back (`channel-record@1`, BizCity_FB_Channel_Record).
  *
  * Per page, option `bizcity_fb_cell_direct[page_id]`:
- *   path          site_legacy (default, the old bot answers when Meta still calls the site) | cell_direct
+ *   path          site_legacy (not on the cell: since [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB nobody auto-answers — the message is only recorded) | cell_direct
  *   source        hub = BizCity's shared Meta app | own = the client's own Meta app (route below)
  *   route_id      cell-made id of the client's own app route ('' for the shared app)
  *   verify_token  the verify token the owner pastes into Meta for the own app (a handshake token, not a secret of Meta)
  *   tools_off     null = nobody chose (preset "Chăm khách") | array of tool keys the owner turned off
  *   pushed_at / pushed_hash / last_error   what the cell last accepted
  * The App Secret is NEVER stored here: it goes to the cell once and is not kept. The page token is read from the old bot's store at push time.
- * The way back is `path = site_legacy` (the cell is told `enabled:false`, the old bot answers as before 0.109).
+ * `path = site_legacy` chosen by the owner = "Tắt trợ lý" (the cell is told `enabled:false`; the old PHP bot no longer exists).
  *
  * @package BizCity_Facebook_Bot
  * @since   PHASE-0.109 S109-L10/L11/L13
@@ -494,9 +494,8 @@ final class BizCity_FB_Cell_Direct {
 	}
 
 	public static function auto_enabled(): bool {
-		if ( 'off' === (string) get_option( self::OPT_AUTO, 'on' ) ) {
-			return false;
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB (owner: "ép cell_direct") — the site-wide off switch (option `bizcity_fb_cell_autoadopt` = 'off') is ignored: with the PHP bot gone,
+		// a page left off the cell would answer nobody. A single page can still be paused by its owner ("Tắt trợ lý" = opt_out).
 		return ! function_exists( 'apply_filters' ) || (bool) apply_filters( 'bizcity_fb_cell_autoadopt', true );
 	}
 

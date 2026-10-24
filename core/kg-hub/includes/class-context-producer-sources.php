@@ -51,8 +51,9 @@ final class BizCity_Context_Producer_Sources {
 			add_action( 'woocommerce_order_refunded', array( __CLASS__, 'woo_refunded' ), 20, 2 );
 			$done[] = 'woo';
 		}
+		// [2026-10-24 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (D133-M5, doc 82 B6) — CF7 and the CRM digest get their own kinds (were common.document).
 		if ( defined( 'WPCF7_VERSION' ) && BizCity_Zalo_Brain::register_context_producer( 'cf7', array(
-			'label'   => 'Contact Form 7', 'icon' => 'form',
+			'label'   => 'Contact Form 7', 'icon' => 'form', 'kind' => 'crm.lead',
 			'metrics' => array( 'leads' => 'Liên hệ' ),
 			'roles'   => array( 'owner', 'staff' ), 'owner' => 'core/kg-hub',
 		) ) ) {
@@ -60,7 +61,7 @@ final class BizCity_Context_Producer_Sources {
 			$done[] = 'cf7';
 		}
 		if ( ( class_exists( 'BizCity_CRM_Spine' ) || class_exists( 'BizCity_CRM_Repository' ) ) && BizCity_Zalo_Brain::register_context_producer( 'crm', array(
-			'label'   => 'Đội Zalo (CRM)', 'icon' => 'users',
+			'label'   => 'Đội Zalo (CRM)', 'icon' => 'users', 'kind' => 'crm.digest',
 			'metrics' => array( 'contacts' => 'Khách được cập nhật', 'messages' => 'Tin nhắn' ),
 			'roles'   => array( 'owner', 'staff' ), 'owner' => 'core/crm', 'text_cap' => 0,
 		) ) ) {

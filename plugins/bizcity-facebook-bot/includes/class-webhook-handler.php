@@ -422,19 +422,12 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 	}
 	
 	/**
-	 * Handle text message - Fire workflow trigger TRƯỚC, sau đó mới gọi bizgpt_chatbot_run_guest_flows nếu cần
+	 * Handle text message — workflow / UCL hand-off only (no PHP reply since PHASE-0.126 R126-FB).
 	 */
 	private function handle_messenger_text( $page_id, $client_id, $message_text, $input_data ) {
         
 		$this->log_info( '=== HANDLE TEXT START ===' );
 		
-		// Check functions exist
-		if ( ! function_exists( 'fb_messenger_reply' ) ) {
-			$this->log_error( 'fb_messenger_reply NOT FOUND' );
-			return;
-		}
-		
-		$db = BizCity_Facebook_Bot_Database::instance();
 		$bot_id = $this->get_bot_id_by_page( $page_id );
 		
 		// 1. Fire workflow trigger for automation TRƯỚC
@@ -468,99 +461,26 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			return;
 		}
 		
-		// 3. Nếu không có workflow nào xử lý, gọi bizgpt_chatbot_run_guest_flows
-		if ( ! function_exists( 'bizgpt_chatbot_run_guest_flows' ) ) {
-			$this->log_error( 'bizgpt_chatbot_run_guest_flows NOT FOUND' );
-			return;
-		}
-		
-		$this->log_info( 'Calling bizgpt_chatbot_run_guest_flows', array(
-			'message' => substr( $message_text, 0, 100 ),
-			'platform' => 'FB_MESS',
-		) );
-		
-		$client_context = '';
-		$arr = bizgpt_chatbot_run_guest_flows( $message_text, 'FB_MESS', $input_data, $client_context );
-		
-		$this->log_info( 'Chatbot response', array(
-			'type'  => gettype( $arr ),
-			'count' => is_array( $arr ) ? count( $arr ) : 0,
-		) );
-        #back_trace('NOTICE', 'Chatbot response  response: ' . print_r( $arr, true ));  
-		
-		$this->log_info( 'Sending arr', array( 'arr' => print_r( $arr, true ) ) );
-					
-		if ( is_array( $arr ) ) {
-			foreach ( $arr as $item ) {
-				if ( ! empty( $item['msg'] ) ) {
-					$msg_text = html_entity_decode( wp_strip_all_tags( str_replace( '<br>', "\n", $item['msg'] ) ), ENT_QUOTES, 'UTF-8' );
-					$this->log_info( 'Sending reply', array( 'msg' => substr( $msg_text, 0, 100 ) ) );
-					fb_messenger_reply( $page_id, $client_id, 'AI: ' . $msg_text );
-					
-					// Save bot reply to inbox
-					$db->save_inbox_message( array(
-						'bot_id'       => $bot_id,
-						'client_id'    => $client_id,
-						'client_name'  => '',
-						'page_id'      => $page_id,
-						'message_id'   => '',
-						'message_text' => 'AI: ' . $msg_text,
-						'message_type' => 'text',
-						'sender_type'  => 'bot',
-                       // 'platform_type'  => 'FB_MESS',
-					) );
-				}
-			}
-		}
-		
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB (owner: "ép cell_direct, bỏ PHP") — the PHP auto-reply (bizgpt_chatbot_run_guest_flows + LLM fallback) is gone.
+		// A page on the cell never reaches this handler (cell_direct); a page not adopted yet is recorded (inbox + UCL → CRM, above) and
+		// answered by staff or a workflow — never by PHP reasoning.
 		$this->log_info( '=== HANDLE TEXT END ===' );
 	}
 	
 	/**
-	 * Handle image message - Call GPT Vision
+	 * Handle image message — record it (UCL → CRM / automation); no PHP reply.
 	 */
 	private function handle_messenger_image( $page_id, $client_id, $img_url ) {
 		$this->log_info( '=== HANDLE IMAGE START ===' );
 		
-		if ( ! function_exists( 'fb_messenger_reply' ) ) {
-			$this->log_error( 'fb_messenger_reply NOT FOUND' );
-			return;
-		}
-		
-		// Check duplicate image
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB — no PHP reply to a photo any more (the duplicate-photo notice and the "Dạ. Bạn vừa gửi 1 hình ảnh." acknowledgement);
+		// the event still reaches the CRM / automation through the UCL below.
 		$img_hash = md5( $img_url );
-		$transient_key = 'fb_img_' . $client_id . '_' . $img_hash;
-		
-		if ( get_transient( $transient_key ) ) {
-			$reply_text = 'Bạn vừa gửi 1 hình ảnh trùng lặp trong vòng dưới 2 phút. Tôi chưa được cho phép để giải thích về ảnh liên tục.';
-			fb_messenger_reply( $page_id, $client_id, 'AI: ' . $reply_text );
+		if ( get_transient( 'fb_img_' . $client_id . '_' . $img_hash ) ) {
 			return;
 		}
-		set_transient( $transient_key, 1, 2 * MINUTE_IN_SECONDS );
-		
-		// Send acknowledgment
-		$reply_text = 'Dạ. Bạn vừa gửi 1 hình ảnh. ';
-		fb_messenger_reply( $page_id, $client_id, 'AI: ' . $reply_text );
-		
-		// Save bot reply to inbox
-		$db = BizCity_Facebook_Bot_Database::instance();
-		$bot_id = $this->get_bot_id_by_page( $page_id );
-		$db->save_inbox_message( array(
-			'bot_id'       => $bot_id,
-			'client_id'    => $client_id,
-			'client_name'  => '',
-			'page_id'      => $page_id,
-			'message_id'   => '',
-			'message_text' => 'AI: ' . $reply_text,
-			'message_type' => 'text',
-			'sender_type'  => 'bot',
-           // 'platform_type'  => 'FB_MESS',
-		) );
-		
-		// [2026-08-09 Johnny Chu] R-GW-8 — the image event now flows through
-		// the canonical UCL/CRM pipeline; remove the legacy raw-key GPT Vision
-		// branch to prevent a second unscoped AI reply.
-		
+		set_transient( 'fb_img_' . $client_id . '_' . $img_hash, 1, 2 * MINUTE_IN_SECONDS );
+
 		// Fire workflow trigger for automation
 		$bot_id = $this->get_bot_id_by_page( $page_id );
 		$trigger_data = array(
@@ -764,32 +684,12 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		
 		$this->log_info( 'Post info', array( 'type' => $post_type, 'caption' => substr( $post_caption, 0, 50 ) ) );
 		
-		// Generate AI reply
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB — the PHP comment reply (bizgpt_router_comment_flow LLM + the fixed "Cảm ơn bạn đã để lại bình luận!" fallback) is gone:
+		// comment auto-reply stops until the cell handles comments. Staff still hear about the comment; the comment is still logged.
 		$ai_reply = '';
-		if ( function_exists( 'bizgpt_router_comment_flow' ) ) {
-			$ai_reply = bizgpt_router_comment_flow( $message, $post_caption, $page_id, $from_id, $from_name );
-		}
-		
-		if ( empty( $ai_reply ) ) {
-			$ai_reply = 'Cảm ơn bạn đã để lại bình luận! Chúng tôi sẽ hỗ trợ bạn ngay.';
-		}
-		
-		$this->log_info( 'AI reply', array( 'reply' => substr( $ai_reply, 0, 100 ) ) );
-		
-		// Send comment reply
-		if ( function_exists( 'fb_messenger_reply_comment' ) ) {
-			fb_messenger_reply_comment( $comment_id, $ai_reply, $access_token );
-		}
-		
-		// Send notification to admin via Zalo/Telegram
-		$notification = 'Khách đã nhắn bình luận: ' . $message . "\n\n" . 'AI đã trả lời: ' . $ai_reply;
-		$blog_domain = $_SERVER['HTTP_HOST'] ?? '';
-		
 		if ( function_exists( 'send_notice_to_zalo_admin' ) ) {
-			send_notice_to_zalo_admin( $notification, $from_id, $from_name, $blog_domain, $post_type . ' Comment' );
+			send_notice_to_zalo_admin( 'Khách bình luận: ' . $message . "\n\n" . '(Trợ lý chưa tự trả lời bình luận — trả lời tay trên Facebook.)', $from_id, $from_name, $_SERVER['HTTP_HOST'] ?? '', $post_type . ' Comment' );
 		}
-		
-		// Log comment and AI reply
 		if ( function_exists( 'bizgpt_log_comment_ai' ) ) {
 			bizgpt_log_comment_ai( array(
 				'page_id'     => $page_id,
@@ -800,7 +700,7 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 				'sender_id'   => $from_id,
 				'sender_name' => $from_name,
 				'message'     => $message,
-				'ai_reply'    => $ai_reply,
+				'ai_reply'    => '',
 				'client_id'   => $_SERVER['HTTP_HOST'] ?? null,
 			) );
 		}

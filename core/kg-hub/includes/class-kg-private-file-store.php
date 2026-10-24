@@ -97,7 +97,7 @@ final class BizCity_KG_Private_File_Store {
 	const MCP_TOOL      = 'document.file.link';
 	const MCP_TEXT_TOOL = 'document.text.read'; // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-4 (S121-A4, I-3)
 	const MCP_LEARN_TOOL = 'document.learn.set'; // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-2 (S121-K7, I-7)
-	const MCP_SUMMARY_TOOL = 'document.summary.set'; // [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — the cell's automatic summary of a saved file ⇒ the journal row
+	const MCP_SUMMARY_TOOL = 'document.summary.set'; // [2026-10-24 09:54 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — the cell's automatic summary of a saved file ⇒ the journal row
 	const SUMMARY_MAX = 1500;
 	const TEXT_PAGE_MAX = 6000;
 
@@ -213,12 +213,12 @@ final class BizCity_KG_Private_File_Store {
 			'since'          => '0.121.0',
 		) );
 
-		// [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ: "gửi file ⇒ tự lưu, tự tóm tắt, lưu tóm tắt vào journal" (chat riêng). The cell reads the
+		// [2026-10-24 09:54 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ: "gửi file ⇒ tự lưu, tự tóm tắt, lưu tóm tắt vào journal" (chat riêng). The cell reads the
 		// text (document.text.read), summarises it with its own model (the site never calls a model) and writes the summary back HERE: the row's summary (body) + a
 		// card note of who / when. Same read rights as document.text.read (a person can only summarise what they may read); the original file is never touched.
 		// @mcp bizcity-mcp-standard@1 tool document.summary.set
+		// not a model tool (no executor / cell_tools): only the cell's receipt path calls it, after it summarised the file itself
 		$R::register( self::MCP_SUMMARY_TOOL, array(
-			'executor'       => 'document.summary.set',
 			'title'          => 'Lưu tóm tắt của một tài liệu đã lưu',
 			'description'    => 'Ghi bản tóm tắt (≤ 1500 ký tự) vào dòng sổ của MỘT tài liệu theo mã TL-…. Chỉ ghi tóm tắt + dấu "ai tóm, lúc nào"; bản gốc không bao giờ bị sửa. Quyền như document.text.read.',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'doc_code', 'summary' ), 'properties' => array(
@@ -248,14 +248,14 @@ final class BizCity_KG_Private_File_Store {
 	}
 
 	/**
-	 * [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — summary text as stored: no tags, collapsed blank lines, ≤ SUMMARY_MAX chars. Pure.
+	 * [2026-10-24 09:54 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — summary text as stored: no tags, collapsed blank lines, ≤ SUMMARY_MAX chars. Pure.
 	 */
 	public static function clean_summary( string $s ): string {
 		$s = trim( (string) preg_replace( "/\n{3,}/", "\n\n", str_replace( "\r", '', wp_strip_all_tags( $s ) ) ) );
 		return function_exists( 'mb_substr' ) ? mb_substr( $s, 0, self::SUMMARY_MAX ) : substr( $s, 0, self::SUMMARY_MAX );
 	}
 
-	/** [2026-10-24 09:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — MCP handler of `document.summary.set`. */
+	/** [2026-10-24 09:54 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — MCP handler of `document.summary.set`. */
 	public static function mcp_summary_set( array $args, array $ctx ) {
 		$invalid   = class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::QUERY_INVALID : 'query_invalid';
 		$not_found = new WP_Error( class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::NOT_FOUND : 'not_found', 'Không tìm thấy tài liệu có mã này (hoặc không có quyền).', array( 'status' => 404 ) );
@@ -281,10 +281,19 @@ final class BizCity_KG_Private_File_Store {
 			return $not_found;
 		}
 		$source = 'cell_asked' === (string) ( $args['source'] ?? '' ) ? 'cell_asked' : 'cell_auto';
-		$r      = BizCity_Journal_Index::file( (int) $row['id'], (int) $row['owner_user_id'], array(
+		$patch  = array(
 			'summary' => $summary,
 			'card'    => array( 'summary_by' => $source, 'summary_at' => gmdate( 'c' ) ),
-		) );
+		);
+		// [2026-10-24 05:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 81 §5) — the old door is a shortcut of journal.meta.set {about}: the first 600 chars land in
+		// metadata.meta.about too (find_text + view=card follow); a field the owner locked is kept. Kept ≥ two deploys before it goes.
+		if ( class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			$entry          = BizCity_Journal_Index::get( (int) $row['id'], (int) $row['owner_user_id'] );
+			$stored         = is_array( $entry['meta'] ?? null ) ? $entry['meta'] : array();
+			$patch['meta']  = BizCity_Journal_Entry_Meta::merge( $stored, BizCity_Journal_Entry_Meta::normalize( array( 'about' => mb_substr( $summary, 0, 600 ) ) )['meta'], 'cell_auto' === $source ? 'cell_auto' : 'cell_tool' );
+			$patch['meta']['status'] = 'done';
+		}
+		$r = BizCity_Journal_Index::file( (int) $row['id'], (int) $row['owner_user_id'], $patch );
 		if ( is_wp_error( $r ) ) {
 			return $not_found;
 		}

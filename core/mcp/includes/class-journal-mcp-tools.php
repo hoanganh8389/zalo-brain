@@ -129,6 +129,12 @@ final class BizCity_Journal_MCP_Tools {
 				'offset'       => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Bỏ qua bao nhiêu dòng (trang sau = offset + limit).' ),
 				// [2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1 — the row of ONE cell output (a background job proves its product by it, D125-7)
 				'output_id'    => array( 'type' => 'string', 'pattern' => '^co_[a-f0-9]{24}$', 'description' => 'Hệ thống: dòng của một sản phẩm cell (co_…). Mô hình không cần dùng.' ),
+				// [2026-10-24 05:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (journal.find v2, doc 81 §4) — phrases + person + has; results then carry `why` and come by score
+				'terms'        => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 60 ), 'maxItems' => 12, 'description' => 'Các cụm cần tìm (đã mở rộng đồng nghĩa), vd ["nha truong","truong hoc","thong bao"]. Tìm cả trong chữ đọc được trên ảnh, mô tả, từ khoá, người. Có dấu hay không dấu đều được. Kết quả xếp theo điểm, mỗi dòng có `why` (khớp ở đâu).' ),
+				'match'        => array( 'type' => 'string', 'enum' => array( 'all', 'any' ), 'description' => 'all (mặc định) = dòng phải khớp mọi cụm; any = khớp một cụm là đủ (dùng khi đã liệt kê đồng nghĩa).' ),
+				'person'       => array( 'type' => 'object', 'properties' => array( 'name' => array( 'type' => 'string', 'maxLength' => 80 ), 'contact_ref' => array( 'type' => 'string', 'maxLength' => 40 ) ), 'description' => 'Dòng có nhắc tới người này, vd {"name":"anh Minh"} (bỏ anh/chị/cô… khi so).' ),
+				'has'          => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'enum' => array( 'ocr', 'about', 'people', 'keywords' ) ), 'maxItems' => 4, 'description' => 'Chỉ dòng đã có phần này, vd ["ocr"] = ảnh đã đọc được chữ.' ),
+				'source_uuid'  => array( 'type' => 'string', 'pattern' => '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'description' => 'Hệ thống: mọi dòng (mọi bản) của MỘT nguồn (resource.source_uuid). Mô hình không cần dùng.' ),
 				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: layers / scope job / scope group narrow the page; absent ⇒ unchanged
 				'context_scope' => self::context_scope_schema(),
 			) ),
@@ -158,6 +164,8 @@ final class BizCity_Journal_MCP_Tools {
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'ref'      => array( 'type' => 'string', 'maxLength' => 16, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}\\s*$', 'description' => 'Mã dòng, vd "TL-47", "JB-31". Ưu tiên dùng cái này.' ),
 				'entry_id' => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Số entry_id lấy từ kết quả journal.find (khi không có mã).' ),
+				// [2026-10-24 05:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 81 §7) — view=card: the read shape every UI renders (labels in Vietnamese, internal keys hidden)
+				'view'     => array( 'type' => 'string', 'enum' => array( 'row', 'card' ), 'description' => 'row (mặc định) = dòng đầy đủ; card = thẻ đọc sẵn (mô tả, chữ trên ảnh, trường có nhãn tiếng Việt, người, nguồn, việc liên quan).' ),
 				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: version "<root_ref>@<n>" picks that version; layers / group only narrow
 				'context_scope' => self::context_scope_schema(),
 			) ),
@@ -175,6 +183,8 @@ final class BizCity_Journal_MCP_Tools {
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
 		) );
+
+		self::register_133_tools( $R, $entry_props );
 
 		// @mcp bizcity-mcp-standard@1 tool journal.file
 		$R::register( 'journal.file', array(
@@ -701,10 +711,22 @@ final class BizCity_Journal_MCP_Tools {
 	/** MCP door of journal.get: the row as before + `next_tier_available`. The row keeps ITS OWN `tier` (maturity of the document); the tool's tier is not stamped over it. */
 	public static function get_mcp( array $args, array $ctx ) {
 		$row = self::get( $args, $ctx );
+		if ( is_array( $row ) && 'card' === (string) ( $args['view'] ?? '' ) ) {
+			return self::card_of( $row ); // PHASE-0.133 view=card
+		}
 		if ( is_array( $row ) ) {
 			$row['next_tier_available'] = self::has_deeper_tier( array( $row ) );
 		}
 		return $row;
+	}
+
+	/** [2026-10-24 05:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 81 §7) — entry-card@1 of a row the principal may read (no download link: the REST door signs one). */
+	public static function card_of( array $row, string $preview_url = '' ): array {
+		if ( ! class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			return $row;
+		}
+		$def = class_exists( 'BizCity_Journal_Kinds' ) ? (array) ( BizCity_Journal_Kinds::get( (string) ( $row['kind'] ?? '' ) ) ?? array() ) : array();
+		return BizCity_Journal_Entry_Meta::card( $row, $def, $preview_url );
 	}
 
 	public static function get( array $args, array $ctx ) {
@@ -1153,6 +1175,313 @@ final class BizCity_Journal_MCP_Tools {
 			'by'              => array( 'role' => (string) ( $ctx['role'] ?? 'owner' ) ),
 		) );
 		return is_wp_error( $row ) ? self::err( $row ) : array( 'entry_id' => (int) $row['entry_id'], 'metrics' => $metrics );
+	}
+
+	/* ── PHASE-0.133: entry-meta · evidence · vault ──────────────────── */
+
+	/**
+	 * [2026-10-24 05:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (doc 20 §5, doc 81 §5, doc 70 §4) — the five 0.133 doors: journal.meta.set (EM-4, the one
+	 * write door of metadata.meta), journal.evidence.record (EV- rows), vault.get / vault.materialize / vault.revision (the Readable Brain, by logical ref).
+	 * System tools of the cell: the model reads through journal.get view=card / vault.get; it never writes meta or evidence itself.
+	 */
+	private static function register_133_tools( string $R, array $entry_props ): void {
+		$ref_any = array( 'type' => 'string', 'maxLength' => 40, 'description' => 'Mã dòng "TL-47", mã bản "TL-47@v2" hoặc bản đọc "vault://TL-47/v2/r1".' );
+
+		// @mcp bizcity-mcp-standard@1 tool journal.meta.set
+		$R::register( 'journal.meta.set', array(
+			'title'          => 'Ghi thông tin đọc được của một dòng',
+			'description'    => 'Cell ghi phần ĐỌC ĐƯỢC của MỘT dòng (entry-meta@1): mô tả ngắn (about), chú thích, chữ trên ảnh (ocr), từ khoá, chủ đề, người, số tiền nhìn thấy. '
+				. 'Trường lạ hoặc quá dài ⇒ entry_meta_invalid (không cắt ngầm). Trường chủ đã sửa tay (locked) được giữ nguyên ở lượt tự động. Bản gốc không bao giờ bị sửa. '
+				. 'Kèm `candidates` = số liệu đề xuất (chưa ghi sổ; người duyệt mới thành dòng thật). Công cụ hệ thống của cell.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'meta' ), 'properties' => array(
+				'ref'          => array( 'type' => 'string', 'maxLength' => 16, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}\\s*$' ),
+				'entry_id'     => array( 'type' => 'integer', 'minimum' => 1 ),
+				'meta'         => array( 'type' => 'object', 'description' => 'entry-meta@1: {title?, about?, caption?, ocr?{text, lang?, confidence?}, keywords?[], topics?[], entities?[], people?[], amounts?[], status?, error?}' ),
+				'candidates'   => array( 'type' => 'array', 'maxItems' => 30, 'items' => array( 'type' => 'object' ) ),
+				'merge'        => array( 'type' => 'boolean', 'description' => 'true (mặc định) = gộp vào phần đã có; false = thay toàn bộ (trừ trường đã khoá).' ),
+				'expected_rev' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'source'       => array( 'type' => 'string', 'enum' => array( 'cell_auto', 'cell_tool' ) ),
+			) ),
+			'output_schema'  => $R::envelope_schema( $entry_props, array( 'entry_id', 'kind' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'meta_set' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'journal_meta_set',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
+			'fallback_pack'  => null,
+			'since'          => '0.133.0',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool journal.evidence.record
+		$R::register( 'journal.evidence.record', array(
+			'title'          => 'Ghi bằng chứng đăng / gửi',
+			'description'    => 'Ghi MỘT bằng chứng (dòng EV-) sau khi đăng bài hoặc gửi tài liệu: nền tảng, tài khoản, mã gốc của nền tảng (giữ nguyên, không tự tạo), liên kết, cách xác minh. '
+				. 'Trùng (cùng tài khoản + mã gốc) ⇒ trả lại dòng cũ. "verified" cần mã gốc + cách xác minh; thiếu ⇒ hạ xuống unknown / pending. Công cụ hệ thống của cell.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'evidence' ), 'properties' => array(
+				'evidence' => array( 'type' => 'object', 'description' => 'external-publication-evidence@1 hoặc delivery-evidence@1 (PHASE-0.133 doc 70 §4).' ),
+				'job'      => array( 'type' => 'object', 'properties' => array(
+					'job_id'   => array( 'type' => 'string', 'pattern' => '^job_[0-9A-Za-z]{10,40}$' ),
+					'step_ref' => array( 'type' => 'string', 'maxLength' => 40 ),
+					'actor'    => array( 'type' => 'object' ),
+				) ),
+			) ),
+			'output_schema'  => $R::envelope_schema( $entry_props, array( 'entry_id', 'kind' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'evidence_record' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'journal_evidence_record',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
+			'fallback_pack'  => null,
+			'since'          => '0.133.0',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool vault.get
+		$R::register( 'vault.get', array(
+			'title'          => 'Đọc bản Markdown của một nguồn',
+			'description'    => 'Đọc bản đọc (Markdown) đã lưu của MỘT tài liệu / ảnh / ghi chú: lời của chính nguồn, kèm frontmatter (mã, bản, cách trích). '
+				. 'Dài thì đọc theo trang: offset + limit (≤ 6000 ký tự), next_offset = null là hết. Chưa có bản đọc ⇒ vault_not_found (dùng journal.get view=card để xem mô tả). Không trả link tải.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'ref' ), 'properties' => array(
+				'ref'    => $ref_any,
+				'rev'    => array( 'type' => 'integer', 'minimum' => 0, 'description' => '0 = bản đọc mới nhất.' ),
+				'offset' => array( 'type' => 'integer', 'minimum' => 0 ),
+				'limit'  => array( 'type' => 'integer', 'minimum' => 500, 'maximum' => 6000 ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'ref'         => array( 'type' => 'string' ),
+				'rev'         => array( 'type' => 'integer' ),
+				'markdown'    => array( 'type' => 'string' ),
+				'frontmatter' => array( 'type' => 'object' ),
+				'next_offset' => array( 'type' => array( 'integer', 'null' ) ),
+			), array( 'ref', 'markdown' ) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( __CLASS__, 'vault_get' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'vault_get',
+			'brain'          => array( 'tier' => 'L2', 'permission' => 'content.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
+			'fallback_pack'  => null,
+			'since'          => '0.133.0',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool vault.materialize
+		$R::register( 'vault.materialize', array(
+			'title'          => 'Lưu bản Markdown của một nguồn',
+			'description'    => 'Cell lưu bản đọc (Markdown) nó trích từ MỘT nguồn: body_md = lời của nguồn (giữ nguyên), ai_notes = ghi chú của AI (để riêng, không lẫn vào bản gốc). '
+				. 'Site tự dựng frontmatter từ dòng sổ (mã, bản, quyền thừa hưởng từ nguồn) — mọi khoá quyền trong body bị bỏ. Cùng nội dung ⇒ không tạo bản mới. Công cụ hệ thống của cell.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'ref', 'body_md' ), 'properties' => array(
+				'ref'        => $ref_any,
+				'body_md'    => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 400000 ),
+				'ai_notes'   => array( 'type' => 'string', 'maxLength' => 8000 ),
+				'extraction' => array( 'type' => 'object', 'properties' => array(
+					'kind'     => array( 'type' => 'string', 'maxLength' => 32 ),
+					'engine'   => array( 'type' => 'string', 'maxLength' => 32 ),
+					'status'   => array( 'type' => 'string', 'enum' => array( 'pending', 'completed', 'failed', 'skipped' ) ),
+					'reviewed' => array( 'type' => 'boolean' ),
+					'run_id'   => array( 'type' => 'string', 'maxLength' => 64 ),
+				) ),
+				'sidecar'    => array( 'type' => 'object', 'description' => 'Bản đồ trang / vùng (page_anchor) của bản đọc, lưu kèm .map.json.' ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'ref'            => array( 'type' => 'string' ),
+				'rev'            => array( 'type' => 'integer' ),
+				'content_sha256' => array( 'type' => 'string' ),
+				'unchanged'      => array( 'type' => 'boolean' ),
+			), array( 'ref', 'rev' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'vault_materialize' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'memory.write' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'vault_materialize',
+			'brain'          => array( 'layer' => 'document', 'permission' => 'write', 'crud' => 'write', 'answer_hint' => 'instant' ),
+			'fallback_pack'  => null,
+			'since'          => '0.133.0',
+		) );
+
+		// @mcp bizcity-mcp-standard@1 tool vault.revision
+		$R::register( 'vault.revision', array(
+			'title'          => 'Các lần trích của một nguồn',
+			'description'    => 'Liệt kê các bản đọc (rev) đã lưu của MỘT nguồn, mới nhất trước: mã vault://…, cách trích, đã duyệt chưa, lúc nào; và trạng thái chỉ mục tri thức (ready / stale).',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'ref' ), 'properties' => array( 'ref' => $ref_any ) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'source_ref' => array( 'type' => 'string' ),
+				'revisions'  => array( 'type' => 'array' ),
+				'knowledge'  => array( 'type' => 'object' ),
+			), array( 'revisions' ) ),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( __CLASS__, 'vault_revision' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'vault_revision',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
+			'fallback_pack'  => null,
+			'since'          => '0.133.0',
+		) );
+	}
+
+	/** "TL-47" · "TL-47@v2" · "vault://TL-47/v2/r1" ⇒ {ref, rev}; null when none of them. Pure. */
+	public static function parse_any_ref( string $s ): ?array {
+		$s = trim( $s );
+		if ( class_exists( 'BizCity_Brain_Resource_Link' ) ) {
+			$v = BizCity_Brain_Resource_Link::parse_vault_ref( $s );
+			if ( $v ) {
+				return array( 'ref' => $v['ref'], 'rev' => $v['rev'] );
+			}
+			$sr = BizCity_Brain_Resource_Link::parse_source_ref( $s );
+			if ( $sr ) {
+				return array( 'ref' => $sr['ref'], 'rev' => 0 );
+			}
+		}
+		return 1 === preg_match( '/^[A-Za-z]{2}-\d{1,12}$/', $s ) ? array( 'ref' => strtoupper( $s ), 'rev' => 0 ) : null;
+	}
+
+	/** A row the principal may `$permission` (decided at the source); WP_Error 404 otherwise. */
+	private static function row_for( array $target, array $ctx, string $permission ) {
+		$owner = self::owner( $ctx );
+		$row   = '' !== (string) ( $target['ref'] ?? '' ) ? BizCity_Journal_Index::find_by_ref( (string) $target['ref'], $owner ) : BizCity_Journal_Index::get( (int) ( $target['entry_id'] ?? 0 ), $owner );
+		if ( ! $row ) {
+			return self::err( new WP_Error( 'journal_not_found', 'Không có dòng này trong sổ của chủ. Tìm lại bằng journal.find để lấy mã đúng.' ) );
+		}
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			$d = BizCity_Brain_Access::decide( BizCity_Brain_Access::principal( $ctx ), $row, $permission );
+			if ( ! $d['allow'] ) {
+				return self::err( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
+			}
+		}
+		return $row;
+	}
+
+	public static function meta_set( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			return self::err( new WP_Error( 'journal_unavailable', 'Sổ chưa sẵn sàng trên site này.' ) );
+		}
+		$row = self::row_for( $args, $ctx, 'write' );
+		if ( is_wp_error( $row ) ) {
+			return $row;
+		}
+		$owner = self::owner( $ctx );
+		$out   = BizCity_Journal_Entry_Meta::set( $owner, array( 'entry_id' => (int) $row['entry_id'] ), is_array( $args['meta'] ?? null ) ? $args['meta'] : array(), array(
+			'merge'        => false !== ( $args['merge'] ?? true ),
+			'expected_rev' => (int) ( $args['expected_rev'] ?? 0 ),
+			'source'       => 'cell_auto' === (string) ( $args['source'] ?? '' ) ? 'cell_auto' : 'cell_tool', // owner_edit only through the REST door (a person's hand)
+		) );
+		if ( is_wp_error( $out ) ) {
+			return self::err( $out );
+		}
+		if ( is_array( $args['candidates'] ?? null ) ) {
+			$c = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, array( 'candidates' => $args['candidates'] ) );
+			if ( ! is_wp_error( $c ) ) {
+				$out = $c;
+			}
+		}
+		return $out;
+	}
+
+	public static function evidence_record( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_Journal_Evidence' ) ) {
+			return self::err( new WP_Error( 'journal_unavailable', 'Sổ chưa sẵn sàng trên site này.' ) );
+		}
+		$row = BizCity_Journal_Evidence::record( self::owner( $ctx ), is_array( $args['evidence'] ?? null ) ? $args['evidence'] : array(), is_array( $args['job'] ?? null ) ? $args['job'] : array() );
+		return is_wp_error( $row ) ? self::err( $row ) : $row;
+	}
+
+	public static function vault_get( array $args, array $ctx ) {
+		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) ) {
+			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47", "TL-47@v2" hoặc "vault://TL-47/v2/r1".' ) );
+		}
+		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'content.read' );
+		if ( is_wp_error( $row ) ) {
+			return $row;
+		}
+		$rev = isset( $args['rev'] ) ? (int) $args['rev'] : $p['rev'];
+		$out = BizCity_Brain_Vault_Store::read( $row, max( 0, $rev ), (int) ( $args['offset'] ?? 0 ), (int) ( $args['limit'] ?? 6000 ) );
+		if ( is_wp_error( $out ) ) {
+			$data = (array) $out->get_error_data();
+			return new WP_Error( class_exists( 'BizCity_MCP_Error' ) && defined( 'BizCity_MCP_Error::NOT_FOUND' ) ? BizCity_MCP_Error::NOT_FOUND : 'not_found', $out->get_error_message(), array( 'status' => 404, 'reason' => $out->get_error_code(), 'hint' => (string) ( $data['hint'] ?? '' ) ) );
+		}
+		$out['source_ref'] = (string) ( $row['resource']['source_ref'] ?? '' );
+		return $out;
+	}
+
+	public static function vault_materialize( array $args, array $ctx ) {
+		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) || ! class_exists( 'BizCity_Brain_Resource_Link' ) ) {
+			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47" hoặc "TL-47@v2".' ) );
+		}
+		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'write' );
+		if ( is_wp_error( $row ) ) {
+			return $row;
+		}
+		$res    = is_array( $row['resource'] ?? null ) ? $row['resource'] : array();
+		$latest = BizCity_Brain_Resource_Link::latest_representation( $res );
+		$parts  = array(
+			'body_md'    => (string) ( $args['body_md'] ?? '' ),
+			'ai_notes'   => (string) ( $args['ai_notes'] ?? '' ),
+			'extraction' => is_array( $args['extraction'] ?? null ) ? $args['extraction'] : array(),
+			'sidecar'    => is_array( $args['sidecar'] ?? null ) ? $args['sidecar'] : null,
+		);
+		if ( $latest && hash( 'sha256', BizCity_Brain_Vault_Store::compose( $row, (int) $latest['rev'], $parts ) ) === (string) $latest['content_sha256'] ) {
+			return array( 'ref' => (string) $latest['ref'], 'rev' => (int) $latest['rev'], 'content_sha256' => (string) $latest['content_sha256'], 'unchanged' => true );
+		}
+		$rev     = $latest ? (int) $latest['rev'] + 1 : 1;
+		$written = BizCity_Brain_Vault_Store::write( $row, $rev, $parts );
+		if ( is_wp_error( $written ) ) {
+			return self::err( $written );
+		}
+		$saved = BizCity_Journal_Index::file( (int) $row['entry_id'], self::owner( $ctx ), array( 'representation' => array(
+			'ref'            => $written['ref'],
+			'content_sha256' => $written['content_sha256'],
+			'extract'        => $parts['extraction'],
+			'at'             => gmdate( 'Y-m-d\TH:i:s\Z' ),
+		) ) );
+		if ( is_wp_error( $saved ) ) {
+			return self::err( $saved );
+		}
+		return array( 'ref' => $written['ref'], 'rev' => $rev, 'content_sha256' => $written['content_sha256'], 'unchanged' => false, 'source_ref' => (string) ( $saved['resource']['source_ref'] ?? '' ) );
+	}
+
+	public static function vault_revision( array $args, array $ctx ) {
+		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) ) {
+			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47" hoặc "TL-47@v2".' ) );
+		}
+		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'meta.read' );
+		if ( is_wp_error( $row ) ) {
+			return $row;
+		}
+		return array(
+			'source_ref' => (string) ( $row['resource']['source_ref'] ?? '' ),
+			'revisions'  => BizCity_Brain_Vault_Store::revisions( $row ),
+			'knowledge'  => (array) ( $row['resource']['knowledge'] ?? array() ),
+		);
 	}
 
 	/* ── shared ──────────────────────────────────────────────────────── */

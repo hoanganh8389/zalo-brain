@@ -64,9 +64,9 @@ final class BizCity_Bot_REST {
 		register_rest_route( self::NAMESPACE_V1, '/bot/default-guru', array(
 			'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_set_default_guru' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/runtime/(?P<character_id>\d+)/test', array(
-			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_runtime' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-		) );
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — PHP engine routes removed (the cell answers every channel):
+		// POST /bot/runtime/{id}/test (a PHP LLM call), GET /bot/provider, GET /bot/queue/status, GET /bot/context/preview,
+		// /bot/media/{id} (+ /keys, /test/{kind}). Config routes stay — their values are pushed to the cell.
 		// [2026-10-09 03:36 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F14 (D95-20) — the real WooCommerce product category tree for the
 		// Bot Studio "danh mục được tư vấn" picker. Same trust boundary as every Guru edit route here (manage_options / network admin).
 		register_rest_route( self::NAMESPACE_V1, '/guru/product-categories', array(
@@ -90,16 +90,6 @@ final class BizCity_Bot_REST {
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_zalo_hub_tool_status' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 			'args' => array( 'account_id' => array( 'type' => 'string', 'required' => true ) ),
 		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/provider', array(
-			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_provider' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/queue/status', array(
-			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_queue_status' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/context/preview', array(
-			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_context_preview' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-			'args' => array( 'conversation_id' => array( 'type' => 'integer', 'default' => 0 ), 'limit' => array( 'type' => 'integer', 'default' => 20 ) ),
-		) );
 		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E EA-1 (doc §5) — per-binding behavior policy
 		// (allowlist for now). Deliberately its own route, not folded into POST /inspector/bindings
 		// (class-webhook-inspector.php owns binding identity/routing; this owns bot behavior on it).
@@ -113,34 +103,6 @@ final class BizCity_Bot_REST {
 		// No secret, principal or key_id leaves this route — only the raw auto|node|php value.
 		register_rest_route( self::NAMESPACE_V1, '/bot/policy/web-turn-path', array(
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_web_turn_path' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-		) );
-		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 (user-approved) — TTS/STT/tạo nhạc/Apify/
-		// Tavily. Non-secret config lives in BizCity_Bot_Config_Repo (settings.bot.media); keys
-		// live in BizCity_Bot_Secrets_Repo and are NEVER returned in plaintext by any route here.
-		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)', array(
-			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
-			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
-		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/keys', array(
-			array( 'methods' => 'POST',   'callback' => array( __CLASS__, 'rest_add_media_key' ),    'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
-			array( 'methods' => 'DELETE', 'callback' => array( __CLASS__, 'rest_clear_media_keys' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
-		) );
-		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/keys/(?P<index>\d+)', array(
-			'methods' => 'DELETE', 'callback' => array( __CLASS__, 'rest_remove_media_key' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
-		) );
-		// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4A (doc §2.2 G-12) — added 'apify' so the Test
-		// button in GuruBotMediaPanel has somewhere real to call; the executor (BizCity_Bot_Apify_Client)
-		// already existed but this route only accepted tts|stt|music, so any FE apify test 404'd.
-		// 'video'/'image' added the same pass (doc §2.2 G-05/G-04) — video submits a REAL job via
-		// BizCity_Video_Client (async, never waits for completion); image calls the SAME
-		// BizCity_LLM_Client::generate_image() the bot would use and returns a real image.
-		// 'tavily' (doc §2.2A "tavily_api_key chỉ khi tool owner dùng thật") — calls Tavily's own
-		// search API directly with the operator's key so the key is genuinely exercised, not just
-		// stored; still NOT wired into the live web_search turn tool (class-bot-tools.php keeps using
-		// the site-wide gateway Search_Client) — that is a turn-behavior change needing its own owner
-		// sign-off, same idiom as tts/stt/music/video/image staying `unconfigured` for the turn.
-		register_rest_route( self::NAMESPACE_V1, '/bot/media/(?P<character_id>\d+)/test/(?P<kind>tts|stt|music|apify|video|image|tavily)', array(
-			'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_test_media' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 		) );
 	}
 
@@ -156,7 +118,7 @@ final class BizCity_Bot_REST {
 			return $unknown;
 		}
 		$data = BizCity_Bot_Config_Repo::get( $character_id );
-		$data['provider'] = class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::site_status() : null;
+		$data['provider'] = null; // [2026-10-24] PHASE-0.126 R126-BOT — the PHP provider left with the engine (the cell picks its model).
 		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-3 — the EFFECTIVE scope of this Guru (defaults filled in) and whether it is the
 		// site default Guru (gate 0), so the sheet shows exactly what every reply path (zca PHP and zalo-hub cells) will use.
 		if ( class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
@@ -247,37 +209,6 @@ final class BizCity_Bot_REST {
 		return self::ok( $result );
 	}
 
-	/** A REAL minimal call through the same path the bot uses (never a mock — D4.4). */
-	public static function rest_test_runtime( WP_REST_Request $req ) {
-		$character_id = (int) $req['character_id'];
-		if ( $character_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) || ! class_exists( 'BizCity_LLM_Client' ) ) {
-			return self::not_loaded();
-		}
-		$character = BizCity_Knowledge_Database::instance()->get_character( $character_id );
-		if ( ! $character ) {
-			return self::err( 'not_found', 'Character does not exist.', 404, 'Select the Guru again and retry.', 'bot_character_missing' );
-		}
-		$test_message = array(
-			array( 'role' => 'system', 'content' => (string) ( $character->system_prompt ?? '' ) ),
-			array( 'role' => 'user', 'content' => 'Xin chào, bạn có thể giới thiệu ngắn gọn về bản thân không?' ),
-		);
-		$started = microtime( true );
-		try {
-			$result = BizCity_LLM_Client::instance()->chat_with_character( $character, $test_message );
-		} catch ( \Throwable $e ) {
-			return self::err( 'provider_error', 'The AI source call failed.', 502, 'Check the API key and AI source mode in BizCity LLM settings.', 'bot_provider_error' );
-		}
-		if ( empty( $result['success'] ) ) {
-			return self::err( 'provider_error', (string) ( $result['error'] ?? 'The AI source did not respond.' ), 502, 'Check the API key and AI source mode in BizCity LLM settings.', 'bot_provider_error' );
-		}
-		return self::ok( array(
-			'reply'      => (string) ( $result['message'] ?? '' ),
-			'model'      => (string) ( $result['model'] ?? '' ),
-			'latency_ms' => (int) round( ( microtime( true ) - $started ) * 1000 ),
-			'provider'   => class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::effective()['mode'] : '',
-		) );
-	}
-
 	/* ── /bot/tuning ──────────────────────────────────────────────────── */
 
 	public static function rest_get_tuning() {
@@ -319,7 +250,7 @@ final class BizCity_Bot_REST {
 		) );
 	}
 
-	/* ── /bot/tools · /bot/provider · /bot/queue/status · /bot/context/preview ── */
+	/* ── /bot/tools ── */
 
 	public static function rest_get_tools( WP_REST_Request $req ) {
 		if ( ! class_exists( 'BizCity_Bot_Tool_Registry' ) ) {
@@ -335,7 +266,7 @@ final class BizCity_Bot_REST {
 			'tools'          => $rows,
 			'disabled_tools' => $disabled,
 			'enabled_optional_tools' => $optional_on,
-			'gateway_gaps'   => class_exists( 'BizCity_Bot_Provider' ) ? BizCity_Bot_Provider::GATEWAY_GAPS : array(),
+			'gateway_gaps'   => array(), // [2026-10-24] PHASE-0.126 R126-BOT — no PHP provider any more.
 			'counts'         => array(
 				'available'    => count( array_filter( $rows, static function ( $r ) { return 'available' === $r['status']; } ) ),
 				'unconfigured' => count( array_filter( $rows, static function ( $r ) { return 'unconfigured' === $r['status']; } ) ),
@@ -389,62 +320,6 @@ final class BizCity_Bot_REST {
 			'tool_quota_reached'      => 'Đã dùng hết hạn mức hôm nay — tự mở lại ngày mai.',
 		);
 		return $map[ $reason ] ?? '';
-	}
-
-	public static function rest_get_provider() {
-		if ( ! class_exists( 'BizCity_Bot_Provider' ) ) {
-			return self::not_loaded();
-		}
-		return self::ok( BizCity_Bot_Provider::site_status() );
-	}
-
-	public static function rest_queue_status() {
-		if ( ! class_exists( 'BizCity_Bot_Turn_Claim' ) || ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$rows = array();
-		foreach ( BizCity_Bot_Turn_Claim::active_contacts() as $contact_id => $row ) {
-			$rows[] = array(
-				'contact_id'      => (int) $contact_id,
-				'conversation_id' => (int) ( $row['conversation_id'] ?? 0 ),
-				'state'           => (string) ( $row['state'] ?? '' ),
-				'pending'         => (int) ( $row['pending'] ?? 0 ),
-				'parks'           => (int) ( $row['parks'] ?? 0 ),
-				'age_seconds'     => max( 0, time() - (int) ( $row['at'] ?? time() ) ),
-			);
-		}
-		$tuning = BizCity_Bot_Config_Repo::get_tuning();
-		return self::ok( array(
-			'active' => $rows,
-			'tuning' => array(
-				'debounce_seconds'   => (int) $tuning['debounce_seconds'],
-				'max_batch_messages' => (int) $tuning['max_batch_messages'],
-				'send_delay_min_ms'  => (int) $tuning['send_delay_min_ms'],
-				'send_delay_max_ms'  => (int) $tuning['send_delay_max_ms'],
-				'daily_message_cap'  => (int) $tuning['daily_message_cap'],
-			),
-		) );
-	}
-
-	public static function rest_context_preview( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Context_Builder' ) || ! class_exists( 'BizCity_CRM_Repository' ) ) {
-			return self::not_loaded();
-		}
-		$conversation_id = (int) $req->get_param( 'conversation_id' );
-		$limit           = max( 1, min( 200, (int) $req->get_param( 'limit' ) ) );
-		if ( $conversation_id <= 0 ) {
-			return self::err( 'invalid_param', 'conversation_id is missing.', 422, 'Select a conversation in the Inbox and retry.', 'bot_preview_conversation_required' );
-		}
-		$conversation = BizCity_CRM_Repository::get_conversation( $conversation_id );
-		if ( ! is_array( $conversation ) ) {
-			return self::err( 'not_found', 'This conversation does not exist on this site.', 404, 'Check the conversation ID.', 'bot_preview_not_found' );
-		}
-		$contact_id = (int) ( $conversation['contact_id'] ?? 0 );
-		return self::ok( array(
-			'conversation_id' => $conversation_id,
-			'rows'            => BizCity_Bot_Context_Builder::preview( $conversation_id, $limit ),
-			'contact_block'   => BizCity_Bot_Context_Builder::contact_block( $contact_id ),
-		) );
 	}
 
 	/* ── /bot/policy/{binding_id} (PHASE-0.60E EA-1) ─────────────────── */
@@ -689,11 +564,9 @@ final class BizCity_Bot_REST {
 		if ( ! BizCity_Channel_Binding::save_policy( $binding_id, $policy ) ) {
 			return self::err( 'save_failed', 'The configuration could not be saved.', 500, 'Retry; if it still fails, check the log.', 'bot_policy_save_failed' );
 		}
-		// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K8 — the bridge sends "đã nhận" itself, so it must be told the switch. A failure
-		// (old sidecar, session down) does NOT undo the saved policy but is returned, so the screen can say "not applied yet".
-		if ( $sync_receipts && class_exists( 'BizCity_Bot_Zalo_Actions' ) ) {
-			$policy['receipts_sync'] = BizCity_Bot_Zalo_Actions::configure_receipts( (string) ( $binding['account_id'] ?? '' ), 'off' !== $policy['read_receipts'] );
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — the read-receipt push to the site's own zca-bridge
+		// (BizCity_Bot_Zalo_Actions::configure_receipts) left with the PHP engine; the policy reaches the cell via the config sync.
+		unset( $sync_receipts );
 		$policy['owner_agent_view'] = self::owner_agent_view( $binding, $policy );
 		return self::ok( self::strip_private( $policy ) );
 	}
@@ -770,152 +643,6 @@ final class BizCity_Bot_REST {
 		return $out;
 	}
 
-	/* ── /bot/media/{character_id} + /keys (PHASE-0.60E D-E1) ────────── */
-
-	public static function rest_get_media( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) || ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$unknown = self::unknown_character( $character_id );
-		if ( $unknown ) {
-			return $unknown;
-		}
-		$media        = BizCity_Bot_Config_Repo::get( $character_id )['media'];
-		return self::ok( array(
-			'config'  => $media,
-			'secrets' => self::media_secret_status( $character_id ),
-		) );
-	}
-
-	public static function rest_save_media( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$unknown = self::unknown_character( $character_id );
-		if ( $unknown ) {
-			return $unknown;
-		}
-		$body         = $req->get_json_params();
-		$body         = is_array( $body ) ? $body : array();
-		$result       = BizCity_Bot_Config_Repo::save( $character_id, array( 'media' => $body ) );
-		if ( is_wp_error( $result ) ) {
-			return self::err_from( $result );
-		}
-		return self::ok( array(
-			'config'  => $result['media'],
-			'secrets' => self::media_secret_status( $character_id ),
-		) );
-	}
-
-	/** EB-6: `field` = one of BizCity_Bot_Secrets_Repo::FIELDS. Multi fields append; single fields replace. */
-	public static function rest_add_media_key( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$body         = $req->get_json_params();
-		$body         = is_array( $body ) ? $body : array();
-		$field        = sanitize_key( (string) ( $body['field'] ?? '' ) );
-		$value        = (string) ( $body['value'] ?? '' );
-		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
-			return self::err( 'invalid_param', 'Invalid key field.', 422, 'field must be one of: ' . implode( ', ', array_keys( BizCity_Bot_Secrets_Repo::FIELDS ) ) . '.', 'bot_secret_field_unknown' );
-		}
-		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
-		if ( BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
-			$result = BizCity_Bot_Secrets_Repo::add_key( $character_id, $field, $value, $user_id );
-			if ( is_wp_error( $result ) ) {
-				return self::err_from( $result );
-			}
-			return self::ok( array( 'field' => $field, 'masked_keys' => $result ) );
-		}
-		if ( '' === trim( $value ) ) {
-			return self::err( 'invalid_param', 'The key must not be empty.', 422, '', 'bot_secret_empty' );
-		}
-		if ( ! BizCity_Bot_Secrets_Repo::set_value( $character_id, $field, $value, $user_id ) ) {
-			return self::err( 'save_failed', 'The key could not be saved.', 500, '', 'bot_secret_save_failed' );
-		}
-		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
-	}
-
-	/** EB-6.3 "xoá từng khóa" — multi fields only; index is the position in the ordered list. */
-	public static function rest_remove_media_key( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$index        = (int) $req['index'];
-		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
-		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) || ! BizCity_Bot_Secrets_Repo::is_multi( $field ) ) {
-			return self::err( 'invalid_param', 'Invalid key field, or the field does not support deleting single keys.', 422, '', 'bot_secret_field_unknown' );
-		}
-		$user_id = function_exists( 'get_current_user_id' ) ? (int) get_current_user_id() : 0;
-		if ( ! BizCity_Bot_Secrets_Repo::remove_key( $character_id, $field, $index, $user_id ) ) {
-			return self::err( 'not_found', 'No key found at this position.', 404, '', 'bot_secret_index_missing' );
-		}
-		return self::ok( array( 'field' => $field, 'masked_keys' => BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field ) ) );
-	}
-
-	/** EB-6.3 "xoá toàn bộ" — also how a single-value field is cleared back to unset. */
-	public static function rest_clear_media_keys( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$field        = sanitize_key( (string) $req->get_param( 'field' ) );
-		if ( ! BizCity_Bot_Secrets_Repo::is_known_field( $field ) ) {
-			return self::err( 'invalid_param', 'Invalid key field.', 422, '', 'bot_secret_field_unknown' );
-		}
-		BizCity_Bot_Secrets_Repo::clear( $character_id, $field );
-		return self::ok( array( 'field' => $field, 'masked_keys' => array() ) );
-	}
-
-	/** { has_*, *_masked } for every media field — the ONLY shape a secret field is ever returned in. */
-	private static function media_secret_status( int $character_id ): array {
-		$out = array();
-		foreach ( BizCity_Bot_Secrets_Repo::FIELDS as $field => $spec ) {
-			$masked = BizCity_Bot_Secrets_Repo::masked_keys( $character_id, $field );
-			$out[ $field ] = array(
-				'has'    => array() !== $masked,
-				'masked' => ! empty( $spec['multi'] ) ? $masked : ( $masked[0] ?? '' ),
-			);
-		}
-		return $out;
-	}
-
-	/**
-	 * Real minimal call through the same provider path the bot would use — never a mock (D4.4).
-	 * Costs real money for `music` (doc EB-3.1) — the FE must show a cost warning before calling this.
-	 */
-	public static function rest_test_media( WP_REST_Request $req ) {
-		if ( ! class_exists( 'BizCity_Bot_Media_Client' ) ) {
-			return self::not_loaded();
-		}
-		$character_id = (int) $req['character_id'];
-		$kind         = sanitize_key( (string) $req['kind'] );
-		// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — 'stt' test uploads a recording as
-		// multipart/form-data ("giữ để ghi âm test", B-03/6), so it has no JSON body; every other
-		// kind sends JSON. Read whichever one is actually present rather than assuming.
-		$body = $req->get_json_params();
-		$body = is_array( $body ) ? $body : array();
-		if ( 'stt' === $kind ) {
-			$files = $req->get_file_params();
-			$file  = is_array( $files['file'] ?? null ) ? $files['file'] : array();
-			if ( empty( $file['error'] ) && ! empty( $file['tmp_name'] ) ) {
-				$body['file_path'] = (string) $file['tmp_name'];
-				$body['file_name'] = (string) ( $file['name'] ?? '' ); // [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 — extension for the staged STT test file.
-			}
-			foreach ( $req->get_body_params() as $k => $v ) {
-				$body[ $k ] = $v; // e.g. confirm_cost sent alongside the multipart file.
-			}
-		}
-		$result = BizCity_Bot_Media_Client::test( $character_id, $kind, $body );
-		if ( is_wp_error( $result ) ) {
-			return self::err_from( $result );
-		}
-		return self::ok( $result );
-	}
 
 	/* ── envelope helpers (4-field errors, B8.4) ─────────────────────── */
 

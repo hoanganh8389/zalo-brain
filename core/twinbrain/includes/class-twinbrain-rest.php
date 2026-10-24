@@ -429,7 +429,10 @@ class BizCity_TwinBrain_REST {
 			(int) ( $req->get_param( 'limit' ) ?: 30 ),
 			(string) $req->get_param( 'session_id' ) // PHASE-0.106 S106-U2
 		);
-		return new WP_REST_Response( $r['body'], $r['status'] );
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — INCIDENT 2026-10-24 (tranghana.vn): an upstream failure answered HTTP 502 and Cloudflare replaces the body of a 502 with its own page, so the browser never saw
+		// the code (hub_unreachable · cell_outdated · …). Same body, 503 on the wire (the Twin_Web_Turn unit contract keeps 502 inside).
+		$status = 502 === (int) $r['status'] ? 503 : (int) $r['status'];
+		return new WP_REST_Response( $r['body'], $status );
 	}
 
 	/** GET /outputs?session_id=&kind=&page= → {items, total, page} of the caller's own cell outputs (PHASE-0.106 S106-C6). */

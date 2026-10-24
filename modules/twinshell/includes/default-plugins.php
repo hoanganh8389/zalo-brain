@@ -14,7 +14,6 @@
  *   image      → /tool-image/           (plugins/bizcity-tool-image)
  *   profile    → /profile-studio/       (plugins/bizcity-tool-image)
  *   canva      → /canva/                (plugins/bizcity-tool-image)
- *   video      → /kling-video/          (plugins/bizcity-video-kling)
  *   web        → /tool-pagebuilder/     (plugins/bizcity-pagebuilder)
  *   mindmap    → /mindmap/              (plugins/bizcity-mindmap)
  *   note       → /note/                 (plugins/bizcity-notebook)
@@ -229,20 +228,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'plan'        => 'pro',
 			'pro_package' => 'BizCity Tool Image',
 		],
-		[
-			'id'          => 'video',
-			'label'       => __( 'Video Studio',                  $td ),
-			'icon'        => 'video',
-			'emoji'       => '🎬',
-			'mode'        => 'embed',
-			'public_slug' => '/kling-video/',
-			'capability'  => 'read',
-			'section'     => 'bottom',
-			'params'      => [ 'id', 'tab', 'mode' ],
-			'requires'    => [ 'const' => 'BIZCITY_VIDEO_KLING_VERSION' ],
-			'plan'        => 'pro',
-			'pro_package' => 'BizCity Video Kling',
-		],
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — Video Studio (bizcity-video-kling) removed: owner — Kling không dùng, bỏ hẳn.
 		[
 			'id'          => 'profile',
 			'label'       => __( 'Portrait Studio',               $td ),
@@ -422,12 +408,11 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		'astro'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcoach-pro' ],
 		'doc'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-doc' ],
 		'image'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
-		'video'          => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-video-kling' ],
 		'profile'        => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-tool-image' ],
 	];
 	// [2026-10-09 10:32 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L7 (D-W20-2) — the ten Pro apps leave the ActivityBar
 	// for the "Apps" launcher. Their `requires`, plan and module-access@1 gates are unchanged; only where they are listed moves.
-	$apps_group = [ 'web', 'astro', 'doc', 'creator', 'image', 'video', 'profile', 'personal', 'profile-public', 'qr' ];
+	$apps_group = [ 'web', 'astro', 'doc', 'creator', 'image', 'profile', 'personal', 'profile-public', 'qr' ];
 	foreach ( $defaults as $i => $entry ) {
 		if ( isset( $access[ $entry['id'] ] ) ) {
 			$defaults[ $i ]['access'] = $access[ $entry['id'] ];

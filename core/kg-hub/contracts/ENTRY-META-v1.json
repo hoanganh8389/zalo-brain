@@ -1,0 +1,59 @@
+{
+  "$schema": "https://bizcity.vn/schema/entry-meta-v1.json",
+  "contract": "entry-meta@1.0.0",
+  "_stamp": "[2026-10-24 05:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (doc 81, R-ENTRY-META EM-1…7, D133-M1…M6) — what can be READ about one journal row (metadata.meta), the search text built from it (column find_text) and the one read shape every UI renders (entry-card@1). Runtime JSON (core/kg-hub/contracts): code = BizCity_Journal_Entry_Meta; docs/ is never read at runtime.",
+  "rule": "docs/rules/PHASE-0-RULE-ENTRY-META.md",
+  "block": "journal-entry@1.2.metadata.meta",
+  "write_door": "journal.meta.set (MCP, cell: source cell_auto | cell_tool) · POST journal/{id}/meta (REST, a person: source owner_edit, locks the fields it changes) · document.summary.set (shortcut ⇒ about)",
+  "strict": "unknown top-level key ⇒ entry_meta_invalid (400, fields[], hint, help_code); over a limit ⇒ the same; never silently cut on the strict door",
+  "keys": {
+    "title":    { "type": "string", "max": 200 },
+    "about":    { "type": "string", "max": 600, "note": "what this is, in one or two sentences" },
+    "caption":  { "type": "string", "max": 500, "note": "the words the sender typed with the file" },
+    "ocr":      { "type": "object", "shape": { "text": "≤ 4000", "chars": "int (full length)", "truncated": "bool", "lang": "vi|en|…", "pages": "int" } },
+    "keywords": { "type": "string[]", "max": 20, "item_max": 40 },
+    "topics":   { "type": "string[]", "max": 5, "item_max": 40 },
+    "entities": { "type": "array", "max": 30, "items": { "type": "person|org|place|date|money|phone_masked|product|other", "text": "≤ 120", "value": "≤ 60 (optional)", "norm": "site-computed" } },
+    "people":   { "type": "array", "max": 10, "items": { "name": "≤ 80", "role": "mentioned|sender|recipient|…", "contact_ref": "ct_…|h:…|p:…|contact:N — only with match verified|suggested", "match": "text|suggested|verified", "norm": "site-computed (honorifics dropped)" } },
+    "amounts":  { "type": "array", "max": 10, "items": { "value": "integer", "currency": "ISO 4217 (VND default)", "label": "≤ 40" } },
+    "by":       { "type": "object", "shape": { "actor": "cell|site|owner|staff", "model": "string", "at": "ISO-8601", "op": "string", "confidence": "0…1" } },
+    "status":   { "type": "enum", "values": ["pending", "done", "failed", "skipped"] },
+    "error":    { "type": "object", "shape": { "code": "string", "message": "≤ 200", "hint": "≤ 200", "help_code": "entry_meta" } },
+    "locked":   { "type": "string[]", "site_owned": true, "note": "fields a person fixed; automatic passes skip them (EM-4)" },
+    "rev":      { "type": "int", "site_owned": true, "note": "+1 on every write; expected_rev stale ⇒ entry_meta_conflict (409)" }
+  },
+  "find_text": "title · meta.title · about · summary · caption · OCR (≤ 4000) · keywords · topics · entities · people · visible card fields, joined with ' | ', then ' || ' + the folded copy (no diacritics, đ→d); ≤ 12000 chars; built by the site, never sent",
+  "find_v2": {
+    "params": { "terms": "string[] ≤ 12 (folded phrases)", "match": "all|any", "person": "{name?, contact_ref?}", "has": "[ocr|about|people|keywords]", "source_uuid": "uuid" },
+    "weights": { "title": 4, "keywords": 3, "person": 3, "about": 2, "ocr": 2, "card": 1, "person_filter_bonus": 5 },
+    "result": "items sorted by score, each with why[] and score; SQL narrows ≤ 200 rows first"
+  },
+  "card_view": "journal-kinds@1.6.0 kinds[*].card_view [{key, label, type: text|long_text|money|number|date|datetime|enum|person|list|link|count|items, enum?, currency_key?}] + hide[]; internal keys always hidden: as_of, seen, session, summary_by, summary_at, confidence, prev_card, mirror, items, messages_raw, version_family, version_parent",
+  "card": {
+    "contract": "entry-card@1.0.0",
+    "door": "GET journal/{id}?view=card (REST, preview link signed only with file.get) · journal.get {view: card} (MCP, no link)",
+    "shape": { "contract": "entry-card@1.0.0", "ref": "TL-47", "entry_id": "int", "kind": "string", "kind_label": "string", "title": "string", "state": "string", "sections": "[{id: about|caption|ocr|fields|people|keywords|source|file|links, label, text?|rows?|people?|chips?|edges?, more?}]", "meta_status": "pending|done|failed|none", "meta_error": "object|null", "learning": "{level, label}", "candidates": "proposed only", "source_ref": "TL-47@v2", "actions": "[download, learn, pin, edit_meta, reextract]", "locked": "string[]", "rev": "int", "preview": "{type: image, url} (optional)" }
+  },
+  "candidates": {
+    "block": "journal-entry@1.2.metadata.candidates",
+    "item": { "id": "[a-z0-9_]{1,24}", "field": "string", "value": "scalar ≤ 200", "unit": "string", "label": "string", "target_kind": "a declared kind", "source_ref": "TL-47@v2", "page_anchor": "p1:l3", "confidence": "0…1", "run_id": "string", "status": "proposed|approved|rejected|superseded", "decided": "{by, at, row_ref}" },
+    "decide": "POST journal/{id}/candidates/{cid} {decision: approve|reject} — approve books the target row (derived_from + origin.page_anchor, idempotency cand:<entry>:<cid>); a candidate is never a booked row by itself (SF-5)"
+  },
+  "examples": {
+    "photo_valid": {
+      "about": "Thông báo của nhà trường về buổi họp phụ huynh lớp 3A.",
+      "caption": "Cô gửi lịch họp nhé",
+      "ocr": { "text": "THÔNG BÁO\nHọp phụ huynh lớp 3A lúc 8h00 thứ Bảy 26/10/2026 tại phòng 204.", "lang": "vi", "pages": 1 },
+      "keywords": ["họp phụ huynh", "lớp 3A", "nhà trường"],
+      "topics": ["giáo dục"],
+      "entities": [ { "type": "date", "text": "26/10/2026", "value": "2026-10-26" }, { "type": "place", "text": "phòng 204" } ],
+      "people": [ { "name": "cô Hạnh", "role": "sender" } ],
+      "by": { "actor": "cell", "model": "vision", "op": "image.read", "confidence": 0.86 }
+    },
+    "invalid_unknown_field": { "about": "x", "colour": "red" },
+    "receipt_with_candidate": {
+      "meta": { "about": "Biên lai học phí tháng 10.", "amounts": [ { "value": 1500000, "currency": "VND", "label": "học phí" } ] },
+      "candidates": [ { "id": "c1", "field": "amount", "value": "1500000", "unit": "VND", "label": "Học phí tháng 10", "target_kind": "fin.cash", "source_ref": "TL-52@v1", "page_anchor": "p1", "confidence": 0.8 } ]
+    }
+  }
+}

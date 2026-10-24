@@ -1,0 +1,68 @@
+{
+  "$schema": "https://bizcity.vn/schema/evidence-v1.json",
+  "contract": "external-publication-evidence@1.0.0",
+  "contracts": ["external-publication-evidence@1.0.0", "delivery-evidence@1.0.0"],
+  "_stamp": "[2026-10-24 05:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 W3 (doc 70, R-SOURCE-FIRST-VAULT EV-1…8, the UUID rule) — proof that a product was published / a document was delivered: one job.evidence row (EV-) per milestone, envelope in metadata.evidence. Runtime JSON (core/kg-hub/contracts): code = BizCity_Journal_Evidence; docs/ is never read at runtime.",
+  "rule": "docs/rules/PHASE-0-RULE-SOURCE-FIRST-VAULT.md (EV-1…8)",
+  "block": "journal-entry@1.2.metadata.evidence (kind job.evidence only)",
+  "write_door": "journal.evidence.record (MCP, cell) — the one writer; idempotent",
+  "uuid_rule": {
+    "EV-1": "internal ids are UUID v7: evidence_uuid (per row), publication_uuid (per publish intent, minted by the cell once), delivery_uuid",
+    "EV-2": "the platform's id is kept VERBATIM in destination.provider_native_id (e.g. Facebook 'pageId_postId'); never re-formatted, never cut (> 255 ⇒ refused)",
+    "EV-3": "object key = tenant | provider | provider_account_ref | object_type | provider_native_id",
+    "EV-4": "document.signed only with a verified receipt",
+    "EV-6": "idempotency_key = 'ev:' + tenant + ':' + sha256(basis)[0:40]; basis = object key (or publication_uuid while no object) + event (+ content_version_ref for publication.updated); delivery = delivery_uuid + event; correction = evidence_uuid",
+    "EV-8": "verified needs a native id AND a method ≠ none; else unknown (no id) / pending (no method)"
+  },
+  "enums": {
+    "publication_events": ["publication.requested", "publication.published", "publication.failed", "publication.unknown", "publication.updated", "publication.unpublished", "publication.deleted"],
+    "document_events": ["document.created", "document.revised", "document.sent", "document.delivery_failed", "document.received", "document.signed"],
+    "correction_event": "evidence.correction",
+    "statuses": ["verified", "pending", "failed", "unknown"],
+    "methods": ["provider_response", "readback", "provider_response_plus_readback", "webhook", "manual", "none"],
+    "providers": ["facebook", "instagram", "wordpress", "website", "zalo", "zalo_oa", "messenger", "email", "telegram", "google", "tiktok", "youtube", "other"],
+    "object_types": ["post", "photo", "video", "page", "comment", "message", "file", "email", "reel", "story", "other"],
+    "visibility": ["public", "private", "draft", "scheduled", "unknown"]
+  },
+  "product_stamp": "a verified publication stamps the product row (output_ref) card: provider, provider_native_id, provider_account_ref, canonical_url, published_at, verification, evidence_ref",
+  "examples": {
+    "facebook_published": {
+      "event_type": "publication.published",
+      "publication_uuid": "019a1b30-1111-7222-8333-444455556666",
+      "job_ref": "JB-31",
+      "source_refs": ["TL-51@v1"],
+      "output_ref": "JE-90",
+      "actor": { "kind": "executor", "ref": "composio.facebook" },
+      "destination": { "provider": "facebook", "provider_account_ref": "1029384756", "object_type": "post", "provider_native_id": "1029384756_8877665544", "canonical_url": "https://www.facebook.com/1029384756/posts/8877665544", "visibility": "public" },
+      "verification": { "status": "verified", "method": "provider_response_plus_readback", "checked_at": "2026-10-24T10:05:00Z", "provider_created_at": "2026-10-24T10:04:58Z" },
+      "occurred_at": "2026-10-24T10:04:58Z"
+    },
+    "wordpress_published": {
+      "event_type": "publication.published",
+      "publication_uuid": "019a1b31-2222-7333-8444-555566667777",
+      "output_ref": "JE-91",
+      "destination": { "provider": "wordpress", "provider_account_ref": "site:vibeyeu.vn", "object_type": "post", "provider_native_id": "1532", "canonical_url": "https://vibeyeu.vn/bai-viet-moi/", "visibility": "public", "site_ref": "vibeyeu.vn", "post_type": "post" },
+      "verification": { "status": "verified", "method": "readback" }
+    },
+    "facebook_no_id_unknown": {
+      "event_type": "publication.published",
+      "publication_uuid": "019a1b32-3333-7444-8555-666677778888",
+      "destination": { "provider": "facebook", "provider_account_ref": "1029384756", "object_type": "post" },
+      "verification": { "status": "verified", "method": "provider_response" },
+      "_expect": "status becomes unknown (EV-8)"
+    },
+    "document_sent": {
+      "event_type": "document.sent",
+      "document_version_ref": "TL-60@v2",
+      "job_ref": "JB-31",
+      "delivery": { "channel": "zalo", "sender_account_ref": "zalo:0987xxx", "recipient_principal_ref": "h:0123456789abcdef", "provider_message_id": "msg.88112233", "sent_at": "2026-10-24T11:10:00Z" },
+      "verification": { "status": "verified", "method": "provider_response" }
+    },
+    "document_sent_invalid_name": {
+      "event_type": "document.sent",
+      "document_version_ref": "TL-60@v2",
+      "delivery": { "channel": "zalo", "recipient_principal_ref": "Chị Lan" },
+      "_expect": "error recipient_principal_ref"
+    }
+  }
+}

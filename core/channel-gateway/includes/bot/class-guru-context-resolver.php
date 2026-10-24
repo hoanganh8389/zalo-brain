@@ -853,7 +853,13 @@ final class BizCity_Guru_Context_Resolver {
 
 	private static function contact_block( int $contact_id ): string {
 		if ( isset( self::$readers['contact_block'] ) ) { return (string) call_user_func( self::$readers['contact_block'], $contact_id ); }
-		return class_exists( 'BizCity_Bot_Context_Builder' ) ? BizCity_Bot_Context_Builder::contact_block( $contact_id ) : '';
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — was BizCity_Bot_Context_Builder::contact_block() (PHP engine, removed);
+		// same read: the CRM enrichment block, trimmed to the same 900-char ceiling.
+		if ( $contact_id <= 0 || ! class_exists( 'BizCity_CRM_Contact_Enrichment' ) ) {
+			return '';
+		}
+		$block = trim( (string) BizCity_CRM_Contact_Enrichment::context_block( $contact_id ) );
+		return mb_strlen( $block ) > 900 ? mb_substr( $block, 0, 899 ) . '…' : $block;
 	}
 
 	private static function notebook_blocks( int $character_id, string $query, array $scope ): array {

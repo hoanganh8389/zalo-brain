@@ -820,6 +820,52 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 * `status` is always "done": the cell wraps a "failed" letter in automation wording ("Kế hoạch … dừng ở bước …"); the
 	 * real outcome is `event_type` (second_brain.stored|failed). Pure.
 	 */
+	/** [2026-10-24 09:53 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — extensions the cell can read as text (automatic summary after a save). */
+	const SUMMARIZE_EXT = array( 'docx', 'pdf', 'xlsx', 'xls', 'pptx', 'csv', 'txt', 'md' );
+	const SUMMARIZE_MAX = 3;
+
+	/**
+	 * [2026-10-24 09:53 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ: "gửi file ⇒ tự lưu, parse, tự tóm tắt gửi người dùng, lưu tóm tắt vào journal" (chỉ chat riêng,
+	 * mọi file chữ, ≤ 5 ý ~600 ký tự). The documents of THIS receipt the cell should summarise: files (kept now or already there) whose name is a text format, ≤ 3; a duplicate
+	 * that already has the cell's summary carries it (`summary`). Pure apart from the injected `$lookup` (doc_code ⇒ journal-entry or null).
+	 *
+	 * @param array $res capture_batch() return
+	 * @return array<int,array{doc_code:string,title:string}>
+	 */
+	public static function summarize_list( array $res, ?callable $lookup = null ): array {
+		$out = array();
+		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
+			// [2026-10-24 10:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ 10:07 (TL-7252 sent again ⇒ "Đã có sẵn", no summary): a DUPLICATE is listed too — with its stored
+			// summary when the cell already made one (card.summary_by), so the cell resends it without a model call; without one, the cell summarises it now.
+			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) || (int) ( $r['attachment_id'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			$name = trim( wp_strip_all_tags( (string) ( $r['file_name'] ?? '' ) ) );
+			$ext  = strtolower( (string) pathinfo( $name, PATHINFO_EXTENSION ) );
+			if ( ! in_array( $ext, self::SUMMARIZE_EXT, true ) ) {
+				continue;
+			}
+			$id   = (int) $r['attachment_id'];
+			$code = class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::doc_code( $id ) : 'TL-' . $id;
+			$item = array(
+				'doc_code' => $code,
+				'title'    => function_exists( 'mb_substr' ) ? mb_substr( $name, 0, 120 ) : substr( $name, 0, 120 ),
+			);
+			if ( ! empty( $r['duplicate'] ) && null !== $lookup ) {
+				$entry = $lookup( $code );
+				$sum   = is_array( $entry ) ? trim( (string) ( $entry['summary'] ?? '' ) ) : '';
+				if ( '' !== $sum && '' !== (string) ( $entry['card']['summary_by'] ?? '' ) ) {
+					$item['summary'] = function_exists( 'mb_substr' ) ? mb_substr( $sum, 0, 1500 ) : substr( $sum, 0, 1500 );
+				}
+			}
+			$out[] = $item;
+			if ( count( $out ) >= self::SUMMARIZE_MAX ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
 	public static function receipt_letter( array $receipt, string $dedupe_key, string $user_hash, int $key_id, string $instance, int $blog_id ): array {
 		$event_id = (int) ( sprintf( '%u', crc32( $dedupe_key ) ) % 2147483646 ) + 1;
 		$channel  = array( 'platform' => 'scheduler', 'channel_ref' => $instance );
@@ -979,6 +1025,17 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 			BizCity_Scheduler_Hub_Pipe::ensure_registered( $target, $instance );
 			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ) );
+			// [2026-10-24 09:53 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ chốt: tự tóm tắt mọi file chữ, CHỈ chat riêng ⇒ the 1-1 receipt lists them (`summarize`); the cell
+			// reads, summarises (its model), sends "📝 Tóm tắt" after the receipt and writes it back with document.summary.set. Older cells ignore the key.
+			if ( 'owner_capture' === $origin ) {
+				$sum = self::summarize_list( $res, static function ( string $code ) {
+					$row = class_exists( 'BizCity_Journal_Database' ) ? BizCity_Journal_Database::instance()->get_by_source_ref( $code ) : null;
+					return $row && class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::to_journal_entry( $row ) : null;
+				} );
+				if ( array() !== $sum ) {
+					$letter['job']['summarize'] = $sum;
+				}
+			}
 			if ( '' !== $in_group ) {
 				$letter['job']['deliver_group'] = array( 'gid' => $in_group ); // [2026-10-23 10:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — answer in the group that asked
 				// [2026-10-24 01:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — + the group's title: the owner's private notice says which group ("📁 Nhóm …"); older cells drop the unknown key

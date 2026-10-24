@@ -356,11 +356,6 @@ require_once $gateway_dir . 'class-webhook-replay.php';
 // deploy would have fataled the whole gateway instead of degrading just Bot Studio.
 $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-config-repo.php'    => 'channel.bot.config_repo',
-	// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1 — loaded before class-bot-rest.php, which reads them.
-	$gateway_dir . 'bot/class-bot-secrets-repo.php'   => 'channel.bot.secrets_repo',
-	$gateway_dir . 'bot/class-bot-media-client.php'   => 'channel.bot.media_client',
-	// [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-4 — loaded before class-bot-tools.php, which calls it.
-	$gateway_dir . 'bot/class-bot-apify-client.php'   => 'channel.bot.apify_client',
 	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — agent-mode-access@1 (modes the Owner Agent may use for a user); before the REST that reads it.
 	$gateway_dir . 'class-agent-mode-access.php'      => 'channel.agent_mode_access',
 	// [2026-10-16 04:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector-framework@1: one hook (bizcity_connectors_register), one manifest per connector.
@@ -401,51 +396,25 @@ $_bzc_bot_files = array(
 	// policy_defaults_merged() it reuses (read-only projection, doc §4.1).
 	$gateway_dir . 'bot/class-bot-studio-rest.php'    => 'channel.bot.studio_rest',
 	$gateway_dir . 'bot/class-bot-office-hours.php'   => 'channel.bot.office_hours',
-	$gateway_dir . 'bot/class-bot-provider.php'       => 'channel.bot.provider',
-	$gateway_dir . 'bot/class-bot-vn-date.php'        => 'channel.bot.vn_date',
 	$gateway_dir . 'bot/class-bot-tool-registry.php'  => 'channel.bot.tool_registry',
-	$gateway_dir . 'bot/class-bot-vertical-tools.php' => 'channel.bot.vertical_tools',
-	$gateway_dir . 'bot/class-bot-astro-tool.php'     => 'channel.bot.astro_tool',
 	// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H1 — customer memory (save_memory tool + <dieu_da_nho> block).
 	$gateway_dir . 'bot/class-bot-memory.php'         => 'channel.bot.memory',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K5 — loaded before class-bot-tools.php, which calls it.
-	$gateway_dir . 'bot/class-bot-research-client.php' => 'channel.bot.research_client',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K2 — photo → text for the turn; loaded before the tools/runner that call it.
-	$gateway_dir . 'bot/class-bot-vision.php'         => 'channel.bot.vision',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K3 — async music/video jobs (WP-Cron), loaded before the tools/runner that call it.
-	$gateway_dir . 'bot/class-bot-media-jobs.php'     => 'channel.bot.media_jobs',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K6 — schedule_task (stores in core/scheduler, fires on bizcity_scheduler_reminder_fire).
-	$gateway_dir . 'bot/class-bot-schedule.php'       => 'channel.bot.schedule',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K7 — group anti-spam guard (counts at bizcity_channel_normalized -5, before the claim).
-	$gateway_dir . 'bot/class-bot-group-guard.php'    => 'channel.bot.group_guard',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K4 — create_document: schema + renderers + orchestrator (the PDF library loads on demand).
-	$gateway_dir . 'bot/documents/class-bot-document-schema.php' => 'channel.bot.document_schema',
-	$gateway_dir . 'bot/documents/class-bot-doc-office.php'      => 'channel.bot.doc_office',
-	$gateway_dir . 'bot/documents/class-bot-doc-xlsx.php'        => 'channel.bot.doc_xlsx',
-	$gateway_dir . 'bot/documents/class-bot-doc-docx.php'        => 'channel.bot.doc_docx',
-	$gateway_dir . 'bot/documents/class-bot-doc-pdf.php'         => 'channel.bot.doc_pdf',
-	$gateway_dir . 'bot/documents/class-bot-doc-text.php'        => 'channel.bot.doc_text',
-	$gateway_dir . 'bot/documents/class-bot-documents.php'       => 'channel.bot.documents',
-	$gateway_dir . 'bot/class-bot-tools.php'          => 'channel.bot.tools',
 	// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A4 — load the transport port before the capability-aware bot consumers.
 	$gateway_dir . 'transport/interface-zalo-transport.php'       => 'channel.zalo_transport.interface',
 	$gateway_dir . 'transport/class-zalo-transport-bridge-legacy.php' => 'channel.zalo_transport.legacy',
 	$gateway_dir . 'transport/class-zalo-transport-registry.php'   => 'channel.zalo_transport.registry',
 	// [2026-09-28 Claude Opus 5] PHASE-0.82 doc 07 — what each Zalo transport can do, as data; loaded before the bot classes that query it.
 	$gateway_dir . 'class-zalo-transport-capability.php' => 'channel.zalo_transport_capability',
-	// [2026-09-24 Claude Opus 5.5] PHASE-0.60H D-H5 — Zalo action tools (sticker, poll, group admin…) via zca-bridge ≥ 0.40.0.
-	$gateway_dir . 'bot/class-bot-zalo-actions.php'   => 'channel.bot.zalo_actions',
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60K K1 — pure @mention helper, loaded before the turn runner that calls it.
-	$gateway_dir . 'bot/class-bot-mentions.php'       => 'channel.bot.mentions',
-	// [2026-09-25 Claude Sonnet 5] PHASE-0.60K §15.7 C1 — the only Bot Studio caller of the canonical TwinBrain Goal Loop; loaded before the runner.
-	$gateway_dir . 'bot/class-bot-goal-loop.php'      => 'channel.bot.goal_loop',
 	// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1 — the one Guru content source (instruction/prompt split, gate 0); before the builder that composes it.
 	$gateway_dir . 'bot/class-guru-context-resolver.php' => 'channel.bot.guru_context_resolver',
 	// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — notebook passages for the PHP engine (listener of the resolver's notebook seam).
 	$gateway_dir . 'bot/class-guru-notebook-blocks.php' => 'channel.bot.guru_notebook_blocks',
-	$gateway_dir . 'bot/class-bot-context-builder.php' => 'channel.bot.context_builder',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
-	$gateway_dir . 'bot/class-bot-turn-runner.php'    => 'channel.bot.turn_runner',
+	// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT (owner: "tách bot/ php hoàn toàn, 100% xử lý qua cell") — the PHP turn
+	// engine left the core for core/_archived/bot-engine-20261024/: turn runner, tools, vision, media / research / apify clients, media
+	// jobs, schedule, group guard, goal loop, astro / vertical tools, mentions, provider, Zalo actions, context builder, secrets repo,
+	// documents/. What stays here is what the cell path reads: Guru resolution + notebook blocks, settings.bot config, memory (MCP),
+	// office hours, the cap/pause helpers, the config REST and the cell tool catalogue.
 );
 foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
@@ -642,22 +611,8 @@ if ( is_file( $mabel_wheel_listener ) && is_readable( $mabel_wheel_listener ) &&
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Channel_Binding',  'maybe_install' ) );
 add_action( 'admin_init', array( 'BizCity_Identity_Hub', 'maybe_install' ) );
-// [2026-09-23 Claude Sonnet 5] PHASE-0.60E D-E1.
-if ( class_exists( 'BizCity_Bot_Secrets_Repo' ) ) {
-	// [2026-09-24 Claude Sonnet 5] PHASE-0.60I P0 R-DCL/R-CR — the table was created by a bare dbDelta on admin_init
-	// with no Schema Registry entry, so diagnostics/the site provisioner could not see, verify or repair it.
-	// Register first (same shape as the Identity Hub tables); admin_init stays only as the idempotent fallback.
-	if ( class_exists( 'BizCity_Schema_Registry' ) ) {
-		BizCity_Schema_Registry::register(
-			'bizcity_bot_secrets',
-			'core.channel-gateway',
-			BizCity_Bot_Secrets_Repo::SCHEMA_VERSION,
-			BizCity_Bot_Secrets_Repo::OPTION_VERSION,
-			array( 'BizCity_Bot_Secrets_Repo', 'maybe_install' )
-		);
-	}
-	add_action( 'admin_init', array( 'BizCity_Bot_Secrets_Repo', 'maybe_install' ) );
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — bizcity_bot_secrets (per-Guru TTS/STT/music/Apify/Tavily keys of the PHP
+// engine) is no longer installed: BizCity_Bot_Secrets_Repo left with the engine; the table is quarantined in BizCity_Legacy_Table_Policy (rows stay).
 // [2026-08-02 Johnny Chu] HOTFIX — tolerate a partial deploy without crashing the entire Channel Gateway.
 if ( class_exists( 'BizCity_Channel_User_Linker' ) ) {
 	add_action( 'admin_init', array( 'BizCity_Channel_User_Linker', 'maybe_install' ) );
@@ -683,16 +638,31 @@ if ( class_exists( 'BizCity_Webhook_Inspector' ) ) { BizCity_Webhook_Inspector::
 if ( class_exists( 'BizCity_Bot_REST' ) ) { BizCity_Bot_REST::init(); }
 // [2026-09-23 Claude Sonnet 5] PHASE-0.60F OW-1 — unified read-only Accounts/Gurus projection.
 if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init(); }
-if ( class_exists( 'BizCity_Bot_Turn_Claim' ) ) { BizCity_Bot_Turn_Claim::init(); }
-if ( class_exists( 'BizCity_Bot_Turn_Runner' ) ) { BizCity_Bot_Turn_Runner::init(); }
-if ( class_exists( 'BizCity_Bot_Media_Jobs' ) ) { BizCity_Bot_Media_Jobs::init(); }
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — Turn_Claim / Turn_Runner / Media_Jobs / Schedule / Group_Guard / Media_Client
+// init() calls removed with the PHP engine. Their WP-Cron events are cleared once per blog below (bizcity_bot_engine_cron_cleared).
+add_action( 'init', static function () {
+	if ( get_option( 'bizcity_bot_engine_cron_cleared' ) ) {
+		return;
+	}
+	foreach ( array( 'bizcity_bot_turn_sweep', 'bizcity_bot_run_turn', 'bizcity_bot_media_job', 'bizcity_bot_flood_kick' ) as $hook ) {
+		if ( function_exists( 'wp_unschedule_hook' ) ) {
+			wp_unschedule_hook( $hook );
+		} else {
+			wp_clear_scheduled_hook( $hook );
+		}
+	}
+	// The Cron Manager registry row channel_bot_turn_sweeper stays as history (the manager has no unregister); its hook is unscheduled above.
+	// Reminders the PHP bot booked (core/scheduler rows event_type=bot_task) had BizCity_Bot_Schedule as their only handler: cancel the
+	// pending ones so the 5-minute scan stops firing them into nothing. Rows are kept (status only).
+	global $wpdb;
+	$prev = $wpdb->suppress_errors( true );
+	$wpdb->query( "UPDATE {$wpdb->prefix}bizcity_crm_events SET status = 'cancelled' WHERE event_type = 'bot_task' AND status IN ( 'active', 'running' )" );
+	$wpdb->suppress_errors( $prev );
+	update_option( 'bizcity_bot_engine_cron_cleared', 1, false );
+}, 40 );
 // [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — cell outputs (image/audio/video) → media library; hooks + WP-Cron action.
 if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) ) { BizCity_Twin_Cell_Output_Store::init(); }
 if ( class_exists( 'BizCity_Twin_Cell_Output_Go_REST' ) ) { BizCity_Twin_Cell_Output_Go_REST::init(); }
-if ( class_exists( 'BizCity_Bot_Schedule' ) ) { BizCity_Bot_Schedule::init(); }
-if ( class_exists( 'BizCity_Bot_Group_Guard' ) ) { BizCity_Bot_Group_Guard::init(); }
-// [2026-09-24 Claude Sonnet 5] PHASE-0.60H D-H3 — lets the CRM dispatcher carry the bot's MP3 voice reply.
-if ( class_exists( 'BizCity_Bot_Media_Client' ) && method_exists( 'BizCity_Bot_Media_Client', 'init' ) ) { BizCity_Bot_Media_Client::init(); }
 
 // Phase CG-Listener S1 — Listener Bus + REST (live tail SSE + polling fallback).
 if ( class_exists( 'BizCity_Listener_Bus' ) ) { BizCity_Listener_Bus::init(); }

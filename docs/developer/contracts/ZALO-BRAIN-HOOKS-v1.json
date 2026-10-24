@@ -2066,7 +2066,7 @@
       "status": "internal",
       "subscribers": 1,
       "fired_in": [
-        "core/intent/includes/routing/class-intent-router.php"
+        "../bizcity-twin-brain-addon/twinbrain-mpr/intent/class-intent-router.php"
       ]
     },
     {
@@ -2105,7 +2105,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/intent/includes/routing/class-intent-router.php"
+        "../bizcity-twin-brain-addon/twinbrain-mpr/intent/class-intent-router.php"
       ]
     },
     {
@@ -3128,7 +3128,7 @@
       "status": "internal",
       "subscribers": 0,
       "fired_in": [
-        "core/intent/includes/routing/class-intent-router.php"
+        "../bizcity-twin-brain-addon/twinbrain-mpr/intent/class-intent-router.php"
       ]
     },
     {

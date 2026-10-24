@@ -62,15 +62,9 @@ final class BizCity_Guru_Notebook_Blocks {
 		if ( '' === $query || ! $ids || 'base+notebooks' !== ( $scope['knowledge'] ?? '' ) ) {
 			return $blocks;
 		}
-		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 N-3 (peer review, confirmed) — `bot_turn_runner.php::call_llm()` runs the OLDER
-		// `BizCity_Guru_Runtime` notebook pipeline itself whenever `bypass_notebook` is explicitly OFF (D-3, pre-dates R-GURU-SOURCE).
-		// Without this guard a Guru with `bypass_notebook:false` AND `scope.knowledge=base+notebooks` would be searched TWICE per turn
-		// (this listener here, plus Guru_Runtime's own L3 layer) — duplicate embedding cost and possibly conflicting retrieved
-		// content. `bypass_notebook` defaults to true (skip the old runtime), so this only ever defers for a Guru that explicitly
-		// opted back into the legacy mechanism; that Guru keeps its pre-existing behaviour unchanged.
-		if ( self::legacy_runtime_active( $character_id ) ) {
-			return $blocks;
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — the PHASE-0.81 N-3 guard (defer to the PHP turn runner's own
+		// BizCity_Guru_Runtime notebook search when `bypass_notebook` is OFF) is gone with that runner: the cell is the only reader of
+		// this context, so a Guru with `bypass_notebook:false` must get its notebook passages here like every other Guru.
 		$query = mb_substr( $query, 0, self::QUERY_MAX );
 		$limit = max( 1, (int) ( $scope['max_blocks'] ?? 5 ) );
 		$key   = md5( (int) $character_id . '|' . implode( ',', $ids ) . '|' . $limit . '|' . $query );
@@ -78,14 +72,6 @@ final class BizCity_Guru_Notebook_Blocks {
 			self::$memo[ $key ] = self::retrieve( $ids, $query, $limit );
 		}
 		return array_merge( $blocks, self::$memo[ $key ] );
-	}
-
-	/** True when class-bot-turn-runner.php::call_llm() will run the legacy BizCity_Guru_Runtime notebook search for this Guru. */
-	private static function legacy_runtime_active( int $character_id ): bool {
-		if ( isset( self::$readers['bypass_notebook'] ) ) { return ! (bool) call_user_func( self::$readers['bypass_notebook'], $character_id ); }
-		if ( ! class_exists( 'BizCity_Bot_Config_Repo' ) ) { return false; }
-		$settings = BizCity_Bot_Config_Repo::get( $character_id );
-		return ! empty( $settings ) && array_key_exists( 'bypass_notebook', $settings ) && ! $settings['bypass_notebook'];
 	}
 
 	private static function retrieve( array $ids, string $query, int $limit ): array {

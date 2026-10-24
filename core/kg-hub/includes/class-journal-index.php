@@ -123,6 +123,24 @@ final class BizCity_Journal_Index {
 		if ( is_array( $entry['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) ) {
 			$metadata['job'] = BizCity_Journal_Job_Link::normalize( $entry['job'] );
 		}
+		// [2026-10-24 05:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (doc 20 §4) — the 0.133 blocks, all inside metadata (no column): entry-meta@1 (meta), proposed values (candidates),
+		// an evidence envelope (evidence; job.evidence rows only). A file row with no meta yet is `pending` — the cell reads it right after (EM-3).
+		if ( class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			if ( is_array( $entry['meta'] ?? null ) ) {
+				$metadata['meta'] = BizCity_Journal_Entry_Meta::merge( array(), BizCity_Journal_Entry_Meta::normalize( $entry['meta'] )['meta'], (string) ( $entry['meta_source'] ?? 'site_code' ) );
+			} elseif ( (int) ( $original['attachment_id'] ?? 0 ) > 0 && 'failed' !== $state ) {
+				$metadata['meta'] = array( 'contract' => BizCity_Journal_Entry_Meta::CONTRACT, 'status' => 'pending', 'rev' => 0, 'locked' => array() );
+			}
+			if ( is_array( $entry['candidates'] ?? null ) ) {
+				$metadata['candidates'] = BizCity_Journal_Entry_Meta::normalize_candidates( $entry['candidates'] );
+			}
+		}
+		if ( is_array( $entry['evidence'] ?? null ) && 'job.evidence' === $kind ) {
+			$metadata['evidence'] = $entry['evidence']; // already normalized by BizCity_Journal_Evidence::record() (the one writer)
+		}
+		if ( is_array( $entry['resource'] ?? null ) && class_exists( 'BizCity_Brain_Resource_Link' ) ) {
+			$metadata['resource'] = $entry['resource']; // caller part (links / knowledge); the site part is computed after the insert
+		}
 		$key      = (string) ( $entry['idempotency_key'] ?? '' );
 		$existing = '' !== $key ? BizCity_Journal_Database::instance()->get_by_idempotency_key( $key ) : null;
 		$row = BizCity_Journal_Database::instance()->create( array(
@@ -144,6 +162,9 @@ final class BizCity_Journal_Index {
 		) );
 		if ( is_wp_error( $row ) ) {
 			return $row;
+		}
+		if ( null === $existing ) {
+			$row = self::derive( $row ); // PHASE-0.133: resource (identity) + find_text, computed once the row has its code
 		}
 		self::flush_doc_index( $owner );
 		$out = self::to_journal_entry( $row );
@@ -407,9 +428,56 @@ final class BizCity_Journal_Index {
 			return array( 'items' => array(), 'total' => 0 );
 		}
 		BizCity_Journal_Database::maybe_install();
+		if ( class_exists( 'BizCity_Journal_Entry_Meta' ) && ( ! empty( $filter['terms'] ) || ! empty( $filter['person'] ) || ! empty( $filter['has'] ) ) ) {
+			return self::find_scored( $filter );
+		}
 		$res = BizCity_Journal_Database::instance()->find_indexed( $filter );
 		$res['items'] = array_map( array( __CLASS__, 'to_journal_entry' ), $res['items'] );
 		return $res;
+	}
+
+	/**
+	 * [2026-10-24 05:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (journal.find v2, doc 81 §4) — `terms[]` (folded phrases the cell expanded), `match` all|any,
+	 * `person{name?, contact_ref?}`, `has[]` (ocr · about · people · keywords): SQL narrows on find_text (≤ 200 rows, newest first), PHP scores each row
+	 * (BizCity_Journal_Entry_Meta::score) and pages by score; every item says `why` (which parts matched). Structured filters still apply in SQL.
+	 */
+	private static function find_scored( array $filter ): array {
+		$terms = array();
+		foreach ( array_slice( (array) ( $filter['terms'] ?? array() ), 0, 12 ) as $t ) {
+			foreach ( BizCity_Journal_Entry_Meta::query_terms( (string) $t, 1 ) as $f ) {
+				$terms[] = $f;
+			}
+		}
+		$terms  = array_values( array_unique( $terms ) );
+		$match  = 'any' === (string) ( $filter['match'] ?? 'all' ) ? 'any' : 'all';
+		$person = is_array( $filter['person'] ?? null ) ? array_intersect_key( $filter['person'], array_flip( array( 'name', 'contact_ref' ) ) ) : array();
+		$has    = array_values( array_intersect( array( 'ocr', 'about', 'people', 'keywords' ), array_map( 'strval', (array) ( $filter['has'] ?? array() ) ) ) );
+		$sql    = $filter;
+		unset( $sql['terms'], $sql['person'], $sql['has'] );
+		$sql['terms_sql'] = $terms ?: ( '' !== (string) ( $person['name'] ?? '' ) ? array( BizCity_Journal_Entry_Meta::person_norm( (string) $person['name'] ) ) : array() );
+		$sql['match']     = $terms ? $match : 'all';
+		$sql['cap']       = true;
+		$sql['limit']     = 200;
+		$sql['offset']    = 0;
+		$raw    = BizCity_Journal_Database::instance()->find_indexed( $sql );
+		$scored = array();
+		foreach ( $raw['items'] as $i => $row ) {
+			$e = self::to_journal_entry( $row );
+			if ( $has && ! BizCity_Journal_Entry_Meta::has( $e, $has ) ) {
+				continue;
+			}
+			$s = BizCity_Journal_Entry_Meta::score( $e, $terms, $match, $person );
+			if ( null === $s ) {
+				continue;
+			}
+			$e['why']   = $s['why'];
+			$e['score'] = $s['score'];
+			$scored[]   = array( $s['score'], $i, $e );
+		}
+		usort( $scored, static function ( $a, $b ) { return $b[0] <=> $a[0] ?: $a[1] <=> $b[1]; } );
+		$limit  = max( 1, min( 50, (int) ( $filter['limit'] ?? 20 ) ) );
+		$offset = max( 0, (int) ( $filter['offset'] ?? 0 ) );
+		return array( 'items' => array_map( static function ( $x ) { return $x[2]; }, array_slice( $scored, $offset, $limit ) ), 'total' => count( $scored ), 'scored' => true );
 	}
 
 	public static function get( int $id, int $owner_user_id = 0, bool $all = false ) {
@@ -586,6 +654,30 @@ final class BizCity_Journal_Index {
 			$metadata['job'] = BizCity_Journal_Job_Link::normalize( array_merge( is_array( $metadata['job'] ?? null ) ? $metadata['job'] : array(), $patch['job'] ) );
 			$changed_meta = true;
 		}
+		// [2026-10-24 05:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — meta (already merged by BizCity_Journal_Entry_Meta::set), candidates, the caller part of resource,
+		// and a representation written by vault.materialize. find_text is rebuilt below whenever anything changed.
+		if ( array_key_exists( 'meta', $patch ) && is_array( $patch['meta'] ) ) {
+			$metadata['meta'] = $patch['meta'];
+			$changed_meta     = true;
+		}
+		if ( array_key_exists( 'candidates', $patch ) && is_array( $patch['candidates'] ) && class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			$metadata['candidates'] = BizCity_Journal_Entry_Meta::normalize_candidates( $patch['candidates'] );
+			$changed_meta           = true;
+		}
+		if ( class_exists( 'BizCity_Brain_Resource_Link' ) && ( array_key_exists( 'representation', $patch ) || array_key_exists( 'resource', $patch ) ) ) {
+			$res = is_array( $metadata['resource'] ?? null ) ? $metadata['resource'] : array();
+			if ( is_array( $patch['resource'] ?? null ) ) {
+				$res['links'] = BizCity_Brain_Resource_Link::normalize_links( array_merge( is_array( $res['links'] ?? null ) ? $res['links'] : array(), (array) ( $patch['resource']['links'] ?? array() ) ) );
+				if ( is_array( $patch['resource']['knowledge'] ?? null ) ) {
+					$res['knowledge'] = BizCity_Brain_Resource_Link::normalize_knowledge( array_merge( is_array( $res['knowledge'] ?? null ) ? $res['knowledge'] : array(), $patch['resource']['knowledge'] ) );
+				}
+			}
+			if ( is_array( $patch['representation'] ?? null ) ) {
+				$res = BizCity_Brain_Resource_Link::with_representation( $res, $patch['representation'] );
+			}
+			$metadata['resource'] = $res;
+			$changed_meta         = true;
+		}
 		if ( $changed_meta ) {
 			$write['metadata'] = $metadata;
 		}
@@ -600,8 +692,71 @@ final class BizCity_Journal_Index {
 		if ( is_wp_error( $updated ) ) {
 			return $updated;
 		}
+		$updated = self::derive( $updated ); // PHASE-0.133: find_text follows every change of the row
 		self::flush_doc_index( $owner_user_id );
 		return self::to_journal_entry( $updated );
+	}
+
+	/**
+	 * [2026-10-24 05:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-V1 / S133-Ma — the fields the SITE derives from a row it just wrote:
+	 * `metadata.resource` (brain-resource-link@1: source_ref@v, source_uuid reused along a version chain / same bytes, original locator) for rows that
+	 * keep a file or live in the document / output layer, and `find_text` (entry-meta@1 search text). Written without a revision bump. Returns the raw row.
+	 */
+	public static function derive( array $row ): array {
+		if ( ! class_exists( 'BizCity_Journal_Database' ) ) {
+			return $row;
+		}
+		$db       = BizCity_Journal_Database::instance();
+		$decoded  = json_decode( (string) ( $row['metadata'] ?? '' ), true );
+		$metadata = is_array( $decoded ) ? $decoded : array();
+		$entry    = self::to_journal_entry( $row );
+		$write    = array();
+		if ( class_exists( 'BizCity_Brain_Resource_Link' ) && BizCity_Brain_Resource_Link::applies( (string) $entry['layer'], (array) $entry['original'] ) && 'failed' !== (string) $entry['state'] ) {
+			$owner = (int) $row['owner_user_id'];
+			$site  = BizCity_Brain_Resource_Link::site_view( $metadata, (string) $entry['ref_code'], static function ( string $by, string $value ) use ( $owner, $db ) {
+				if ( 'root' === $by ) {
+					$root = self::find_by_ref( $value, $owner );
+					return $root ? (string) ( $root['resource']['source_uuid'] ?? '' ) : null;
+				}
+				return 'sha' === $by && method_exists( $db, 'source_uuid_by_sha256' ) ? $db->source_uuid_by_sha256( $owner, $value ) : null;
+			} );
+			if ( '' === (string) ( $metadata['resource']['original']['captured_at'] ?? '' ) ) {
+				$site['original']['captured_at'] = str_replace( ' ', 'T', (string) ( $row['created_at'] ?? gmdate( 'Y-m-d H:i:s' ) ) ) . 'Z';
+			}
+			$res = BizCity_Brain_Resource_Link::normalize( is_array( $metadata['resource'] ?? null ) ? $metadata['resource'] : array(), $site );
+			if ( (int) ( $row['kg_source_id'] ?? 0 ) > 0 && 0 === (int) $res['knowledge']['kg_source_id'] ) {
+				$res['knowledge'] = BizCity_Brain_Resource_Link::normalize_knowledge( array( 'kg_source_id' => (int) $row['kg_source_id'], 'indexed_rev' => (int) ( BizCity_Brain_Resource_Link::latest_representation( $res )['rev'] ?? 0 ), 'status' => 'ready' ) ); // S133-K1: the KG source joins the rev it was built from
+			}
+			$nb = (int) ( $row['notebook_id'] ?? 0 );
+			if ( $nb > 0 && '' === $res['links']['notebook_ref'] ) {
+				$res['links']['notebook_ref'] = 'NB-' . $nb;
+			}
+			$jr = (string) ( $entry['job']['job_ref'] ?? '' );
+			if ( '' !== $jr && ! in_array( $jr, $res['links']['job_refs'], true ) ) {
+				$res['links']['job_refs'][] = $jr;
+			}
+			if ( wp_json_encode( $res ) !== wp_json_encode( $metadata['resource'] ?? null ) ) {
+				$metadata['resource'] = $res;
+				$write['metadata']    = $metadata;
+			}
+		}
+		if ( class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			$kdef = class_exists( 'BizCity_Journal_Kinds' ) ? (array) ( BizCity_Journal_Kinds::get( (string) $entry['kind'] ) ?? array() ) : array();
+			$ft   = BizCity_Journal_Entry_Meta::find_text( $entry, is_array( $metadata['meta'] ?? null ) ? $metadata['meta'] : array(), (array) ( $kdef['card_fields'] ?? array() ) );
+			if ( $ft !== (string) ( $row['find_text'] ?? '' ) ) {
+				$write['find_text'] = $ft;
+			}
+		}
+		if ( $write && method_exists( $db, 'write_derived' ) ) {
+			$db->write_derived( (int) $row['id'], $write );
+			if ( isset( $write['metadata'] ) ) {
+				$row['metadata'] = wp_json_encode( $write['metadata'], JSON_UNESCAPED_UNICODE );
+			}
+			if ( isset( $write['find_text'] ) ) {
+				$row['find_text'] = $write['find_text'];
+			}
+		}
+		return $row;
 	}
 
 	/**
@@ -765,6 +920,12 @@ final class BizCity_Journal_Index {
 		$out['version']   = self::normalize_version( is_array( $metadata['version'] ?? null ) ? $metadata['version'] : array() );
 		$out['job']       = is_array( $metadata['job'] ?? null ) && class_exists( 'BizCity_Journal_Job_Link' ) ? BizCity_Journal_Job_Link::normalize( $metadata['job'] ) : null;
 		$out['ref_code']  = self::ref_code( $out['kind'], (int) $row['id'], $out['original'] );
+		// [2026-10-24 05:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — the 0.133 blocks, only on rows that have them (older shapes unchanged)
+		foreach ( array( 'resource', 'meta', 'candidates', 'evidence' ) as $k ) {
+			if ( is_array( $metadata[ $k ] ?? null ) ) {
+				$out[ $k ] = $metadata[ $k ];
+			}
+		}
 		return $out;
 	}
 

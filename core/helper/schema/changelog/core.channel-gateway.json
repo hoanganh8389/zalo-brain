@@ -7,6 +7,7 @@
   "version_option": "bizcity_blog_resolver_inbox_db_version",
   "tables": {
     "global_inbox_admin": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "none — JSONL outbound audit + bizcity_channel_messages (the cell answers)", "drop_candidate": true, "rows": "kept" },
       "since": "1.0.0",
       "purpose": "Outbound + inbound message log from all channels (Zalo, Facebook, WebChat, Telegram). One row per message dispatched or received via Gateway Sender.",
       "engine": "InnoDB",
@@ -192,6 +193,7 @@
       "since": "1.8.0",
       "purpose": "PHASE-0.60E D-E1 phương án A — one narrow encrypted table for per-character Bot Studio media keys (TTS/STT/tạo nhạc/Apify/Tavily) that 1API doesn't cover. Deliberately NOT characters.settings (copied whole by export/duplicate — 0.60A §0.3). BizCity_Codec::encrypt_json_payload() (AES-256-CBC + HMAC-SHA256), key = wp_salt('auth') via bizcity_bot_secrets_key filter, same shape as BizCity_Channel_Conversation_Archive::archive_key().",
       "owner_class": "BizCity_Bot_Secrets_Repo",
+      "owner_archived": "[2026-10-24] PHASE-0.126 R126-BOT — repo archived (core/_archived/bot-engine-20261024/); table quarantined.",
       "installer_option": "bizcity_bot_secrets_schema",
       "engine": "InnoDB",
       "charset": "utf8mb4",
@@ -208,120 +210,6 @@
       "indexes": {
         "uniq_field":    { "type": "UNIQUE KEY", "cols": ["blog_id", "character_id", "field"], "since": "1.8.0" },
         "idx_character": { "type": "KEY",        "cols": ["blog_id", "character_id"],          "since": "1.8.0" }
-      }
-    },
-    "bizcity_usage_ledger": {
-      "since": "1.9.0",
-      "purpose": "PHASE-0.107 S107-L9/L12 (D107-13) — the site's COPY of its own client ledger (contract usage-ledger@1, cell → Hub forwarder → POST bizcity-channel/v1/usage/ledger-ingest). One row per cell ledger row, UNIQUE(account_id, account_seq). Billed columns only: no cost, no real tokens, no markup, no raw hash. bound_user_id / actor_user_id resolved and frozen at receive time. Site keeps rows forever (Q107-14).",
-      "owner_class": "BizCity_Usage_Schema",
-      "installer_option": "bizcity_usage_ledger_schema",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.9.0", "pk": true },
-        "account_id":    { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.9.0", "note": "bridge_account_id or web-<key>" },
-        "account_seq":   { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "row_ref":       { "type": "VARCHAR(16) NOT NULL DEFAULT ''", "since": "1.9.0", "note": "last 8 hex of the cell row_hash" },
-        "kind":          { "type": "VARCHAR(12) NOT NULL DEFAULT 'llm'", "since": "1.9.0", "enum": ["llm", "tool", "adjust", "reversal"] },
-        "occurred_at":   { "type": "DATETIME NOT NULL", "since": "1.9.0", "note": "UTC" },
-        "occurred_day":  { "type": "DATE NOT NULL", "since": "1.9.0", "note": "site-local date" },
-        "platform":      { "type": "VARCHAR(24) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "channel_ref":   { "type": "VARCHAR(96) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "bound_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "actor_role":    { "type": "VARCHAR(12) NOT NULL DEFAULT 'customer'", "since": "1.9.0" },
-        "actor_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "contact_key":   { "type": "VARCHAR(16) NOT NULL DEFAULT ''", "since": "1.9.0", "note": "first 12 hex of contact_ref (never the 64-hex)" },
-        "thread_ref":    { "type": "VARCHAR(96) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "turn_ref":      { "type": "VARCHAR(96) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "surface":       { "type": "VARCHAR(96) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "model":         { "type": "VARCHAR(120) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "tool":          { "type": "VARCHAR(80) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "tool_kind":     { "type": "VARCHAR(12) NOT NULL DEFAULT ''", "since": "1.9.0", "enum": ["", "builtin", "mcp"] },
-        "units":         { "type": "DECIMAL(14,4) NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "billed_tokens": { "type": "BIGINT NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "billed_usd":    { "type": "DECIMAL(18,8) NULL", "since": "1.9.0", "note": "NULL = tool not priced by the Hub table" },
-        "price_source":  { "type": "VARCHAR(24) NOT NULL DEFAULT ''", "since": "1.9.0", "enum": ["cell", "hub_unit_price", "hub_other"] },
-        "price_version": { "type": "VARCHAR(40) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "is_error":      { "type": "TINYINT(1) NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "resolve_state": { "type": "VARCHAR(16) NOT NULL DEFAULT 'ok'", "since": "1.9.0", "enum": ["ok", "unknown_account"] },
-        "received_at":   { "type": "DATETIME NOT NULL", "since": "1.9.0" }
-      },
-      "indexes": {
-        "uniq_account_seq": { "type": "UNIQUE KEY", "cols": ["account_id", "account_seq"], "since": "1.9.0" },
-        "idx_account_time": { "type": "KEY", "cols": ["account_id", "occurred_at"], "since": "1.9.0" },
-        "idx_bound_time":   { "type": "KEY", "cols": ["bound_user_id", "occurred_at"], "since": "1.9.0" },
-        "idx_actor_time":   { "type": "KEY", "cols": ["actor_user_id", "occurred_at"], "since": "1.9.0" },
-        "idx_thread":       { "type": "KEY", "cols": ["thread_ref"], "since": "1.9.0" },
-        "idx_day_account":  { "type": "KEY", "cols": ["occurred_day", "account_id"], "since": "1.9.0" }
-      }
-    },
-    "bizcity_usage_daily": {
-      "since": "1.9.0",
-      "purpose": "PHASE-0.107 S107-L9 — aggregate of bizcity_usage_ledger per (day, platform, account_id, bound_user_id, actor_role, actor_user_id, kind); rebuilt from the ledger for every (day, account) an ingest touched. Tiles + daily chart of menu Sử dụng.",
-      "owner_class": "BizCity_Usage_Schema",
-      "installer_option": "bizcity_usage_ledger_schema",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id":            { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.9.0", "pk": true },
-        "day":           { "type": "DATE NOT NULL", "since": "1.9.0" },
-        "platform":      { "type": "VARCHAR(24) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "account_id":    { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "bound_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "actor_role":    { "type": "VARCHAR(12) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "actor_user_id": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "kind":          { "type": "VARCHAR(12) NOT NULL DEFAULT ''", "since": "1.9.0" },
-        "billed_tokens": { "type": "BIGINT NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "billed_usd":    { "type": "DECIMAL(18,8) NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "turns":         { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "threads":       { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "tool_calls":    { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.9.0" },
-        "updated_at":    { "type": "DATETIME NOT NULL", "since": "1.9.0" }
-      },
-      "indexes": {
-        "uniq_group":      { "type": "UNIQUE KEY", "cols": ["day", "platform", "account_id", "bound_user_id", "actor_role", "actor_user_id", "kind"], "since": "1.9.0" },
-        "idx_account_day": { "type": "KEY", "cols": ["account_id", "day"], "since": "1.9.0" },
-        "idx_bound_day":   { "type": "KEY", "cols": ["bound_user_id", "day"], "since": "1.9.0" },
-        "idx_actor_day":   { "type": "KEY", "cols": ["actor_user_id", "day"], "since": "1.9.0" }
-      }
-    },
-    "bizcity_account_plans": {
-      "since": "1.10.0",
-      "purpose": "PHASE-0.107 round 4 S107-L14 (doc 66 §8.1) — the client's commercial plan (trial / pro / other) per ACCOUNT ID, per blog. The site is the source of truth of the plan; the cell is the source of truth of token counts (no token counter is stored). plan_mode defaults to off: no row / off = nothing is blocked. plan_version is monotonic per account and bumped on every change (the cell ignores older versions). Enforced on the SITE (round 5): BizCity_Usage_Plan_Enforce flips the number's AI switch; used tokens are SUM(billed_tokens) of bizcity_usage_ledger and are not stored here. Deliberately NOT a column of the Hub mirror bizcity_zalo_accounts, not BizCity_Plans, not master_level.",
-      "owner_class": "BizCity_Usage_Schema",
-      "installer_option": "bizcity_usage_ledger_schema",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id":                      { "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT", "since": "1.10.0", "pk": true },
-        "platform":                { "type": "VARCHAR(24) NOT NULL DEFAULT 'zalo_personal'", "since": "1.10.0" },
-        "account_id":              { "type": "VARCHAR(64) NOT NULL DEFAULT ''", "since": "1.10.0" },
-        "plan_code":               { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "1.10.0", "note": "trial | pro | any short slug" },
-        "state":                   { "type": "VARCHAR(12) NOT NULL DEFAULT 'none'", "since": "1.10.0", "enum": ["none", "trial", "active", "expired"] },
-        "plan_mode":               { "type": "VARCHAR(3) NOT NULL DEFAULT 'off'", "since": "1.10.0", "enum": ["on", "off"] },
-        "plan_version":            { "type": "INT UNSIGNED NOT NULL DEFAULT 0", "since": "1.10.0" },
-        "started_at":              { "type": "DATETIME NULL", "since": "1.10.0", "note": "UTC; trial: first successful login of the number" },
-        "valid_until":             { "type": "DATETIME NULL", "since": "1.10.0", "note": "UTC" },
-        "monthly_token_allowance": { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.10.0", "note": "BILLED tokens; 0 = unlimited" },
-        "allowance_period":        { "type": "VARCHAR(12) NOT NULL DEFAULT 'month'", "since": "1.10.0", "enum": ["month", "since_start"] },
-        "notice_text":             { "type": "VARCHAR(500) NOT NULL DEFAULT ''", "since": "1.10.0" },
-        "ai_off_by_plan":           { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "1.11.0", "note": "plan_expired | plan_allowance_exhausted when WE switched the number's AI off; empty = not ours" },
-        "ai_off_at":                { "type": "DATETIME NULL", "since": "1.11.0" },
-        "enforce_error":            { "type": "VARCHAR(80) NOT NULL DEFAULT ''", "since": "1.11.0", "note": "last failed AI-switch call; retried by the next trigger" },
-        "last_notice_at":           { "type": "DATETIME NULL", "since": "1.11.0", "note": "owner notice dedupe: one per account per day" },
-        "last_notice_reason":       { "type": "VARCHAR(32) NOT NULL DEFAULT ''", "since": "1.11.0" },
-        "last_order_id":           { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.10.0", "note": "Woo order that last extended the plan (L16)" },
-        "last_sold_by":            { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.10.0", "note": "WP user of that order" },
-        "updated_by":              { "type": "BIGINT UNSIGNED NOT NULL DEFAULT 0", "since": "1.10.0" },
-        "created_at":              { "type": "DATETIME NOT NULL", "since": "1.10.0" },
-        "updated_at":              { "type": "DATETIME NOT NULL", "since": "1.10.0" }
-      },
-      "indexes": {
-        "uniq_account": { "type": "UNIQUE KEY", "cols": ["platform", "account_id"], "since": "1.10.0" },
-        "idx_state":    { "type": "KEY", "cols": ["state", "valid_until"], "since": "1.10.0" }
       }
     }
   },
@@ -415,6 +303,11 @@
       "version": "1.12.0",
       "date": "2026-10-13",
       "change": "[2026-10-13 06:14 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L42 — bizcity_usage_ledger.surface widened VARCHAR(24) to VARCHAR(96): the cell writes surface as gateway:<caller> (up to 72 chars, [a-z0-9_.:-]). BizCity_Usage_Schema SCHEMA_VERSION 1.2.0 to 1.3.0 so dbDelta widens existing tables. bizcity_usage_daily does not store surface."
+    },
+    {
+      "version": "1.12.0",
+      "date": "2026-10-25",
+      "change": "[2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL (owner: \"6 bảng usage tách usage/ thành add-on billing\") — bizcity_usage_ledger, bizcity_usage_daily (still quarantined) and bizcity_account_plans left this changelog: their installer BizCity_Usage_Schema and every reader/writer moved with core/channel-gateway/includes/usage/ to the add-on bizcity-billing-addon, and the three declarations moved verbatim to modules.billing (extension_owned_changelogs). No DDL change, no version bump; rows stay."
     }
   ]
 }

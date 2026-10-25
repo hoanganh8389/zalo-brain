@@ -255,9 +255,7 @@ class BizCity_Intent_Tools {
         }
 
         // ── Inject _trace context so tool callbacks can report progress ──
-        // Callbacks access: $slots['_trace'] (BizCity_Job_Trace instance or null)
-        // If the tool callback creates its own trace via BizCity_Job_Trace::start(),
-        // the _trace slot provides session_id for convenience.
+        // The tool callback may read $slots['_trace_session_id'] to tag its own progress events.
         $session_id_for_trace = $slots['session_id'] ?? ( $slots['_meta']['session_id'] ?? '' );
         $slots['_trace_session_id'] = $session_id_for_trace;
 
@@ -298,41 +296,14 @@ class BizCity_Intent_Tools {
                 }
             }
 
-            // ── Auto-complete any active trace that the callback forgot to close ──
-            // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Job_Trace is owned by core/runtime now; degrade if it is not loaded.
-            $active_trace = class_exists( 'BizCity_Job_Trace' ) ? BizCity_Job_Trace::current() : null;
-            if ( $active_trace && $active_trace->get_status() === 'running' ) {
-                if ( ! empty( $result['success'] ) ) {
-                    $active_trace->complete( $result['data'] ?? [] );
-                } else {
-                    $active_trace->fail( $result['message'] ?? 'Unknown error' );
-                }
-            }
+            // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — the Job_Trace auto-complete is gone with BizCity_Job_Trace (no tool started a trace).
 
-            // ── Phase 1: Auto-save evidence CPT after successful execution ──
-            if ( ! empty( $result['success'] ) && class_exists( 'BizCity_Tool_Evidence' ) ) {
-                $evidence_context = [
-                    'session_id'  => $slots['session_id'] ?? ( $slots['_meta']['session_id'] ?? '' ),
-                    'pipeline_id' => $slots['_pipeline_id'] ?? '',
-                    'step_index'  => $slots['_step_index'] ?? null,
-                    'user_id'     => $slots['user_id'] ?? get_current_user_id(),
-                ];
-                $evidence_id = BizCity_Tool_Evidence::save( $name, $result, $evidence_context );
-                if ( $evidence_id && is_array( $result['data'] ?? null ) ) {
-                    $result['data']['evidence_id'] = $evidence_id;
-                }
-            }
+            // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — the evidence CPT write (BizCity_Tool_Evidence::save) is gone — nothing read it.
 
             return $result;
 
         } catch ( \Exception $e ) {
             error_log( "[BizCity_Intent_Tools] Error executing '{$name}': " . $e->getMessage() );
-
-            // ── Auto-fail any active trace on exception ──
-            $active_trace = class_exists( 'BizCity_Job_Trace' ) ? BizCity_Job_Trace::current() : null;
-            if ( $active_trace && $active_trace->get_status() === 'running' ) {
-                $active_trace->fail( $e->getMessage() );
-            }
 
             return [
                 'success'        => false,

@@ -236,7 +236,11 @@ class BizCity_Blog_Resolver {
 	/**
 	 * Ensure global_inbox_admin table exists.
 	 */
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — global_inbox_admin is FROZEN: never install, write or read it in new code; no replacement needed (the cell answers; JSONL outbound audit).
 	public static function maybe_install_inbox(): void {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — global_inbox_admin is quarantined (no reader; the cell answers): never created again. Kept as a no-op
+		// so an older bootstrap that still calls it on activation does not fatal.
+		return;
 		// Version gate — skip dbDelta when schema is already current.
 		if ( (string) get_option( self::INBOX_DB_VERSION_OPT, '' ) === self::INBOX_DB_VERSION ) {
 			return;

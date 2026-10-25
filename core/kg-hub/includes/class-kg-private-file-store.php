@@ -220,11 +220,11 @@ final class BizCity_KG_Private_File_Store {
 		// not a model tool (no executor / cell_tools): only the cell's receipt path calls it, after it summarised the file itself
 		$R::register( self::MCP_SUMMARY_TOOL, array(
 			'title'          => 'Lưu tóm tắt của một tài liệu đã lưu',
-			'description'    => 'Ghi bản tóm tắt (≤ 1500 ký tự) vào dòng sổ của MỘT tài liệu theo mã TL-…. Chỉ ghi tóm tắt + dấu "ai tóm, lúc nào"; bản gốc không bao giờ bị sửa. Quyền như document.text.read.',
+			'description'    => 'Ghi bản tóm tắt (≤ 1500 ký tự) vào dòng sổ của MỘT tài liệu theo mã TL-…. Chỉ ghi tóm tắt + dấu "ai tóm, lúc nào"; bản gốc không bao giờ bị sửa. Quyền như document.text.read. KHÔNG dùng để ghi mô tả / từ khoá / chữ đọc được (đó là journal.meta.set).',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'doc_code', 'summary' ), 'properties' => array(
-				'doc_code' => array( 'type' => 'string', 'maxLength' => 24 ),
-				'summary'  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => self::SUMMARY_MAX ),
-				'source'   => array( 'type' => 'string', 'enum' => array( 'cell_auto', 'cell_asked' ) ),
+				'doc_code' => array( 'type' => 'string', 'maxLength' => 24, 'description' => 'Mã tài liệu TL-… của dòng sổ.' ),
+				'summary'  => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => self::SUMMARY_MAX, 'description' => 'Bản tóm tắt (≤ 1500 ký tự).' ),
+				'source'   => array( 'type' => 'string', 'enum' => array( 'cell_auto', 'cell_asked' ), 'description' => 'cell_auto = tự tóm lúc lưu; cell_asked = chủ nhờ tóm.' ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array(
 				'doc_code' => array( 'type' => 'string' ),
@@ -514,7 +514,7 @@ final class BizCity_KG_Private_File_Store {
 			return $not_found;
 		}
 		$ext = self::ext_of( (string) get_post_meta( $id, '_wp_attached_file', true ) );
-		return array(
+		$out = array(
 			'doc_code'   => self::doc_code( $id ),
 			'file_name'  => sanitize_file_name( self::raw_title( $id ) ) . ( '' !== $ext ? '.' . $ext : '' ),
 			'mime'       => (string) get_post_meta( $id, self::META_MIME, true ),
@@ -522,6 +522,14 @@ final class BizCity_KG_Private_File_Store {
 			'url'        => self::signed_url( $id ),
 			'expires_in' => self::SIGNED_TTL,
 		);
+		// [2026-10-24 06:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (cell gap 1) — the version pin + bytes hash of this file's row, so the cell needs no extra journal.get
+		$row  = class_exists( 'BizCity_Journal_Database' ) ? BizCity_Journal_Database::instance()->get_by_source_ref( $out['doc_code'] ) : null;
+		$meta = $row ? json_decode( (string) ( $row['metadata'] ?? '' ), true ) : null;
+		if ( is_array( $meta ) ) {
+			$out['source_ref'] = (string) ( $meta['resource']['source_ref'] ?? '' );
+			$out['sha256']     = (string) ( $meta['original']['sha256'] ?? '' );
+		}
+		return $out;
 	}
 
 	/** The one switch (rollback): false ⇒ owner-capture documents go back to the old sideload, no receipts. */

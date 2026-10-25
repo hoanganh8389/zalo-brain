@@ -74,11 +74,17 @@ final class BizCity_Context_Bank_Rollup_Cron {
 		if ( ! class_exists( 'BizCity_Context_Bank_Rollup_Worker' ) || ! function_exists( 'get_current_blog_id' ) ) {
 			return array( 'ok' => false, 'reason' => 'rollup_worker_unavailable' );
 		}
-		$table = BizCity_Context_Bank_Rollup_Worker::table();
-		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
-			return array( 'ok' => false, 'reason' => 'rollup_state_not_provisioned' );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — the state is an option now (the table is quarantined); an older worker
+		// without next_dirty_dimension() falls back to the old SELECT.
+		if ( method_exists( 'BizCity_Context_Bank_Rollup_Worker', 'next_dirty_dimension' ) ) {
+			$row = BizCity_Context_Bank_Rollup_Worker::next_dirty_dimension();
+		} else {
+			$table = BizCity_Context_Bank_Rollup_Worker::table();
+			if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
+				return array( 'ok' => false, 'reason' => 'rollup_state_not_provisioned' );
+			}
+			$row = $wpdb->get_row( $wpdb->prepare( 'SELECT rollup_id, dimension_key FROM ' . $table . ' WHERE blog_id=%d AND dirty_since IS NOT NULL ORDER BY dirty_since ASC, id ASC LIMIT 1', (int) get_current_blog_id() ), ARRAY_A );
 		}
-		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT rollup_id, dimension_key FROM ' . $table . ' WHERE blog_id=%d AND dirty_since IS NOT NULL ORDER BY dirty_since ASC, id ASC LIMIT 1', (int) get_current_blog_id() ), ARRAY_A );
 		if ( ! is_array( $row ) || (string) ( $row['rollup_id'] ?? '' ) === '' || (string) ( $row['dimension_key'] ?? '' ) === '' ) {
 			return array( 'ok' => false, 'reason' => 'no_dirty_dimension' );
 		}

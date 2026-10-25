@@ -569,9 +569,15 @@ class BizCity_KG_Graph_Service {
 	 * @param int[] $notebook_ids  When non-empty, restrict to these notebooks only
 	 *                             (used to scope to the current user's brain).
 	 */
-	public function get_global_graph( $limit_nodes = 600, $notebook_ids = [], $must_include_ids = [] ) {
+	public function get_global_graph( $limit_nodes = 600, $notebook_ids = null, $must_include_ids = [] ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();
+
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H6 — only `null` (admin explicit opt-in) is unscoped;
+		// an empty allowed-notebook list yields an empty graph instead of silently dropping the IN() filter.
+		if ( is_array( $notebook_ids ) && empty( $notebook_ids ) ) {
+			return [ 'nodes' => [], 'links' => [] ];
+		}
 
 		// Build optional per-user notebook scope clause.
 		$nb_clause = '';
@@ -673,6 +679,21 @@ class BizCity_KG_Graph_Service {
 		$db = BizCity_KG_Database::instance();
 		$canonical_id = (int) $canonical_id;
 		$other_ids    = array_filter( array_map( 'intval', $other_ids ), static fn( $i ) => $i && $i !== $canonical_id );
+		if ( empty( $other_ids ) ) {
+			return 0;
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M5 — never merge (hard-delete) entities that live in a
+		// different notebook than the canonical one; drop any foreign id before touching relations/passages.
+		$canon_scope = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT notebook_id FROM {$db->tbl_entities()} WHERE id=%d", $canonical_id
+		) );
+		if ( $canon_scope <= 0 ) {
+			return 0;
+		}
+		$other_ids = array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$db->tbl_entities()} WHERE notebook_id=%d AND id IN (" . implode( ',', array_map( 'intval', $other_ids ) ) . ')',
+			$canon_scope
+		) ) );
 		if ( empty( $other_ids ) ) {
 			return 0;
 		}

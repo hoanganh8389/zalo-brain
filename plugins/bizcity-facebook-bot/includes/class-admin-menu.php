@@ -176,15 +176,7 @@ class BizCity_Facebook_Bot_Admin_Menu {
 			);
 		}
 
-		// Legacy menu slug compatibility - messenger-inbox-page
-		add_submenu_page(
-			'bizcity-facebook-bots',
-			'Nhận inbox từ Messenger',
-			'Nhận inbox từ Messenger',
-			'manage_options',
-			'messenger-inbox-page',
-			array( $this, 'render_legacy_messenger_inbox_page' )
-		);
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF (owner: gỡ hộp thư Messenger cũ — CRM Inbox đã thay) — the "Nhận inbox từ Messenger" page (slug messenger-inbox-page) is removed.
 	}
 	
 	/**
@@ -1128,38 +1120,6 @@ class BizCity_Facebook_Bot_Admin_Menu {
 			</div>
 		</div>
 		<?php
-	}
-	
-	/**
-	 * Render legacy messenger inbox page (for backward compatibility)
-	 * Supports old slug: messenger-inbox-page
-	 */
-	public function render_legacy_messenger_inbox_page() {
-		// Check if old function exists from messenger/inbox.php
-		if ( function_exists( 'messenger_inbox_page' ) ) {
-			messenger_inbox_page();
-			return;
-		}
-		
-		// Get pages from both new system and legacy option
-		$db = BizCity_Facebook_Bot_Database::instance();
-		$pages = $db->get_connected_pages();
-		
-		// If no pages found, show guidance
-		if ( empty( $pages ) ) {
-			echo '<div class="wrap">';
-			echo '<h1>Nhận inbox từ Messenger</h1>';
-			echo '<div class="notice notice-warning"><p>';
-			echo 'Chưa có Fanpage nào được kết nối. ';
-			echo '<a href="' . esc_url( admin_url( 'admin.php?page=bizcity-facebook-bot-connect' ) ) . '">Kết nối Fanpage</a> ';
-			echo 'hoặc <a href="' . esc_url( admin_url( 'admin.php?page=bizcity-facebook-bots&action=add' ) ) . '">Thêm Bot mới</a>.';
-			echo '</p></div>';
-			echo '</div>';
-			return;
-		}
-		
-		// Fallback to new inbox page
-		$this->render_inbox_page();
 	}
 	
 	/**

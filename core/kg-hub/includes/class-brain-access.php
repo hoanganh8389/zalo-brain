@@ -93,6 +93,16 @@ final class BizCity_Brain_Access {
 
 	/** Every permission this principal holds on this row (the matrix of BRAIN-ACCESS-v1.json, as code). Pure. */
 	public static function grants( array $principal, array $entry ): array {
+		$g = self::grants_by_type( $principal, $entry );
+		// [2026-10-25 PHASE-0.134 D134-13] a row filed in a Kho tri thức folder the owner kept to themself: staff / automation / group members hold nothing on it (owner and system unchanged)
+		if ( $g && in_array( (string) ( $principal['type'] ?? '' ), array( 'staff', 'automation', 'group_member' ), true ) && class_exists( 'BizCity_Twin_Vault', false ) && 'owner' === BizCity_Twin_Vault::folder_access_of( $entry ) ) {
+			return array();
+		}
+		return $g;
+	}
+
+	/** The matrix by principal type (BRAIN-ACCESS-v1.json). Pure. */
+	private static function grants_by_type( array $principal, array $entry ): array {
 		$type  = (string) ( $principal['type'] ?? 'contact' );
 		$uid   = (int) ( $principal['user_id'] ?? 0 );
 		$owner = (int) ( $entry['owner_user_id'] ?? 0 );

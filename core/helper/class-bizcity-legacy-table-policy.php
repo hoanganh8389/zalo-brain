@@ -29,6 +29,8 @@ final class BizCity_Legacy_Table_Policy {
 	const STATE_READY         = 'ready_to_drop';
 	const STATE_DROPPED       = 'dropped';
 
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md, gate C3e) — every name in $retired and $quarantine below is FROZEN: no install, no
+	// write, no new reader (option / transient / JSONL replace them). Never remove a name to "reuse" a table; a new table needs the owner + R-DCL + growth_log.
 	/** Tables whose installers and runtime SQL are already retired. */
 	private static $retired = array(
 		'bizcity_intent_one_shot',
@@ -113,6 +115,19 @@ final class BizCity_Legacy_Table_Policy {
 
 	/** [2026-08-26 Johnny Chu] PHASE-1.30-FAIL-CLOSED — early fallback names before Diagnostics registry loading. */
 	private static $quarantine = array(
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner 2026-10-25, table audit 70 §10) — installers off, writers stopped, rows stay,
+		// no DROP yet (drop candidates after one clean deploy cycle; flag `r126_tb` in the schema changelogs):
+		// global_inbox_admin (network outbound log, no reader — the cell answers) · guru_skills (never written; Guru = instruction + Vault) ·
+		// context_bank_rollup_state (→ option bizcity_context_bank_rollup_state) · cron_runs (→ JSONL file log, fallback option bizcity_cron_last_runs) ·
+		// cron_retries (retry queue removed) · knowledge_chunks (Guru knowledge → Vault notebooks) · mcp_context_packs (→ transients) ·
+		// usage_daily (→ derived from bizcity_usage_ledger at read time: one token ledger cell → hub → client).
+		'global_inbox_admin', 'bizcity_guru_skills', 'bizcity_context_bank_rollup_state', 'bizcity_cron_runs', 'bizcity_cron_retries',
+		'bizcity_knowledge_chunks', 'bizcity_mcp_context_packs', 'bizcity_usage_daily',
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — the PHP turn trace tables (BizCity_Trace_Store + its NO-OP projector archived): no reader or writer left; rows stay.
+		'bizcity_traces',
+		'bizcity_trace_tasks',
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — the DB mirror of the in-memory tool registry (BizCity_Intent_Tool_Index archived): no reader or writer left; rows stay.
+		'bizcity_tool_registry',
 		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — per-Guru media keys of the PHP bot engine (removed: the cell answers);
 		// no reader or writer is left. Rows (encrypted keys) stay until the owner orders a DROP.
 		'bizcity_bot_secrets',
@@ -196,6 +211,9 @@ final class BizCity_Legacy_Table_Policy {
 
 	/** [2026-08-29 Johnny Chu] PHASE-1.30-WRITER-STOP — JSONL-backed log owners start in draining so SQL writes are refused by default while reads remain available during cutover. */
 	private static $writer_stop_defaults = array(
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — refuse SQL writes, keep reads (see the quarantine list).
+		'global_inbox_admin', 'bizcity_guru_skills', 'bizcity_context_bank_rollup_state', 'bizcity_cron_runs', 'bizcity_cron_retries',
+		'bizcity_knowledge_chunks', 'bizcity_mcp_context_packs', 'bizcity_usage_daily',
 		// [2026-08-29 Johnny Chu] PHASE-1.30-MEMORY-WRITER-STOP — filestore-first memory owners now refuse legacy SQL writes while retaining bounded read fallback.
 		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — their writers (Engine, One_Shot, pipeline evidence, todos) are
 		// retired and no reader outside core/intent remains (D-26): refuse install/writes, keep reads until the drop gates.
@@ -259,7 +277,7 @@ final class BizCity_Legacy_Table_Policy {
 		'bizcity_kg_learning_events',
 	);
 
-	private static $base_prefix_tables = array( 'bizcity_zalo_bot_memory', 'bizcity_google_usage_logs' );
+	private static $base_prefix_tables = array( 'bizcity_zalo_bot_memory', 'bizcity_google_usage_logs', 'global_inbox_admin' ); // R126-TB: global_inbox_admin is network-wide
 
 	/** Retired tables eligible for approved empty cleanup when the main plugin deactivates. */
 	private static $deactivation_retired = array(

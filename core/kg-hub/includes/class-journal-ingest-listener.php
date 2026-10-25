@@ -58,6 +58,10 @@ final class BizCity_Journal_Ingest_Listener {
 		if ( 'owner_capture' === (string) ( $meta['inbound']['origin'] ?? '' ) ) {
 			return false;
 		}
+		// [2026-10-25 01:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B6 (D137-7) — a source ingested FROM a journal row's Markdown ("Nghiên cứu sâu") already has its row: never open a second one
+		if ( (int) ( $meta['journal_entry_id'] ?? 0 ) > 0 ) {
+			return false;
+		}
 		return ! in_array( (string) ( $payload['type'] ?? '' ), array( 'memory', 'chat', 'session' ), true );
 	}
 

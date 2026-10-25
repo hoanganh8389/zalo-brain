@@ -102,7 +102,11 @@ BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-contract-regist
 // [2026-08-28 Johnny Chu] R-FILESTORE-BUSINESS — load the shared encrypted business-record filestore before memory owners boot.
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-file-contract-registry.php', 'helper.file_contract_registry' );
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-business-jsonl-file-store.php', 'helper.business_jsonl_file_store' );
-BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-explorer.php', 'helper.log_explorer' );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-DIAG — the log explorer page is dev-only (bin/dev-only-paths.txt): is_readable
+// instead of Safe_Loader, which would log a missing_file line on every request of a server that does not have it.
+if ( is_readable( __DIR__ . '/class-bizcity-log-explorer.php' ) ) {
+	BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-explorer.php', 'helper.log_explorer' );
+}
 BizCity_Safe_Loader::require_file( __DIR__ . '/class-bizcity-log-index.php', 'helper.log_index' );
 // [2026-08-29 Johnny Chu] PHASE-1.30-DDV — retry idempotent R-CR registration after guarded preload so an early compatibility loader cannot leave bizcity_log_index absent from Schema Registry.
 if ( class_exists( 'BizCity_Log_Index', false ) && method_exists( 'BizCity_Log_Index', 'register_schema' ) ) {

@@ -101,6 +101,8 @@ final class BizCity_Public_Gateway_Page {
 			'caps' => array( 'manage' => true, 'send' => true ),
 			'i18n' => array( 'plugin_title' => __( 'BizChat Channels', 'bizcity-twin-ai' ) ),
 			'platforms' => array(),
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — the SPA now hides Sử dụng / Thành tích / Doanh thu / Người dùng unless the billing add-on loaded; same answer here as in the admin SPA so this page keeps showing them with the add-on.
+			'modules' => array( 'billing' => defined( 'BIZCITY_BILLING_ADDON_DIR' ) && class_exists( 'BizCity_Usage_View_REST' ) ),
 		);
 		?>
 <!doctype html>

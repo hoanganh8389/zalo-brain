@@ -26,6 +26,7 @@ defined( 'ABSPATH' ) || exit;
 class BizCity_Cron_Manager {
 
 	const TABLE_REGISTRY = 'bizcity_cron_registry';
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — bizcity_cron_runs / bizcity_cron_retries is FROZEN: never install, write or read it in new code; run log = JSONL cron file logger, fallback option bizcity_cron_last_runs; no retry queue.
 	const TABLE_RUNS     = 'bizcity_cron_runs';
 	const TABLE_RETRIES  = 'bizcity_cron_retries';
 	// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — new lock table (see TRACE-CRON-OVERLOAD-2026-07-26.md).
@@ -48,8 +49,11 @@ class BizCity_Cron_Manager {
 	/** Internal nightly GC hook. */
 	const GC_HOOK = 'bizcity_cron_runs_gc';
 
-	/** Retry dispatch hook (every 5 min). */
+	/** Retry dispatch hook (every 5 min). [2026-10-25] PHASE-0.126 R126-TB — retired; kept only so retire_retry_schedule() can clear it. */
 	const RETRY_HOOK = 'bizcity_cron_retry_dispatch';
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — fallback run record (last run per job) when the JSONL logger is not writable. */
+	const LAST_RUNS_OPTION = 'bizcity_cron_last_runs';
 
 	/** wp_options key for registry fingerprint cache (CRON-PERF-1). */
 	// [2026-06-09 Johnny Chu] CRON-PERF-1 — fingerprint option để skip batch write khi spec không đổi.
@@ -112,9 +116,8 @@ class BizCity_Cron_Manager {
 		add_action( self::GC_HOOK, [ $this, 'gc_runs' ] );
 		add_action( 'init', [ $this, 'ensure_gc_scheduled' ] );
 
-		// Retry dispatcher (Phase 2).
-		add_action( self::RETRY_HOOK, [ $this, 'dispatch_retries' ] );
-		add_action( 'init', [ $this, 'ensure_retry_scheduled' ] );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "cron_retries bỏ hoàn toàn") — the retry queue is gone; unschedule its 5-min tick once.
+		add_action( 'init', [ $this, 'retire_retry_schedule' ] );
 
 		// [2026-06-09 Johnny Chu] CRON-PERF-1 — flush pending registry rows sau khi tất cả module đã register().
 		// [2026-06-09 Johnny Chu] CRON-PERF-2 — CHỈ flush tại init:99, KHÔNG flush tại plugins_loaded.
@@ -132,15 +135,10 @@ class BizCity_Cron_Manager {
 		}
 	}
 
-	public function ensure_retry_scheduled(): void {
-		if ( ! wp_next_scheduled( self::RETRY_HOOK ) ) {
-			$interval = 'bizcity_5min';
-			// Fallback: hourly if 5min interval not registered yet.
-			$schedules = wp_get_schedules();
-			if ( ! isset( $schedules[ $interval ] ) ) {
-				$interval = 'hourly';
-			}
-			wp_schedule_event( time() + 5 * MINUTE_IN_SECONDS, $interval, self::RETRY_HOOK );
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — clear the retired retry tick (no handler left); wp_next_scheduled() reads the autoloaded cron option. */
+	public function retire_retry_schedule(): void {
+		if ( wp_next_scheduled( self::RETRY_HOOK ) ) {
+			wp_clear_scheduled_hook( self::RETRY_HOOK );
 		}
 	}
 
@@ -155,10 +153,10 @@ class BizCity_Cron_Manager {
 		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) ) {
 			return; // diagnostics not loaded — soft-skip; will heal next pageload.
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — TABLE_RUNS / TABLE_RETRIES are quarantined (run log = JSONL file logger,
+		// fallback the bizcity_cron_last_runs option; retry queue retired): never created again, existing rows stay.
 		$results = array(
 			BizCity_Diagnostics_Auto_Create::run( self::TABLE_REGISTRY ),
-			BizCity_Diagnostics_Auto_Create::run( self::TABLE_RUNS ),
-			BizCity_Diagnostics_Auto_Create::run( self::TABLE_RETRIES ),
 		);
 		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — provision lock table.
 		// [2026-10-10 11:14 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-7c — no longer: locks live in wp_options (try_lock()).
@@ -620,17 +618,8 @@ class BizCity_Cron_Manager {
 					'error'       => 'duplicate run skipped — lock already held by an in-flight run',
 				) );
 			} else {
-				$t = $wpdb->prefix . self::TABLE_RUNS;
-				$wpdb->suppress_errors( true );
-				$wpdb->insert( $t, array(
-					'job_id'      => $job_id,
-					'started_at'  => current_time( 'mysql', true ),
-					'ended_at'    => current_time( 'mysql', true ),
-					'duration_ms' => 0,
-					'status'      => 'skipped',
-					'error'       => 'duplicate run skipped — lock already held by an in-flight run',
-				) );
-				$wpdb->suppress_errors( false );
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — no SQL run log any more: option fallback (last run per job).
+				$this->remember_run( $job_id, 'skipped', 0, 'duplicate run skipped — lock already held by an in-flight run', array() );
 			}
 			// Intentionally do NOT set active_runs[$job_id] — note()/note_event() become
 			// silent no-ops for this tick (current_run_id() returns 0), and the real
@@ -639,39 +628,15 @@ class BizCity_Cron_Manager {
 			return;
 		}
 
-		if ( $this->is_filelog_primary_mode() ) {
-			// [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY —
-			// disable SQL run-log writes when JSONL logger is ready.
-			$run_id = $this->next_virtual_run_id();
-			$this->active_runs[ $job_id ]       = $run_id;
-			$this->active_started_at[ $job_id ] = microtime( true );
-			$this->active_meta[ $job_id ]       = array();
+		// [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY — virtual run ids, meta kept in memory until wrap_end.
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — always (bizcity_cron_runs is quarantined); when the JSONL
+		// logger is not writable, wrap_end() keeps the last run per job in the bizcity_cron_last_runs option instead of SQL.
+		$run_id = $this->next_virtual_run_id();
+		$this->active_runs[ $job_id ]       = $run_id;
+		$this->active_started_at[ $job_id ] = microtime( true );
+		$this->active_meta[ $job_id ]       = array();
 
-			if ( isset( $this->jobs[ $job_id ] ) ) {
-				$job_row = $this->jobs[ $job_id ];
-				do_action( 'bizcity_cron_run_started', $run_id, $job_id, array(
-					'hook'  => (string) ( $job_row['hook']  ?? '' ),
-					'owner' => (string) ( $job_row['owner'] ?? '' ),
-				) );
-			}
-			return;
-		}
-
-		$t = $wpdb->prefix . self::TABLE_RUNS;
-		$wpdb->suppress_errors( true );
-		$ok = $wpdb->insert( $t, array(
-			'job_id'     => $job_id,
-			'started_at' => current_time( 'mysql', true ),
-			'status'     => 'running',
-		) );
-		if ( $ok ) {
-			$this->active_runs[ $job_id ] = (int) $wpdb->insert_id;
-		}
-		$wpdb->suppress_errors( false );
-
-		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — emit hook so file logger can write start line
-		if ( $ok && isset( $this->jobs[ $job_id ] ) ) {
-			$run_id  = $this->active_runs[ $job_id ];
+		if ( isset( $this->jobs[ $job_id ] ) ) {
 			$job_row = $this->jobs[ $job_id ];
 			do_action( 'bizcity_cron_run_started', $run_id, $job_id, array(
 				'hook'  => (string) ( $job_row['hook']  ?? '' ),
@@ -694,48 +659,61 @@ class BizCity_Cron_Manager {
 		$run_id = (int) $this->active_runs[ $job_id ];
 		unset( $this->active_runs[ $job_id ] );
 
-		if ( $this->is_filelog_primary_mode() ) {
-			$started_at_ts = isset( $this->active_started_at[ $job_id ] ) ? (float) $this->active_started_at[ $job_id ] : 0.0;
-			unset( $this->active_started_at[ $job_id ] );
-			$duration_ms = $started_at_ts > 0 ? max( 0, (int) round( ( microtime( true ) - $started_at_ts ) * 1000 ) ) : null;
-			$status = $err ? 'error' : 'ok';
-			$error_msg = $err ? $err->getMessage() : null;
-
-			if ( class_exists( 'BizCity_Cron_File_Logger' ) ) {
-				$meta = isset( $this->active_meta[ $job_id ] ) && is_array( $this->active_meta[ $job_id ] ) ? $this->active_meta[ $job_id ] : array();
-				if ( ! empty( $meta ) ) {
-					BizCity_Cron_File_Logger::append_meta( $run_id, $job_id, $meta );
-				}
-			}
-			unset( $this->active_meta[ $job_id ] );
-
-			do_action( 'bizcity_cron_run_ended', $run_id, $job_id, $status, $duration_ms, (string) ( $error_msg ?? '' ) );
-			return;
-		}
-
-		$t = $wpdb->prefix . self::TABLE_RUNS;
-		$wpdb->suppress_errors( true );
-		$row = $wpdb->get_row( $wpdb->prepare( "SELECT started_at FROM {$t} WHERE id=%d", $run_id ), ARRAY_A );
-		$duration_ms = null;
-		if ( $row && ! empty( $row['started_at'] ) ) {
-			$dt = strtotime( $row['started_at'] . ' UTC' );
-			if ( $dt ) {
-				$duration_ms = max( 0, (int) ( ( microtime( true ) - $dt ) * 1000 ) );
-			}
-		}
+		$started_at_ts = isset( $this->active_started_at[ $job_id ] ) ? (float) $this->active_started_at[ $job_id ] : 0.0;
+		unset( $this->active_started_at[ $job_id ] );
+		$duration_ms = $started_at_ts > 0 ? max( 0, (int) round( ( microtime( true ) - $started_at_ts ) * 1000 ) ) : null;
 		$status = $err ? 'error' : 'ok';
 		$error_msg = $err ? $err->getMessage() : null;
-		$wpdb->update( $t, array(
-			'ended_at'    => current_time( 'mysql', true ),
-			'duration_ms' => $duration_ms,
-			'status'      => $status,
-			'error'       => $error_msg,
-			'trace'       => $err ? mb_substr( (string) $err->getTraceAsString(), 0, 4000 ) : null,
-		), array( 'id' => $run_id ) );
-		$wpdb->suppress_errors( false );
+		$meta = isset( $this->active_meta[ $job_id ] ) && is_array( $this->active_meta[ $job_id ] ) ? $this->active_meta[ $job_id ] : array();
+		unset( $this->active_meta[ $job_id ] );
+
+		if ( $this->is_filelog_primary_mode() ) {
+			if ( ! empty( $meta ) ) {
+				BizCity_Cron_File_Logger::append_meta( $run_id, $job_id, $meta );
+			}
+		} else {
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — log dir not writable: keep the last run (+ meta) in an option, never SQL.
+			$this->remember_run( $job_id, $status, $duration_ms, (string) ( $error_msg ?? '' ), $meta, $started_at_ts );
+		}
 
 		// [2026-06-14 Johnny Chu] CRON-FILE-LOGGER — emit hook so file logger can write end line
 		do_action( 'bizcity_cron_run_ended', $run_id, $job_id, $status, $duration_ms, (string) ( $error_msg ?? '' ) );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — fallback run record when the JSONL logger is not writable:
+	 * one entry per job in the non-autoloaded option bizcity_cron_last_runs (bounded: meta ≤ 16 KB, ≤ 300 jobs).
+	 */
+	private function remember_run( string $job_id, string $status, ?int $duration_ms, string $error, array $meta, float $started_at_ts = 0.0 ): void {
+		$all = get_option( self::LAST_RUNS_OPTION, array() );
+		$all = is_array( $all ) ? $all : array();
+		$encoded = wp_json_encode( $meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		if ( ! is_string( $encoded ) || strlen( $encoded ) > 16384 ) {
+			$meta = array( '_truncated' => true, 'size' => is_string( $encoded ) ? strlen( $encoded ) : 0 );
+		}
+		$all[ $job_id ] = array(
+			'started_at_ts' => $started_at_ts > 0 ? (int) $started_at_ts : time(),
+			'ended_at_ts'   => time(),
+			'status'        => $status,
+			'duration_ms'   => $duration_ms,
+			'error'         => mb_substr( $error, 0, 2000 ),
+			'meta'          => $meta,
+		);
+		if ( count( $all ) > 300 ) {
+			$all = array_slice( $all, -300, null, true );
+		}
+		update_option( self::LAST_RUNS_OPTION, $all, false );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — add $by to meta.counters[$key] of the running job (in memory;
+	 * written by wrap_end). Replaces the publishers' SELECT on bizcity_cron_runs, which never matched a virtual run id.
+	 */
+	public function bump_counter( string $key, int $by = 1, ?string $job_id = null ): void {
+		$target_job = $job_id ?: $this->current_job_id();
+		if ( $target_job === '' || empty( $this->active_runs[ $target_job ] ) ) { return; }
+		$prev = (int) ( $this->active_meta[ $target_job ]['counters'][ $key ] ?? 0 );
+		$this->note( array( 'counters' => array( $key => $prev + $by ) ), $target_job );
 	}
 
 	/**
@@ -928,28 +906,25 @@ class BizCity_Cron_Manager {
 	public function note( array $patch, ?string $job_id = null ): void {
 		$run_id = $this->current_run_id( $job_id );
 		if ( ! $run_id ) { return; }
-		if ( $this->is_filelog_primary_mode() ) {
-			$target_job = $job_id ?: $this->current_job_id();
-			if ( $target_job === '' ) { return; }
-			$current = isset( $this->active_meta[ $target_job ] ) && is_array( $this->active_meta[ $target_job ] ) ? $this->active_meta[ $target_job ] : array();
-			if ( isset( $patch['__append_event'] ) ) {
-				$evt = $patch['__append_event'];
-				unset( $patch['__append_event'] );
-				if ( ! isset( $current['events'] ) || ! is_array( $current['events'] ) ) {
-					$current['events'] = array();
-				}
-				$current['events'][] = $evt;
-				if ( count( $current['events'] ) > 200 ) {
-					$current['events'] = array_slice( $current['events'], -200 );
-				}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — meta always lives in memory until wrap_end (no SQL merge_meta any more).
+		$target_job = $job_id ?: $this->current_job_id();
+		if ( $target_job === '' ) { return; }
+		$current = isset( $this->active_meta[ $target_job ] ) && is_array( $this->active_meta[ $target_job ] ) ? $this->active_meta[ $target_job ] : array();
+		if ( isset( $patch['__append_event'] ) ) {
+			$evt = $patch['__append_event'];
+			unset( $patch['__append_event'] );
+			if ( ! isset( $current['events'] ) || ! is_array( $current['events'] ) ) {
+				$current['events'] = array();
 			}
-			if ( ! empty( $patch ) ) {
-				$current = $this->deep_merge( $current, $patch );
+			$current['events'][] = $evt;
+			if ( count( $current['events'] ) > 200 ) {
+				$current['events'] = array_slice( $current['events'], -200 );
 			}
-			$this->active_meta[ $target_job ] = $current;
-			return;
 		}
-		$this->merge_meta( $run_id, $patch );
+		if ( ! empty( $patch ) ) {
+			$current = $this->deep_merge( $current, $patch );
+		}
+		$this->active_meta[ $target_job ] = $current;
 	}
 
 	/**
@@ -966,43 +941,6 @@ class BizCity_Cron_Manager {
 		);
 		if ( $data ) { $entry['data'] = $data; }
 		$this->note( array( '__append_event' => $entry ), $job_id );
-	}
-
-	private function merge_meta( int $run_id, array $patch ): void {
-		global $wpdb;
-		if ( ! $wpdb || $run_id <= 0 ) { return; }
-		$t = $wpdb->prefix . self::TABLE_RUNS;
-		$wpdb->suppress_errors( true );
-		$raw = (string) $wpdb->get_var( $wpdb->prepare( "SELECT meta FROM {$t} WHERE id=%d", $run_id ) );
-		$current = array();
-		if ( $raw !== '' ) {
-			$decoded = json_decode( $raw, true );
-			if ( is_array( $decoded ) ) { $current = $decoded; }
-		}
-		// Handle special __append_event marker.
-		if ( isset( $patch['__append_event'] ) ) {
-			$evt = $patch['__append_event'];
-			unset( $patch['__append_event'] );
-			if ( ! isset( $current['events'] ) || ! is_array( $current['events'] ) ) {
-				$current['events'] = array();
-			}
-			$current['events'][] = $evt;
-			// Cap events array to prevent unbounded growth.
-			if ( count( $current['events'] ) > 200 ) {
-				$current['events'] = array_slice( $current['events'], -200 );
-			}
-		}
-		if ( $patch ) {
-			$current = $this->deep_merge( $current, $patch );
-		}
-		$encoded = wp_json_encode( $current, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
-		if ( ! is_string( $encoded ) ) { $encoded = '{}'; }
-		// Hard cap at 256 KB to avoid bloating MySQL rows.
-		if ( strlen( $encoded ) > 262144 ) {
-			$encoded = wp_json_encode( array( '_truncated' => true, 'size' => strlen( $encoded ) ) );
-		}
-		$wpdb->update( $t, array( 'meta' => $encoded ), array( 'id' => $run_id ) );
-		$wpdb->suppress_errors( false );
 	}
 
 	private function deep_merge( array $base, array $patch ): array {
@@ -1038,42 +976,25 @@ class BizCity_Cron_Manager {
 				: array();
 		}
 
-		global $wpdb;
-		if ( ! $wpdb ) { return array(); }
-		$t = $wpdb->prefix . self::TABLE_RUNS;
-		$wpdb->suppress_errors( true );
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT started_at, status, duration_ms, error FROM {$t} WHERE job_id=%s ORDER BY id DESC LIMIT 1",
-			$job_id
-		), ARRAY_A );
-		$wpdb->suppress_errors( false );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — fallback: the bizcity_cron_last_runs option (no SQL run log any more).
+		$all = get_option( self::LAST_RUNS_OPTION, array() );
+		$row = is_array( $all ) && isset( $all[ $job_id ] ) && is_array( $all[ $job_id ] ) ? $all[ $job_id ] : array();
 		if ( ! $row ) { return array(); }
-		$ts = strtotime( ( (string) $row['started_at'] ) . ' UTC' );
 		return array(
-			'started_at_ts' => $ts ? (int) $ts : 0,
-			'status'        => (string) $row['status'],
-			'duration_ms'   => is_null( $row['duration_ms'] ) ? null : (int) $row['duration_ms'],
+			'started_at_ts' => (int) ( $row['started_at_ts'] ?? 0 ),
+			'status'        => (string) ( $row['status'] ?? '' ),
+			'duration_ms'   => isset( $row['duration_ms'] ) ? (int) $row['duration_ms'] : null,
 			'error'         => (string) ( $row['error'] ?? '' ),
 		);
 	}
 
 	/**
-	 * Delete runs older than retention_days per job. Runs nightly via GC_HOOK.
+	 * Nightly via GC_HOOK. [2026-10-25] PHASE-0.126 R126-TB — the run log is JSONL (its own GC) or the bounded option; only the lock sweep is left.
 	 */
 	public function gc_runs(): void {
 		global $wpdb;
 		if ( ! $wpdb ) { return; }
-		$tr = $wpdb->prefix . self::TABLE_REGISTRY;
-		$tu = $wpdb->prefix . self::TABLE_RUNS;
 		$wpdb->suppress_errors( true );
-		$rows = (array) $wpdb->get_results( "SELECT job_id, retention_days FROM {$tr}", ARRAY_A );
-		foreach ( $rows as $r ) {
-			$days = max( 1, (int) ( $r['retention_days'] ?? 7 ) );
-			$wpdb->query( $wpdb->prepare(
-				"DELETE FROM {$tu} WHERE job_id=%s AND started_at < (UTC_TIMESTAMP() - INTERVAL %d DAY)",
-				(string) $r['job_id'], $days
-			) );
-		}
 		// [2026-07-26 Johnny Chu] CRON-LOCK-PHASE-A — sweep orphaned lock rows (crashed
 		// process that never reached wrap_end/unlock). Harmless if it never accumulates —
 		// this is just hygiene since try_lock() already self-heals expired rows on read.
@@ -1097,7 +1018,7 @@ class BizCity_Cron_Manager {
 		$wpdb->suppress_errors( false );
 	}
 
-	/* ───────────── Phase 2: run-now, retry queue ───────────── */
+	/* ───────────── Phase 2: run-now (the retry queue left in PHASE-0.126 R126-TB) ───────────── */
 
 	/**
 	 * Immediately invoke a registered job's hook (synchronous). Used by admin
@@ -1120,7 +1041,7 @@ class BizCity_Cron_Manager {
 				'error'       => '',
 			];
 		} catch ( \Throwable $e ) {
-			$this->enqueue_retry( $job_id, $e->getMessage() );
+			// [2026-10-25] PHASE-0.126 R126-TB — no retry queue: the caller (admin / MCP cron.run_one) sees the error and decides.
 			return [
 				'ok'          => false,
 				'job_id'      => $job_id,
@@ -1128,76 +1049,6 @@ class BizCity_Cron_Manager {
 				'error'       => $e->getMessage(),
 			];
 		}
-	}
-
-	/**
-	 * Push a failed job into the retry queue with exponential backoff:
-	 *   attempt 1 → +1 min · attempt 2 → +5 min · attempt 3 → +30 min · attempt ≥4 → dead.
-	 */
-	public function enqueue_retry( string $job_id, string $error = '' ): bool {
-		global $wpdb;
-		if ( ! $wpdb || ! isset( $this->jobs[ $job_id ] ) ) { return false; }
-		$t = $wpdb->prefix . self::TABLE_RETRIES;
-		$wpdb->suppress_errors( true );
-
-		// Find existing live retry row (status='pending') for this job to bump attempt.
-		$existing = $wpdb->get_row( $wpdb->prepare(
-			"SELECT id, attempt FROM {$t} WHERE job_id=%s AND status='pending' ORDER BY id DESC LIMIT 1",
-			$job_id
-		), ARRAY_A );
-
-		$attempt = $existing ? ( (int) $existing['attempt'] + 1 ) : 1;
-		$delays  = [ 1 => 60, 2 => 300, 3 => 1800 ]; // seconds
-		if ( $attempt > 3 ) {
-			$status   = 'dead';
-			$next_run = current_time( 'mysql', true );
-		} else {
-			$status   = 'pending';
-			$next_run = gmdate( 'Y-m-d H:i:s', time() + $delays[ $attempt ] );
-		}
-
-		$row = [
-			'job_id'       => $job_id,
-			'attempt'      => $attempt,
-			'status'       => $status,
-			'next_run_at'  => $next_run,
-			'last_error'   => mb_substr( $error, 0, 2000 ),
-			'updated_at'   => current_time( 'mysql', true ),
-		];
-		if ( $existing ) {
-			$wpdb->update( $t, $row, [ 'id' => (int) $existing['id'] ] );
-		} else {
-			$row['created_at'] = current_time( 'mysql', true );
-			$wpdb->insert( $t, $row );
-		}
-		$wpdb->suppress_errors( false );
-		return true;
-	}
-
-	/**
-	 * Cron hook callback — process due retries (status=pending AND next_run_at <= now).
-	 */
-	public function dispatch_retries(): void {
-		global $wpdb;
-		if ( ! $wpdb ) { return; }
-		$t = $wpdb->prefix . self::TABLE_RETRIES;
-		$wpdb->suppress_errors( true );
-		$rows = (array) $wpdb->get_results(
-			"SELECT id, job_id FROM {$t} WHERE status='pending' AND next_run_at <= UTC_TIMESTAMP() LIMIT 20",
-			ARRAY_A
-		);
-		foreach ( $rows as $r ) {
-			$job_id = (string) $r['job_id'];
-			$res    = $this->run_now( $job_id );
-			if ( $res['ok'] ) {
-				$wpdb->update( $t,
-					[ 'status' => 'done', 'updated_at' => current_time( 'mysql', true ) ],
-					[ 'id' => (int) $r['id'] ]
-				);
-			}
-			// On failure, run_now() already called enqueue_retry() which bumped attempt.
-		}
-		$wpdb->suppress_errors( false );
 	}
 
 	/**
@@ -1210,33 +1061,38 @@ class BizCity_Cron_Manager {
 			return BizCity_Cron_File_Logger::recent_runs( $job_id, $limit );
 		}
 
-		global $wpdb;
-		if ( ! $wpdb ) { return []; }
-		$t = $wpdb->prefix . self::TABLE_RUNS;
-		$wpdb->suppress_errors( true );
-		$limit = max( 1, min( 500, $limit ) );
-		if ( $job_id !== '' ) {
-			$rows = (array) $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, job_id, started_at, ended_at, duration_ms, status, error, meta FROM {$t} WHERE job_id=%s ORDER BY id DESC LIMIT %d",
-				$job_id,
-				$limit
-			), ARRAY_A );
-		} else {
-			$rows = (array) $wpdb->get_results( $wpdb->prepare(
-				"SELECT id, job_id, started_at, ended_at, duration_ms, status, error, meta FROM {$t} ORDER BY id DESC LIMIT %d",
-				$limit
-			), ARRAY_A );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — fallback: the last run per job from the option, newest first (same row shape as the old SQL).
+		$all  = get_option( self::LAST_RUNS_OPTION, array() );
+		$rows = array();
+		foreach ( is_array( $all ) ? $all : array() as $jid => $r ) {
+			if ( ( $job_id !== '' && $jid !== $job_id ) || ! is_array( $r ) ) { continue; }
+			$rows[] = array(
+				'id'          => 0,
+				'job_id'      => (string) $jid,
+				'started_at'  => gmdate( 'Y-m-d H:i:s', (int) ( $r['started_at_ts'] ?? 0 ) ),
+				'ended_at'    => gmdate( 'Y-m-d H:i:s', (int) ( $r['ended_at_ts'] ?? 0 ) ),
+				'duration_ms' => $r['duration_ms'] ?? null,
+				'status'      => (string) ( $r['status'] ?? '' ),
+				'error'       => (string) ( $r['error'] ?? '' ),
+				'meta'        => wp_json_encode( $r['meta'] ?? array() ),
+			);
 		}
-		$wpdb->suppress_errors( false );
-		return $rows;
+		usort( $rows, static function ( $a, $b ) { return strcmp( $b['started_at'], $a['started_at'] ); } );
+		return array_slice( $rows, 0, max( 1, min( 500, $limit ) ) );
 	}
 
 	/**
 	 * [2026-07-27 Johnny Chu] PHASE-0.50-CRON-FILELOG-PRIMARY — gate SQL
 	 * run-log writes behind logger readiness.
+	 * [2026-10-25] PHASE-0.126 R126-TB — no SQL path any more; now picks JSONL vs the option fallback. Cached per request:
+	 * is_ready() probes the directory with tempnam() + unlink().
 	 */
 	private function is_filelog_primary_mode(): bool {
-		return class_exists( 'BizCity_Cron_File_Logger' ) && BizCity_Cron_File_Logger::is_ready();
+		static $ready = null;
+		if ( null === $ready ) {
+			$ready = class_exists( 'BizCity_Cron_File_Logger' ) && BizCity_Cron_File_Logger::is_ready();
+		}
+		return $ready;
 	}
 
 	private function next_virtual_run_id(): int {

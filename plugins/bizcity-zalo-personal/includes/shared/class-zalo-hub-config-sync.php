@@ -260,6 +260,17 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			if ( ! function_exists( 'apply_filters' ) || apply_filters( self::FILTER_OWNER_AGENT, true ) ) {
 				$row['owner_agent'] = self::owner_agent( (int) $acc['owner_user_id'], (string) ( $pol['owner_uid'] ?? '' ), $policy, (string) $bridge_id );
 			}
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-26 (S136-S2) — owner-agent-block@1.7 (cộng thêm): `guru_ref` = the Quản gia the owner and staff talk to
+			// in 1-1 (customers keep `agent_ref` = Đối ngoại / the Guru bound to the number). Its agent rides in `agents[]`; an older cell ignores the key.
+			$owner_guru = isset( self::$readers['owner_guru'] ) ? (int) call_user_func( self::$readers['owner_guru'] ) : ( class_exists( 'BizCity_Guru_Seed' ) ? BizCity_Guru_Seed::owner_character_id() : 0 );
+			if ( isset( $row['owner_agent'] ) && $owner_guru > 0 && $owner_guru !== $character_id ) {
+				$oref = self::guru_ref( $owner_guru );
+				$row['owner_agent']['guru_ref'] = $oref;
+				if ( ! isset( $agents[ $oref ] ) ) {
+					$oagent = self::agent( $oref, $owner_guru, $binding, $warnings );
+					if ( null !== $oagent ) { $agents[ $oref ] = $oagent; }
+				}
+			}
 			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C0.1 (D-S81-3, G-22) — the cell has no "suggest only" mode; sending `hybrid` let it
 			// answer like `auto`. The number goes manual (silent, messages still reach CRM) and `mode_source` lets Bot Studio say why.
 			if ( 'hybrid' === $mode ) {

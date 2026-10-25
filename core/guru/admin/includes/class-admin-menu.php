@@ -1899,105 +1899,15 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_upload_document() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
-        
+
         if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $character_id = intval($_POST['character_id'] ?? 0);
-        $files = json_decode(stripslashes($_POST['files'] ?? '[]'), true);
-        
-        if (!$character_id || empty($files)) {
-            wp_send_json_error(['message' => 'Invalid parameters']);
-        }
-        
-        $db = BizCity_Knowledge_Database::instance();
-        $parser = BizCity_Knowledge_FileParser::instance();
-        $embedding = BizCity_Knowledge_Embedding::instance();
-        $uploaded = [];
-        $errors = [];
-        
-        foreach ($files as $file) {
-            $attachment_id = intval($file['id'] ?? 0);
-            if (!$attachment_id) continue;
-            
-            $attachment = get_post($attachment_id);
-            if (!$attachment) continue;
-            
-            $file_url = wp_get_attachment_url($attachment_id);
-            $file_path = get_attached_file($attachment_id);
-            
-            // Create knowledge source
-            $source_data = [
-                'character_id' => $character_id,
-                'source_type' => 'file',
-                'source_name' => $attachment->post_title ?: basename($file_path),
-                'source_url' => $file_url,
-                'attachment_id' => $attachment_id,
-                'status' => 'pending',
-                'created_at' => current_time('mysql')
-            ];
-            
-            $source_id = $db->create_knowledge_source($source_data);
-            
-            if (is_wp_error($source_id)) {
-                $errors[] = $source_data['source_name'] . ': ' . $source_id->get_error_message();
-                continue;
-            }
-            
-            // Parse file content (supports both local and R2/CDN storage)
-            $content = $parser->parse_attachment($attachment_id);
-            
-            if (is_wp_error($content)) {
-                $errors[] = $source_data['source_name'] . ': ' . $content->get_error_message();
-                // Update source status to error
-                global $wpdb;
-                $wpdb->update(
-                    $wpdb->prefix . 'bizcity_knowledge_sources',
-                    ['status' => 'error', 'error_message' => $content->get_error_message()],
-                    ['id' => $source_id]
-                );
-                continue;
-            }
-            
-            // Process and create embeddings
-            $result = $embedding->process_source($source_id, $content);
-            
-            if (is_wp_error($result)) {
-                $errors[] = $source_data['source_name'] . ': ' . $result->get_error_message();
-            }
-            // Legal-scope tagging block removed 2026-05-21 (Legal module deleted).
-
-            // Get updated source status
-            global $wpdb;
-            $source = $wpdb->get_row($wpdb->prepare(
-                "SELECT * FROM {$wpdb->prefix}bizcity_knowledge_sources WHERE id = %d",
-                $source_id
-            ));
-            
-            $uploaded[] = [
-                'id' => $source_id,
-                'name' => $source_data['source_name'],
-                'url' => $file_url,
-                'status' => $source->status ?? 'pending',
-                'chunks_count' => $source->chunks_count ?? 0,
-                'date' => date('M d, Y')
-            ];
-        }
-        
-        $message = count($uploaded) . ' file(s) processed';
-        if (!empty($errors)) {
-            $message .= '. Errors: ' . implode('; ', $errors);
-        }
-        
-        wp_send_json_success([
-            'uploaded'  => $uploaded,
-            'documents' => $uploaded, // compat alias
-            'message'   => $message,
-            'errors'    => $errors,
-        ]);
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF (R-TABLE-FREEZE) — Guru knowledge no longer goes through bizcity_knowledge_chunks (frozen: no install, no write; rows stay readable):
+        // attach a Vault / notebook to the Guru instead. The old upload / crawl body that wrote chunks is removed (git history).
+        wp_send_json_error( [ 'code' => 'guru_knowledge_moved_to_vault', 'message' => 'Kiến thức của Guru nay nằm trong Vault: hãy gắn notebook cho Guru (mục Notebook đính kèm).' ] );
     }
-    
+
     /**
      * AJAX: Delete document
      */
@@ -2038,293 +1948,29 @@ class BizCity_Knowledge_Admin_Menu {
      */
     public function ajax_add_website() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
-        
+
         if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $character_id = intval($_POST['character_id'] ?? 0);
-        $url = sanitize_url($_POST['url'] ?? '');
-        $mode = sanitize_text_field($_POST['mode'] ?? 'single');
-        
-        if (!$character_id || !$url) {
-            wp_send_json_error(['message' => 'Character ID and URL required']);
-        }
-        
-        // Validate URL
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            wp_send_json_error(['message' => 'Invalid URL format']);
-        }
-        
-        require_once BIZCITY_KNOWLEDGE_LIB . 'class-web-crawler.php';
-        
-        $urls_to_crawl = [];
-        
-        // Get URLs based on mode
-        switch ($mode) {
-            case 'single':
-                $urls_to_crawl = [$url];
-                break;
-                
-            case 'sublinks':
-                // Find sublinks (max depth 1, max 50 links)
-                $urls_to_crawl = BizCity_Knowledge_Web_Crawler::find_sublinks($url, 1, 50);
-                if (is_wp_error($urls_to_crawl)) {
-                    wp_send_json_error(['message' => $urls_to_crawl->get_error_message()]);
-                }
-                break;
-                
-            case 'sitemap':
-                // Parse sitemap
-                $urls_to_crawl = BizCity_Knowledge_Web_Crawler::parse_sitemap($url);
-                if (is_wp_error($urls_to_crawl)) {
-                    wp_send_json_error(['message' => $urls_to_crawl->get_error_message()]);
-                }
-                // Limit to 100 URLs from sitemap
-                $urls_to_crawl = array_slice($urls_to_crawl, 0, 100);
-                break;
-        }
-        
-        if (empty($urls_to_crawl)) {
-            wp_send_json_error(['message' => 'No URLs found to crawl']);
-        }
-        
-        // Save URLs to database with status "pending"
-        global $wpdb;
-        $sources_added = 0;
-        $source_ids    = [];
-        $insert_errors = [];
-        $table         = $wpdb->prefix . 'bizcity_knowledge_sources';
-
-        // Detect source_url column max length so long URLs don't silently fail insert
-        $url_max_len = 500;
-        $col_info = $wpdb->get_row( $wpdb->prepare(
-            "SELECT CHARACTER_MAXIMUM_LENGTH AS len FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'source_url'",
-            DB_NAME,
-            $table
-        ) );
-        if ( $col_info && (int) $col_info->len > 0 ) {
-            $url_max_len = (int) $col_info->len;
-        }
-
-        foreach ($urls_to_crawl as $crawl_url) {
-            // Guard: skip URLs that exceed the column limit (and report so UI can show reason)
-            if ( strlen( $crawl_url ) > $url_max_len ) {
-                $insert_errors[] = sprintf( 'URL dài %d ký tự, vượt quá giới hạn %d của cột source_url', strlen( $crawl_url ), $url_max_len );
-                continue;
-            }
-
-            // Check if URL already exists for this character
-            $existing_id = (int) $wpdb->get_var( $wpdb->prepare(
-                "SELECT id FROM {$table} WHERE character_id = %d AND source_url = %s LIMIT 1",
-                $character_id,
-                $crawl_url
-            ) );
-
-            if ( $existing_id ) {
-                // Reset to pending so processWebsite will re-crawl it
-                $wpdb->update( $table, [ 'status' => 'pending' ], [ 'id' => $existing_id ], [ '%s' ], [ '%d' ] );
-                $source_ids[] = $existing_id;
-                $sources_added++;
-                continue;
-            }
-
-            // Insert new pending source
-            $inserted = $wpdb->insert(
-                $table,
-                [
-                    'character_id' => $character_id,
-                    'source_type'  => 'url',
-                    'source_url'   => $crawl_url,
-                    'source_name'  => mb_substr( $crawl_url, 0, 255 ),
-                    'status'       => 'pending',
-                    'created_at'   => current_time( 'mysql' ),
-                ],
-                [ '%d', '%s', '%s', '%s', '%s', '%s' ]
-            );
-
-            if ( false === $inserted ) {
-                $insert_errors[] = $wpdb->last_error ?: 'Insert failed (unknown DB error)';
-                continue;
-            }
-
-            $new_id = (int) $wpdb->insert_id;
-
-            // Fallback: if insert_id not captured (e.g. unique-key conflict), query for it
-            if ( ! $new_id ) {
-                $new_id = (int) $wpdb->get_var( $wpdb->prepare(
-                    "SELECT id FROM {$table} WHERE character_id = %d AND source_url = %s LIMIT 1",
-                    $character_id,
-                    $crawl_url
-                ) );
-            }
-
-            if ( $new_id ) {
-                $source_ids[] = $new_id;
-                $sources_added++;
-            } else {
-                $insert_errors[] = 'Không lấy được ID sau khi insert';
-            }
-        }
-
-        if ( 0 === $sources_added && ! empty( $insert_errors ) ) {
-            wp_send_json_error( [
-                'message'       => 'Không thêm được nguồn: ' . implode( '; ', array_unique( $insert_errors ) ),
-                'sources_added' => 0,
-                'errors'        => $insert_errors,
-            ] );
-        }
-
-        wp_send_json_success( [
-            'message'       => sprintf( 'Added %d URL(s).', $sources_added ),
-            'sources_added' => $sources_added,
-            'source_ids'    => $source_ids,
-            'total_urls'    => count( $urls_to_crawl ),
-            'errors'        => $insert_errors,
-        ] );
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF (R-TABLE-FREEZE) — Guru knowledge no longer goes through bizcity_knowledge_chunks (frozen: no install, no write; rows stay readable):
+        // attach a Vault / notebook to the Guru instead. The old upload / crawl body that wrote chunks is removed (git history).
+        wp_send_json_error( [ 'code' => 'guru_knowledge_moved_to_vault', 'message' => 'Kiến thức của Guru nay nằm trong Vault: hãy gắn notebook cho Guru (mục Notebook đính kèm).' ] );
     }
-    
+
     /**
      * AJAX: Process website (crawl and extract content)
      */
     public function ajax_process_website() {
         check_ajax_referer('bizcity_knowledge', 'nonce');
-        
+
         if (!self::can_manage()) {
             wp_send_json_error(['message' => 'Permission denied']);
         }
-        
-        $source_id = intval($_POST['source_id'] ?? 0);
-        
-        if (!$source_id) {
-            wp_send_json_error(['message' => 'Source ID required']);
-        }
-        
-        global $wpdb;
-        $source = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$wpdb->prefix}bizcity_knowledge_sources WHERE id = %d",
-            $source_id
-        ));
-        
-        if (!$source || $source->source_type !== 'url') {
-            wp_send_json_error(['message' => 'Invalid website source']);
-        }
-        
-        require_once BIZCITY_KNOWLEDGE_LIB . 'class-web-crawler.php';
-        
-        // Update status to processing
-        $wpdb->update(
-            $wpdb->prefix . 'bizcity_knowledge_sources',
-            ['status' => 'processing'],
-            ['id' => $source_id],
-            ['%s'],
-            ['%d']
-        );
-        
-        // Crawl page
-        $result = BizCity_Knowledge_Web_Crawler::crawl_single_page($source->source_url);
-        
-        if (is_wp_error($result)) {
-            // Update error status
-            $wpdb->update(
-                $wpdb->prefix . 'bizcity_knowledge_sources',
-                [
-                    'status' => 'error',
-                    'error_message' => $result->get_error_message()
-                ],
-                ['id' => $source_id],
-                ['%s', '%s'],
-                ['%d']
-            );
-            
-            wp_send_json_error(['message' => $result->get_error_message()]);
-        }
-        
-        // Update source with crawled data
-        $metadata = [
-            'title' => $result['title'],
-            'description' => $result['metadata']['description'] ?? '',
-            'word_count' => $result['word_count']
-        ];
-        
-        $wpdb->update(
-            $wpdb->prefix . 'bizcity_knowledge_sources',
-            [
-                'source_name' => mb_substr( $result['title'] ?: $source->source_url, 0, 255 ),
-                'content' => $result['content'],
-                'metadata' => json_encode($metadata),
-                'status' => 'processing'
-            ],
-            ['id' => $source_id],
-            ['%s', '%s', '%s', '%s'],
-            ['%d']
-        );
-        
-        // Split into chunks
-        $chunks = BizCity_Knowledge_Web_Crawler::split_into_chunks(
-            $result['content'], 
-            500, // chunk size in words
-            50   // overlap
-        );
-        
-        // Delete old chunks if any
-        $wpdb->delete(
-            $wpdb->prefix . 'bizcity_knowledge_chunks',
-            ['source_id' => $source_id],
-            ['%d']
-        );
-        
-        // Insert chunks
-        $chunks_created  = 0;
-        $is_legal_scope  = ( (int) $source->character_id === 0 );
-        foreach ($chunks as $index => $chunk_text) {
-            $chunk_meta = [
-                'url'          => $source->source_url,
-                'title'        => $result['title'],
-                'chunk_number' => $index + 1,
-                'total_chunks' => count($chunks),
-            ];
-            // Mark as legal scope so build-batch can find it (character_id=0)
-            if ( $is_legal_scope ) {
-                $chunk_meta['scope'] = 'legal';
-            }
-            $wpdb->insert(
-                $wpdb->prefix . 'bizcity_knowledge_chunks',
-                [
-                    'source_id'    => $source_id,
-                    'character_id' => (int) $source->character_id,
-                    'content'      => $chunk_text,
-                    'chunk_index'  => $index,
-                    'metadata'     => json_encode( $chunk_meta ),
-                    'created_at'   => current_time('mysql')
-                ],
-                ['%d', '%d', '%s', '%d', '%s', '%s']
-            );
-            $chunks_created++;
-        }
-        
-        // Update chunks_count and status to ready
-        $wpdb->update(
-            $wpdb->prefix . 'bizcity_knowledge_sources',
-            [
-                'chunks_count' => $chunks_created,
-                'status' => 'ready'
-            ],
-            ['id' => $source_id],
-            ['%d', '%s'],
-            ['%d']
-        );
-        
-        wp_send_json_success([
-            'message'      => sprintf('Crawled successfully! Created %d chunks.', $chunks_created),
-            'chunks_count' => $chunks_created,
-            'word_count'   => $result['word_count'],
-            'title'        => $result['title'],
-            'crawl_source' => $result['source'] ?? 'direct',
-            'attempts'     => $result['attempts'] ?? [],
-        ]);
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF (R-TABLE-FREEZE) — Guru knowledge no longer goes through bizcity_knowledge_chunks (frozen: no install, no write; rows stay readable):
+        // attach a Vault / notebook to the Guru instead. The old upload / crawl body that wrote chunks is removed (git history).
+        wp_send_json_error( [ 'code' => 'guru_knowledge_moved_to_vault', 'message' => 'Kiến thức của Guru nay nằm trong Vault: hãy gắn notebook cho Guru (mục Notebook đính kèm).' ] );
     }
-    
+
     /**
      * AJAX: Delete website source
      */
@@ -2635,27 +2281,7 @@ class BizCity_Knowledge_Admin_Menu {
                     continue;
                 }
                 
-                // Import chunks if available
-                if (!empty($source_data['chunks'])) {
-                    global $wpdb;
-                    $chunks_table = $wpdb->prefix . 'bizcity_knowledge_chunks';
-                    
-                    foreach ($source_data['chunks'] as $chunk_data) {
-                        $wpdb->insert(
-                            $chunks_table,
-                            [
-                                'character_id' => $character_id,
-                                'source_id' => $source_id,
-                                'content' => $chunk_data['content'] ?? '',
-                                'embedding' => $chunk_data['embedding'] ?? null,
-                                'metadata' => $chunk_data['metadata'] ?? null,
-                                'chunk_index' => intval($chunk_data['chunk_index'] ?? 0),
-                                'token_count' => intval($chunk_data['token_count'] ?? 0)
-                            ],
-                            ['%d', '%d', '%s', '%s', '%s', '%d', '%d']
-                        );
-                    }
-                }
+                // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF (R-TABLE-FREEZE) — chunks in an export file are NOT imported: bizcity_knowledge_chunks is frozen (Guru knowledge = Vault).
                 
                 $imported_count++;
                 

@@ -84,7 +84,9 @@ require_once BIZCITY_INTENT_DIR . '/includes/providers/class-intent-provider-reg
 
 /* -- tools/ -- */
 require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tools.php';
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — BizCity_Intent_Tool_Index (53 KB: a DB mirror bizcity_tool_registry of the in-memory tool registry, written on plugin
+// (de)activation and by the CLI, read by nothing live — Provider_Registry's sync calls were already commented out, Intent_Tools runs tools
+// from memory) archived at core/_archived/twin-core-r126tc-20261025/; the table is quarantined (rows stay).
 // [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R5 — BizCity_Tool_Run retired: its callers (intent engine,
 // it_call_tool) went with WP-11, and its skill / resource branches pointed at archived core/skills + core/tools.
 // File renamed *_deleted.php (R-ORPHAN-FILE).
@@ -92,7 +94,7 @@ require_once BIZCITY_INTENT_DIR . '/includes/tools/class-intent-tool-index.php';
 // [2026-09-25 Claude Opus 5.5] WP-11 C5 — Intent_Planner retired (only the old Router used it).
 
 /* -- Phase 1 — Unified Pipeline (Evidence, IO Mapper, Core Planner, Scenario) -- */
-require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — BizCity_Tool_Evidence (CPT bizcity-auto-tool: one post per successful tool run, read by nothing) archived at core/_archived/twin-core-r126tc-20261025/.
 
 /* -- Phase 1 Addendum — Objective Understanding, Execution Planner, Variant, One-Shot, Step Executor -- */
 
@@ -101,7 +103,6 @@ require_once BIZCITY_INTENT_DIR . '/includes/tools/class-tool-evidence.php';
 // [2026-09-25 Claude Opus 5.5] WP-11 C4b — Context_Layers_Capture → core/twin-core (with the prompt-capture hooks).
 
 /* ── Init CPT registrations ── */
-BizCity_Tool_Evidence::init();
 
 // [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3a — Step Executor, Pipeline SSE and the waic middleware retired (renamed *_deleted.php).
 
@@ -157,124 +158,8 @@ add_action( 'plugins_loaded', function () {
     do_action( 'bizcity_intent_register_providers', $registry );
     $registry->boot();
 
-    // [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R5 — the 15 legacy built-in tools are no longer registered, but
-    // their bizcity_tool_registry rows stay active until a full sync (CLI / plugin activation only). Deactivate them
-    // once per blog so the LLM tool manifest stops offering tools that answer "không được tìm thấy".
-    add_action( 'init', static function () {
-        if ( get_option( 'bizcity_wp12_r5_builtin_rows_retired' ) ) {
-            return;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_tool_registry';
-        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
-            update_option( 'bizcity_wp12_r5_builtin_rows_retired', 1, false );
-            return;
-        }
-        $retired = array( 'create_product', 'generate_report', 'inventory_report', 'post_facebook', 'write_article',
-            'set_reminder', 'edit_product', 'create_order', 'list_orders', 'find_customer', 'customer_stats',
-            'product_stats', 'inventory_journal', 'warehouse_receipt', 'help_guide' );
-        $keys         = array_map( static function ( $n ) { return 'builtin:' . $n; }, $retired );
-        $placeholders = implode( ',', array_fill( 0, count( $retired ), '%s' ) );
-        $prev         = $wpdb->suppress_errors( true );
-        // Match by key, and by name for older rows written with plugin = 'builtin' but another key; provider rows are untouched.
-        $wpdb->query( $wpdb->prepare(
-            "UPDATE {$table} SET active = 0 WHERE active = 1 AND ( tool_key IN ({$placeholders}) OR ( plugin = 'builtin' AND tool_name IN ({$placeholders}) ) )",
-            ...array_merge( $keys, $retired )
-        ) );
-        $wpdb->suppress_errors( $prev );
-        delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
-        update_option( 'bizcity_wp12_r5_builtin_rows_retired', 1, false );
-    }, 30 );
-
-    // [2026-10-10 10:33 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3b — bizcity-gemini-knowledge, bizcity-tool-slide,
-    // bizcity-video-editor and the knowledge-legacy intent provider are archived (owner 2026-10-10). Their folders were moved,
-    // not deactivated, so `deactivated_plugin` never fired (and it unsyncs by folder slug, while rows carry the provider id).
-    // Deactivate their bizcity_tool_registry rows once per blog — same R5 pattern as above; rows are kept, never deleted.
-    add_action( 'init', static function () {
-        if ( get_option( 'bizcity_wp20_z3b_provider_rows_retired' ) ) {
-            return;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_tool_registry';
-        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
-            update_option( 'bizcity_wp20_z3b_provider_rows_retired', 1, false );
-            return;
-        }
-        $retired      = array( 'gemini-knowledge', 'tool-slide', 'video-editor', 'knowledge-fabric',
-            'bizcity-gemini-knowledge', 'bizcity-tool-slide', 'bizcity-video-editor' );
-        $placeholders = implode( ',', array_fill( 0, count( $retired ), '%s' ) );
-        $prev         = $wpdb->suppress_errors( true );
-        $wpdb->query( $wpdb->prepare(
-            "UPDATE {$table} SET active = 0 WHERE active = 1 AND plugin IN ({$placeholders})",
-            ...$retired
-        ) );
-        $wpdb->suppress_errors( $prev );
-        delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
-        update_option( 'bizcity_wp20_z3b_provider_rows_retired', 1, false );
-    }, 31 );
-
-    // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — bizcity-video-kling removed (owner: không dùng, bỏ hẳn) with the built-in create_video
-    // that bridged to it. A memory sync only upserts, so deactivate the row once per blog — same R5 pattern; rows are kept, never deleted.
-    add_action( 'init', static function () {
-        if ( get_option( 'bizcity_q126_kling_rows_retired' ) ) {
-            return;
-        }
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_tool_registry';
-        if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( $table ) ) {
-            update_option( 'bizcity_q126_kling_rows_retired', 1, false );
-            return;
-        }
-        $prev = $wpdb->suppress_errors( true );
-        $wpdb->query( "UPDATE {$table} SET active = 0 WHERE active = 1 AND ( tool_key = 'builtin:create_video' OR ( plugin = 'builtin' AND tool_name = 'create_video' ) OR plugin IN ( 'bizcity-video-kling', 'video-kling' ) )" );
-        $wpdb->suppress_errors( $prev );
-        delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
-        update_option( 'bizcity_q126_kling_rows_retired', 1, false );
-    }, 32 );
-
-    // ── Tool Registry: event-driven sync on plugin activate/deactivate ──
-    // WordPress fires `activated_plugin` after activate_plugin() succeeds.
-    // The newly-activated plugin has already registered its provider above
-    // (if it hooked `bizcity_intent_register_providers`), so we can sync it.
-    add_action( 'activated_plugin', function ( $plugin_file ) use ( $registry ) {
-        // Resolve plugin slug from plugin file (e.g. 'bizcity-tarot/bizcity-tarot.php' → 'bizcity-tarot')
-        $slug = dirname( $plugin_file );
-        if ( $slug === '.' ) {
-            $slug = basename( $plugin_file, '.php' );
-        }
-
-        $tool_index = BizCity_Intent_Tool_Index::instance();
-
-        // Check if this plugin registered a provider
-        $provider = $registry->get( $slug );
-        if ( $provider ) {
-            $tool_index->sync_provider( $provider );
-        } else {
-            // Plugin may not have registered yet (late hook) — schedule re-sync
-            // via a transient flag that sync_all() checks on next boot
-            $tool_index->ensure_schema();
-            // Re-activate any previously-deactivated rows for this plugin
-            global $wpdb;
-            $table = $wpdb->prefix . 'bizcity_tool_registry';
-            $reactivated = $wpdb->query( $wpdb->prepare(
-                "UPDATE {$table} SET active = 1 WHERE plugin = %s AND active = 0",
-                $slug
-            ) );
-            if ( $reactivated > 0 ) {
-                delete_transient( BizCity_Intent_Tool_Index::MANIFEST_CACHE_KEY );
-                do_action( 'bizcity_tool_registry_changed', 'reactivate', $slug, [] );
-            }
-        }
-    }, 20 );
-
-    // WordPress fires `deactivated_plugin` after deactivate_plugins() succeeds.
-    add_action( 'deactivated_plugin', function ( $plugin_file ) {
-        $slug = dirname( $plugin_file );
-        if ( $slug === '.' ) {
-            $slug = basename( $plugin_file, '.php' );
-        }
-        BizCity_Intent_Tool_Index::instance()->unsync_plugin( $slug );
-    }, 20 );
+    // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — the one-time bizcity_tool_registry row retirements (WP-12 R5, WP-20 Z-3b, Kling) and the activated_plugin /
+    // deactivated_plugin sync hooks only wrote that mirror table; they left with BizCity_Intent_Tool_Index.
 
     // [2026-10-10 12:36 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-3 — the prompt-log listener on
     // bizcity_intent_processed → core/_archived/z3-20261010/intent/bootstrap-prompt-log-listener.php (no emitter left).

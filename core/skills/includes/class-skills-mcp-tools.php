@@ -106,10 +106,10 @@ final class BizCity_Skills_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool skills.resource
 		$R::register( 'skills.resource', array(
 			'title'          => 'Đọc tài liệu kèm skill',
-			'description'    => 'Đọc MỘT tệp tài liệu kèm theo một skill (vd references/nguon-tin-cay.md) khi làm theo skill cần đến nó. Danh sách tệp có trong skills.get (resources). Chỉ đọc, chỉ tệp .md trong thư mục của skill.',
+			'description'    => 'Đọc MỘT tệp tài liệu kèm theo một skill (vd references/nguon-tin-cay.md) khi làm theo skill cần đến nó. Danh sách tệp có trong skills.get (resources). Chỉ đọc, chỉ tệp .md trong thư mục của skill. KHÔNG dùng để đọc tài liệu của chủ (dùng vault.get / journal).',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name', 'path' ), 'properties' => array(
-				'name' => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
-				'path' => array( 'type' => 'string', 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_./-]+\\.md$' ),
+				'name' => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$', 'description' => 'Tên skill (thư mục), vd soan-hop-dong.' ),
+				'path' => array( 'type' => 'string', 'maxLength' => 200, 'pattern' => '^[A-Za-z0-9_./-]+\\.md$', 'description' => 'Đường dẫn tệp trong thư mục skill, lấy từ skills.get resources.' ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array( 'name' => array( 'type' => 'string' ), 'path' => array( 'type' => 'string' ), 'content' => array( 'type' => 'string' ), 'bytes' => array( 'type' => 'integer' ) ), array( 'name', 'path', 'content' ) ),
 			'read_only'      => true,
@@ -130,12 +130,12 @@ final class BizCity_Skills_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool skills.lesson
 		$R::register( 'skills.lesson', array(
 			'title'          => 'Ghi bài học cho skill',
-			'description'    => 'Ghi một bài học rút ra từ một việc đã xong về một skill (vd chủ chê "thiếu bảng liều lượng") vào sổ bài học của skill. KHÔNG sửa skill: chủ đọc và tự quyết đưa vào bản mới.',
+			'description'    => 'Ghi một bài học rút ra từ một việc đã xong về một skill (vd chủ chê "thiếu bảng liều lượng") vào sổ bài học của skill. KHÔNG sửa skill: chủ đọc và tự quyết đưa vào bản mới. KHÔNG dùng cho lời dặn chung của chủ (đó là ghi nhớ / Guru).',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name', 'lesson' ), 'properties' => array(
-				'name'       => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$' ),
-				'lesson'     => array( 'type' => 'string', 'minLength' => 4, 'maxLength' => 400 ),
-				'job_ref'    => array( 'type' => 'string', 'maxLength' => 44 ),
-				'rubric_add' => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 160 ), 'maxItems' => 3 ),
+				'name'       => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{0,63}$', 'description' => 'Tên skill nhận bài học.' ),
+				'lesson'     => array( 'type' => 'string', 'minLength' => 4, 'maxLength' => 400, 'description' => 'Bài học một câu, lời của chủ hoặc rút từ lời chủ.' ),
+				'job_ref'    => array( 'type' => 'string', 'maxLength' => 44, 'description' => 'Việc đã xong sinh ra bài học (JB-… hoặc job_…).' ),
+				'rubric_add' => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 160 ), 'maxItems' => 3, 'description' => 'Tuỳ chọn: tối đa 3 tiêu chí kiểm tra thêm cho skill.' ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array( 'name' => array( 'type' => 'string' ), 'path' => array( 'type' => 'string' ), 'added' => array( 'type' => 'boolean' ), 'count' => array( 'type' => 'integer' ) ), array( 'name', 'added' ) ),
 			'read_only'      => false,

@@ -107,6 +107,10 @@ final class BizCity_MCP_Admin_REST {
 		if ( $client_id === '' || $client_name === '' ) {
 			return self::error( 'invalid_param', 'Thiếu client ID hoặc tên client.', 'Nhập đủ client ID và tên client rồi thử lại.', 'invalid_param_generic', 400 );
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H8 — `__*` / `oauth_*` client ids are reserved (diagnostics sentinel, OAuth clients).
+		if ( 0 === strpos( $client_id, '__' ) || 0 === strpos( $client_id, 'oauth_' ) ) {
+			return self::error( 'invalid_param', 'Client ID này được hệ thống giữ riêng.', 'Chọn client ID không bắt đầu bằng "__" hoặc "oauth_".', 'invalid_param_generic', 400 );
+		}
 		if ( $user_id <= 0 ) {
 			$user_id = get_current_user_id();
 		}

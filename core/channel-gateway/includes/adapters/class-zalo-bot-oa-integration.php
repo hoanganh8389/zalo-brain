@@ -127,15 +127,15 @@ class BizCity_Zalo_Bot_OA_Integration extends BizCity_Channel_Integration {
 		}
 
 		// POST: mac-based verification (Zalo appends ?mac= to webhook URL or body).
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H2 — fail closed: no stored secret or no mac ⇒ refused (was: accepted unchecked).
 		$app_secret = $this->get_decrypted_param( 'app_secret' );
 		if ( $app_secret === '' ) {
-			return true; // no secret → skip signature check
+			return new WP_Error( 'zalobot_secret_missing', 'Webhook secret not configured', [ 'status' => 403 ] );
 		}
 
 		$mac_param = $request->get_param( 'mac' );
 		if ( ! $mac_param ) {
-			// Some Zalo webhook versions omit mac; accept without check.
-			return true;
+			return new WP_Error( 'zalobot_mac_missing', 'Webhook mac missing', [ 'status' => 403 ] );
 		}
 
 		$body     = $request->get_body();

@@ -132,10 +132,7 @@ class BizCity_User_Resolver {
 			$user_id = $this->resolve_from_global_table( $client_id, $blog_id );
 		}
 
-		// Priority 3: Legacy helper
-		if ( ! $user_id && function_exists( 'twf_get_user_id_by_chat_id' ) ) {
-			$user_id = (int) twf_get_user_id_by_chat_id( $chat_id );
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF — priority 3 (the old twf_get_user_id_by_chat_id(), defined nowhere any more) removed.
 
 		$this->cache[ $cache_key ] = $user_id;
 

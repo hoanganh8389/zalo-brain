@@ -259,7 +259,8 @@ final class BizCity_Journal_Evidence {
 			'owner_user_id'   => $owner,
 			'kind'            => 'job.evidence',
 			'title'           => self::title( $env ),
-			'summary'         => self::title( $env ),
+			// [2026-10-24 06:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (cell gap 2) — the source codes ride in the summary, so find_text answers "ảnh TL-47 đăng ở đâu" by code
+			'summary'         => trim( self::title( $env ) . ( $env['source_refs'] ? ' · nguồn ' . implode( ' ', (array) $env['source_refs'] ) : '' ) . ( '' !== (string) ( $env['document_version_ref'] ?? '' ) ? ' · bản ' . $env['document_version_ref'] : '' ) ),
 			'card'            => self::card( $env ),
 			'state'           => 'captured',
 			'source_type'     => 'job',

@@ -143,10 +143,10 @@ class BizCity_Facebook_Page_Integration extends BizCity_Channel_Integration {
 		}
 
 		// POST: verify X-Hub-Signature-256 if app_secret is set.
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H2 — fail closed: no app secret ⇒ the signature cannot be checked ⇒ refused.
 		$app_secret = $this->get_decrypted_param( 'app_secret' );
 		if ( $app_secret === '' ) {
-			// No secret configured — accept without signature check.
-			return true;
+			return new WP_Error( 'fb_secret_missing', 'App secret not configured', [ 'status' => 403 ] );
 		}
 
 		$sig_header = $request->get_header( 'X-Hub-Signature-256' );

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://bizcity.vn/schema/twin-vault-v1.json",
+  "contract": "twin-vault@1.0.0",
+  "_stamp": "[2026-10-24 09:07 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 W1 (doc 20, R-TWIN-VAULT TV-0…9) — Twin Vault · Kho tri thức: the Markdown + YAML store of one site (tenant), every note traceable to its Journal row by source_ref. Runtime JSON (core/kg-hub/contracts): code = BizCity_Twin_Vault (+ BizCity_Brain_Vault_Store for files, BizCity_Journal_MCP_Tools::vault_get); docs/ is never read at runtime.",
+  "rule": "docs/rules/PHASE-0-RULE-TWIN-VAULT.md",
+  "principle": "Biến tài liệu, hình ảnh và thông tin thành những bản ghi có cấu trúc, dễ đọc, dễ liên kết, dễ chỉnh sửa và có thể truy vết về nguồn gốc.",
+  "names": { "product": "Twin Vault", "ui_vi": "Kho tri thức", "icon": "📚", "never_in_ui": ["Skill", "Thư viện Skill", "Skill editor"] },
+  "format": "Markdown + YAML frontmatter; frontmatter schema twin-vault@1 (brain-markdown@1 read as an alias)",
+  "storage": "per tenant: library <uploads>/bizcity-skills/<blog_id>/ (same paths as the old skill library) + Vault Store <BIZCITY_VAULT_ROOT|uploads/bizcity-vault>/<blog_id>/<namespace>/ for readable copies of Journal rows",
+  "ids": { "lib": "lib:/<folder>/<name>.md — a library file", "src": "src:TL-47 — the readable copy of one Journal row (also accepts TL-47@v2)" },
+  "types": {
+    "document": { "label": "Tài liệu", "from": "Journal rows of layer document / output with a file" },
+    "image": { "label": "Media", "from": "common.photo · media.image.output · media.audio.output · media.video.output (D134-15)" },
+    "note": { "label": "Ghi chú", "from": "common.note · common.instruction · task.minutes · grp.brief + library /note · /nhat-ky · /content · any other folder" },
+    "sheet": { "label": "Sổ", "from": "sheet.define" },
+    "job": { "label": "Việc", "from": "job.run (JB-)" },
+    "skill": { "label": "Kỹ năng", "from": "library /skills · /tools" }
+  },
+  "frontmatter": {
+    "site_keys": ["schema", "type", "title", "source_ref", "rev", "created", "updated"],
+    "writer_keys": ["tags", "links", "aliases", "folder"],
+    "skill_keys_kept": ["name", "description", "tools", "status", "version"],
+    "forbidden": ["approved", "customer", "public", "verified", "amount", "amounts", "total", "status_job", "job_status", "owner", "tenant", "permissions", "acl", "delivered_to"]
+  },
+  "note": ["contract", "id", "type", "title", "path", "source_ref", "entry_id", "frontmatter", "markdown", "chars", "next_offset", "links{out,tools,in}", "updated_at", "editable", "has_markdown", "about"],
+  "graph": {
+    "node": ["id", "type", "label", "ref", "date", "degree"],
+    "edge": ["from", "to", "rel"],
+    "rels": ["in_notebook", "in_group", "about_contact", "input_of_job", "output_of_job", "uses_skill", "writes_sheet", "version_of", "derived_from", "mentions_person", "about_topic", "wikilink", "uses_tool"],
+    "max_nodes": 400,
+    "filters": ["types[]", "since (Y-m-d)", "focus (id, 2 hops)"]
+  },
+  "rest": {
+    "namespace": "bizcity-vault/v1",
+    "routes": { "GET /tree": "view=folders|types (default folders: roots + folders{home,list}); six roots by type", "POST /folder": "label · icon? · access? (edit_posts; the site gives the next number 10-90)", "PATCH /folder/{nn}": "label? · icon? · access? · rules{keywords[],groups[]}? · gurus[]? (access / gurus: owner only)", "POST /move": "id · folder (\"\" = out of every folder); edit_posts; folder access gated both ways", "GET /list": "type · q · limit · offset", "GET /note": "id · offset · limit", "POST /note": "id? · path? · title · markdown · frontmatter? · expected_updated? (edit_posts; 409 vault_conflict; 400 vault_path_refused for /skills · /tools)", "GET /search": "q · types[] · limit (items carry why[])", "GET /graph": "types[] · since · focus" },
+    "errors": ["vault_folder_invalid", "vault_folder_full", "vault_folder_not_found", "vault_bad_id", "vault_not_found", "vault_note_invalid", "vault_path_refused", "vault_conflict", "vault_unavailable", "vault_write_failed"]
+  },
+  "mcp": { "vault.list": "brain.read · meta.read", "vault.get": "brain.read · content.read (ref TL-47 or id lib:/…)", "vault.search": "brain.read · meta.read", "vault.write": "memory.write · write (notes only, never skills / readable copies)", "vault.materialize": "system (cell, 0.133)", "vault.revision": "system (cell, 0.133)", "vault.move": "memory.write · write (only when the owner asks; never a skill)" },
+  "folders": { "option": "bizcity_vault_folders", "shape": "^[0-9]{2}(/[a-z0-9-]{1,40})?$", "default_folders": [{"n":"10","label":"Học & dạy"},{"n":"20","label":"Công việc"},{"n":"30","label":"Dự án"},{"n":"40","label":"Nội dung & sáng tạo"},{"n":"50","label":"Chăm sóc khách hàng"},{"n":"55","label":"Pháp lý & hợp đồng","access":"owner"},{"n":"60","label":"Sản phẩm & dịch vụ"},{"n":"65","label":"Bán hàng & báo giá"},{"n":"70","label":"Tài chính & công nợ","access":"owner"},{"n":"80","label":"Nhân sự & nội bộ","access":"owner"},{"n":"90","label":"Lưu trữ"}], "default_access": "staff, except 55 · 70 · 80 = owner (PHASE-0.136 Q136-2)", "frontmatter_projection": "materialized readable copies also carry group{gid,ref,name} · contact_id · folder from the Journal row (PHASE-0.136 S136-G6; the row stays the source)", "defaults_merge": "a default whose number is free is added to a saved list on read (PHASE-0.136)", "aliases": "≤ 12 names per folder; vault.move / vault.write / vault.list accept a folder NUMBER or NAME (label / alias, folded, whole words, longest wins); unknown name ⇒ vault_folder_invalid", "home": "00 Home = overview, not a folder",
+    "access": { "values": ["owner", "staff", "public"], "default": "staff", "set_by": "owner only (PATCH /folder/{nn} {access}; 403 vault_folder_denied otherwise)", "effect": "owner: every row. staff: not rows of owner folders — tree, list, search, note (403 vault_folder_denied), graph, filing into it; brain-access decide() gives staff / automation / group_member nothing on a row filed in an owner folder", "public": "stored; no public door exists yet (a later phase)" },
+    "find": "journal.find {folder} and context_scope.folder narrow only (prefix; disagreeing values ⇒ empty)",
+    "rules": "keywords (folded, whole words, ≤ 20) · Zalo group ids (≤ 10) ⇒ folder_suggest {n,label,icon,why[]} on an unfiled note / view=card; site code, no model; a person files it",
+    "gurus": "guru ids (≤ 10) ⇒ guru-context@1 scope.vault_folders (optional; etag unchanged when empty)", "stored": "library note: frontmatter folder · Journal row: metadata.meta.folder (entry-meta@1, optional)" },
+  "journal": "a vault.write opens / updates exactly one Journal row common.note (idempotency vault:<blog>:<md5(path)[0:24]>, source_type vault, card.vault_path); the site writes its source_ref into the frontmatter (TV-2, TV-3)",
+  "compat": "REST bizcity/skill/v1 + window.skillAppConfig unchanged; skill files edited by the Steps editor; no file moved"
+}

@@ -299,6 +299,11 @@ final class BizCity_Journal_Database {
 			$params[] = '%' . $wpdb->esc_like( '"attachment_id":' ) . '%';
 			$params[] = '%' . $wpdb->esc_like( '"attachment_id":0' ) . '%';
 		}
+		// [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B3 — has_markdown 1|0: a vault:// representation (brain-resource-link@1) exists / does not ("chưa có bản đọc")
+		if ( isset( $filter['has_markdown'] ) && '' !== (string) $filter['has_markdown'] ) {
+			$where[]  = ! empty( $filter['has_markdown'] ) && 'false' !== (string) $filter['has_markdown'] ? 'metadata LIKE %s' : '(metadata IS NULL OR metadata NOT LIKE %s)';
+			$params[] = '%' . $wpdb->esc_like( '"ref":"vault://' ) . '%';
+		}
 		// `q` narrows the already-structured-filtered set (R-JN-5: semantic search is a separate pass — knowledge.search).
 		// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-3) — word by word, title OR summary: "hợp đồng thuê Cty A" finds
 		// "Cty A - HĐ thuê kho" (was one exact substring of the title, so any other word order found nothing).
@@ -330,6 +335,30 @@ final class BizCity_Journal_Database {
 		if ( ! empty( $filter['source_uuid'] ) && 1 === preg_match( '/^[0-9a-f-]{36}$/', (string) $filter['source_uuid'] ) ) {
 			$where[]  = 'metadata LIKE %s';
 			$params[] = '%' . $wpdb->esc_like( '"source_uuid":"' . (string) $filter['source_uuid'] . '"' ) . '%';
+		}
+		// [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb — rows by the state of their readable part (the cell's re-read sweep): none = never read
+		// (no entry-meta block), pending / failed / done = narrowed by text here, the exact meta.status is re-checked by BizCity_Journal_Index::find
+		$ms = (string) ( $filter['meta_status'] ?? '' );
+		if ( 'none' === $ms ) {
+			$where[]  = '(metadata IS NULL OR metadata NOT LIKE %s)';
+			$params[] = '%' . $wpdb->esc_like( '"meta":{' ) . '%';
+		} elseif ( in_array( $ms, array( 'pending', 'failed', 'done' ), true ) ) {
+			$where[]  = 'metadata LIKE %s AND metadata LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"meta":{' ) . '%';
+			$params[] = '%' . $wpdb->esc_like( '"status":"' . $ms . '"' ) . '%';
+		}
+		// [2026-10-25 PHASE-0.134 D134-13] rows filed in a Kho tri thức folder ("30" matches "30" and "30/…"): metadata.meta.folder, text-narrowed like meta_status
+		if ( ! empty( $filter['folder'] ) && 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', (string) $filter['folder'] ) ) {
+			$where[]  = 'metadata LIKE %s';
+			$params[] = '%' . $wpdb->esc_like( '"folder":"' . (string) $filter['folder'] ) . '%';
+		}
+		// [2026-10-25] PHASE-0.136 L6 — several folders (a role's): any of them
+		$fl = array_values( array_filter( array_slice( (array) ( $filter['folders'] ?? array() ), 0, 4 ), static function ( $f ) { return 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', (string) $f ); } ) );
+		if ( $fl ) {
+			$where[] = '(' . implode( ' OR ', array_fill( 0, count( $fl ), 'metadata LIKE %s' ) ) . ')';
+			foreach ( $fl as $f ) {
+				$params[] = '%' . $wpdb->esc_like( '"folder":"' . (string) $f ) . '%';
+			}
 		}
 		$where_sql = implode( ' AND ', $where );
 		$total = (int) $wpdb->get_var( $params ? $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}", $params ) : "SELECT COUNT(*) FROM {$this->table} WHERE {$where_sql}" );
@@ -433,6 +462,40 @@ final class BizCity_Journal_Database {
 			BizCity_Cache::set( self::CACHE_GROUP, $key, $out, 60 );
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-25 01:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B8 (D137-3/4) — the rows of THIS owner that USED a source: its code pinned
+	 * as a version (`TL-7257@v…` in job.version_ref / evidence source_refs / document_version_ref) or its entry id in `derived_from`. Newest first,
+	 * ≤ $limit; SQL narrows by text, the caller re-checks exactly (BizCity_Journal_Pipeline::uses_of). Cached 60 s in CACHE_GROUP (every journal
+	 * write flushes it); key carries blog + owner + id (R-MSDB). Never the row itself. @return array<int,array> raw rows (id, kind, title, source_ref, metadata, created_at)
+	 */
+	public function find_uses( int $owner_user_id, int $entry_id, string $ref_code, int $limit = 40 ): array {
+		global $wpdb;
+		if ( $owner_user_id <= 0 || $entry_id <= 0 || 1 !== preg_match( '/^[A-Z]{2}-\d{1,12}$/', $ref_code ) ) {
+			return array();
+		}
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 1;
+		$key  = 'uses_' . $blog . '_' . $owner_user_id . '_' . $entry_id;
+		$hit  = class_exists( 'BizCity_Cache' ) ? BizCity_Cache::get( self::CACHE_GROUP, $key ) : false;
+		if ( is_array( $hit ) ) {
+			return $hit;
+		}
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, kind, title, source_ref, metadata, created_at FROM {$this->table}
+			  WHERE owner_user_id = %d AND id <> %d AND status NOT IN ('archived','void')
+			    AND ( metadata LIKE %s OR ( metadata LIKE %s AND metadata LIKE %s ) )
+			  ORDER BY id DESC LIMIT %d",
+			$owner_user_id, $entry_id,
+			'%' . $wpdb->esc_like( '"' . $ref_code . '@' ) . '%',
+			'%' . $wpdb->esc_like( '"derived_from":[' ) . '%',
+			'%' . $wpdb->esc_like( (string) $entry_id ) . '%',
+			max( 1, min( 100, $limit ) )
+		), ARRAY_A ) ?: array();
+		if ( class_exists( 'BizCity_Cache' ) ) {
+			BizCity_Cache::set( self::CACHE_GROUP, $key, $rows, 60 );
+		}
+		return $rows;
 	}
 
 	/** Pure: JSON `metadata` strings ⇒ {bytes, files}; a file is counted once (attachment_id, else sha256, else the row). */
@@ -654,6 +717,19 @@ final class BizCity_Journal_Database {
 		}
 		global $wpdb;
 		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE source_ref = %s AND status NOT IN ('archived','void') ORDER BY id ASC LIMIT 1", $source_ref ), ARRAY_A );
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.134 — the row of ONE owner whose ORIGINAL carries a document code (TL-…): a file the assistant made gets its
+	 * TL- code from the private store (metadata.original.doc_code) while its source_ref stays the cell output id (co_…), so get_by_source_ref misses it.
+	 */
+	public function get_by_doc_code( string $code, int $owner_user_id ): ?array {
+		if ( 1 !== preg_match( '/^TL-[0-9]{1,12}$/', $code ) || $owner_user_id <= 0 ) {
+			return null;
+		}
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$this->table} WHERE owner_user_id = %d AND metadata LIKE %s AND status NOT IN ('archived','void') ORDER BY id DESC LIMIT 1", $owner_user_id, '%' . $wpdb->esc_like( '"doc_code":"' . $code . '"' ) . '%' ), ARRAY_A );
 		return is_array( $row ) ? $row : null;
 	}
 

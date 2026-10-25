@@ -631,6 +631,7 @@ final class BizCity_Journal_Brain_Map {
 		$node = array(
 			'id'         => 'd' . (int) $e['entry_id'],
 			'kind'       => 'doc',
+			'jkind'      => (string) ( $e['kind'] ?? '' ), // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 — Twin Vault types the node (document · image · note …)
 			'entry_id'   => (int) $e['entry_id'],
 			'label'      => mb_substr( '' !== (string) ( $e['title'] ?? '' ) ? (string) $e['title'] : ( '' !== $ref ? $ref : 'JE-' . (int) $e['entry_id'] ), 0, 80 ),
 			'ref_code'   => $ref,
@@ -650,6 +651,10 @@ final class BizCity_Journal_Brain_Map {
 		);
 		if ( null !== ( $e['error']['code'] ?? null ) && 'failed' === $node['state'] ) {
 			$node['error_code'] = substr( (string) preg_replace( '/[^a-z0-9_]/i', '', (string) $e['error']['code'] ), 0, 40 );
+		}
+		// [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B2 (D137-2) — the owner panel's focus file shows Ghi sổ ⇒ Đọc ⇒ Vào kho ⇒ Học sâu, not only "Đã lưu · L1"
+		if ( class_exists( 'BizCity_Journal_Pipeline' ) ) {
+			$node['pipeline'] = BizCity_Journal_Pipeline::of( $e, $level );
 		}
 		return $node;
 	}

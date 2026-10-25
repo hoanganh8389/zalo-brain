@@ -1,7 +1,7 @@
 <?php
 /**
  * Facebook Messenger — the few helpers the webhook handler still needs (claim an inbound event once, the inbound
- * envelope, reply to a comment).
+ * envelope).
  *
  * [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB (owner: "ép cell_direct, bỏ PHP") — every PHP reply path that lived here is gone:
  * bizgpt_chatbot_run_guest_flows / bizgpt_chatbot_fallback_ai_response (Messenger auto-reply + LLM fallback), bizgpt_router_comment_flow /
@@ -74,33 +74,5 @@ if ( ! function_exists( 'bizgpt_format_input_data' ) ) {
 	}
 }
 
-/**
- * Reply to Facebook comment
- */
-if ( ! function_exists( 'fb_messenger_reply_comment' ) ) {
-	function fb_messenger_reply_comment( $comment_id, $message, $access_token = '' ) {
-		// Try public comment first
-		$url      = "https://graph.facebook.com/v23.0/{$comment_id}/comments";
-		$response = wp_remote_post( $url, array(
-			'body' => array(
-				'message'      => $message,
-				'access_token' => $access_token,
-			),
-		) );
-
-		$body = wp_remote_retrieve_body( $response );
-		$data = json_decode( $body, true );
-
-		// Fallback to private reply
-		if ( is_wp_error( $response ) || isset( $data['error'] ) ) {
-			$url_private      = "https://graph.facebook.com/v18.0/{$comment_id}/private_replies";
-			$response_private = wp_remote_post( $url_private, array(
-				'body'    => array(
-					'message'      => $message,
-					'access_token' => $access_token,
-				),
-				'timeout' => 20,
-			) );
-		}
-	}
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-LG — fb_messenger_reply_comment() removed: the AI comment reply that called it left in R126-FB (comments only notify the
+// admin now). Archived at core/_archived/legacy-messenger-r126lg-20261025/.

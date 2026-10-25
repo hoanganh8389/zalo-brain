@@ -135,6 +135,11 @@ final class BizCity_Journal_MCP_Tools {
 				'person'       => array( 'type' => 'object', 'properties' => array( 'name' => array( 'type' => 'string', 'maxLength' => 80 ), 'contact_ref' => array( 'type' => 'string', 'maxLength' => 40 ) ), 'description' => 'Dòng có nhắc tới người này, vd {"name":"anh Minh"} (bỏ anh/chị/cô… khi so).' ),
 				'has'          => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'enum' => array( 'ocr', 'about', 'people', 'keywords' ) ), 'maxItems' => 4, 'description' => 'Chỉ dòng đã có phần này, vd ["ocr"] = ảnh đã đọc được chữ.' ),
 				'source_uuid'  => array( 'type' => 'string', 'pattern' => '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'description' => 'Hệ thống: mọi dòng (mọi bản) của MỘT nguồn (resource.source_uuid). Mô hình không cần dùng.' ),
+				// [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb — the cell's re-read sweep
+				'meta_status'  => array( 'type' => 'string', 'enum' => array( 'pending', 'failed', 'none', 'done' ), 'description' => 'Hệ thống: dòng theo trạng thái phần đọc được (pending = chờ đọc / đọc lại, none = chưa từng đọc). Mô hình không cần dùng.' ),
+				'has_file'     => array( 'type' => 'boolean', 'description' => 'Hệ thống: chỉ dòng có tệp gốc.' ),
+				'folder'       => array( 'type' => 'string', 'maxLength' => 40, 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$', 'description' => 'Thư mục Kho tri thức (vd "30" hoặc "30/lop-tieng-trung"); chỉ thu hẹp.' ),
+				'fuse'         => array( 'type' => 'boolean', 'description' => 'Hệ thống: kèm `terms` ⇒ gộp thêm ghi chú thư viện của Kho tri thức (vault) vào một danh sách xếp hạng chung (`fused`, `coverage`); `items` giữ nguyên.' ), // [2026-10-25 12:39 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.135 S-3
 				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: layers / scope job / scope group narrow the page; absent ⇒ unchanged
 				'context_scope' => self::context_scope_schema(),
 			) ),
@@ -142,8 +147,8 @@ final class BizCity_Journal_MCP_Tools {
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
+			'mode'           => 'notebook', // PHASE-0.135: kept inside the validator's 45-line marker window (the schema grew by `fuse`)
 			'handler'        => array( __CLASS__, 'find_mcp' ),
-			'mode'           => 'notebook',
 			'roles'          => array( 'owner', 'staff' ),
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
@@ -514,9 +519,63 @@ final class BizCity_Journal_MCP_Tools {
 				'job_ref'   => array( 'type' => 'string', 'maxLength' => 48, 'pattern' => '^(JB-[0-9]{1,12}|job_[0-9A-Za-z]{10,40})$', 'description' => 'Việc đang chạy; dùng với scope="job".' ),
 				'layers'    => array( 'type' => 'array', 'maxItems' => 6, 'items' => array( 'type' => 'string', 'enum' => array( 'document', 'notebook', 'twin_sheet', 'skill', 'job', 'output' ) ), 'description' => 'Chỉ các lớp này.' ),
 				'version'   => array( 'type' => 'string', 'maxLength' => 32, 'pattern' => '^(current|[A-Za-z]{2}-[0-9]{1,12}@[0-9]{1,6})$', 'description' => '"current" (mặc định) hoặc "<root_ref>@<n>" (vd "TL-47@2") — chỉ journal.get.' ),
+				'folder'    => array( 'type' => 'string', 'maxLength' => 40, 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$', 'description' => 'Thư mục Kho tri thức đang đứng (D134-13); chỉ thu hẹp.' ),
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 L6 (0.135 SR-8) — vai · nhiều thư mục · xem như khách: đầu vào THU HẸP, không thêm nguồn
+				'folders'   => array( 'type' => 'array', 'maxItems' => 4, 'items' => array( 'type' => 'string', 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$' ), 'description' => 'Các thư mục của vai (vd ["50","60"]); chỉ thu hẹp.' ),
+				'role'      => array( 'type' => 'string', 'enum' => array( 'personal', 'care', 'sales', 'teach', 'legal', 'content', 'none' ), 'description' => 'Vai đang đứng; không kèm thư mục ⇒ thư mục mặc định của vai (personal = Quản gia: không thu hẹp).' ),
+				'view'      => array( 'type' => 'string', 'enum' => array( 'owner', 'as_customer' ), 'description' => 'as_customer = chỉ thư mục Công khai (điều khách sẽ thấy).' ),
 				'scope'     => array( 'type' => 'string', 'maxLength' => 48, 'pattern' => '^(own|job|group:[0-9]{3,30})$', 'description' => 'own (mặc định) · job (chỉ dòng của job_ref) · group:<gid> (sổ nhóm Zalo).' ),
 			),
 		);
+	}
+
+	/** Pure (D134-13): the folder a find is narrowed to — the explicit one and the scope's agree (one a prefix of the other, the longer wins). '' = none, null = they disagree ⇒ nothing. */
+	public static function scope_folder( string $explicit, array $cs ): ?string {
+		$ok = static function ( string $f ): string { return 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', $f ) ? $f : ''; };
+		$a  = $ok( trim( $explicit ) );
+		$b  = $ok( trim( (string) ( $cs['folder'] ?? '' ) ) );
+		if ( '' === $a || '' === $b ) {
+			return '' !== $a ? $a : $b;
+		}
+		if ( 0 === strpos( $a, $b ) ) {
+			return $a;
+		}
+		return 0 === strpos( $b, $a ) ? $b : null;
+	}
+
+	/** PHASE-0.136 (20 §3) — default folders of a role when the scope names a role but no folder. */
+	const ROLE_FOLDERS = array( 'care' => array( '50', '60' ), 'sales' => array( '60', '65', '50' ), 'teach' => array( '10', '60' ), 'legal' => array( '55' ), 'content' => array( '40', '60' ) );
+
+	/**
+	 * Pure (PHASE-0.136 L6, 0.135 SR-8): every folder a find is narrowed to. explicit `folder` ∩ scope folder (scope_folder) ⇒ else scope `folders[]`
+	 * ⇒ else the role's defaults; `view: as_customer` keeps only folders whose access is public ($public = list of public folder numbers; null = unknown ⇒ none).
+	 * array() = no narrowing · null = narrowed to nothing (disagreeing / no public folder) ⇒ the find returns nothing.
+	 */
+	public static function scope_folders( string $explicit, array $cs, ?array $public = null ): ?array {
+		$one = self::scope_folder( $explicit, $cs );
+		if ( null === $one ) {
+			return null;
+		}
+		$ok   = static function ( $f ): string { $f = trim( (string) $f ); return 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', $f ) ? $f : ''; };
+		$list = '' !== $one ? array( $one ) : array_values( array_unique( array_filter( array_map( $ok, array_slice( (array) ( $cs['folders'] ?? array() ), 0, 4 ) ) ) ) );
+		$role = (string) ( $cs['role'] ?? '' );
+		if ( ! $list && isset( self::ROLE_FOLDERS[ $role ] ) ) {
+			$list = self::ROLE_FOLDERS[ $role ];
+		}
+		if ( 'as_customer' === (string) ( $cs['view'] ?? '' ) ) {
+			$pub  = array_map( 'strval', (array) $public );
+			$list = $list ? array_values( array_filter( $list, static function ( $f ) use ( $pub ) { return in_array( substr( $f, 0, 2 ), $pub, true ); } ) ) : $pub;
+			return $list ? $list : null;
+		}
+		return $list;
+	}
+
+	/** The public folder numbers of this site (Kho tri thức folder access). */
+	private static function public_folders(): array {
+		if ( ! class_exists( 'BizCity_Twin_Vault' ) || ! method_exists( 'BizCity_Twin_Vault', 'access_map' ) ) {
+			return array();
+		}
+		return array_values( array_map( 'strval', array_keys( array_filter( BizCity_Twin_Vault::access_map(), static function ( $a ) { return 'public' === $a; } ) ) ) );
 	}
 
 	/** Pure: a well-formed context_scope or array() when absent / not an object. */
@@ -548,6 +607,20 @@ final class BizCity_Journal_MCP_Tools {
 		if ( 0 === strpos( $scope, 'group:' ) ) {
 			$gid = substr( $scope, 6 );
 			if ( $gid !== (string) ( $row['belongs']['group']['gid'] ?? $row['group']['gid'] ?? '' ) ) {
+				return false;
+			}
+		}
+		$folders = self::scope_folders( '', $cs, 'as_customer' === (string) ( $cs['view'] ?? '' ) ? self::public_folders() : null ); // D134-13 / PHASE-0.136: outside the folders ⇒ not in this scope
+		if ( null === $folders ) {
+			return false;
+		}
+		if ( $folders ) {
+			$have = (string) ( $row['meta']['folder'] ?? '' );
+			$in   = false;
+			foreach ( $folders as $f ) {
+				$in = $in || ( '' !== $have && 0 === strpos( $have, $f ) );
+			}
+			if ( ! $in ) {
 				return false;
 			}
 		}
@@ -627,6 +700,18 @@ final class BizCity_Journal_MCP_Tools {
 		}
 		$filter = $args;
 		$filter['owner_user_id'] = self::owner( $ctx );
+		// [2026-10-25 PHASE-0.134 D134-13] folder narrows only: the explicit `folder` and context_scope.folder must agree (one a prefix of the other), else nothing; the longer wins
+		// PHASE-0.136 L6: + folders[] · role defaults · view as_customer (public folders only)
+		$ff = self::scope_folders( (string) ( $args['folder'] ?? '' ), $cs, 'as_customer' === (string) ( $cs['view'] ?? '' ) ? self::public_folders() : null );
+		if ( null === $ff ) {
+			return array( 'items' => array(), 'total' => 0 );
+		}
+		unset( $filter['folder'], $filter['folders'] );
+		if ( 1 === count( $ff ) ) {
+			$filter['folder'] = $ff[0];
+		} elseif ( $ff ) {
+			$filter['folders'] = $ff;
+		}
 		// S131-L3: scope group:<gid> ⇒ the group's journal tag (`grp-<gid>`, PHASE-0.124) joins the tag filter — the index already filters by tags; a non-group id ⇒ nothing
 		if ( 0 === strpos( $scope, 'group:' ) ) {
 			$gtag = method_exists( 'BizCity_Journal_Index', 'group_tag' ) ? BizCity_Journal_Index::group_tag( substr( $scope, 6 ) ) : '';
@@ -683,7 +768,75 @@ final class BizCity_Journal_MCP_Tools {
 			$p   = BizCity_Brain_Access::principal( $ctx );
 			$res['items'] = BizCity_Brain_Access::filter( $res['items'], $p, 'meta.read' );
 		}
+		// [2026-10-25 12:39 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.135 S-3 — `fuse` + terms ⇒ library notes of the Kho tri thức join ONE ranked list (reciprocal rank fusion, by
+		// reference: TL-… rows and lib:… notes are never merged into one another). Gates kept (web-76 2026-10-25): the folder / role / view narrowing above runs first; a narrowed
+		// page (folder set) or an as_customer view fuses nothing; vault.search applies its own access gate. The KG (knowledge.search: embeddings + strict citations) stays its own tool.
+		if ( ! empty( $args['fuse'] ) && ! empty( $args['terms'] ) && empty( $ff ) && 'as_customer' !== (string) ( $cs['view'] ?? '' ) && class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'search' ) ) {
+			$lib = array();
+			foreach ( array_slice( array_map( 'strval', (array) $args['terms'] ), 0, 3 ) as $t ) {
+				$found = BizCity_Twin_Vault::search( array( 'q' => $t, 'types' => array( 'note', 'skill' ), 'limit' => 10 ), $ctx );
+				foreach ( (array) ( $found['items'] ?? array() ) as $h ) {
+					$id = (string) ( $h['id'] ?? '' );
+					if ( 0 !== strpos( $id, 'lib:' ) ) {
+						continue; // journal rows already come from the find above
+					}
+					if ( ! isset( $lib[ $id ] ) || (int) ( $h['score'] ?? 0 ) > (int) ( $lib[ $id ]['score'] ?? 0 ) ) {
+						$lib[ $id ] = $h;
+					}
+				}
+			}
+			$res = array_merge( $res, self::fuse_ranked( (array) $res['items'], array_values( $lib ) ) );
+		}
 		return $res;
+	}
+
+	/**
+	 * [2026-10-25 12:39 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.135 S-3 — reciprocal rank fusion of the Journal page (already in score order) and the library hits (ranked here by their
+	 * own score): fused score = Σ 1 / (k + rank). One entry per REFERENCE (TL-… code or lib:… id). `coverage` = which sources answered: both ⇒ full, one ⇒ partial, none ⇒ none.
+	 * Pure. @return array{fused: array<int,array{ref:string,source:string,score:float,why:array}>, library: array, coverage: string, sources: string[]}
+	 */
+	public static function fuse_ranked( array $journal, array $library, int $k = 60 ): array {
+		usort( $library, static function ( $a, $b ) { return (int) ( $b['score'] ?? 0 ) <=> (int) ( $a['score'] ?? 0 ); } );
+		$out = array();
+		foreach ( array_values( $journal ) as $i => $e ) {
+			$ref = (string) ( $e['ref_code'] ?? ( isset( $e['entry_id'] ) ? 'entry:' . (int) $e['entry_id'] : '' ) );
+			if ( '' === $ref || isset( $out[ $ref ] ) ) {
+				continue; // the same row twice (two versions on one page) keeps its best rank
+			}
+			$out[ $ref ] = array( 'ref' => $ref, 'source' => 'journal', 'score' => 1 / ( $k + $i + 1 ), 'why' => array_slice( array_map( 'strval', (array) ( $e['why'] ?? array() ) ), 0, 5 ) );
+		}
+		foreach ( array_values( $library ) as $i => $h ) {
+			$ref = (string) ( $h['id'] ?? '' );
+			if ( '' === $ref ) {
+				continue;
+			}
+			$s = 1 / ( $k + $i + 1 );
+			if ( isset( $out[ $ref ] ) ) {
+				$out[ $ref ]['score'] += $s;
+				$out[ $ref ]['source'] = 'both';
+			} else {
+				$out[ $ref ] = array( 'ref' => $ref, 'source' => 'library', 'score' => $s, 'why' => array_slice( array_map( 'strval', (array) ( $h['why'] ?? array() ) ), 0, 5 ) );
+			}
+		}
+		$fused = array_values( $out );
+		usort( $fused, static function ( $a, $b ) { return $b['score'] <=> $a['score'] ?: strcmp( $a['ref'], $b['ref'] ); } );
+		foreach ( $fused as &$f ) {
+			$f['score'] = round( $f['score'], 5 );
+		}
+		unset( $f );
+		$sources = array_values( array_filter( array( $journal ? 'journal' : '', $library ? 'library' : '' ) ) );
+		$fused   = array_slice( $fused, 0, 20 );
+		// [2026-10-25 12:45 PM Johnny Chu - Chu Hoàng Anh] web-76 review — one library card for EVERY lib: ref that survives in fused (≤ 20), so no fused ref is left without its title / path
+		$kept = array_flip( array_column( $fused, 'ref' ) );
+		$lib  = array();
+		foreach ( array_values( $library ) as $h ) {
+			$id = (string) ( $h['id'] ?? '' );
+			if ( isset( $kept[ $id ] ) && ! isset( $lib[ $id ] ) ) {
+				$lib[ $id ] = array_intersect_key( $h, array_flip( array( 'id', 'type', 'title', 'path', 'source_ref', 'why', 'score' ) ) );
+			}
+		}
+		$lib = array_values( $lib );
+		return array( 'fused' => $fused, 'library' => $lib, 'coverage' => 2 === count( $sources ) ? 'full' : ( 1 === count( $sources ) ? 'partial' : 'none' ), 'sources' => $sources );
 	}
 
 	/**
@@ -725,8 +878,15 @@ final class BizCity_Journal_MCP_Tools {
 		if ( ! class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
 			return $row;
 		}
-		$def = class_exists( 'BizCity_Journal_Kinds' ) ? (array) ( BizCity_Journal_Kinds::get( (string) ( $row['kind'] ?? '' ) ) ?? array() ) : array();
-		return BizCity_Journal_Entry_Meta::card( $row, $def, $preview_url );
+		$def  = class_exists( 'BizCity_Journal_Kinds' ) ? (array) ( BizCity_Journal_Kinds::get( (string) ( $row['kind'] ?? '' ) ) ?? array() ) : array();
+		$card = BizCity_Journal_Entry_Meta::card( $row, $def, $preview_url );
+		// [2026-10-25 PHASE-0.134 D134-18] the owner's folder rules ⇒ "Xếp vào 30 Dự án?" on the card (null when filed / no rule matches)
+		if ( is_array( $card ) && class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'suggest_for_row' ) ) {
+			$card['folder']         = (string) ( $row['meta']['folder'] ?? '' );
+			$card['contact_id']     = (int) ( $row['contact_id'] ?? 0 ); // PHASE-0.136 U2 — the panel opens "Hồ sơ khách" for this person
+			$card['folder_suggest'] = BizCity_Twin_Vault::suggest_for_row( $row, function_exists( 'current_user_can' ) && ! current_user_can( 'manage_options' ) ? array( 'vrole' => 'staff' ) : array() ); // a staff viewer never sees an owner-only folder's name
+		}
+		return $card;
 	}
 
 	public static function get( array $args, array $ctx ) {
@@ -1252,13 +1412,14 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool vault.get
 		$R::register( 'vault.get', array(
 			'title'          => 'Đọc bản Markdown của một nguồn',
-			'description'    => 'Đọc bản đọc (Markdown) đã lưu của MỘT tài liệu / ảnh / ghi chú: lời của chính nguồn, kèm frontmatter (mã, bản, cách trích). '
+			'description'    => 'Đọc MỘT ghi chú của Kho tri thức (Twin Vault): bản đọc Markdown của một tài liệu / ảnh (ref TL-47) hoặc một ghi chú / kỹ năng (id lib:/note/x.md), kèm frontmatter (mã nguồn, bản, cách trích). '
 				. 'Dài thì đọc theo trang: offset + limit (≤ 6000 ký tự), next_offset = null là hết. Chưa có bản đọc ⇒ vault_not_found (dùng journal.get view=card để xem mô tả). Không trả link tải.',
-			'input_schema'   => array( 'type' => 'object', 'required' => array( 'ref' ), 'properties' => array(
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'ref'    => $ref_any,
+				'id'     => array( 'type' => 'string', 'maxLength' => 200, 'description' => 'Id của Kho tri thức: lib:/note/x.md (ghi chú / kỹ năng) hoặc src:TL-47. Dùng ref hoặc id.' ), // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-L4
 				'rev'    => array( 'type' => 'integer', 'minimum' => 0, 'description' => '0 = bản đọc mới nhất.' ),
-				'offset' => array( 'type' => 'integer', 'minimum' => 0 ),
-				'limit'  => array( 'type' => 'integer', 'minimum' => 500, 'maximum' => 6000 ),
+				'offset' => array( 'type' => 'integer', 'minimum' => 0, 'description' => 'Đọc tiếp từ ký tự này (lấy next_offset của lần trước).' ),
+				'limit'  => array( 'type' => 'integer', 'minimum' => 500, 'maximum' => 6000, 'description' => 'Số ký tự mỗi trang (500–6000).' ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array(
 				'ref'         => array( 'type' => 'string' ),
@@ -1324,7 +1485,7 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool vault.revision
 		$R::register( 'vault.revision', array(
 			'title'          => 'Các lần trích của một nguồn',
-			'description'    => 'Liệt kê các bản đọc (rev) đã lưu của MỘT nguồn, mới nhất trước: mã vault://…, cách trích, đã duyệt chưa, lúc nào; và trạng thái chỉ mục tri thức (ready / stale).',
+			'description'    => 'Liệt kê các bản đọc (rev) đã lưu của MỘT nguồn, mới nhất trước: mã vault://…, cách trích, đã duyệt chưa, lúc nào; và trạng thái chỉ mục tri thức (ready / stale). KHÔNG trả nội dung bản đọc (dùng vault.get).',
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'ref' ), 'properties' => array( 'ref' => $ref_any ) ),
 			'output_schema'  => $R::envelope_schema( array(
 				'source_ref' => array( 'type' => 'string' ),
@@ -1360,6 +1521,18 @@ final class BizCity_Journal_MCP_Tools {
 			}
 		}
 		return 1 === preg_match( '/^[A-Za-z]{2}-\d{1,12}$/', $s ) ? array( 'ref' => strtoupper( $s ), 'rev' => 0 ) : null;
+	}
+
+	/**
+	 * [2026-10-24 07:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 (selfcheck T133 #6) — the target of a vault.* call: `entry_id` (the REST door already holds the row) wins over a code, because
+	 * TL-<n> resolves through the source_ref column and older file rows carry another source_ref. null when neither is usable. Pure.
+	 */
+	public static function vault_target( array $args ): ?array {
+		if ( (int) ( $args['entry_id'] ?? 0 ) > 0 ) {
+			return array( 'target' => array( 'entry_id' => (int) $args['entry_id'] ), 'rev' => 0 );
+		}
+		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		return null === $p ? null : array( 'target' => array( 'ref' => $p['ref'] ), 'rev' => $p['rev'] );
 	}
 
 	/** A row the principal may `$permission` (decided at the source); WP_Error 404 otherwise. */
@@ -1413,11 +1586,19 @@ final class BizCity_Journal_MCP_Tools {
 	}
 
 	public static function vault_get( array $args, array $ctx ) {
-		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		// [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-L4 — a Twin Vault library note (lib:/…) is read by BizCity_Twin_Vault::note(); src:TL-47 reads like ref TL-47
+		if ( 0 === strpos( (string) ( $args['id'] ?? '' ), 'lib:' ) && class_exists( 'BizCity_Twin_Vault' ) ) {
+			$note = BizCity_Twin_Vault::note( (string) $args['id'], $ctx, (int) ( $args['offset'] ?? 0 ), (int) ( $args['limit'] ?? 6000 ) );
+			return is_wp_error( $note ) ? self::err( new WP_Error( 'journal_not_found', $note->get_error_message() ) ) : $note;
+		}
+		if ( '' === (string) ( $args['ref'] ?? '' ) && 0 === strpos( (string) ( $args['id'] ?? '' ), 'src:' ) ) {
+			$args['ref'] = substr( (string) $args['id'], 4 );
+		}
+		$p = self::vault_target( $args );
 		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) ) {
 			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47", "TL-47@v2" hoặc "vault://TL-47/v2/r1".' ) );
 		}
-		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'content.read' );
+		$row = self::row_for( $p['target'], $ctx, 'content.read' );
 		if ( is_wp_error( $row ) ) {
 			return $row;
 		}
@@ -1432,11 +1613,11 @@ final class BizCity_Journal_MCP_Tools {
 	}
 
 	public static function vault_materialize( array $args, array $ctx ) {
-		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		$p = self::vault_target( $args );
 		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) || ! class_exists( 'BizCity_Brain_Resource_Link' ) ) {
 			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47" hoặc "TL-47@v2".' ) );
 		}
-		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'write' );
+		$row = self::row_for( $p['target'], $ctx, 'write' );
 		if ( is_wp_error( $row ) ) {
 			return $row;
 		}
@@ -1469,11 +1650,11 @@ final class BizCity_Journal_MCP_Tools {
 	}
 
 	public static function vault_revision( array $args, array $ctx ) {
-		$p = self::parse_any_ref( (string) ( $args['ref'] ?? '' ) );
+		$p = self::vault_target( $args );
 		if ( null === $p || ! class_exists( 'BizCity_Brain_Vault_Store' ) ) {
 			return self::err( new WP_Error( 'journal_not_found', 'Cần mã dạng "TL-47" hoặc "TL-47@v2".' ) );
 		}
-		$row = self::row_for( array( 'ref' => $p['ref'] ), $ctx, 'meta.read' );
+		$row = self::row_for( $p['target'], $ctx, 'meta.read' );
 		if ( is_wp_error( $row ) ) {
 			return $row;
 		}

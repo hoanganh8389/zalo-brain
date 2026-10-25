@@ -95,6 +95,7 @@
       }
     },
     "bizcity_knowledge_chunks": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "Vault / KG notebooks (kg_sources + kg_passages); Guru upload handlers refuse", "drop_candidate": false, "rows": "kept" },
       "since": "3.0.0",
       "purpose": "Chunked + embedded content per knowledge source, used for semantic retrieval. Declared here (CORE-REDUCTION WP-17 K-0, 2026-10-01); see bizcity_knowledge_sources note. Owner for Q-W17-4 (quarantine once KG-Hub backfill is complete).",
       "engine": "InnoDB",

@@ -1,0 +1,115 @@
+{
+  "$schema": "https://bizcity.vn/schema/journal-pipeline-v1.json",
+  "contract": "journal-pipeline@1.0.0",
+  "_stamp": "[2026-10-25 12:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B1 (doc 00 §3, D137-1) — the four steps a person sees a file go through, DERIVED from one journal row (nothing stored, no queue table). Runtime JSON (core/kg-hub/contracts): code = BizCity_Journal_Pipeline; docs/ is never read at runtime.",
+  "phase": "core/channel-gateway/docs/PHASE-0.137-SECOND-BRAIN-JOURNEY/00-MASTER-PLAN.md",
+  "source_of_truth": "journal-entry@1.2 row: metadata.meta (entry-meta@1) · metadata.resource (brain-resource-link@1) · metadata.learning · kg_source_id; level = knowledge-ladder@1 via BizCity_Journal_Brain_Map::doc_level (one ladder, PHASE-0.129)",
+  "steps": {
+    "indexed": {
+      "label": "Ghi sổ",
+      "states": [
+        "done"
+      ],
+      "from": "the row exists; at = created_at"
+    },
+    "read": {
+      "label": "Đọc",
+      "states": [
+        "done",
+        "doing",
+        "failed",
+        "skipped",
+        "none",
+        "na"
+      ],
+      "from": "meta.status (pending ⇒ doing, '' with file ⇒ none, '' without file ⇒ na); error = meta.error as 4 fields"
+    },
+    "vaulted": {
+      "label": "Vào kho",
+      "states": [
+        "done",
+        "doing",
+        "stale",
+        "none",
+        "na"
+      ],
+      "from": "resource.representations[] has a vault:// ref (last one = ref, rev); knowledge.status stale ⇒ stale; read done < 120 s ago and no ref ⇒ doing; folder = meta.folder"
+    },
+    "studied": {
+      "label": "Học sâu",
+      "states": [
+        "optional",
+        "doing",
+        "done",
+        "failed"
+      ],
+      "from": "kg.source_id | resource.knowledge.kg_source_id ⇒ in; learning.graph_state done ⇒ done/graph, pending ⇒ doing/graph; embedded_at ⇒ done/embed else doing/chunks; learning.status failed ⇒ failed"
+    }
+  },
+  "overall": "failed > doing > stale > done",
+  "next": {
+    "actions": [
+      "reread",
+      "rebuild",
+      "restudy",
+      "assign_folder",
+      "study",
+      "none"
+    ],
+    "rule": "read failed ⇒ reread · read none + file ⇒ rebuild · vaulted stale ⇒ restudy · vaulted done + no folder ⇒ assign_folder · studied optional + vaulted done ⇒ study"
+  },
+  "carried_by": {
+    "entry-card@1": "card.pipeline (level null — brain-map decides)",
+    "brain-map@1.2": "nodes[kind=doc].pipeline (with level)",
+    "twin-vault@1": "list / tree row_item.pipeline + row_item.level (tier decides)",
+    "GET bizcity-knowledge/v2/journal/pipeline": {
+      "params": {
+        "range": "today|7d|30d|all (default today)",
+        "step": "indexed|read|vaulted|studied",
+        "state": "step state, or doing|failed|stale as overall when step is absent",
+        "folder": "two digits, optional /slug (same regex as twin-vault@1 folder)",
+        "limit": "≤ 50",
+        "offset": "int"
+      },
+      "result": "items[] (pipeline + title · kind · file_name · origin.surface · created_at) · total · scanned (≤ 200 derived) · range_total · truncated · summary{total, by_step, overall, levels} · unread_files · rebuild_max"
+    }
+  },
+  "write_doors": {
+    "POST bizcity-knowledge/v2/journal/rebuild-read": {
+      "who": "manage_options",
+      "body": {
+        "limit": "≤ 20",
+        "failed": "bool — also re-queue failed reads"
+      },
+      "does": "BizCity_Journal_Index::request_reread per row (meta.status ⇒ pending, by.op reread); the cell sweep reads them; returns queued · skipped · refs[] · remaining",
+      "never": "a request that walks the whole table (R-PERF)"
+    },
+    "POST bizcity-knowledge/v2/notebooks/from-refs": {
+      "who": "edit_posts (owner / staff; rows filtered by brain-access meta.read)",
+      "body": {
+        "refs": "string[] ≤ 20 (TL-… | JE-… | entry id)",
+        "notebook_id": "int? — must be the person's; absent ⇒ a new personal notebook named after the first row's folder or \"Nghiên cứu dd/mm\"",
+        "title": "string? name of the new notebook",
+        "kg": "bool (default true) — queue the graph pass through document.learn.set L2",
+        "force": "bool — re-learn a row that already has kg_source_id"
+      },
+      "does": "per row: the latest vault:// Markdown (never the original file, no second OCR) ⇒ BizCity_TwinChat_Sources_Service::ingest type text with metadata.journal_entry_id (the ingest listener opens NO second row) ⇒ learning_status learned · notebook_id · kg_source_id on the row · learning{L1, passages, embedded_at} · resource.knowledge{kg_source_id, indexed_rev = vault rev, ready} ⇒ with kg: graph_state pending + requeue",
+      "result": "notebook{id,name} · items[]{ref, entry_id, status: learned|already|read_first|not_found|failed, kg_source_id?, passages?, indexed_rev?, graph?, error?} · learned · skipped",
+      "statuses": {
+        "read_first": "no Markdown yet — Đọc lại first (409-like per item, never silent)",
+        "already": "kg_source_id set and knowledge.status not stale (force to re-learn)",
+        "stale": "knowledge.status stale ⇒ learned again into the same notebook when notebook_id is that row's (D137-8)"
+      }
+    }
+  },
+  "find_filters_added": {
+    "REST journal/find": [
+      "meta_status",
+      "has_markdown",
+      "folder"
+    ],
+    "SQL": "has_markdown 1 ⇒ metadata LIKE '%\"ref\":\"vault://%'; 0 ⇒ NOT LIKE"
+  },
+  "ui_words": "people see only Ghi sổ · Đọc · Vào kho · Học sâu + L0–L4; chunks / embedding / graph live in the Học sâu tooltip (D137-10)",
+  "errors": "every failed step carries {code, message ≤ 120, hint, help_code} (R-ERROR-UX)"
+}

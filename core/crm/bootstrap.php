@@ -111,7 +111,9 @@ require_once $bizcity_crm_inc . 'inbox/class-outbound-dispatcher.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-fb-bot-bridge.php';
 require_once $bizcity_crm_inc . 'inbox/bridges/class-zalo-bot-bridge.php';
 // [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.4 (doc 87, owner Q-CS-2) — instagram / whatsapp-cloud / email-imap adapters archived to core/_archived/crm-20261016/ (no site uses them).
-foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'web-widget', 'webchat', 'mabel-wheel' ) as $bizcity_crm_adapter ) {
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — web-widget adapter (public JS-snippet visitor chat) archived at core/_archived/admin-routers-r126rt2-20261025/;
+// existing web_widget inboxes/conversations still read (adapter-less: generic label, sending refused with channel_adapter_unavailable).
+foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'mabel-wheel' ) as $bizcity_crm_adapter ) { // R126-WC — webchat adapter archived
 	require_once $bizcity_crm_inc . 'inbox/adapters/class-adapter-' . $bizcity_crm_adapter . '.php';
 }
 unset( $bizcity_crm_adapter );
@@ -171,7 +173,6 @@ final class BizCity_CRM_Spine_Boot {
 		add_action( 'bizcity_facebook_message_sent', array( 'BizCity_CRM_Facebook_Ingestor', 'on_outbound_sent' ), 10, 1 );
 		add_action( 'bizcity_facebook_message_sent', array( __CLASS__, 'mirror_fb_outbound' ), 11, 1 );
 		add_action( 'bizcity_channel_outbound_logged', array( 'BizCity_CRM_Facebook_Ingestor', 'on_gateway_outbound' ), 10, 1 );
-		add_action( 'bizcity_channel_normalized', array( __CLASS__, 'on_channel_normalized' ), 10, 2 );
 
 		// Zone 1 channel → CRM conversations (was core/scheduler).
 		if ( class_exists( 'BizCity_CRM_Inbox_Bridge' ) && method_exists( 'BizCity_CRM_Inbox_Bridge', 'init' ) ) {
@@ -224,8 +225,7 @@ final class BizCity_CRM_Spine_Boot {
 				'zalo_bot'       => 'BizCity_CRM_Adapter_ZaloBot',
 				'zalo_oa'        => 'BizCity_CRM_Adapter_ZaloOA',
 				'zalo_personal'  => 'BizCity_CRM_Adapter_ZaloPersonal',
-				'web_widget'     => 'BizCity_CRM_Adapter_Web_Widget',
-				'webchat'        => 'BizCity_CRM_Adapter_WebChat',
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — 'web_widget' => BizCity_CRM_Adapter_Web_Widget removed (adapter archived).
 				'mabel_wheel'    => 'BizCity_CRM_Adapter_Mabel_Wheel',
 			);
 			foreach ( $map as $code => $class ) {
@@ -267,30 +267,8 @@ final class BizCity_CRM_Spine_Boot {
 		) );
 	}
 
-	/** PHASE 0.37 unified inbound bridge — WEBCHAT envelopes from the Universal Channel Listener. */
-	public static function on_channel_normalized( $envelope, $trigger_key = '' ): void {
-		if ( ! is_array( $envelope ) ) {
-			return;
-		}
-		$platform = isset( $envelope['platform'] ) ? (string) $envelope['platform'] : '';
-		if ( 'WEBCHAT' !== $platform ) {
-			return;
-		}
-		$adapter = BizCity_CRM_Channel_Registry::get( 'webchat' );
-		if ( ! $adapter ) {
-			return;
-		}
-		try {
-			$norm = $adapter->normalize_inbound( $envelope );
-			if ( $norm ) {
-				BizCity_CRM_Facebook_Ingestor::instance()->ingest( $adapter, $norm );
-			}
-		} catch ( \Throwable $e ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				error_log( '[bizcity-crm] channel_normalized ingest failed (' . $platform . '): ' . $e->getMessage() );
-			}
-		}
-	}
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — on_channel_normalized() (WEBCHAT envelopes → CRM through BizCity_CRM_Adapter_WebChat) removed with the public widget:
+	// the Universal Channel Listener emits no WEBCHAT envelope any more. Archived at core/_archived/webchat-public-r126wc-20261025/.
 
 	/** TwinShell module-access delegate for the 'crm' module (PHASE-0.84 module-access@1). */
 	public static function module_access_delegate( $allowed, $module_id, $user_id ) {

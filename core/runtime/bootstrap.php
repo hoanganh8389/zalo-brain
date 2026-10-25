@@ -36,17 +36,9 @@ if ( file_exists( __DIR__ . '/class-user-meta-cache.php' ) ) {
 // Boot flush registry: wires plugins_loaded:5 version check + admin_init:1 flush.
 BizCity_Rewrite_Flush_Registry::boot();
 
-// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C4b (R-IM-5) — execution / pipeline trace owners moved here from
-// core/intent. Same class names and tables; the file-scope side effects (Execution_Logger shutdown flush, Job_Trace
-// cleanup cron hook) now run when core/runtime loads. Without the safe loader the classes stay absent and callers
-// (all class_exists-guarded or run inside the same request as the loader) degrade instead of fataling.
-if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-	BizCity_Safe_Loader::require_file( __DIR__ . '/class-execution-logger.php', 'runtime.execution_logger' );
-	BizCity_Safe_Loader::require_file( __DIR__ . '/class-trace-store.php', 'runtime.trace_store' );
-	BizCity_Safe_Loader::require_file( __DIR__ . '/class-job-trace.php', 'runtime.job_trace' );
-} else {
-	error_log( '[bizcity] runtime_trace_classes_skipped: BizCity_Safe_Loader unavailable' );
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — BizCity_Execution_Logger, BizCity_Trace_Store and BizCity_Job_Trace (53 KB) had no writer left: nothing called
+// pipeline_start / tool_invoke, begin_trace / record_step or Job_Trace::start since the PHP agent loop went (Q126-19) — the cell
+// traces its own turns. Archived at core/_archived/runtime-trace-r126rt-20261025/; bizcity_traces / bizcity_trace_tasks are quarantined.
 
 // [2026-10-22 06:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 — the PHP agent loop is gone (cell is the brain): BizCity_Twin_Runner, Twin_Run_State,
 // Twin_Rolling_Session, Twin_Session, TwinShell_Event_Bus, Twin_DB_Installer and the REST POST bizcity-twin/v1/run + GET /events/{run_id} live in

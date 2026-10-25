@@ -21,79 +21,9 @@ function bizcity_get_zalo_bot_api( $bot_id ) {
 	return new BizCity_Zalo_Bot_API( $bot->bot_token );
 }
 
-/**
- * Send Zalo message (helper function)
- */
-function bizcity_send_zalo_message( $bot_id, $user_id, $message, $type = 'text' ) {
-	$api = bizcity_get_zalo_bot_api( $bot_id );
-	
-	if ( ! $api ) {
-		return new WP_Error( 'bot_not_found', 'Bot not found' );
-	}
-	
-	if ( $type === 'image' ) {
-		return $api->send_image_message( $user_id, $message );
-	} elseif ( $type === 'file' ) {
-		return $api->send_file_message( $user_id, $message );
-	} else {
-		return $api->send_text_message( $user_id, $message );
-	}
-}
-
-/**
- * Get Zalo user profile
- */
-function bizcity_get_zalo_user_profile( $bot_id, $user_id ) {
-	$api = bizcity_get_zalo_bot_api( $bot_id );
-	
-	if ( ! $api ) {
-		return new WP_Error( 'bot_not_found', 'Bot not found' );
-	}
-	
-	return $api->get_user_profile( $user_id );
-}
-
-/**
- * Get webhook URL for bot
- */
-function bizcity_get_zalo_webhook_url( $bot_id ) {
-	return home_url( '/bizcity/zalo-bot/webhook/' . $bot_id );
-}
-
-/**
- * Format Zalo timestamp
- */
-function bizcity_format_zalo_timestamp( $timestamp ) {
-	if ( strlen( $timestamp ) > 10 ) {
-		// Milliseconds to seconds
-		$timestamp = intval( $timestamp / 1000 );
-	}
-	
-	return date( 'Y-m-d H:i:s', $timestamp );
-}
-
-/**
- * Encrypt webhook data for zalohook endpoint
- */
-function bizcity_encrypt_webhook_data( $data, $blog_id ) {
-	// Generate encryption key from blog_id
-	$salt = 'bizcity_zalo_secret_2026';
-	$key = hash( 'sha256', $blog_id . '_' . $salt, true );
-	
-	// Convert data to JSON
-	$json_data = json_encode( $data );
-	
-	// Simple XOR encryption
-	// [2026-08-20 Johnny Chu] CODEC-CORE — preserve Zalo webhook XOR/Base64 format through shared primitives.
-	return BizCity_Codec::base64_encode( BizCity_Codec::xor_bytes( $json_data, $key ) );
-}
-
-/**
- * Get zalohook URL for current blog
- */
-function bizcity_get_zalohook_url() {
-	return home_url( '/zalohook/' );
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-LG — bizcity_send_zalo_message(), bizcity_get_zalo_user_profile(), bizcity_get_zalo_webhook_url(), bizcity_format_zalo_timestamp(),
+// bizcity_encrypt_webhook_data() and bizcity_get_zalohook_url() removed: no caller in any plugin, mu-plugin or theme. Archived at
+// core/_archived/legacy-messenger-r126lg-20261025/.
 
 /**
  * Generate secret token for Zalo Bot Creator

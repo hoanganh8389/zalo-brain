@@ -46,7 +46,8 @@ final class BizCity_CRM_Channel_Contract {
 		}
 		// [2026-08-30 Johnny Chu] R-CRM-ZALOBOT-ADMIN-ZONE - classify CRM enablement independently from zone.
 		// [2026-09-01 Johnny Chu] PHASE-0.41-CRM-ONE-BRAIN — keep bare Messenger and Zalo aliases quarantined until a matching runtime adapter manifest exists (core.channel.crm_adapter_matrix guards this).
-		$customer_channels = array( 'facebook', 'zalo_oa', 'zalo_personal', 'webchat', 'web_widget', 'email', 'email_imap', 'instagram', 'whatsapp', 'whatsapp_cloud', 'mabel_wheel' );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — 'web_widget' removed (public snippet chat retired, adapter archived); describe('web_widget') is now zone 'unknown', crm_enabled false — reads of old rows are unaffected, writes are refused.
+		$customer_channels = array( 'facebook', 'zalo_oa', 'zalo_personal', 'webchat', 'email', 'email_imap', 'instagram', 'whatsapp', 'whatsapp_cloud', 'mabel_wheel' );
 		$admin_channels    = array( 'zalo_bot', 'telegram', 'twinchat_be' );
 		$legacy_channels   = array( 'zalo', 'messenger' );
 		$zone = in_array( $code, $customer_channels, true )

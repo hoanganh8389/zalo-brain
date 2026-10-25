@@ -60,6 +60,7 @@
       }
     },
     "bizcity_mcp_context_packs": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "transient mcp_context_pack_<blog>_<uuid> (TTL = pack TTL)", "drop_candidate": true, "rows": "kept" },
       "since": "1.0.0",
       "purpose": "document.build_context_pack() immutable output — bundles retrieval snapshot passages for citation validation and the DOCX/PPTX browser-render pipeline, scoped by user_id and client_id.",
       "engine": "InnoDB",

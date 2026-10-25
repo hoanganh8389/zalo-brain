@@ -111,7 +111,7 @@ $_bizcity_tb_require( 'includes/sessions/class-twinbrain-sessions-manager.php' )
 $_bizcity_tb_require( 'includes/sessions/class-twinbrain-sessions-rest.php' );
 // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-B2 — channel adapters, dual-owner session resolver and progress notices are MPR plumbing: bizcity-twin-brain-addon/twinbrain-mpr/.
 $_bizcity_tb_require( 'includes/class-twinbrain-vertical-bridge-registry.php' );
-$_bizcity_tb_require( 'includes/class-twinbrain-guru-focus-validator.php' );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — BizCity_TwinBrain_Guru_Focus_Validator moved to bizcity-twinweb-addon/axis/ (its only caller is /gpt/'s REST; core/twinbrain REST has its own check).
 // [2026-09-21 PHASE-0.63A] Goal Loop stale scanning is disabled pending the replacement workflow.
 // [2026-10-06 23:24 Johnny Chu - Chu Hoàng Anh] TWINBRAIN-SPLIT-CORE-ADDON W-1 — scheduler class archived; keep the
 // one-shot cron cleanup with the literal hook name so sites that never ran it still drop the event.

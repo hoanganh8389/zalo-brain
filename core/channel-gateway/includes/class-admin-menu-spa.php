@@ -228,10 +228,11 @@ final class BizCity_Gateway_Admin_SPA {
 						? BizCity_Network_Admin_Capability::can_manage()
 						: current_user_can( 'manage_options' ) ),
 				// [2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-U1 — menu "Sử dụng": managers, number owners, and staff with own rows (62 §5.4).
-				'usage'  => ( class_exists( 'BizCity_Network_Admin_Capability' )
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — "Sử dụng" is the billing add-on: no add-on, nobody has usage to see.
+				'usage'  => defined( 'BIZCITY_BILLING_ADDON_DIR' ) && class_exists( 'BizCity_Usage_View_REST' ) && ( ( class_exists( 'BizCity_Network_Admin_Capability' )
 						? BizCity_Network_Admin_Capability::can_manage()
 						: current_user_can( 'manage_options' ) )
-					|| ( class_exists( 'BizCity_Usage_View_REST' ) && BizCity_Usage_View_REST::viewer_has_usage( (int) get_current_user_id() ) ),
+					|| ( method_exists( 'BizCity_Usage_View_REST', 'viewer_has_usage' ) && BizCity_Usage_View_REST::viewer_has_usage( (int) get_current_user_id() ) ) ),
 			],
 			'i18n'         => [
 				'plugin_title' => __( 'BizChat Channels', 'bizcity-twin-ai' ),
@@ -246,6 +247,9 @@ final class BizCity_Gateway_Admin_SPA {
 				'crm'        => class_exists( 'BizCity_CRM_Spine' ) && BizCity_CRM_Spine::has( 'admin_ui' ),
 				// [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-U3 — the /gpt/ part is installed (file presence) — the Twin GPT control plane only makes sense with it.
 				'twinweb'    => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — the billing add-on (bizcity-billing-addon) LOADED in this request (its bootstrap
+				// defines the constant): Sử dụng, Thành tích, Doanh thu, gói, Tài khoản, Người dùng show only then — without it their REST routes do not exist.
+				'billing'    => defined( 'BIZCITY_BILLING_ADDON_DIR' ) && class_exists( 'BizCity_Usage_View_REST' ),
 			],
 			'twinwebAvailable' => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
 			// PHASE-0.96 — crm-spine@1 capability map (features the extension plugin registered), for FE gates.
@@ -322,7 +326,7 @@ JS;
 			[ 'code' => 'zalo_oa',        'label' => 'Zalo Official Account', 'platform' => 'ZALO_OA',   'icon' => 'zalo',      'group' => 'social',    'zone' => 'customer', 'ready' => $has( 'zalo_oa' ) || $has( 'zalo_bot' ),     'desc' => 'Zalo OA — nhận & trả lời tin nhắn CSKH qua CRM Inbox.' ],
 			// [2026-08-21 Johnny Chu] PHASE-0.39B — Personal CRM channel is available when the bridge plugin is loaded.
 			[ 'code' => 'zalo_personal',  'label' => 'Zalo Cá nhân', 'platform' => 'ZALO_PERSONAL', 'icon' => 'zalo', 'group' => 'social',   'zone' => 'customer', 'ready' => class_exists( 'BizCity_Zalo_Bridge_Client' ), 'desc' => 'Tài khoản Zalo cá nhân — quét QR là kết nối, bot AI trả lời qua Zalo Hub (mặc định), tin nhắn về CRM Inbox.' ],
-			[ 'code' => 'webchat',        'label' => 'WebChat',             'platform' => 'WEBCHAT',      'icon' => 'globe',     'group' => 'web',       'zone' => 'customer', 'ready' => true,                                        'desc' => 'Widget chat trực tiếp trên website.' ],
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — 'webchat' tile removed (owner: "webchat public ko còn quan trọng" — every channel answers through the cell).
 			// [2026-06-13 Johnny Chu] PHASE-CG-CF7 — Contact Form 7 lead-capture channel tile.
 			[ 'code' => 'cf7',            'label' => 'Contact Form 7',      'platform' => 'CF7',          'icon' => 'form',      'group' => 'web',       'zone' => 'customer', 'ready' => class_exists( 'WPCF7' ) || class_exists( 'WPCF7_ContactForm' ), 'desc' => 'Tự động đưa lead từ CF7 vào CRM Contacts.' ],
 			// [2026-06-12 Johnny Chu] HOTFIX — adminchat removed from catalog (internal-only, no user-facing tile).

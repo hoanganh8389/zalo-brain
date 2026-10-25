@@ -1443,12 +1443,11 @@ class BizCity_Channel_REST_API {
 							}
 						}
 					}
-					if ( empty( $account ) && ! empty( $raw_accts ) ) {
-						// error_log( '[bizcity-cg] TRACE fallback to first account (no uid/oa_id match)' );
-						$_clone = clone $adapter;
-						$_clone->set_account( $raw_accts[0] );
-						$account = $_clone->get_decrypted_params( true );
-					}
+					// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H1 — no "first account" fallback: an unknown instance would
+					// otherwise be verified (and attributed) with another account's credentials.
+				}
+				if ( empty( $account ) ) {
+					return new WP_REST_Response( [ 'error' => 'Unknown channel instance' ], 404 );
 				}
 
 				// error_log( '[bizcity-cg] TRACE account_resolved empty=' . ( empty( $account ) ? 'yes' : 'no' ) . ' oa_id=' . ( $account['oa_id'] ?? '?' ) . ' has_app_secret=' . ( ! empty( $account['app_secret'] ) ? 'yes' : 'no' ) );
@@ -1485,13 +1484,35 @@ class BizCity_Channel_REST_API {
 					// for zca-bridge sidecar. When no bridge is configured, stored_token='' and
 					// it returns false — even though this is a legitimate direct Zalo webhook POST.
 					// Override: apply correct MAC logic from the loaded account credentials.
-					if ( ( false === $verify_result || is_wp_error( $verify_result ) ) && $platform === 'ZALO_OA' ) {
+					// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H1 — for ZALO_OA this strict check always decides: the
+					// adapter (BizCity_CG_Zalo_OA_Integration) still answers true for "no secret" / "no mac", so its true is not trusted alone.
+					if ( $platform === 'ZALO_OA' ) {
 						$_mac_param  = $request->get_param( 'mac' );
 						$_app_secret = (string) ( $account['app_secret'] ?? '' );
-						if ( ! $_mac_param || $_app_secret === '' ) {
-							// No mac param or no secret configured → pass through.
+						// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H1 — fail closed: missing mac or missing app secret ⇒ 403,
+						// except a hub_broker OA relayed in-process by the Hub after its site-key signature check (D93-6, BizCity_Connect_REST::$relaying).
+						$_hub_relayed = class_exists( 'BizCity_Connect_REST' ) && ! empty( BizCity_Connect_REST::$relaying )
+							&& 'hub_broker' === (string) ( $account['connection_mode'] ?? '' );
+						// Zalo OA's documented signature: header X-ZEvent-Signature = "mac=" . sha256( app_id . raw_body . timestamp . OA secret ).
+						$_zevent_sig = trim( (string) $request->get_header( 'X-ZEvent-Signature' ) );
+						if ( $_zevent_sig !== '' && stripos( $_zevent_sig, 'mac=' ) === 0 ) {
+							$_zevent_sig = substr( $_zevent_sig, 4 );
+						}
+						if ( $_hub_relayed ) {
 							$verify_result = true;
-							// error_log( '[bizcity-cg] TRACE zalooa_fallback pass (no mac or no secret)' );
+						} elseif ( $_app_secret === '' ) {
+							$verify_result = false;
+						} elseif ( $_zevent_sig !== '' ) {
+							$_zbody   = (string) $request->get_body();
+							$_zjson   = json_decode( $_zbody, true );
+							$_zapp_id = (string) ( $account['app_id'] ?? '' );
+							if ( $_zapp_id === '' && is_array( $_zjson ) ) {
+								$_zapp_id = (string) ( $_zjson['app_id'] ?? '' );
+							}
+							$_zts          = is_array( $_zjson ) ? (string) ( $_zjson['timestamp'] ?? '' ) : '';
+							$verify_result = hash_equals( hash( 'sha256', $_zapp_id . $_zbody . $_zts . $_app_secret ), strtolower( $_zevent_sig ) );
+						} elseif ( ! $_mac_param ) {
+							$verify_result = false;
 						} else {
 							// [2026-08-20 Johnny Chu] CODEC-CORE — use shared webhook HMAC verification.
 							$_expected     = BizCity_Codec::hmac_sha256( $request->get_body(), $_app_secret, false );
@@ -1525,7 +1546,8 @@ class BizCity_Channel_REST_API {
 				}
 				// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — P0: trace envelope after normalize.
 				if ( $platform === 'ZALO_OA' ) {
-					error_log( '[bizcity-cg-trace] P0 ZALO_OA normalize_inbound result: has_sender=' . ( ! empty( $envelope['sender_id'] ) ? '1 sender=' . $envelope['sender_id'] : '0(empty)' ) . ' adapter=' . get_class( $loaded_adapter ) );
+					// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC LOW — customer sender id hashed in the PHP error log.
+					error_log( '[bizcity-cg-trace] P0 ZALO_OA normalize_inbound result: has_sender=' . ( ! empty( $envelope['sender_id'] ) ? '1 sender_hash=' . substr( hash( 'sha256', (string) $envelope['sender_id'] ), 0, 12 ) : '0(empty)' ) . ' adapter=' . get_class( $loaded_adapter ) );
 				}
 
 				// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — FALLBACK: when normalize_inbound
@@ -1555,10 +1577,11 @@ class BizCity_Channel_REST_API {
 					// [2026-06-21 Johnny Chu] PHASE-0.39 GURU-BIND — Skip oa_* events (OA outbound echo).
 					// oa_send_text/oa_send_image fires when OA sends a message OUT — NOT inbound from user.
 					if ( strpos( $_fb_event, 'oa_' ) === 0 ) {
-						error_log( '[bizcity-cg-trace] P0-FB-SKIP oa_echo event=' . $_fb_event . ' sender=' . $_fb_sender_id );
+						// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC LOW — no raw sender id in the PHP error log.
+						error_log( '[bizcity-cg-trace] P0-FB-SKIP oa_echo event=' . $_fb_event );
 						return new WP_REST_Response( array( 'ok' => true ), 200 );
 					}
-					error_log( '[bizcity-cg-trace] P0-FB ZALO_OA fallback get_params sender_id=' . $_fb_sender_id . ' event=' . $_fb_event );
+					error_log( '[bizcity-cg-trace] P0-FB ZALO_OA fallback get_params sender_hash=' . ( $_fb_sender_id !== '' ? substr( hash( 'sha256', $_fb_sender_id ), 0, 12 ) : '' ) . ' event=' . $_fb_event );
 					if ( $_fb_sender_id ) {
 						$envelope = array(
 							'platform'    => 'ZALO_OA',

@@ -274,23 +274,10 @@ class BizCity_Zalo_Reminder {
 	}
 
 	protected function cron_bump_counter( string $key, int $by = 1 ): void {
-		if ( ! class_exists( 'BizCity_Cron_Manager' ) ) {
-			return;
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — counters live in the run's in-memory meta (bizcity_cron_runs is quarantined;
+		// the old SELECT by run id never matched a virtual run id, so the counter stayed at 1).
+		if ( class_exists( 'BizCity_Cron_Manager' ) && method_exists( 'BizCity_Cron_Manager', 'bump_counter' ) ) {
+			BizCity_Cron_Manager::instance()->bump_counter( $key, $by );
 		}
-		$mgr    = BizCity_Cron_Manager::instance();
-		$run_id = $mgr->current_run_id();
-		if ( ! $run_id ) {
-			return;
-		}
-		global $wpdb;
-		$t   = $wpdb->prefix . BizCity_Cron_Manager::TABLE_RUNS;
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$raw = (string) $wpdb->get_var( $wpdb->prepare( "SELECT meta FROM {$t} WHERE id=%d", $run_id ) );
-		$cur = $raw !== '' ? json_decode( $raw, true ) : array();
-		if ( ! is_array( $cur ) ) {
-			$cur = array();
-		}
-		$prev = (int) ( $cur['counters'][ $key ] ?? 0 );
-		$mgr->note( array( 'counters' => array( $key => $prev + $by ) ) );
 	}
 }

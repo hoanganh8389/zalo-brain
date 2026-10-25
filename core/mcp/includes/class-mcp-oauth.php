@@ -197,10 +197,9 @@ final class BizCity_MCP_OAuth {
 			return self::oauth_html_error( 'Resource OAuth không trỏ tới MCP server này.', 400 );
 		}
 		$redirect_host = strtolower( (string) wp_parse_url( $params['redirect_uri'], PHP_URL_HOST ) );
-		$is_chatgpt_client =
-			stripos( (string) ( $client['client_name'] ?? '' ), 'chatgpt' ) !== false ||
-			$redirect_host === 'chatgpt.com' ||
-			substr( $redirect_host, -strlen( '.chatgpt.com' ) ) === '.chatgpt.com';
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M6 — the PKCE compat exemption is decided ONLY by an
+		// allowlisted https redirect host (chatgpt.com / chat.openai.com); a client-chosen client_name no longer qualifies.
+		$is_chatgpt_client = self::is_pkce_exempt_redirect( $params['redirect_uri'] );
 		$chatgpt_no_pkce =
 			$is_chatgpt_client &&
 			( $params['code_challenge'] === '' || $params['code_challenge_method'] !== 'S256' );
@@ -448,8 +447,26 @@ final class BizCity_MCP_OAuth {
 	private static function code_key( $code ) { return 'bizcity_mcp_oauth_code_' . substr( hash( 'sha256', (string) $code ), 0, 40 ); }
 	private static function token_key( $token ) { return 'bizcity_mcp_oauth_token_' . substr( hash( 'sha256', (string) $token ), 0, 40 ); }
 
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M6 — redirect hosts allowed to omit PKCE (ChatGPT manual connectors). */
+	private static function is_pkce_exempt_redirect( $redirect_uri ) {
+		$scheme = strtolower( (string) wp_parse_url( (string) $redirect_uri, PHP_URL_SCHEME ) );
+		$host   = strtolower( (string) wp_parse_url( (string) $redirect_uri, PHP_URL_HOST ) );
+		if ( 'https' !== $scheme || '' === $host ) {
+			return false;
+		}
+		foreach ( array( 'chatgpt.com', 'chat.openai.com' ) as $allowed ) {
+			if ( $host === $allowed || substr( $host, -strlen( '.' . $allowed ) ) === '.' . $allowed ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static function consent_response( array $params, array $client, array $scopes ) {
 		$action = esc_url( rest_url( self::NS . self::AUTHORIZATION_ENDPOINT ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M6 — the client_name is self-registered; show the real
+		// redirect host (where the authorization code will be sent) prominently.
+		$redirect_host = strtolower( (string) wp_parse_url( (string) ( $params['redirect_uri'] ?? '' ), PHP_URL_HOST ) );
 		$hidden = '';
 		foreach ( $params as $name => $value ) {
 			$hidden .= '<input type="hidden" name="' . esc_attr( $name ) . '" value="' . esc_attr( $value ) . '">';
@@ -493,9 +510,11 @@ final class BizCity_MCP_OAuth {
 		}
 		$list = '<ul><li>Đọc nội dung trong ' . esc_html( count( self::allowed_notebook_ids() ) ) . ' notebook được quản trị viên cho phép.</li>' . implode( '', $scope_items ) . '</ul>';
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-OAUTH — submit consent via signed GET to avoid multisite REST POST hard-gate while preserving nonce verification.
-		$html = '<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cấp quyền MCP</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f6f8;color:#172033;margin:0;padding:32px}.card{max-width:520px;margin:7vh auto;background:#fff;border:1px solid #dfe5ec;border-radius:18px;padding:28px;box-shadow:0 14px 40px rgba(15,23,42,.09)}h1{font-size:22px;margin:0 0 8px}p,li{color:#526174;line-height:1.55}.scope{background:#f5f8fb;border-radius:12px;padding:12px 16px;margin:18px 0}.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}button{border:0;border-radius:10px;padding:11px 16px;font-weight:600;cursor:pointer}.allow{background:#0f766e;color:#fff}.deny{background:#eef2f6;color:#263244}</style></head><body><main class="card"><h1>Cho phép kết nối MCP?</h1><p><strong>' . esc_html( $client['client_name'] ) . '</strong> muốn kết nối với Twin GPT của bạn.</p><div class="scope"><strong>Quyền được yêu cầu</strong>' . $list . '</div><p>Chỉ cấp quyền nếu bạn nhận ra ứng dụng này. Bạn có thể thu hồi kết nối trong My MCP.</p><form method="get" action="' . $action . '">' . $hidden . '<div class="actions"><button class="deny" name="consent" value="deny" type="submit">Từ chối</button><button class="allow" name="consent" value="allow" type="submit">Cho phép</button></div></form></main></body></html>';
+		$html = '<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cấp quyền MCP</title><style>body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f4f6f8;color:#172033;margin:0;padding:32px}.card{max-width:520px;margin:7vh auto;background:#fff;border:1px solid #dfe5ec;border-radius:18px;padding:28px;box-shadow:0 14px 40px rgba(15,23,42,.09)}h1{font-size:22px;margin:0 0 8px}p,li{color:#526174;line-height:1.55}.scope{background:#f5f8fb;border-radius:12px;padding:12px 16px;margin:18px 0}.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}button{border:0;border-radius:10px;padding:11px 16px;font-weight:600;cursor:pointer}.allow{background:#0f766e;color:#fff}.deny{background:#eef2f6;color:#263244}.host{background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;padding:10px 14px;color:#7c2d12;font-size:16px;word-break:break-all}</style></head><body><main class="card"><h1>Cho phép kết nối MCP?</h1><p class="host">Mã cấp quyền sẽ được gửi tới: <strong>' . esc_html( $redirect_host !== '' ? $redirect_host : '—' ) . '</strong></p><p>Ứng dụng tự xưng là <strong>' . esc_html( (string) ( $client['client_name'] ?? '' ) ) . '</strong> và muốn kết nối với Twin GPT của bạn.</p><div class="scope"><strong>Quyền được yêu cầu</strong>' . $list . '</div><p>Chỉ cấp quyền nếu bạn nhận ra ứng dụng này. Bạn có thể thu hồi kết nối trong My MCP.</p><form method="get" action="' . $action . '">' . $hidden . '<div class="actions"><button class="deny" name="consent" value="deny" type="submit">Từ chối</button><button class="allow" name="consent" value="allow" type="submit">Cho phép</button></div></form></main></body></html>';
 		$response = new WP_REST_Response( $html, 200 );
 		$response->header( 'Content-Type', 'text/html; charset=utf-8' );
+		$response->header( 'X-Frame-Options', 'DENY' ); // PHASE-0.126 R126-SEC M6
+		$response->header( 'Content-Security-Policy', "frame-ancestors 'none'" );
 		return $response;
 	}
 
@@ -770,6 +789,9 @@ final class BizCity_MCP_OAuth {
 		$content_type = isset( $headers['Content-Type'] ) ? (string) $headers['Content-Type'] : '';
 		if ( stripos( $content_type, 'text/html' ) === false ) { return $served; }
 		foreach ( $headers as $name => $value ) { header( $name . ': ' . $value ); }
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M6 — the consent/error pages must never be framed (clickjacking of "Cho phép").
+		header( 'X-Frame-Options: DENY' );
+		header( "Content-Security-Policy: frame-ancestors 'none'" );
 		$status = (int) $result->get_status();
 		if ( $status >= 300 ) { status_header( $status ); }
 		echo (string) $result->get_data();

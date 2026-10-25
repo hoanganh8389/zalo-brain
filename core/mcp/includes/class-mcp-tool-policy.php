@@ -87,10 +87,28 @@ final class BizCity_MCP_Tool_Policy {
 	const DIAGNOSTICS_CLIENT_ID = '__diagnostics__';
 
 	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H8 — the sentinel is honoured only inside the dev-only
+	 * diagnostics runner process (in-process constant); a stored/issued key whose client_id is `__diagnostics__` gets no bypass.
+	 */
+	public static function is_diagnostics_ctx( array $ctx ) {
+		return defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI
+			&& isset( $ctx['client_id'] ) && (string) $ctx['client_id'] === self::DIAGNOSTICS_CLIENT_ID;
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H8 — client ids reserved for internal/OAuth principals
+	 * (`__*` sentinels, `oauth_*` dynamic clients) must never be chosen at API-key issue time.
+	 */
+	public static function is_reserved_client_id( $client_id ) {
+		$client_id = strtolower( trim( (string) $client_id ) );
+		return 0 === strpos( $client_id, '__' ) || 0 === strpos( $client_id, 'oauth_' );
+	}
+
+	/**
 	 * @return bool True when the tool is enabled for MCP clients on this site.
 	 */
 	public static function is_enabled( $tool_name, array $ctx = array() ) {
-		if ( isset( $ctx['client_id'] ) && (string) $ctx['client_id'] === self::DIAGNOSTICS_CLIENT_ID ) {
+		if ( self::is_diagnostics_ctx( $ctx ) ) {
 			// [2026-07-30 Johnny Chu] PHASE-0.54-MCP Wave Q — diagnostics dispatch-proof steps bypass the admin policy gate on purpose.
 			return true;
 		}
@@ -353,7 +371,8 @@ final class BizCity_MCP_Tool_Policy {
 
 	/** Role-group gate for an auth context (diagnostics probe bypasses, like the allowlist). */
 	public static function ctx_allows_group( $group, array $ctx ) {
-		if ( isset( $ctx['client_id'] ) && (string) $ctx['client_id'] === self::DIAGNOSTICS_CLIENT_ID ) {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H8 — bypass only in the diagnostics runner process.
+		if ( self::is_diagnostics_ctx( $ctx ) ) {
 			return true;
 		}
 		// [2026-10-05 09:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-R-AGENT-PRINCIPALS R-AP-6 — a customer turn has no WordPress role: the Guru of

@@ -66,6 +66,11 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 			return new WP_Error( 'invalid_notebook', 'notebook_id required to mint a learning share link.' );
 		}
 		$source_id = max( 0, (int) $source_id );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M7 — a notebook owner may only mint a link for a source
+		// that actually belongs to that notebook (else the public link would expose another notebook's learning log).
+		if ( $source_id > 0 && ! $this->source_in_notebook( $notebook_id, $source_id ) ) {
+			return new WP_Error( 'invalid_source', 'Nguồn không thuộc notebook này.', array( 'status' => 403 ) );
+		}
 		$job_id    = max( 0, (int) ( $opts['job_id'] ?? 0 ) );
 		$ttl_s     = (int) ( $opts['ttl_s'] ?? self::DEFAULT_TTL_S );
 		$ttl_s     = $ttl_s > 0 ? min( $ttl_s, self::MAX_TTL_S ) : self::DEFAULT_TTL_S;
@@ -76,6 +81,8 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 			'sid' => $source_id,
 			'job' => $job_id,
 			'exp' => $exp,
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M7 — bind the token to the minting blog (the HMAC key is network-wide).
+			'b'   => (int) get_current_blog_id(),
 		);
 		$token = $this->encode( $payload );
 		$url   = $this->build_url( $token );
@@ -164,8 +171,18 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 			) );
 		}
 
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M7 — a token minted on blog A never opens blog B's
+		// notebook with the same id. Legacy tokens without `b` stay valid only on a single-site install.
+		$tok_blog = isset( $data['b'] ) ? (int) $data['b'] : 0;
+		if ( ( $tok_blog > 0 && $tok_blog !== (int) get_current_blog_id() ) || ( $tok_blog <= 0 && is_multisite() ) ) {
+			return new WP_Error( 'token_invalid', 'Link theo dõi không hợp lệ.', array(
+				'hint'      => 'Yêu cầu link chia sẻ mới từ Twin GPT.',
+				'help_code' => 'learning_share_token_invalid',
+			) );
+		}
+
 		$exp = (int) ( $data['exp'] ?? 0 );
-		if ( $exp > 0 && $exp < time() ) {
+		if ( $exp <= 0 || $exp < time() ) {
 			return new WP_Error( 'token_expired', 'Link theo dõi đã hết hạn.', array(
 				'hint'      => 'Yêu cầu link chia sẻ mới từ Twin GPT.',
 				'help_code' => 'learning_share_token_expired',
@@ -206,6 +223,33 @@ class BizCity_TwinChat_Learning_Share_Adapter {
 		// Same HMAC family already used for the passage_worker internal token
 		// (wp_hash()) — no new secret to manage/rotate.
 		return substr( BizCity_Codec::hmac_sha256( (string) $body_b64, wp_salt( 'auth' ), false ), 0, 40 );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M7 — does this source id (kg_sources.id / origin_id, or a
+	 * legacy webchat source whose project_id is the notebook) belong to the notebook? Fails closed when neither store loads.
+	 */
+	protected function source_in_notebook( $notebook_id, $source_id ) {
+		global $wpdb;
+		$notebook_id = (int) $notebook_id;
+		$source_id   = (int) $source_id;
+		if ( class_exists( 'BizCity_KG_Database' ) ) {
+			$ts    = BizCity_KG_Database::instance()->tbl_sources();
+			$found = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$ts} WHERE ( id = %d OR origin_id = %d ) AND scope_type = %s AND scope_id = %s LIMIT 1",
+				$source_id, $source_id, 'notebook', (string) $notebook_id
+			) );
+			if ( $found > 0 ) {
+				return true;
+			}
+		}
+		if ( class_exists( 'BizCity_TwinChat_Sources_Database' ) ) {
+			$row = BizCity_TwinChat_Sources_Database::instance()->get_source( $source_id );
+			if ( is_array( $row ) && (int) ( $row['project_id'] ?? 0 ) === $notebook_id ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Restore base64 padding stripped during encode() (URL-safe tokens omit it). */

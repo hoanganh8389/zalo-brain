@@ -43,15 +43,13 @@ require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-skill-bridge.php';
 // auto-hook; TwinBrain runtime + Intent Engine call ::parse() as needed.
 require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-token-parser.php';
 
-// PHASE-0.35 GURU-ZALO-BOT §1 (2026-05-26) — Unified Guru Runtime + DTO +
-// citation canonicaliser. R-GURU-UNIFY: every channel reply funnels through
-// BizCity_Guru_Runtime::instance()->reply() so context / citations / events
-// stay uniform. See PHASE-0.35-GURU-ZALO-BOT.md §1.1-§1.4.
-require_once BIZCITY_PERSONA_INCLUDES . 'dto/class-guru-reply-dto.php';
-require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-citation-formatter.php';
-require_once BIZCITY_PERSONA_INCLUDES . 'class-guru-runtime.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-GR (owner: "chỉ những thứ liên quan đến cơ chế bot dùng php cũ phải tối ưu") — the PHASE-0.35 PHP reply engine (BizCity_Guru_Runtime::reply(), its
+// Reply DTO and citation formatter) is archived at core/_archived/guru-runtime-bot-20261024/: its last callers were the Zalo Bot
+// Guru bridge (removed, R126-ZB) and the REST POST bizcity-channel/v1/guru/turn (no caller). Every channel is answered by the cell.
+// The token parser, skill bridge, Guru context and Persona registry above stay (TwinBrain, CRM and the tool registry read them).
 
-add_action( 'plugins_loaded', array( 'BizCity_Guru_Bridge_Installer', 'maybe_install' ), 7 );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — the plugins_loaded:7 installer hook is gone (bizcity_guru_skills quarantined;
+// one get_option per request saved).
 
 // Wave 0.18.5 — wire 3-layer Twin Guru context (L1 instruction / L2 guru
 // knowledge / L3 personal artifacts) into the chat system-prompt chain.

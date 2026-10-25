@@ -115,13 +115,7 @@ class BizCity_Gateway_Admin {
 				'status'      => class_exists( 'BizCity_Facebook_Bot_Admin_Menu', false ),
 				'admin_page'  => 'bizcity-facebook-bots',
 			],
-			'webchat'   => [
-				'label'       => 'WebChat',
-				'desc'        => 'Chat trực tiếp trên website cho khách hàng',
-				'icon'        => '🌐',
-				'status'      => class_exists( 'BizCity_WebChat_Trigger' ),
-				'admin_page'  => '',
-			],
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — 'webchat' card removed (the visitor widget is gone; channels answer through the cell).
 			'adminchat' => [
 				'label'       => 'Admin Chat',
 				'desc'        => 'Chat nội bộ dành cho quản trị viên',

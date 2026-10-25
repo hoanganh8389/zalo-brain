@@ -1421,6 +1421,11 @@ class BizCity_Zalo_Bridge_REST {
 		$default   = BizCity_Guru_Context_Resolver::default_character_id( false );
 		// `auto` = "the Guru answering this number" (Hub console R8 does not know which one); still exactly one Guru, never a list.
 		$allowed   = $answering > 0 && ( 'auto' === $ref || $ref === 'guru:' . $answering || ( BizCity_Guru_Context_Resolver::DEFAULT_REF === $ref && $answering === $default ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-26 — the Quản gia (owner_agent.guru_ref of the bundle) is the second Guru this number may read: owner / staff 1-1 turns answer with it. Still never a list.
+		$owner_guru = class_exists( 'BizCity_Guru_Seed' ) ? BizCity_Guru_Seed::owner_character_id() : 0;
+		if ( ! $allowed && $owner_guru > 0 && $ref === 'guru:' . $owner_guru ) {
+			return array( 'ok' => true, 'bridge_id' => $bridge_id, 'character_id' => $owner_guru );
+		}
 		if ( ! $allowed ) {
 			return array( 'ok' => false, 'response' => new WP_REST_Response( array( 'ok' => false, 'code' => 'guru_not_found', 'message' => 'This Guru does not answer this number.', 'hint' => 'Use the agent_ref of the latest config_bundle, or guru:0.', 'help_code' => 'guru_not_found' ), 404 ) );
 		}

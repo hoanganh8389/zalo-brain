@@ -95,14 +95,7 @@ class BizCity_Universal_Channel_Listener {
 			'msgid_field'   => 'message_id',      // was wrongly 'msg_id'
 			'event_type'    => 'message',
 		),
-		'wu_webchat_message_received'       => array(
-			'platform'      => 'WEBCHAT',
-			'account_field' => 'site_id',
-			'user_field'    => 'session_id',
-			'message_field' => 'message',
-			'msgid_field'   => 'message_id',
-			'event_type'    => 'message',
-		),
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — wu_webchat_message_received tap removed: only the retired visitor widget fired it.
 	);
 
 	public static function init(): void {

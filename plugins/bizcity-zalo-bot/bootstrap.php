@@ -128,15 +128,13 @@ class BizCity_Zalo_Bot_Plugin {
 			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-gateway-bridge.php';
 		}
 
-		// PHASE-0.35 GURU-ZALO-BOT §1.6 — Guru Runtime override (opt-in).
-		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-guru-bridge.php' ) ) {
-			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-guru-bridge.php';
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-ZB (owner: "tắt trả lời PHP ngay") — the Guru bridge (BizCity_Guru_Runtime / TwinBrain reply in PHP, option bizcity_zalo_guru_enabled) is archived at
+		// core/_archived/zalo-bot-guru-bridge-20261024/. Zalo Bot keeps its commands, links and workflows; no PHP AI reply until the cell takes Zalo Bot.
 
 		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — explicit keyword command triggers.
-		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php' ) ) {
-			require_once BIZCITY_ZALO_BOT_DIR . '/includes/class-command-router.php';
-		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — class-command-router.php (PHP replies to đăng nhập / hủy liên kết / tôi là ai /
+		// xem trí nhớ / help) is archived at core/_archived/admin-routers-r126rt2-20261025/. Identity stays in class-user-linker.php (`/link <nonce>` bind +
+		// login-link on an explicit login request from an unlinked sender); every other turn belongs to the cell.
 
 		// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — "@notebook" channel capture bridge listener.
 		if ( file_exists( BIZCITY_ZALO_BOT_DIR . '/includes/class-notebook-bridge-listener.php' ) ) {
@@ -299,12 +297,6 @@ class BizCity_Zalo_Bot_Plugin {
 			BizCity_Zalo_Bot_Gateway_Bridge::instance();
 		}
 
-		// PHASE-0.35 GURU-ZALO-BOT §1.6 — Guru-first reply path (opt-in via
-		// option bizcity_zalo_guru_enabled). Must boot AFTER the legacy
-		// Gateway Bridge so we can remove_action() its priority-10 hook.
-		if ( class_exists( 'BizCity_Zalo_Bot_Guru_Bridge' ) ) {
-			BizCity_Zalo_Bot_Guru_Bridge::instance();
-		}
 
 		// User Linker — install table + boot login callback handler
 		if ( class_exists( 'BizCity_Zalobot_User_Linker' ) ) {
@@ -315,9 +307,7 @@ class BizCity_Zalo_Bot_Plugin {
 		}
 
 		// [2026-06-19 Johnny Chu] ADMIN-GUIDE — keyword command router (priority 4)
-		if ( class_exists( 'BizCity_Zalobot_Command_Router' ) ) {
-			BizCity_Zalobot_Command_Router::boot();
-		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — BizCity_Zalobot_Command_Router::boot() removed (router archived; bizcity_channel_normalized@4 unhooked).
 
 		// [2026-07-24 Johnny Chu] PHASE-0.46 W1 — "@notebook" channel capture bridge (priority 4)
 		if ( class_exists( 'BizCity_Zalobot_Notebook_Bridge_Listener' ) ) {

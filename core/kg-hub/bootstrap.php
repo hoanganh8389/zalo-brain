@@ -122,7 +122,10 @@ foreach ( array(
 	'class-journal-entry-meta.php'               => 'kg_hub.journal_entry_meta',
 	'class-journal-evidence.php'                 => 'kg_hub.journal_evidence',
 	'class-brain-vault-store.php'                => 'kg_hub.brain_vault_store',
+	'class-twin-vault.php'                       => 'kg_hub.twin_vault', // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 — Twin Vault · Kho tri thức (REST bizcity-vault/v1, MCP vault.list/search/write)
 	'class-journal-index.php'                    => 'kg_hub.journal_index',
+	'class-journal-contact-profile.php'            => 'kg_hub.journal_contact_profile', // [2026-10-25] PHASE-0.136 S136-L4 — Hồ sơ khách (view over the contact's rows)
+	'class-scope-meter.php'                        => 'kg_hub.scope_meter', // [2026-10-25] PHASE-0.136 S136-M2 — Matrix "Phạm vi tri thức": every knowledge read measured at the site
 	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
 	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
 	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
@@ -139,6 +142,7 @@ foreach ( array(
 	'class-journal-skill-link.php'                => 'kg_hub.journal_skill_link', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — skill.define / revision / state rows (KN-)
 	'class-journal-layer-rows.php'                => 'kg_hub.journal_layer_rows', // [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — notebook (NB-) and person-made sheet (SO-) rows
 	'class-journal-brain-map.php'                 => 'kg_hub.journal_brain_map', // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — Bản đồ não (brain-map@1): a view over the person's rows, after the index + pack exporter it reads
+	'class-journal-pipeline.php'                  => 'kg_hub.journal_pipeline', // [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B1 — journal-pipeline@1: the four steps of a file derived from its row (after brain-map, whose doc_level it reuses)
 	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
 	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
 	'class-journal-meta-backfill.php'             => 'kg_hub.journal_meta_backfill', // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc — find_text + resource for older rows, dry run first
@@ -225,8 +229,21 @@ if ( class_exists( 'BizCity_Journal_Output_Listener', false ) ) {
 if ( class_exists( 'BizCity_Journal_Backfill', false ) ) {
 	BizCity_Journal_Backfill::register();
 }
+if ( class_exists( 'BizCity_Journal_Contact_Profile', false ) ) {
+	BizCity_Journal_Contact_Profile::init(); // [2026-10-25] PHASE-0.136 S136-L4
+}
+if ( class_exists( 'BizCity_Scope_Meter', false ) ) {
+	BizCity_Scope_Meter::init(); // [2026-10-25] PHASE-0.136 S136-M2 — REST bizcity-vault/v1/scope-matrix*
+}
+if ( class_exists( 'BizCity_Twin_Vault', false ) ) {
+	BizCity_Twin_Vault::init(); // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134
+}
 if ( class_exists( 'BizCity_Journal_Meta_Backfill', false ) ) {
 	BizCity_Journal_Meta_Backfill::register(); // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc
+}
+// [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B2/B4 — GET journal/pipeline (Bảng tệp) + POST journal/rebuild-read (≤ 20 old files per call)
+if ( class_exists( 'BizCity_Journal_Pipeline', false ) ) {
+	BizCity_Journal_Pipeline::register();
 }
 // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J2 (job-link@1, BS-5) — a job-event@1.1 that reached the site opens / folds the JB- header row (after BizCity_Sheet_Bindings at 10).
 if ( class_exists( 'BizCity_Journal_Job_Link', false ) ) {

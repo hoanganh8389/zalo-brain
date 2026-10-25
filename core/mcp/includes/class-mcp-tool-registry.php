@@ -177,7 +177,16 @@ final class BizCity_MCP_Tool_Registry {
 		if ( array( 0 ) === ( $args['entry_ids'] ?? null ) ) {
 			return array( 'retrieval_snapshot_id' => '', 'passages' => array(), 'allowed_citations' => array(), 'note' => 'source_refs_not_found' ); // scoped to codes the caller does not have ⇒ nothing (never the unscoped search)
 		}
-		$result = BizCity_Brain_MCP_Service::instance()->search( $args, $ctx );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-L5 (D136-6) — a CUSTOMER turn (guru_public) also gets short passages from the Guru's PUBLIC Kho tri thức folders,
+		// under their own key (the strict notebook citations are untouched); a Guru with public folders but no notebook still answers from them.
+		$vault = array();
+		if ( 'guru_public' === (string) ( $ctx['principal_kind'] ?? '' ) && class_exists( 'BizCity_Twin_Vault', false ) && method_exists( 'BizCity_Twin_Vault', 'public_passages' ) ) {
+			$vault = BizCity_Twin_Vault::public_passages( (int) ( $ctx['guru_character_id'] ?? 0 ), (string) ( $args['query'] ?? '' ), (int) ( $ctx['acting_user_id'] ?? 0 ) );
+		}
+		$result = empty( $ctx['allowed_notebook_ids'] ) && $vault ? array( 'retrieval_snapshot_id' => '', 'passages' => array(), 'allowed_citations' => array() ) : BizCity_Brain_MCP_Service::instance()->search( $args, $ctx );
+		if ( $vault && is_array( $result ) ) {
+			$result['vault_passages'] = $vault;
+		}
 		if ( class_exists( 'BizCity_Journal_Brain_Map', false ) ) {
 			BizCity_Journal_Brain_Map::note_search( $args, $ctx, $result );
 		}
@@ -774,6 +783,10 @@ final class BizCity_MCP_Tool_Registry {
 			$envelope['meta']['duration_ms'] = $duration;
 		}
 		self::write_audit( $name, $args, $ctx, $envelope, $duration );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-M2 (doc 50 SW-A, D136-21) — the site measures each knowledge read (scope, rows, coverage; no content) for the Matrix "Phạm vi tri thức"
+		if ( class_exists( 'BizCity_Scope_Meter', false ) ) {
+			BizCity_Scope_Meter::observe( (string) $name, $args, $ctx, $envelope );
+		}
 		// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — a successful WRITE of a tool that declares its journal axis feeds the spine (one listener: BizCity_Journal_Tool_Axis)
 		if ( ! empty( $envelope['success'] ) && is_array( self::$tools[ $name ]['journal'] ?? null ) && empty( self::$tools[ $name ]['read_only'] ) && function_exists( 'do_action' ) ) {
 			do_action( 'bizcity_mcp_tool_finished', $name, $args, $ctx, $envelope );
@@ -931,6 +944,8 @@ final class BizCity_MCP_Tool_Registry {
 				'entry_ids'          => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ), 'maxItems' => 10 ),
 				// [2026-10-24 05:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-K1 — the codes a person / the journal speaks ("TL-47", "TL-47@v2"); the site maps them to entry_ids (same filter)
 				'source_refs'        => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 24, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}(@v[0-9]{1,6})?\\s*$' ), 'maxItems' => 10 ),
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-M5b — measurement only (BizCity_Scope_Meter, never a permission): who asked through guru:public · a customer's topic words (≤ 5, no name / number)
+				'context_scope'      => array( 'type' => 'object', 'properties' => array( 'topic' => array( 'type' => 'string', 'maxLength' => 60 ), 'asker' => array( 'type' => 'string', 'enum' => array( 'owner', 'staff' ) ) ) ),
 				'retrieval_profile'  => array( 'type' => 'string', 'default' => 'kg-rag-strict-v1' ),
 				'top_k'              => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 8 ),
 				'graph_depth'        => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3, 'default' => 2 ),

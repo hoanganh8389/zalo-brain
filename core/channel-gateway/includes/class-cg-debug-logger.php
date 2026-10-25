@@ -50,9 +50,12 @@ class BizCity_CG_Debug_Logger {
 		add_action( 'init', array( __CLASS__, 'register_retention_cron' ), 20 );
 		add_action( self::RETENTION_HOOK, array( __CLASS__, 'gc_channel_logs' ), 10, 0 );
 
-		// Admin page.
-		if ( is_admin() ) {
-			add_action( 'admin_menu', array( __CLASS__, 'register_admin_page' ) );
+		// Admin page — [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-DIAG (owner: "Công cụ chẩn đoán chuyển sang dev-only"): dev-only file, loaded only when present.
+		if ( is_admin() && is_readable( __DIR__ . '/class-cg-debug-logger-admin.php' ) ) {
+			require_once __DIR__ . '/class-cg-debug-logger-admin.php';
+			if ( class_exists( 'BizCity_CG_Debug_Logger_Admin', false ) ) {
+				add_action( 'admin_menu', array( 'BizCity_CG_Debug_Logger_Admin', 'register_admin_page' ) );
+			}
 		}
 
 		// Skip auto-hook if disabled (set bizcity_cg_debug_logger_enabled = '0' via wp option).
@@ -896,263 +899,13 @@ class BizCity_CG_Debug_Logger {
 		) );
 	}
 
-	/* ---------- Admin page ---------- */
-
-	public static function register_admin_page(): void {
-		// [2026-06-10 Johnny Chu] HOTFIX — renamed 'BizCity Logs · CG' → 'BizCity Hook'.
-		add_management_page(
-			'BizCity Hook — Channel Gateway Logs',
-			'BizCity Hook',
-			'manage_options',
-			'bizcity-cg-debug-logs',
-			array( __CLASS__, 'render_admin_page' )
-		);
-	}
-
-	public static function render_admin_page(): void {
-		if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Forbidden' ); }
-		$rest_root = esc_url_raw( rest_url( self::NAMESPACE_V1 ) );
-		$nonce     = wp_create_nonce( 'wp_rest' );
-		$today     = gmdate( 'Y-m-d' );
-		?>
-		<div class="wrap" id="bizcity-cg-debug-logs">
-			<h1>BizCity CG · Debug Logs</h1>
-			<p class="description">
-				JSON-Lines logger. File: <code><?php echo esc_html( self::relative_path( self::ensure_dir() ) ); ?>/YYYY-MM-DD.jsonl</code>
-				· Blog ID: <code><?php echo esc_html( is_multisite() ? get_current_blog_id() : 1 ); ?></code>
-			</p>
-
-			<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:14px 0;">
-				<label>Date <input type="date" id="cg-log-date" value="<?php echo esc_attr( $today ); ?>"></label>
-				<label>Channel
-					<select id="cg-log-channel">
-						<option value="">(all)</option>
-						<option>webhook</option>
-						<option>twf_flow</option>
-						<option>campaign_visit</option>
-						<option>scenario_dispatch</option>
-						<option>reminder</option>
-						<option>scheduler</option>
-						<option>message_in</option>
-						<option>message_out</option>
-						<option>manual</option>
-					</select>
-				</label>
-				<label>Level
-					<select id="cg-log-level">
-						<option value="">(all)</option>
-						<option>debug</option><option>info</option><option>warn</option><option>error</option>
-					</select>
-				</label>
-				<label>Search <input type="text" id="cg-log-q" placeholder="full-text trên dòng JSON"></label>
-				<label>Limit <input type="number" id="cg-log-limit" value="500" min="1" max="5000" style="width:80px"></label>
-				<label><input type="checkbox" id="cg-log-tail" checked> Tail (cuối file)</label>
-				<label><input type="checkbox" id="cg-log-auto"> Auto-reload 5s</label>
-				<button class="button button-primary" id="cg-log-refresh">Reload</button>
-				<button class="button" id="cg-log-test">Test emit</button>
-				<button class="button" id="cg-log-clear">Clear date</button>
-				<button class="button" id="cg-log-format-toggle">Toggle pretty</button>
-			</div>
-
-			<div id="cg-log-meta" style="margin-bottom:8px;color:#475569;font-size:12px;">—</div>
-
-			<!-- P1-Q3: Tabs (Threads / Console) ───────────────────────────── -->
-			<nav class="nav-tab-wrapper" style="margin-bottom:10px;">
-				<a href="#" class="nav-tab nav-tab-active" data-cg-tab="threads">🧵 Threads (sheet)</a>
-				<a href="#" class="nav-tab" data-cg-tab="console">📜 Console</a>
-			</nav>
-
-			<div id="cg-tab-threads" class="cg-tab-pane">
-				<table class="widefat fixed striped" id="cg-thread-table" style="background:#fff;">
-					<thead>
-						<tr>
-							<th style="width:32px;"></th>
-							<th style="width:180px;">Started (UTC)</th>
-							<th style="width:140px;">Kind</th>
-							<th style="width:200px;">Key (conv / client / trace)</th>
-							<th style="width:60px;">Rows</th>
-							<th>Summary</th>
-							<th style="width:90px;">Copy</th>
-						</tr>
-					</thead>
-					<tbody><tr><td colspan="7" style="padding:14px;color:#64748b;">— loading —</td></tr></tbody>
-				</table>
-			</div>
-
-			<div id="cg-tab-console" class="cg-tab-pane" style="display:none;">
-				<pre id="cg-log-output" style="background:#0f172a;color:#e2e8f0;padding:14px;border-radius:6px;max-height:65vh;overflow:auto;font-family:Menlo,Consolas,monospace;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;"></pre>
-			</div>
-
-			<details style="margin-top:14px;">
-				<summary>Lịch sử file (theo ngày)</summary>
-				<div id="cg-log-dates" style="margin-top:8px;font-family:monospace;font-size:12px;">—</div>
-			</details>
-		</div>
-		<script>
-		(function () {
-			const REST  = <?php echo wp_json_encode( $rest_root ); ?>;
-			const NONCE = <?php echo wp_json_encode( $nonce ); ?>;
-			let pretty   = true;
-			let timer    = null;
-			let activeTab = 'threads'; // P1-Q3: default Threads view
-
-			const $ = (id) => document.getElementById(id);
-			const get = (path, params) => {
-				const url = new URL(REST + path, window.location.origin);
-				Object.entries(params || {}).forEach(([k,v]) => { if (v !== '' && v !== false && v !== null && v !== undefined) url.searchParams.set(k, v); });
-				return fetch(url.toString(), { headers: { 'X-WP-Nonce': NONCE } }).then(r => r.json());
-			};
-			const post = (path, body) => fetch(REST + path, {
-				method: 'POST', headers: { 'X-WP-Nonce': NONCE, 'Content-Type': 'application/json' },
-				body: JSON.stringify(body || {})
-			}).then(r => r.json());
-
-			function renderConsole(resp) {
-				const meta = $('cg-log-meta');
-				const out  = $('cg-log-output');
-				if (resp && resp.code) {
-					meta.textContent = 'ERROR: ' + resp.message;
-					out.textContent = JSON.stringify(resp, null, 2);
-					return;
-				}
-				const rows = (resp && resp.rows) || [];
-				meta.textContent = `[console] date=${resp.date} · shown=${resp.count}/${resp.total} · file=${resp.file}`;
-				out.textContent = pretty
-					? rows.map(r => JSON.stringify(r, null, 2)).join('\n---\n')
-					: rows.map(r => JSON.stringify(r)).join('\n');
-				out.scrollTop = out.scrollHeight;
-			}
-
-			function escapeHtml(s) {
-				return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-			}
-
-			function renderThreads(resp) {
-				const meta  = $('cg-log-meta');
-				const tbody = $('cg-thread-table').querySelector('tbody');
-				if (resp && resp.code) {
-					meta.textContent = 'ERROR: ' + resp.message;
-					tbody.innerHTML = `<tr><td colspan="7" style="padding:14px;color:#dc2626;">${escapeHtml(resp.message)}</td></tr>`;
-					return;
-				}
-				const threads = (resp && resp.threads) || [];
-				meta.textContent = `[threads] date=${resp.date} · groups=${resp.group_count} · rows=${resp.total} · file=${resp.file}`;
-				if (!threads.length) {
-					tbody.innerHTML = `<tr><td colspan="7" style="padding:14px;color:#64748b;">(no rows for filter)</td></tr>`;
-					return;
-				}
-				const html = threads.map((t, idx) => {
-					const channelsHtml = (t.channels || []).map(c => `<span style="display:inline-block;padding:1px 6px;margin-right:3px;background:#e0f2fe;color:#0369a1;border-radius:3px;font-size:11px;">${escapeHtml(c)}</span>`).join('');
-					const keyShort = String(t.key).length > 28 ? String(t.key).slice(0, 28) + '…' : t.key;
-					return `
-						<tr class="cg-thread-row" data-idx="${idx}">
-							<td><a href="#" class="cg-thread-toggle" data-idx="${idx}" title="Expand">▶</a></td>
-							<td style="font-family:monospace;font-size:11px;">${escapeHtml(t.started_at || '')}</td>
-							<td><code style="font-size:11px;">${escapeHtml(t.kind)}</code></td>
-							<td title="${escapeHtml(t.key)}"><code style="font-size:11px;">${escapeHtml(keyShort)}</code></td>
-							<td>${t.count}</td>
-							<td>${channelsHtml} <span style="color:#475569;font-size:11px;">${escapeHtml(t.summary)}</span></td>
-							<td><button class="button button-small cg-thread-copy" data-idx="${idx}">Copy</button></td>
-						</tr>
-						<tr class="cg-thread-detail" data-idx="${idx}" style="display:none;">
-							<td colspan="7" style="padding:0;background:#0f172a;">
-								<pre style="margin:0;padding:12px;color:#e2e8f0;font-family:Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto;">${escapeHtml(t.rows.map(r => JSON.stringify(r, null, 2)).join('\n---\n'))}</pre>
-							</td>
-						</tr>
-					`;
-				}).join('');
-				tbody.innerHTML = html;
-
-				// Expand toggle.
-				tbody.querySelectorAll('.cg-thread-toggle').forEach(a => {
-					a.addEventListener('click', (e) => {
-						e.preventDefault();
-						const idx = a.getAttribute('data-idx');
-						const det = tbody.querySelector(`tr.cg-thread-detail[data-idx="${idx}"]`);
-						const open = det.style.display !== 'none';
-						det.style.display = open ? 'none' : 'table-row';
-						a.textContent = open ? '▶' : '▼';
-					});
-				});
-				// Copy.
-				tbody.querySelectorAll('.cg-thread-copy').forEach(btn => {
-					btn.addEventListener('click', () => {
-						const idx = +btn.getAttribute('data-idx');
-						const text = (threads[idx].rows || []).map(r => JSON.stringify(r, null, 2)).join('\n---\n');
-						navigator.clipboard.writeText(text).then(() => {
-							btn.textContent = '✓ Copied';
-							setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-						});
-					});
-				});
-			}
-
-			function reload() {
-				const params = {
-					date:    $('cg-log-date').value,
-					channel: $('cg-log-channel').value,
-					level:   $('cg-log-level').value,
-					q:       $('cg-log-q').value,
-					limit:   $('cg-log-limit').value,
-				};
-				if (activeTab === 'threads') {
-					get('/debug-logs/threads', params).then(renderThreads)
-						.catch(e => { $('cg-log-meta').textContent = 'fetch error: ' + e; });
-				} else {
-					get('/debug-logs', Object.assign({ tail: $('cg-log-tail').checked }, params)).then(renderConsole)
-						.catch(e => { $('cg-log-meta').textContent = 'fetch error: ' + e; });
-				}
-				get('/debug-logs/dates').then(r => {
-					$('cg-log-dates').innerHTML = (r.dates || []).map(d =>
-						`<div>${d.date} — ${(d.bytes/1024).toFixed(1)} KB <a href="#" data-date="${d.date}" class="cg-pick-date">[load]</a></div>`
-					).join('') || '<em>(no logs yet)</em>';
-					document.querySelectorAll('.cg-pick-date').forEach(a => {
-						a.addEventListener('click', (e) => {
-							e.preventDefault();
-							$('cg-log-date').value = a.getAttribute('data-date');
-							reload();
-						});
-					});
-				});
-			}
-
-			// Tab switch.
-			document.querySelectorAll('a.nav-tab[data-cg-tab]').forEach(a => {
-				a.addEventListener('click', (e) => {
-					e.preventDefault();
-					activeTab = a.getAttribute('data-cg-tab');
-					document.querySelectorAll('a.nav-tab[data-cg-tab]').forEach(x => x.classList.toggle('nav-tab-active', x === a));
-					document.querySelectorAll('.cg-tab-pane').forEach(p => p.style.display = 'none');
-					$('cg-tab-' + activeTab).style.display = '';
-					reload();
-				});
-			});
-
-			$('cg-log-refresh').addEventListener('click', reload);
-			$('cg-log-test').addEventListener('click', () => post('/debug-logs/test-emit').then(reload));
-			$('cg-log-clear').addEventListener('click', () => {
-				if (!confirm('Xoá log của ngày ' + $('cg-log-date').value + '?')) return;
-				post('/debug-logs/clear', { date: $('cg-log-date').value }).then(reload);
-			});
-			$('cg-log-format-toggle').addEventListener('click', () => { pretty = !pretty; reload(); });
-			$('cg-log-auto').addEventListener('change', (e) => {
-				if (timer) { clearInterval(timer); timer = null; }
-				if (e.target.checked) { timer = setInterval(reload, 5000); }
-			});
-
-			reload();
-		})();
-		</script>
-		<?php
-	}
-
-	/* ---------- Helpers ---------- */
-
-	/**
-	 * Đảm bảo log dir tồn tại + protect bằng .htaccess + index.html.
-	 * Đa site: wp_upload_dir trả /wp-content/uploads/sites/{blog_id}/ trên subsite.
+	/* ---------- Admin page ----------
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-DIAG (owner: "Công cụ chẩn đoán chuyển sang dev-only") — the inline "BizCity Hook" log page
+	 * (Tools › bizcity-cg-debug-logs) moved to class-cg-debug-logger-admin.php, which is dev-only (bin/dev-only-paths.txt) and loaded
+	 * only when present. The REST routes above stay: the SPA ZaloLogsSheet reads /debug-logs.
 	 */
-	private static function ensure_dir(): string {
+
+	public static function ensure_dir(): string { // public since R126-DIAG (the dev-only admin page calls it)
 		if ( self::$cached_dir !== '' ) { return self::$cached_dir; }
 
 		$up = wp_upload_dir( null, false );
@@ -1177,7 +930,7 @@ class BizCity_CG_Debug_Logger {
 		return $dir;
 	}
 
-	private static function relative_path( string $abs ): string {
+	public static function relative_path( string $abs ): string { // public since R126-DIAG
 		if ( $abs === '' ) { return ''; }
 		$rel = str_replace( ABSPATH, '', $abs );
 		return '/' . ltrim( str_replace( '\\', '/', $rel ), '/' );

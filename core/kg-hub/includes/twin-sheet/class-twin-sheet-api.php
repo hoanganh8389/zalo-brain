@@ -203,7 +203,8 @@ final class BizCity_Twin_Sheet_API {
 			'read_only'      => true,
 			'idempotent'     => true,
 			'required_scope' => 'brain.read',
-			'roles'          => array( 'owner', 'staff' ),
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-28 / Q136-16 (chủ "ok"): Twin Sheet = sổ của CHỦ — chỉ chủ ra lệnh (đọc và ghi); nhân sự chỉ khi site mở lại qua filter
+			'roles'          => self::roles(),
 			'scopes'         => array( 'brain.read' ),
 			'confirm'        => 'never',
 			'fallback_pack'  => null,
@@ -270,6 +271,13 @@ final class BizCity_Twin_Sheet_API {
 		) ) );
 	}
 
+	/** PHASE-0.136 D136-28 — who may call twinsheet.* (default the owner only; `bizcity_twinsheet_roles` may add 'staff' when the owner shares a sheet). Never customers. */
+	public static function roles(): array {
+		$r = function_exists( 'apply_filters' ) ? (array) apply_filters( 'bizcity_twinsheet_roles', array( 'owner' ) ) : array( 'owner' );
+		$r = array_values( array_intersect( array( 'owner', 'staff' ), array_map( 'strval', $r ) ) );
+		return $r ? $r : array( 'owner' );
+	}
+
 	/** [2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — the two write tools (the person's own sheets only). */
 	public static function register_write_tools(): void {
 		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) ) {
@@ -281,7 +289,7 @@ final class BizCity_Twin_Sheet_API {
 			'destructive'    => false,
 			'required_scope' => 'memory.write',
 			'required_cap'   => 'edit_posts',
-			'roles'          => array( 'owner', 'staff' ),
+			'roles'          => self::roles(), // PHASE-0.136 D136-28 — owner only
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'never',
 			'fallback_pack'  => null,

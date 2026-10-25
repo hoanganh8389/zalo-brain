@@ -202,6 +202,11 @@ final class BizCity_Twin_Web_Home {
 				$block['staff'][] = array( 'uid' => 'web:' . $uid, 'user_hash' => $p['user_hash'], 'modes' => array_values( $p['modes'] ), 'capture' => array( 'files' => false, 'remember' => false ) ) + $person;
 			}
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-26 — owner-agent-block@1.7: the owner and staff of the web home talk to the Quản gia (customers / guests keep the default Guru)
+		$owner_guru = isset( self::$readers['owner_guru'] ) ? (int) call_user_func( self::$readers['owner_guru'] ) : ( class_exists( 'BizCity_Guru_Seed' ) ? BizCity_Guru_Seed::owner_character_id() : 0 );
+		if ( $owner_guru > 0 && $block['enabled'] ) {
+			$block['guru_ref'] = 'guru:' . $owner_guru;
+		}
 		return $block;
 	}
 

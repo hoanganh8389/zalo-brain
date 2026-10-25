@@ -122,7 +122,8 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		$token     = (string) ( $_GET['hub_verify_token'] ?? ( $_GET['hub.verify_token'] ?? '' ) );
 		$challenge = (string) ( $_GET['hub_challenge'] ?? ( $_GET['hub.challenge'] ?? '' ) );
 		
-		$this->log_info( 'Verify attempt', array( 'mode' => $mode, 'token' => $token ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — never log the submitted verify token (presence only).
+		$this->log_info( 'Verify attempt', array( 'mode' => $mode, 'token_present' => '' !== $token ) );
 		
 		// [2026-08-26 Johnny Chu] HOTFIX-FB-WEBHOOK — legacy ?fbhook=1 must share the Network Admin token used by Facebook Central.
 		// [2026-10-08 PHASE-0.93 audit R-1] The sheet "App của bạn" shows the SITE token (bztfb_verify_token › network › bizgpt, D94-19 v2);
@@ -163,14 +164,17 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 	 */
 	private function process_webhook() {
 		$input = file_get_contents( 'php://input' );
-		$this->log_request( $input );
 
 		// [2026-10-07 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 S93-C5 — only Meta-signed events reach the bot / the cell.
-		if ( class_exists( 'BizCity_FB_Webhook_Signature' ) && ! BizCity_FB_Webhook_Signature::allow( (string) $input, BizCity_FB_Webhook_Signature::header(), 'bizfbhook' ) ) {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H3/H4 — verifier class missing ⇒ refused (fail closed); nothing is logged
+		// before verification, and only metadata after it.
+		if ( ! class_exists( 'BizCity_FB_Webhook_Signature' ) || ! BizCity_FB_Webhook_Signature::allow( (string) $input, BizCity_FB_Webhook_Signature::header(), 'bizfbhook' ) ) {
+			$this->log_error( 'Signature refused', array( 'length' => strlen( (string) $input ) ) );
 			status_header( 403 );
 			echo 'Forbidden';
 			exit;
 		}
+		$this->log_request( $input );
 
 		if ( empty( $input ) ) {
 			status_header( 200 );
@@ -352,11 +356,6 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			return;
 		}
 		
-		// Log inbox message
-		/*if ( function_exists( 'bizgpt_log_inbox_msg' ) && ! empty( $input_data ) ) {
-			bizgpt_log_inbox_msg( $input_data );
-		}*/
-		
 		// Save to bizcity_facebook_inbox table
 		$db = BizCity_Facebook_Bot_Database::instance();
 		$bot_id = $this->get_bot_id_by_page( $page_id );
@@ -505,7 +504,7 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 	}
 	
 	/**
-	 * Handle referral - Call bizgpt_run_flow_steps
+	 * Handle referral — hand it to campaigns / scenarios (bizcity_facebook_referral_received).
 	 */
 	private function handle_referral( $page_id, $client_id, $messaging, $input_data = array() ) {
 		$ref = $messaging['referral']['ref'] ?? $messaging['postback']['referral']['ref'] ?? '';
@@ -548,61 +547,8 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 			'input_data'    => $input_data,
 		) );
 		
-		// Run flow steps
-		if ( function_exists( 'bizgpt_run_flow_steps' ) && function_exists( 'fb_messenger_reply' ) ) {
-			// Guard: bizgpt_run_flow_steps( int $flow_id, array $ctx ). When ref is
-			// a Ref_Codec token like `camp_xxxxx` (not an int flow_id), skip — the
-			// CampaignTracker / Scenario Dispatcher already handles it via the
-			// `bizcity_facebook_referral_received` action above.
-			$flow_id_int = is_numeric( $ref_decrypted ) ? (int) $ref_decrypted : 0;
-			if ( $flow_id_int <= 0 ) {
-				$this->log_info( 'Ref is not a numeric flow_id (likely camp_<token>) — skip bizgpt_run_flow_steps', array( 'ref' => $ref ) );
-				$this->log_info( '=== HANDLE REFERRAL END ===' );
-				return;
-			}
-
-			// R-DCL-NAME 2026-05-26: when the decrypted id matches a Campaign row
-			// (direct id OR imported_from_bizgpt_flow_id), the Campaign Tracker +
-			// Scenario Dispatcher pipeline already owns the response. Skip the
-			// legacy bizgpt_run_flow_steps path to avoid "table doesn't exist"
-			// DB errors on sites that never had `wp_*_bizcity_crm_flows` (eg.
-			// bizcity.vn blog 1258 where campaigns own all scenarios).
-			$campaign_matched = false;
-			if ( class_exists( 'BizCity_CRM_Campaign_Ref_Codec' ) ) {
-				$cid = BizCity_CRM_Campaign_Ref_Codec::decode( (string) $ref_decrypted );
-				if ( $cid > 0 ) {
-					$campaign_matched = true;
-				}
-			}
-			if ( ! $campaign_matched && class_exists( 'BizCity_CRM_Campaign_Repository' ) ) {
-				// Last-ditch direct lookup (covers raw ciphertext case).
-				$cid2 = class_exists( 'BizCity_CRM_Campaign_Ref_Codec' )
-					? BizCity_CRM_Campaign_Ref_Codec::decode( (string) $ref )
-					: 0;
-				if ( $cid2 > 0 ) { $campaign_matched = true; }
-			}
-			if ( $campaign_matched ) {
-				$this->log_info( 'Ref resolves to a Campaign — skip legacy bizgpt_run_flow_steps (Scenario Dispatcher will handle)', array( 'ref' => $ref, 'decrypted' => $ref_decrypted ) );
-				$this->log_info( '=== HANDLE REFERRAL END ===' );
-				return;
-			}
-
-			$this->log_info( 'Calling bizgpt_run_flow_steps' );
-			$arr = bizgpt_run_flow_steps( $flow_id_int, $input_data );
-			
-			$this->log_info( 'Flow steps response', array( 'count' => is_array( $arr ) ? count( $arr ) : 0 ) );
-			
-			if ( is_array( $arr ) ) {
-				foreach ( $arr as $item ) {
-					if ( ! empty( $item['msg'] ) ) {
-						$this->log_info( 'Sending referral reply', array( 'msg' => substr( $item['msg'], 0, 100 ) ) );
-						fb_messenger_reply( $page_id, $client_id, 'AI: ' . $item['msg'] );
-					}
-				}
-			}
-		} else {
-			$this->log_error( 'bizgpt_run_flow_steps or fb_messenger_reply NOT FOUND' );
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF (owner: "di sản luồng bot twf cũ cần gỡ hết" + gỡ hộp thư Messenger cũ) — the old bizgpt flow-steps reply (bizgpt_run_flow_steps, no longer defined
+		// anywhere) is gone; campaigns / scenarios answer a referral through the bizcity_facebook_referral_received action above.
 		
 		$this->log_info( '=== HANDLE REFERRAL END ===' );
 	}
@@ -690,20 +636,7 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 		if ( function_exists( 'send_notice_to_zalo_admin' ) ) {
 			send_notice_to_zalo_admin( 'Khách bình luận: ' . $message . "\n\n" . '(Trợ lý chưa tự trả lời bình luận — trả lời tay trên Facebook.)', $from_id, $from_name, $_SERVER['HTTP_HOST'] ?? '', $post_type . ' Comment' );
 		}
-		if ( function_exists( 'bizgpt_log_comment_ai' ) ) {
-			bizgpt_log_comment_ai( array(
-				'page_id'     => $page_id,
-				'post_id'     => $post_id,
-				'post_type'   => $post_type,
-				'comment_id'  => $value['comment_id'] ?? '',
-				'parent_id'   => null,
-				'sender_id'   => $from_id,
-				'sender_name' => $from_name,
-				'message'     => $message,
-				'ai_reply'    => '',
-				'client_id'   => $_SERVER['HTTP_HOST'] ?? null,
-			) );
-		}
+		// (the old bizgpt_inbox_comment log is gone with the pre-CRM inbox; the comment reaches the CRM through the UCL below)
 		
 		// Fire workflow trigger for automation
 		$bot_id = $this->get_bot_id_by_page( $page_id );
@@ -784,7 +717,31 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 	// ==========================================
 	
 	private function log_request( $data ) {
-		$this->write_log( 'request', $data );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — metadata only: size, object, page ids, event kinds (no body / text / URLs).
+		$raw     = (string) $data;
+		$decoded = json_decode( $raw, true );
+		$pages   = array();
+		$kinds   = array();
+		if ( is_array( $decoded ) && ! empty( $decoded['entry'] ) && is_array( $decoded['entry'] ) ) {
+			foreach ( $decoded['entry'] as $entry ) {
+				$pages[] = (string) ( $entry['id'] ?? '' );
+				if ( ! empty( $entry['messaging'] ) && is_array( $entry['messaging'] ) ) {
+					$kinds['messaging'] = ( $kinds['messaging'] ?? 0 ) + count( $entry['messaging'] );
+				}
+				if ( ! empty( $entry['changes'] ) && is_array( $entry['changes'] ) ) {
+					foreach ( $entry['changes'] as $change ) {
+						$field           = 'changes:' . sanitize_key( (string) ( $change['field'] ?? '' ) );
+						$kinds[ $field ] = ( $kinds[ $field ] ?? 0 ) + 1;
+					}
+				}
+			}
+		}
+		$this->write_log( 'request', array(
+			'length'   => strlen( $raw ),
+			'object'   => is_array( $decoded ) ? (string) ( $decoded['object'] ?? '' ) : '',
+			'page_ids' => array_slice( array_values( array_unique( $pages ) ), 0, 20 ),
+			'events'   => $kinds,
+		) );
 	}
 	
 	private function log_error( $message, $data = null ) {
@@ -800,30 +757,96 @@ class BizCity_Facebook_Bot_Webhook_Handler {
 	}
 	
 	private function write_log( $type, $data ) {
-		$log_dir = WP_CONTENT_DIR . '/mu-plugins/logs';
-		
-		if ( ! file_exists( $log_dir ) ) {
-			@mkdir( $log_dir, 0755, true );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — protected dir, salted file name, redacted rows.
+		$log_dir = self::protected_log_dir();
+		if ( '' === $log_dir ) {
+			return;
 		}
-		
+
 		$date_str = gmdate( 'Y-m-d' );
 		$time_str = gmdate( 'H:i:s' );
 		$blog_id = get_current_blog_id();
-		
-		$log_file = $log_dir . "/fbhook-{$date_str}.log";
-		
+
+		$log_file = $log_dir . '/fbhook-' . $date_str . '-' . self::log_file_suffix() . '.log';
+
+		$safe = self::redact_log_value( $data );
+		if ( is_array( $data ) && isset( $data['message'] ) && is_string( $data['message'] ) && is_array( $safe ) ) {
+			$safe['message'] = $data['message']; // top-level 'message' is our own log label
+		}
 		$log_entry = array(
 			'time'    => $time_str,
 			'blog_id' => $blog_id,
 			'type'    => $type,
-			'data'    => $data,
+			'data'    => $safe,
 		);
 		
 		@file_put_contents( 
 			$log_file, 
 			json_encode( $log_entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n", 
-			FILE_APPEND | LOCK_EX 
+			FILE_APPEND | LOCK_EX
 		);
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — webhook log dir with web access denied ('' when unusable).
+	 * Public so the central /facehook/ router writes into the same protected place.
+	 */
+	public static function protected_log_dir(): string {
+		$dir = WP_CONTENT_DIR . '/mu-plugins/logs';
+		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
+			return '';
+		}
+		if ( ! file_exists( $dir . '/.htaccess' ) ) {
+			@file_put_contents( $dir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" );
+		}
+		if ( ! file_exists( $dir . '/index.php' ) ) {
+			@file_put_contents( $dir . '/index.php', "<?php\n// Silence is golden.\n" );
+		}
+		return $dir;
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — salted, stable per install: log URLs can't be guessed (nginx ignores .htaccess). */
+	public static function log_file_suffix(): string {
+		$seed = 'bizcity-webhook-logs';
+		$hash = function_exists( 'wp_hash' ) ? wp_hash( $seed ) : md5( $seed . ( defined( 'AUTH_SALT' ) ? AUTH_SALT : ABSPATH ) );
+		return substr( (string) preg_replace( '/[^a-z0-9]/i', '', (string) $hash ), 0, 12 );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — recursive redaction: ids / sizes / event kinds stay; message text,
+	 * captions, names, referral refs, attachment URLs, tokens/secrets and raw payload copies are replaced by a length marker.
+	 */
+	public static function redact_log_value( $value, int $depth = 0 ) {
+		if ( is_object( $value ) ) {
+			$value = get_object_vars( $value );
+		}
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+		if ( $depth > 6 ) {
+			return '[depth]';
+		}
+		$content = array( 'text', 'raw_text', 'message_text', 'caption', 'post_caption', 'from_name', 'name', 'first_name', 'last_name', 'ref', 'decrypted', 'email', 'phone', 'message', 'title', 'quick_reply' );
+		$drop    = array( 'raw', 'raw_json', 'headers', 'payload', 'attachments', 'input_data' );
+		$out     = array();
+		foreach ( $value as $k => $v ) {
+			$key = strtolower( (string) $k );
+			if ( in_array( $key, $drop, true ) ) {
+				$out[ $k ] = '[omitted]';
+				continue;
+			}
+			$sensitive = in_array( $key, $content, true ) || preg_match( '/token|secret|password|signature|(^|_)url$|(^|_)urls$/', $key );
+			if ( $sensitive && ( is_scalar( $v ) || null === $v ) ) {
+				$out[ $k ] = '[redacted len=' . strlen( (string) $v ) . ']';
+				continue;
+			}
+			if ( $sensitive && 'message' !== $key ) {
+				$out[ $k ] = '[redacted]';
+				continue;
+			}
+			$out[ $k ] = self::redact_log_value( $v, $depth + 1 );
+		}
+		return $out;
 	}
 }
 

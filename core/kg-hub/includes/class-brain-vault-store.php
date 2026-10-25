@@ -30,7 +30,7 @@ if ( class_exists( 'BizCity_Brain_Vault_Store', false ) ) {
 
 final class BizCity_Brain_Vault_Store {
 
-	const CONTRACT     = 'brain-markdown@1.0.0';
+	const CONTRACT     = 'twin-vault@1.0.0'; // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 D134-5 — was brain-markdown@1.0.0 (files with that schema are read as an alias, never rewritten)
 	const NAMESPACES   = array( 'documents', 'images', 'notes', 'sheet-descriptors', 'job-summaries', 'skills' );
 	const TYPES        = array( 'document', 'image', 'note', 'sheet-descriptor', 'job-summary' );
 	const MAX_MD_BYTES = 524288; // 512 KB per representation revision
@@ -274,7 +274,7 @@ final class BizCity_Brain_Vault_Store {
 		$n   = max( 1, (int) ( $entry['version']['n'] ?? 1 ) );
 		$ref = (string) ( $entry['ref_code'] ?? '' );
 		$fm  = array(
-			'schema'             => 'brain-markdown@1',
+			'schema'             => 'twin-vault@1',
 			'type'               => self::type_of( $ns ),
 			'ref_code'           => $ref,
 			'version_ref'        => $ref . '@v' . $n,
@@ -296,6 +296,17 @@ final class BizCity_Brain_Vault_Store {
 		}
 		if ( '' !== (string) ( $entry['doc_date'] ?? '' ) ) {
 			$fm['doc_date'] = (string) $entry['doc_date'];
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-G6 (D136-16) — who the file belongs to, for a person reading the .md (projection; the Journal row is the source)
+		$gid = (string) ( $entry['group']['gid'] ?? ( $entry['belongs']['group']['gid'] ?? '' ) );
+		if ( 1 === preg_match( '/^[0-9]{3,30}$/', $gid ) ) {
+			$fm['group'] = array_filter( array( 'gid' => $gid, 'ref' => (string) ( $entry['group']['ref'] ?? '' ), 'name' => mb_substr( (string) ( $entry['group']['name'] ?? ( $entry['belongs']['group']['name'] ?? '' ) ), 0, 120 ) ), 'strlen' );
+		}
+		if ( (int) ( $entry['contact_id'] ?? 0 ) > 0 ) {
+			$fm['contact_id'] = (int) $entry['contact_id']; // the CRM contact (R-CONTACT-ID); no code prefix is defined for contacts
+		}
+		if ( '' !== (string) ( $entry['meta']['folder'] ?? '' ) ) {
+			$fm['folder'] = (string) $entry['meta']['folder'];
 		}
 		return $fm;
 	}

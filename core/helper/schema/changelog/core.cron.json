@@ -32,6 +32,7 @@
       }
     },
     "bizcity_cron_runs": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "JSONL cron file log; fallback option bizcity_cron_last_runs (last run per job)", "drop_candidate": true, "rows": "kept" },
       "since": "1.0.0",
       "purpose": "Per-tick run log — start/end timestamps, duration, status, error trace. GC keeps last N days per job (default 7). Diagnostics probe reads this to compute health.",
       "engine": "InnoDB",
@@ -54,6 +55,7 @@
       }
     },
     "bizcity_cron_retries": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "none — retry queue removed (run_now() returns the error)", "drop_candidate": true, "rows": "kept" },
       "since": "1.1.0",
       "purpose": "Retry queue — failed cron jobs scheduled for exponential-backoff redispatch (1m → 5m → 30m → dead). One live row per job (status='pending'); historical rows marked status='done' or 'dead'.",
       "engine": "InnoDB",

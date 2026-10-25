@@ -1,12 +1,14 @@
 {
   "$schema": "https://bizcity.vn/schema/diagnostics-changelog-v1.json",
   "module_id": "modules.twinweb",
-  "owner": "core/twinweb-axis",
+  "owner": "bizcity-twinweb-addon/axis",
+  "owner_moved": "[2026-10-25] PHASE-0.126 R126-TB — core/twinweb-axis is gone; the add-on installs and uses these tables (extension_owned_changelogs).",
   "installer_id": "twinweb",
   "current_version": "1.2.4",
   "version_option": "bizcity_twinweb_db_version",
   "tables": {
     "bizcity_twinweb_threads": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "extension_owned", "replacement": "owned by bizcity-twinweb-addon/axis (CLIENT-LEAN-BUDGET extension_owned_changelogs)", "drop_candidate": false, "rows": "kept" },
       "since": "1.0.0",
       "purpose": "Twin GPT public frontend thread list, scoped by logged-in user or signed guest session.",
       "engine": "InnoDB",
@@ -37,6 +39,8 @@
     },
 
     "bizcity_twinweb_artifact_jobs": {
+
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "extension_owned", "replacement": "owned by bizcity-twinweb-addon/axis (CLIENT-LEAN-BUDGET extension_owned_changelogs)", "drop_candidate": false, "rows": "kept" },
       "since": "1.1.0",
       "purpose": "Durable async job state for Twin GPT Agent Tool handoffs and Artifact Canvas polling/replay.",
       "engine": "InnoDB",

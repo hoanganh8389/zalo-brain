@@ -11,17 +11,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 class BizCity_Zalo_Bot_Webhook_Handler {
 	
 	private static $instance = null;
-	
+
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — admin flag: active bots without a stored webhook secret (their deliveries are refused).
+	const SECRET_MISSING_FLAG = 'bizcity_zalobot_webhook_secret_missing';
+
+	/** @var object|null [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — the bot whose stored secret authenticated this request. */
+	private $auth_bot = null;
+	/** @var int blog that owns $auth_bot */
+	private $auth_blog_id = 0;
+
 	public static function instance() {
 		if ( is_null( self::$instance ) ) {
 			self::$instance = new self();
 		}
 		return self::$instance;
 	}
-	
+
 	public function __construct() {
 		add_action( 'init', array( $this, 'add_rewrite_rules' ) );
 		add_action( 'template_redirect', array( $this, 'handle_webhook' ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — tell the admin which bots must re-run "Set webhook" (no secret ⇒ refused).
+		add_action( 'admin_notices', array( $this, 'admin_notice_missing_secret' ) );
 	}
 	
 	/**
@@ -48,12 +58,16 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	public function handle_webhook() {
 		// Handle test endpoint  
 		if ( get_query_var( 'zalohook_test' ) ) {
-			wp_send_json_success( array( 
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — test endpoint is admin-only and never echoes the body back.
+			if ( ! current_user_can( 'manage_options' ) ) {
+				wp_send_json_error( array( 'message' => 'Forbidden' ), 403 );
+				exit;
+			}
+			wp_send_json_success( array(
 				'message' => 'Test endpoint working',
-				'method' => $_SERVER['REQUEST_METHOD'],
+				'method' => isset( $_SERVER['REQUEST_METHOD'] ) ? (string) $_SERVER['REQUEST_METHOD'] : '',
 				'timestamp' => current_time( 'mysql' ),
-				'input_length' => strlen( file_get_contents( 'php://input' ) ),
-				'json_test' => json_decode( file_get_contents( 'php://input' ), true )
+				'input_length' => strlen( $this->get_cached_raw_input() ),
 			) );
 			exit;
 		}
@@ -72,6 +86,21 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	 */
 	private function handle_zalohook() {
 		$raw_data = $this->get_cached_raw_input();
+
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — fail closed: a delivery is processed (or logged) only when its
+		// X-Bot-Api-Secret-Token equals a stored bot secret (hash_equals); no "first active bot" fallback. Empty pings carry nothing and still get 200.
+		$secret_token = isset( $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] ) ? (string) $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] : '';
+		if ( $raw_data !== '' || ! empty( $_POST ) ) {
+			if ( ! $this->authenticate_zalohook( $secret_token ) ) {
+				$this->flag_bots_without_secret();
+				$this->log_zalohook_error( 'Rejected unauthenticated webhook', array(
+					'reason'     => $secret_token === '' ? 'secret_header_missing' : 'secret_unknown',
+					'raw_length' => strlen( $raw_data ),
+				) );
+				wp_send_json_error( array( 'message' => 'Unauthorized' ), 401 );
+				exit;
+			}
+		}
 
 		$data = array();
 
@@ -125,20 +154,14 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		}
 
 		$this->log_zalohook_request( $data );
-		
-		// Verify secret token from header
-		$secret_token = isset( $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] ) ? $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] : '';
 
-		// Try to resolve bot from secret_token BEFORE firing intake — so log row
-		// has bot_id and CG Debug Logger / UI per-bot filter can find it.
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — the intake bot is the authenticated one (id + name only, never the token row).
 		$intake_bot = null;
-		if ( ! empty( $secret_token ) ) {
-			global $wpdb;
-			$tbl  = $wpdb->prefix . 'bizcity_zalo_bots';
-			$intake_bot = $wpdb->get_row( $wpdb->prepare(
-				"SELECT id, bot_name FROM {$tbl} WHERE webhook_secret = %s LIMIT 1",
-				$secret_token
-			) );
+		if ( $this->auth_bot && (int) $this->auth_blog_id === (int) get_current_blog_id() ) {
+			$intake_bot = (object) array(
+				'id'       => $this->auth_bot->id,
+				'bot_name' => isset( $this->auth_bot->bot_name ) ? $this->auth_bot->bot_name : '',
+			);
 		}
 
 		// Fire intake hook (CG Debug Logger taps this for visibility before processing).
@@ -149,81 +172,25 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		
 		// Process the webhook data
 		$this->process_zalohook_data( $data, $secret_token );
-		
+
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — keep the 30-day retention running (it only ran from the disabled legacy path).
+		if ( wp_rand( 1, 100 ) === 1 ) {
+			$this->cleanup_old_logs();
+		}
+
 		wp_send_json_success( array( 'message' => 'Webhook received' ) );
 		exit;
 	}
 	
 	/**
 	 * Handle old encrypted zalohook endpoint (legacy)
+	 *
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — disabled: it authenticated nothing (the secret check was commented out and
+	 * the XOR key is derived from the public blog_id) and nothing routes to it. Kept as a 410 stub so a stray caller cannot inject events.
 	 */
 	private function handle_zalohook_legacy() {
-		// Only accept POST requests
-		/*
-		if ( ( $_SERVER['REQUEST_METHOD'] ?? '' ) !== 'POST' ) {
-			$this->log_zalohook_error( 'Method not allowed: ' . ( $_SERVER['REQUEST_METHOD'] ?? 'unknown' ) );
-			status_header( 405 );
-			wp_send_json_error( array( 'message' => 'Method not allowed' ) );
-		}
-		
-		// Verify secret token if provided in headers
-		$provided_secret = $_SERVER['HTTP_X_ZALO_SECRET'] ?? $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-		if ( $provided_secret ) {
-			$this->verify_webhook_secret( $provided_secret );
-		}
-		*/
-		// Get raw input first
-		$raw_data = $this->get_cached_raw_input();
-		
-		// Log incoming request
-		$this->log_zalohook_request( $raw_data, $provided_secret );
-		
-		// Try to decode JSON
-		$data = json_decode( $raw_data, true );
-		
-		if ( ! is_array( $data ) ) {
-			$this->log_zalohook_error( 'Invalid JSON payload. Length: ' . strlen( $raw_data ) . '. Content: ' . substr( $raw_data, 0, 500 ) );
-			status_header( 400 );
-			wp_send_json_error( array( 
-				'message' => 'Invalid JSON payload',
-				'raw_length' => strlen( $raw_data )
-			) );
-		}
-		
-		// Log parsed data
-		$this->log_zalohook_data( 'Parsed JSON data', $data );
-		
-		// Check if data is encrypted
-		if ( isset( $data['encrypted'] ) && $data['encrypted'] === true && isset( $data['payload'] ) ) {
-			$this->log_zalohook_info( 'Processing encrypted payload' );
-			// Decrypt payload using blog_id as key
-			$decrypted_data = $this->decrypt_webhook_data( $data['payload'], get_current_blog_id() );
-			if ( $decrypted_data === false ) {
-				$this->log_zalohook_error( 'Decryption failed for blog_id: ' . get_current_blog_id() );
-				status_header( 400 );
-				wp_send_json_error( array( 'message' => 'Decryption failed' ) );
-			}
-			$data = $decrypted_data;
-			$this->log_zalohook_data( 'Decrypted data', $data );
-		}
-		
-		// Process the webhook data
-		$result = $this->process_zalohook_data( $data );
-		
-		// Log processing result
-		$this->log_zalohook_info( 'Processing result: ' . ( $result ? 'success' : 'skipped/failed' ) );
-		
-		// Return success
-		$response = array( 'message' => 'Zalohook processed successfully', 'processed' => $result );
-		$this->log_zalohook_response( $response );
-		
-		// Clean up old logs periodically (1% chance per request)
-		if ( wp_rand( 1, 100 ) === 1 ) {
-			$this->cleanup_old_logs();
-		}
-		
-		status_header( 200 );
-		wp_send_json_success( $response );
+		wp_send_json_error( array( 'message' => 'Legacy zalohook endpoint disabled' ), 410 );
+		exit;
 	}
 	
 	/**
@@ -276,30 +243,13 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		}
 		set_transient( $lock_key, true, 300 ); // 5 minute lock
 		
-		// Find bot by page_id or use first active bot
-		$db = BizCity_Zalo_Bot_Database::instance();
-		$bots = $db->get_active_bots();
-		$bot = null;
-		
-		$this->log_zalohook_info( 'Available bots: ' . count( $bots ) );
-		
-		// Try to match by oa_id/page_id first
-		foreach ( $bots as $b ) {
-			if ( $b->oa_id === $page_id ) {
-				$bot = $b;
-				$this->log_zalohook_info( "Matched bot by oa_id: {$b->bot_name} (ID: {$b->id})" );
-				break;
-			}
-		}
-		
-		// Fallback to first active bot
-		if ( ! $bot && ! empty( $bots ) ) {
-			$bot = $bots[0];
-			$this->log_zalohook_info( "Using fallback bot: {$bot->bot_name} (ID: {$bot->id})" );
-		}
-		
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — the bot is the one whose secret authenticated the request;
+		// payload page_id / "first active bot" can no longer pick it.
+		$db  = BizCity_Zalo_Bot_Database::instance();
+		$bot = $this->auth_bot;
+
 		if ( ! $bot ) {
-			$this->log_zalohook_error( "No active bot found for page_id: $page_id" );
+			$this->log_zalohook_error( "No authenticated bot for page_id: $page_id" );
 			return false;
 		}
 		
@@ -369,73 +319,13 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 			return false;
 		}
 		
-		// Verify secret token from header
-		$secret_token = isset( $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] ) ? $_SERVER['HTTP_X_BOT_API_SECRET_TOKEN'] : '';
-		
-		// Find bot by secret token - scan ALL blogs in multisite
-		$bot = null;
-		$source_blog_id = get_current_blog_id();
-		
-		if ( ! empty( $secret_token ) ) {
-			// First try current blog
-			$table_bots = $wpdb->prefix . 'bizcity_zalo_bots';
-			$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table_bots}'" ) === $table_bots;
-			
-			if ( $table_exists ) {
-				$bots = $wpdb->get_results( "SELECT * FROM $table_bots WHERE status = 'active'" );
-				foreach ( $bots as $b ) {
-					if ( ! empty( $b->webhook_secret ) && $b->webhook_secret === $secret_token ) {
-						$bot = $b;
-						$source_blog_id = get_current_blog_id();
-						$this->log_zalohook_info( "Matched bot by secret in blog #{$source_blog_id}: {$b->bot_name} (ID: {$b->id})" );
-						break;
-					}
-				}
-			}
-			
-			// If not found in current blog, scan all blogs (multisite)
-			if ( ! $bot && is_multisite() ) {
-				$blogs = $wpdb->get_col(
-					"SELECT blog_id FROM {$wpdb->blogs} WHERE archived = 0 AND deleted = 0 ORDER BY blog_id DESC LIMIT 100"
-				);
-				
-				foreach ( $blogs as $blog_id ) {
-					if ( (int) $blog_id === get_current_blog_id() ) {
-						continue; // Already checked
-					}
-					
-					$table_name = $wpdb->get_blog_prefix( $blog_id ) . 'bizcity_zalo_bots';
-					$table_exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table_name}'" ) === $table_name;
-					
-					if ( ! $table_exists ) {
-						continue;
-					}
-					
-					$bots = $wpdb->get_results( "SELECT * FROM {$table_name} WHERE status = 'active'" );
-					foreach ( $bots as $b ) {
-						if ( ! empty( $b->webhook_secret ) && $b->webhook_secret === $secret_token ) {
-							$bot = $b;
-							$source_blog_id = (int) $blog_id;
-							$this->log_zalohook_info( "Matched bot by secret in blog #{$source_blog_id}: {$b->bot_name} (ID: {$b->id})" );
-							break 2; // Break both loops
-						}
-					}
-				}
-			}
-		}
-		
-		// Fallback to first active bot in current blog
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — bot + source blog come from authenticate_zalohook() (stored secret,
+		// hash_equals, multisite scan); the "first active bot in current blog" fallback is removed.
+		$bot            = $this->auth_bot;
+		$source_blog_id = $this->auth_blog_id > 0 ? (int) $this->auth_blog_id : get_current_blog_id();
+
 		if ( ! $bot ) {
-			$table_bots = $wpdb->prefix . 'bizcity_zalo_bots';
-			$bot = $wpdb->get_row( "SELECT * FROM $table_bots WHERE status = 'active' LIMIT 1" );
-			if ( $bot ) {
-				$source_blog_id = get_current_blog_id();
-				$this->log_zalohook_info( "Using fallback bot in blog #{$source_blog_id}: {$bot->bot_name} (ID: {$bot->id})" );
-			}
-		}
-		
-		if ( ! $bot ) {
-			$this->log_zalohook_error( 'No active bot found' );
+			$this->log_zalohook_error( 'No authenticated bot' );
 			return false;
 		}
 		
@@ -1030,7 +920,19 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	}
 	
 	private function log_zalohook_request( $data ) {
-		$this->write_zalohook_log( 'request', $data );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — metadata only (event, ids, sizes); never the body / text / attachment URLs.
+		$message = is_array( $data ) && isset( $data['message'] ) && is_array( $data['message'] ) ? $data['message'] : array();
+		$this->write_zalohook_log( 'request', array(
+			'bot_id'      => $this->auth_bot ? (int) $this->auth_bot->id : 0,
+			'event_name'  => is_array( $data ) && isset( $data['event_name'] ) ? (string) $data['event_name'] : '',
+			'message_id'  => isset( $message['message_id'] ) ? (string) $message['message_id'] : '',
+			'from_id'     => isset( $message['from']['id'] ) ? (string) $message['from']['id'] : '',
+			'chat_id'     => isset( $message['chat']['id'] ) ? (string) $message['chat']['id'] : '',
+			'chat_type'   => isset( $message['chat']['chat_type'] ) ? (string) $message['chat']['chat_type'] : '',
+			'top_keys'    => is_array( $data ) ? array_slice( array_map( 'strval', array_keys( $data ) ), 0, 20 ) : array(),
+			'message_len' => isset( $message['text'] ) ? strlen( (string) $message['text'] ) : 0,
+			'raw_length'  => strlen( $this->get_cached_raw_input() ),
+		) );
 	}
 	
 	private function log_zalohook_error( $message, $data = null ) {
@@ -1171,30 +1073,97 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	}
 	
 	private function write_zalohook_log( $type, $data ) {
-		$log_dir = WP_CONTENT_DIR . '/mu-plugins/logs';
-		if ( ! file_exists( $log_dir ) ) {
-			wp_mkdir_p( $log_dir );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — protected dir (deny .htaccess + index.php), unguessable
+		// file name (salted suffix) and redacted rows: no message text, names, attachment URLs, tokens or raw payloads.
+		$log_dir = self::protected_log_dir();
+		if ( $log_dir === '' ) {
+			return;
 		}
-		
+
 		$date_str = gmdate( 'Y-m-d' );
 		$time_str = gmdate( 'H:i:s' );
 		$blog_id = get_current_blog_id();
-		
+
 		// Single log file for all zalohook events
-		$log_file = $log_dir . "/zalohook-{$date_str}.log";
-		
+		$log_file = $log_dir . '/zalohook-' . $date_str . '-' . self::log_file_suffix() . '.log';
+
+		$safe = self::redact_log_value( $data );
+		if ( is_array( $data ) && isset( $data['message'] ) && is_string( $data['message'] ) && is_array( $safe ) ) {
+			$safe['message'] = $data['message']; // top-level 'message' is our own log label, not user content
+		}
 		$log_entry = array(
 			'time' => $time_str,
 			'blog_id' => $blog_id,
 			'type' => $type,
-			'data' => $data
+			'data' => $safe,
 		);
-		
-		file_put_contents( 
-			$log_file, 
-			json_encode( $log_entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n", 
-			FILE_APPEND 
+
+		@file_put_contents(
+			$log_file,
+			json_encode( $log_entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n",
+			FILE_APPEND | LOCK_EX
 		);
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — webhook log dir with web access denied ('' when unusable).
+	 */
+	private static function protected_log_dir() {
+		$dir = WP_CONTENT_DIR . '/mu-plugins/logs';
+		if ( ! is_dir( $dir ) && ! wp_mkdir_p( $dir ) ) {
+			return '';
+		}
+		if ( ! file_exists( $dir . '/.htaccess' ) ) {
+			@file_put_contents( $dir . '/.htaccess', "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n" );
+		}
+		if ( ! file_exists( $dir . '/index.php' ) ) {
+			@file_put_contents( $dir . '/index.php', "<?php\n// Silence is golden.\n" );
+		}
+		return $dir;
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — salted, stable per install: log URLs can't be guessed (nginx ignores .htaccess). */
+	private static function log_file_suffix() {
+		$seed = 'bizcity-webhook-logs';
+		$hash = function_exists( 'wp_hash' ) ? wp_hash( $seed ) : md5( $seed . ( defined( 'AUTH_SALT' ) ? AUTH_SALT : ABSPATH ) );
+		return substr( preg_replace( '/[^a-z0-9]/i', '', (string) $hash ), 0, 12 );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — recursive redaction for webhook logs: ids/sizes/event types stay,
+	 * user content (text, captions, names, refs), attachment URLs, tokens/secrets and raw payload copies are replaced by a length marker.
+	 */
+	private static function redact_log_value( $value, $depth = 0 ) {
+		if ( is_object( $value ) ) {
+			$value = get_object_vars( $value );
+		}
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+		if ( $depth > 6 ) {
+			return '[depth]';
+		}
+		$content = array( 'text', 'raw_text', 'message_text', 'message_text_clean', 'twf_text', 'caption', 'display_name', 'from_name', 'from_user_name', 'client_name', 'name', 'last_message', 'ref', 'decrypted', 'email', 'phone', 'message' );
+		$drop    = array( 'raw', 'raw_json', 'headers', 'payload', 'attachments', 'message_attachments' );
+		$out     = array();
+		foreach ( $value as $k => $v ) {
+			$key = strtolower( (string) $k );
+			if ( in_array( $key, $drop, true ) ) {
+				$out[ $k ] = '[omitted]';
+				continue;
+			}
+			$sensitive = in_array( $key, $content, true ) || preg_match( '/token|secret|password|signature|(^|_)url$/', $key );
+			if ( $sensitive && ( is_scalar( $v ) || $v === null ) ) {
+				$out[ $k ] = '[redacted len=' . strlen( (string) $v ) . ']';
+				continue;
+			}
+			if ( $sensitive && $key !== 'message' ) {
+				$out[ $k ] = '[redacted]';
+				continue;
+			}
+			$out[ $k ] = self::redact_log_value( $v, $depth + 1 );
+		}
+		return $out;
 	}
 
 	private function zalobot_text_mentions_bot( $text, $bot ) {
@@ -1235,10 +1204,11 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 		
 		$cutoff_date = gmdate( 'Y-m-d', strtotime( '-30 days' ) );
 		$files = glob( $log_dir . '/zalohook-*.log' );
-		
-		foreach ( $files as $file ) {
+
+		foreach ( (array) $files as $file ) {
 			$filename = basename( $file );
-			if ( preg_match( '/zalohook-(\d{4}-\d{2}-\d{2})\.log$/', $filename, $matches ) ) {
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — also match the salted-suffix file names.
+			if ( preg_match( '/zalohook-(\d{4}-\d{2}-\d{2})(-[a-z0-9]+)?\.log$/i', $filename, $matches ) ) {
 				if ( $matches[1] < $cutoff_date ) {
 					unlink( $file );
 				}
@@ -1456,86 +1426,148 @@ class BizCity_Zalo_Bot_Webhook_Handler {
 	}
 	
 	/**
-	 * Verify webhook secret
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — authenticate a /zalohook/ delivery.
+	 *
+	 * The X-Bot-Api-Secret-Token header (sent by Zalo because setWebhook registers `secret_token`) must equal the stored
+	 * webhook_secret of an ACTIVE bot (hash_equals). Current blog first, then (multisite) the other blogs. Bots without a
+	 * stored secret can never match: they must re-run "Set webhook". Replaces the unused verify_webhook_secret(), which also
+	 * accepted a secret derived from the public blog_id.
+	 *
+	 * @param string $secret_token Header value.
+	 * @return bool
 	 */
-	private function verify_webhook_secret( $provided_secret ) {
-		// Get all active bots and check their secrets
-		$db = BizCity_Zalo_Bot_Database::instance();
-		$bots = $db->get_active_bots();
-		
-		$valid_secret = false;
-		
-		foreach ( $bots as $bot ) {
-			if ( ! empty( $bot->webhook_secret ) ) {
-				// Decrypt stored secret and compare
-				$decrypted_secret = BizCity_Zalo_Bot_Admin_Menu::decrypt_secret( $bot->webhook_secret );
-				if ( hash_equals( $decrypted_secret, $provided_secret ) ) {
-					$valid_secret = true;
-					break;
+	private function authenticate_zalohook( $secret_token ) {
+		global $wpdb;
+		$this->auth_bot     = null;
+		$this->auth_blog_id = 0;
+		$secret_token       = (string) $secret_token;
+		if ( $secret_token === '' ) {
+			return false;
+		}
+
+		$current = (int) get_current_blog_id();
+		$blogs   = array( $current );
+		if ( is_multisite() ) {
+			$others = $wpdb->get_col( "SELECT blog_id FROM {$wpdb->blogs} WHERE archived = 0 AND deleted = 0 ORDER BY blog_id DESC LIMIT 100" );
+			foreach ( (array) $others as $blog_id ) {
+				if ( (int) $blog_id !== $current ) {
+					$blogs[] = (int) $blog_id;
 				}
 			}
 		}
-		
-		// Also check default blog-based secret
-		$default_secret = bizcity_generate_zalo_secret_token( get_current_blog_id() );
-		if ( hash_equals( $default_secret, $provided_secret ) ) {
-			$valid_secret = true;
+
+		foreach ( $blogs as $blog_id ) {
+			$table = ( $blog_id === $current ? $wpdb->prefix : $wpdb->get_blog_prefix( $blog_id ) ) . 'bizcity_zalo_bots';
+			if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+				continue;
+			}
+			$bots = $wpdb->get_results( "SELECT * FROM {$table} WHERE status = 'active' AND webhook_secret IS NOT NULL AND webhook_secret != ''" );
+			foreach ( (array) $bots as $b ) {
+				if ( hash_equals( (string) $b->webhook_secret, $secret_token ) ) {
+					$this->auth_bot     = $b;
+					$this->auth_blog_id = (int) $blog_id;
+					$this->log_zalohook_info( "Matched bot by secret in blog #{$blog_id}: {$b->bot_name} (ID: {$b->id})" );
+					return true;
+				}
+			}
 		}
-		
-		if ( ! $valid_secret ) {
-			status_header( 401 );
-			wp_send_json_error( array( 'message' => 'Invalid webhook secret' ) );
+		return false;
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — active bots of this blog that have no stored webhook secret.
+	 *
+	 * @return array<int,string> bot id => bot name
+	 */
+	private function bots_without_secret() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'bizcity_zalo_bots';
+		$wpdb->suppress_errors( true );
+		$rows = $wpdb->get_results( "SELECT id, bot_name FROM {$table} WHERE status = 'active' AND ( webhook_secret IS NULL OR webhook_secret = '' ) LIMIT 50" );
+		$wpdb->suppress_errors( false );
+		$out = array();
+		foreach ( (array) $rows as $r ) {
+			$out[ (int) $r->id ] = (string) $r->bot_name;
 		}
+		return $out;
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — a refused delivery while secret-less bots exist ⇒ raise the admin flag
+	 * (written at most once a minute so unauthenticated traffic cannot hammer the options table).
+	 */
+	private function flag_bots_without_secret() {
+		$flag = get_transient( self::SECRET_MISSING_FLAG );
+		if ( is_array( $flag ) && isset( $flag['at'] ) && ( time() - (int) $flag['at'] ) < MINUTE_IN_SECONDS ) {
+			return;
+		}
+		$bots = $this->bots_without_secret();
+		if ( empty( $bots ) ) {
+			return;
+		}
+		set_transient( self::SECRET_MISSING_FLAG, array(
+			'bots'     => $bots,
+			'rejected' => ( is_array( $flag ) && isset( $flag['rejected'] ) ? (int) $flag['rejected'] : 0 ) + 1,
+			'at'       => time(),
+		), WEEK_IN_SECONDS );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — admin notice: bots without a webhook secret have their Zalo
+	 * deliveries refused (401) until the admin re-runs "Set webhook" (which registers a secret_token with Zalo).
+	 */
+	public function admin_notice_missing_secret() {
+		if ( ! is_admin() || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$flag = get_transient( self::SECRET_MISSING_FLAG );
+		$bots = $this->bots_without_secret();
+		if ( empty( $bots ) ) {
+			if ( false !== $flag ) {
+				delete_transient( self::SECRET_MISSING_FLAG );
+			}
+			return;
+		}
+		$rejected = is_array( $flag ) && isset( $flag['rejected'] ) ? (int) $flag['rejected'] : 0;
+		$names    = array();
+		foreach ( $bots as $id => $name ) {
+			$names[] = sprintf( '%s (#%d)', $name !== '' ? $name : 'Zalo Bot', (int) $id );
+		}
+		echo '<div class="notice notice-error"><p><strong>Zalo Bot:</strong> ';
+		echo esc_html( sprintf(
+			'Webhook /zalohook/ chỉ nhận tin có X-Bot-Api-Secret-Token khớp secret đã lưu. Bot chưa có webhook secret: %s — tin nhắn tới các bot này đang bị từ chối%s. Mở bot → đặt Webhook Secret (≥ 8 ký tự) hoặc dùng tab Setup → chạy lại "Set webhook" để đăng ký secret với Zalo.',
+			implode( ', ', $names ),
+			$rejected > 0 ? ' (đã từ chối ' . $rejected . ' lần)' : ''
+		) );
+		echo '</p></div>';
 	}
 	
 	/**
 	 * Check if any bot is listening and store webhook data
 	 */
 	private function check_and_store_listener_data( $data, $secret_token ) {
-		global $wpdb;
-		$table_name = $wpdb->prefix . 'bizcity_zalo_bots';
-		
-		// Get all active bots
-		$bots = $wpdb->get_results( "SELECT * FROM {$table_name} WHERE status = 'active'" );
-		
-		if ( ! $bots ) {
-			$this->log_zalohook_info( "No active bots found" );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC C1 — only the authenticated bot (same blog) can receive listener data;
+		// bots without a secret no longer match every delivery, and the secret header is not copied into the transient.
+		$bot = $this->auth_bot;
+		if ( ! $bot || (int) $this->auth_blog_id !== (int) get_current_blog_id() ) {
 			return;
 		}
-		
-		$this->log_zalohook_info( "Checking " . count( $bots ) . " active bots. Secret token: " . ($secret_token ? 'provided' : 'empty') );
-		
-		foreach ( $bots as $bot ) {
-			// Check if this bot is listening
-			$is_listening = get_transient( 'zalobot_listening_' . $bot->id );
-			
-			$this->log_zalohook_info( "Bot #{$bot->id} - Listening: " . ($is_listening ? 'YES' : 'NO') . 
-									", Secret: " . ($bot->webhook_secret ? 'has secret' : 'no secret') );
-			
-			if ( $is_listening ) {
-				// If no secret required or secret matches
-				if ( ! $bot->webhook_secret || hash_equals( $bot->webhook_secret, $secret_token ) ) {
-					// Store the webhook data
-					$webhook_data = array(
-						'event_name' => $data['event_name'] ?? '',
-						'message' => $data['message'] ?? array(),
-						'raw_json' => json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ),
-						'received_at' => current_time( 'mysql' ),
-						'headers' => array(
-							'X-Bot-Api-Secret-Token' => $secret_token,
-							'Content-Type' => isset( $_SERVER['CONTENT_TYPE'] ) ? $_SERVER['CONTENT_TYPE'] : '',
-							'User-Agent' => isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : '',
-						),
-					);
-					
-					set_transient( 'zalobot_webhook_data_' . $bot->id, $webhook_data, 300 );
-					$this->log_zalohook_info( "✅ Stored webhook data for listening bot #{$bot->id}" );
-					break; // Only store for first matching bot
-				} else {
-					$this->log_zalohook_info( "❌ Bot #{$bot->id} listening but secret token mismatch" );
-				}
-			}
+		if ( ! get_transient( 'zalobot_listening_' . $bot->id ) ) {
+			return;
 		}
+		$webhook_data = array(
+			'event_name' => $data['event_name'] ?? '',
+			'message' => $data['message'] ?? array(),
+			'raw_json' => json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE ),
+			'received_at' => current_time( 'mysql' ),
+			'headers' => array(
+				'X-Bot-Api-Secret-Token' => $secret_token !== '' ? '(verified)' : '',
+				'Content-Type' => isset( $_SERVER['CONTENT_TYPE'] ) ? $_SERVER['CONTENT_TYPE'] : '',
+				'User-Agent' => isset( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : '',
+			),
+		);
+		set_transient( 'zalobot_webhook_data_' . $bot->id, $webhook_data, 300 );
+		$this->log_zalohook_info( "Stored webhook data for listening bot #{$bot->id}" );
 	}
 
 	/**

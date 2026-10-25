@@ -131,24 +131,10 @@ class BizCity_CRM_Magic_Link_Handler {
 			$user_id = get_current_user_id();
 			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — the token-bearing return URL is the explicit login action; no cookie recovery is needed.
 			$is_explicit_sso_return = ! empty( $_GET[ self::QUERY_VAR_SSO ] );
-			if ( empty( $_POST['bzml_confirm'] ) && $is_explicit_sso_return ) {
-				// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — consume the CRM row directly from the URL returned by OAuth.
-				$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
-				if ( $switched ) {
-					restore_current_blog();
-				}
-				if ( $consumed ) {
-					wp_safe_redirect( self::success_redirect_url( $result, $user_id ) );
-					exit;
-				}
-				self::render_landing( array(
-					'state'   => 'error',
-					'code'    => 'bizcity_crm_magic_link_consume_failed',
-					'message' => 'Đăng nhập thành công nhưng chưa ghi được liên kết Zalo. Vui lòng yêu cầu link mới.',
-				) );
-				exit;
-			}
-			if ( ! empty( $_POST['bzml_confirm'] ) ) {
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H5 — the SSO-return GET no longer consumes: a crafted
+			// ?bizcity_sso_return=1 link let an attacker bind THEIR Zalo id to a logged-in victim. Consume only on a nonce-checked POST.
+			if ( ! empty( $_POST['bzml_confirm'] )
+				&& 'POST' === strtoupper( (string) ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) ) {
 				check_admin_referer( 'bzml_confirm_' . substr( hash( 'sha256', $token ), 0, 16 ) );
 				$consumed = BizCity_CRM_Magic_Link::consume( (int) $result['id'], $user_id );
 				if ( $switched ) {
@@ -167,11 +153,12 @@ class BizCity_CRM_Magic_Link_Handler {
 			}
 			// [2026-08-20 Johnny Chu] HOTFIX-ZALOBOT-URL-LINK — keep a direct browser visit read-only until the user confirms.
 			error_log( sprintf( '[BizCity Magic Link] consume_waiting_for_confirm row_id=%d explicit_sso_return=%d user_id=%d blog_id=%d', (int) ( $result['id'] ?? 0 ), $is_explicit_sso_return ? 1 : 0, (int) $user_id, (int) get_current_blog_id() ) );
-			self::render_landing( array(
-				'state' => 'confirm',
-				'row'   => $result,
-				'token' => $token,
-			) );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H5 — plugin-owned confirm page (not theme-overridable) that
+			// names the masked channel identity and the current WP account before the user POSTs the confirmation.
+			self::render_confirm( $result, $token, (int) $user_id );
+			if ( $switched ) {
+				restore_current_blog();
+			}
 			exit;
 		}
 
@@ -305,5 +292,85 @@ class BizCity_CRM_Magic_Link_Handler {
 		status_header( 400 );
 		echo '<!doctype html><meta charset="utf-8"><title>Link</title><p>'
 			. esc_html( $ctx['message'] ?? 'Link không hợp lệ.' ) . '</p>';
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H5 — mask a channel identifier for display (keeps the tail only).
+	 */
+	private static function mask_identifier( string $value ): string {
+		$value = trim( $value );
+		$len   = strlen( $value );
+		if ( $len === 0 ) {
+			return '—';
+		}
+		if ( $len <= 4 ) {
+			return str_repeat( '•', $len );
+		}
+		$head = $len > 8 ? substr( $value, 0, 2 ) : '';
+		return $head . str_repeat( '•', 6 ) . substr( $value, -4 );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H5 — explicit confirm page: shows which (masked) channel
+	 * identity will be linked to which WP account; the token is consumed only by the nonce-checked POST it submits.
+	 */
+	private static function render_confirm( array $row, string $token, int $user_id ): void {
+		$meta     = ! empty( $row['meta_json'] ) ? json_decode( (string) $row['meta_json'], true ) : array();
+		$identity = is_array( $meta ) && ! empty( $meta['channel_identity'] ) && is_array( $meta['channel_identity'] )
+			? $meta['channel_identity'] : array();
+		$platform = strtoupper( (string) ( $identity['platform'] ?? $row['platform'] ?? '' ) );
+		$external = (string) ( $identity['external_user_id'] ?? $row['chat_id'] ?? '' );
+		$account  = (string) ( $identity['account_id'] ?? $row['bot_id'] ?? '' );
+		$user     = get_user_by( 'id', $user_id );
+		$wp_label = $user ? ( (string) $user->display_name . ' (' . (string) $user->user_login . ')' ) : ( '#' . $user_id );
+		$logout   = wp_logout_url( home_url( '/' ) );
+
+		status_header( 200 );
+		header( 'X-Frame-Options: DENY' );
+		header( "Content-Security-Policy: frame-ancestors 'none'" );
+		?><!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex,nofollow">
+<title>Xác nhận liên kết</title>
+<style>
+	*{box-sizing:border-box}
+	body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f7fb;color:#1f2937;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:16px}
+	.card{background:#fff;max-width:440px;width:100%;border-radius:14px;box-shadow:0 8px 32px rgba(15,23,42,.08);padding:28px;text-align:center}
+	h1{margin:0 0 8px;font-size:20px}
+	p.lead{margin:0 0 16px;color:#475569;font-size:14px;line-height:1.5}
+	dl{text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;margin:0 0 16px;font-size:14px}
+	dt{font-size:12px;color:#64748b;margin-top:6px}
+	dd{margin:2px 0 0;font-weight:600;word-break:break-all}
+	.warn{font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;text-align:left;margin:0 0 16px}
+	.btn{display:inline-block;padding:11px 22px;border-radius:8px;background:#2563eb;color:#fff;text-decoration:none;font-weight:600;font-size:14px;border:0;cursor:pointer}
+	.btn.secondary{background:#fff;color:#2563eb;border:1px solid #cbd5e1;margin-left:8px}
+</style>
+</head>
+<body>
+<div class="card">
+	<h1>Xác nhận liên kết tài khoản</h1>
+	<p class="lead">Danh tính kênh dưới đây sẽ được liên kết với tài khoản WordPress đang đăng nhập.</p>
+	<dl>
+		<dt>Kênh</dt><dd><?php echo esc_html( $platform !== '' ? $platform : '—' ); ?></dd>
+		<dt>ID người dùng kênh</dt><dd><?php echo esc_html( self::mask_identifier( $external ) ); ?></dd>
+		<dt>Bot / OA</dt><dd><?php echo esc_html( self::mask_identifier( $account ) ); ?></dd>
+		<dt>Tài khoản WordPress</dt><dd><?php echo esc_html( $wp_label ); ?></dd>
+	</dl>
+	<p class="warn">Chỉ xác nhận nếu chính bạn vừa yêu cầu link này từ trợ lý trên Zalo. Nếu không, hãy bấm Huỷ.</p>
+	<form method="post" action="">
+		<?php wp_nonce_field( 'bzml_confirm_' . substr( hash( 'sha256', $token ), 0, 16 ) ); ?>
+		<input type="hidden" name="bzml_confirm" value="1">
+		<button type="submit" class="btn">Xác nhận liên kết</button>
+		<a class="btn secondary" href="<?php echo esc_url( home_url( '/' ) ); ?>">Huỷ</a>
+	</form>
+	<p class="lead" style="font-size:12px;margin-top:14px">Không phải bạn? <a href="<?php echo esc_url( $logout ); ?>">Đăng xuất</a></p>
+</div>
+</body>
+</html>
+		<?php
 	}
 }

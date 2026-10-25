@@ -723,6 +723,8 @@ final class BizCity_Channel_Conversation_Archive {
 		$channel = sanitize_key( $channel );
 		$aliases = array(
 			'email_imap'     => 'email',
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — the web_widget channel is retired (no adapter, no new writes), but this
+			// alias is kept on purpose: old web_widget transcripts live under …/webchat/ and rehydrate_message()/archive_file_from_keys() must still find them.
 			'web_widget'     => 'webchat',
 			'fb_mess'        => 'messenger',
 			'facebook_messenger' => 'messenger',

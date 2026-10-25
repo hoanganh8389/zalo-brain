@@ -62,7 +62,7 @@ final class BizCity_MCP_Installer {
 		return array(
 			$wpdb->prefix . 'bizcity_mcp_api_keys',
 			$wpdb->prefix . 'bizcity_mcp_retrieval_snapshots',
-			$wpdb->prefix . 'bizcity_mcp_context_packs',
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — bizcity_mcp_context_packs left (transients); not required any more.
 		);
 	}
 
@@ -145,21 +145,7 @@ final class BizCity_MCP_Installer {
 			KEY user_id (user_id)
 		) {$charset_collate};";
 
-		$sql[] = "CREATE TABLE {$p}bizcity_mcp_context_packs (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			pack_uuid VARCHAR(64) NOT NULL,
-			user_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-			client_id VARCHAR(100) NOT NULL DEFAULT '',
-			document_type VARCHAR(50) NOT NULL DEFAULT '',
-			source_refs_json LONGTEXT NULL,
-			payload_json LONGTEXT NULL,
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			expires_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			UNIQUE KEY pack_uuid (pack_uuid),
-			KEY client_id (client_id),
-			KEY user_created (user_id, created_at)
-		) {$charset_collate};";
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — bizcity_mcp_context_packs is no longer created (document packs are transients; the table is quarantined).
 
 
 		foreach ( $sql as $statement ) {
@@ -214,5 +200,5 @@ final class BizCity_MCP_Installer {
 if ( class_exists( 'BizCity_Schema_Registry' ) ) {
 	BizCity_Schema_Registry::register( 'bizcity_mcp_api_keys', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
 	BizCity_Schema_Registry::register( 'bizcity_mcp_retrieval_snapshots', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
-	BizCity_Schema_Registry::register( 'bizcity_mcp_context_packs', 'core.mcp', BizCity_MCP_Installer::DB_VERSION, BizCity_MCP_Installer::DB_VERSION_OPTION, array( 'BizCity_MCP_Installer', 'install' ) );
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — bizcity_mcp_context_packs unregistered (transients).
 }

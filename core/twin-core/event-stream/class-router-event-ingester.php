@@ -107,13 +107,8 @@ class BizCity_Twin_Router_Event_Ingester {
 	 * @return array{trace_id?:string,session_id?:string,conversation_id?:int}
 	 */
 	public static function build_trace_meta(): array {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — BizCity_Trace_Store is archived (no PHP turn sets a trace id any more); only session / conversation remain.
 		$out = [];
-		if ( class_exists( 'BizCity_Trace_Store' ) ) {
-			$tid = (string) BizCity_Trace_Store::current_trace_id();
-			if ( $tid !== '' ) {
-				$out['trace_id'] = $tid;
-			}
-		}
 		// Best-effort session/conversation fields for richer correlation.
 		if ( ! empty( $_REQUEST['session_id'] ) ) {
 			$out['session_id'] = sanitize_text_field( (string) $_REQUEST['session_id'] );

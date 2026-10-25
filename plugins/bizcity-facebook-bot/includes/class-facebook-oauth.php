@@ -380,7 +380,8 @@ class BizCity_Facebook_OAuth {
 
 		if ( $http_code !== 200 || empty( $body['access_token'] ) ) {
 			$msg = $body['error']['message'] ?? 'Unknown error (HTTP ' . $http_code . ')';
-			error_log( '[BizCity FB OAuth] token-exchange FAIL http=' . $http_code . ' body=' . wp_remote_retrieve_body( $response ) );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — status + Graph error code only, never the response body.
+			error_log( '[BizCity FB OAuth] token-exchange FAIL http=' . $http_code . ' fb_error_code=' . (int) ( $body['error']['code'] ?? 0 ) );
 			$this->redirect_with_error( $blog_id, 'Facebook token error: ' . $msg, $app_source, $user_id );
 			return;
 		}
@@ -412,7 +413,8 @@ class BizCity_Facebook_OAuth {
 		if ( ! is_wp_error( $me_response ) ) {
 			$me_data = json_decode( wp_remote_retrieve_body( $me_response ), true ) ?: [];
 		}
-		error_log( '[BizCity FB OAuth] /me?fields=id,name,email response: ' . substr( wp_remote_retrieve_body( $me_response ), 0, 500 ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — no profile body (name / email) in the PHP log.
+		error_log( '[BizCity FB OAuth] /me http=' . ( is_wp_error( $me_response ) ? 'wp_error' : (int) wp_remote_retrieve_response_code( $me_response ) ) . ' has_id=' . ( ! empty( $me_data['id'] ) ? 1 : 0 ) );
 
 		// BizCity PHASE 0.31 Sprint 6 — log granted permissions to diagnose
 		// why /me/accounts returns []. If pages_show_list is not in granted
@@ -423,7 +425,8 @@ class BizCity_Facebook_OAuth {
 		);
 		$perms_resp = wp_remote_get( $perms_url, [ 'timeout' => 15 ] );
 		if ( ! is_wp_error( $perms_resp ) ) {
-			error_log( '[BizCity FB OAuth] /me/permissions response: ' . substr( wp_remote_retrieve_body( $perms_resp ), 0, 1000 ) );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — status only.
+			error_log( '[BizCity FB OAuth] /me/permissions http=' . (int) wp_remote_retrieve_response_code( $perms_resp ) );
 			// PHASE-0.90 S90-F1: remember the GRANTED scope names (no token) so setup step 3 can show messages/comments/publish/groups.
 			$perms_data = json_decode( wp_remote_retrieve_body( $perms_resp ), true );
 			if ( is_array( $perms_data['data'] ?? null ) ) {
@@ -454,7 +457,9 @@ class BizCity_Facebook_OAuth {
 		}
 
 		$pages_data = json_decode( wp_remote_retrieve_body( $pages_response ), true );
-		error_log( '[BizCity FB OAuth] /me/accounts response: ' . substr( wp_remote_retrieve_body( $pages_response ), 0, 500 ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — the body carries page access_tokens: status, count and page ids only.
+		$_pg_list = is_array( $pages_data['data'] ?? null ) ? $pages_data['data'] : array();
+		error_log( '[BizCity FB OAuth] /me/accounts http=' . (int) wp_remote_retrieve_response_code( $pages_response ) . ' pages=' . count( $_pg_list ) . ' ids=' . implode( ',', array_slice( array_map( function ( $p ) { return (string) ( $p['id'] ?? '' ); }, $_pg_list ), 0, 20 ) ) );
 
 		if ( isset( $pages_data['error'] ) ) {
 			$this->redirect_with_error( $blog_id, 'Facebook API: ' . ( $pages_data['error']['message'] ?? 'Unknown error' ), $app_source, $user_id );
@@ -473,8 +478,9 @@ class BizCity_Facebook_OAuth {
 			$alt_resp = wp_remote_get( $alt_url, [ 'timeout' => 30 ] );
 			if ( ! is_wp_error( $alt_resp ) ) {
 				$alt_body = wp_remote_retrieve_body( $alt_resp );
-				error_log( '[BizCity FB OAuth] /me?fields=accounts response: ' . substr( $alt_body, 0, 500 ) );
 				$alt_data = json_decode( $alt_body, true );
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — status + page count only (body carries access_tokens).
+				error_log( '[BizCity FB OAuth] /me?fields=accounts http=' . (int) wp_remote_retrieve_response_code( $alt_resp ) . ' pages=' . ( is_array( $alt_data['accounts']['data'] ?? null ) ? count( $alt_data['accounts']['data'] ) : 0 ) );
 				if ( ! empty( $alt_data['accounts']['data'] ) ) {
 					$pages_collected = $alt_data['accounts']['data'];
 				}
@@ -490,8 +496,9 @@ class BizCity_Facebook_OAuth {
 			$biz_resp = wp_remote_get( $biz_url, [ 'timeout' => 30 ] );
 			if ( ! is_wp_error( $biz_resp ) ) {
 				$biz_body = wp_remote_retrieve_body( $biz_resp );
-				error_log( '[BizCity FB OAuth] /me/businesses response: ' . substr( $biz_body, 0, 800 ) );
 				$biz_data = json_decode( $biz_body, true );
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — status + business count only (body carries access_tokens).
+				error_log( '[BizCity FB OAuth] /me/businesses http=' . (int) wp_remote_retrieve_response_code( $biz_resp ) . ' businesses=' . ( is_array( $biz_data['data'] ?? null ) ? count( $biz_data['data'] ) : 0 ) );
 				if ( ! empty( $biz_data['data'] ) ) {
 					foreach ( $biz_data['data'] as $biz ) {
 						foreach ( array( 'owned_pages', 'client_pages' ) as $bucket ) {
@@ -517,8 +524,9 @@ class BizCity_Facebook_OAuth {
 			$asg_resp = wp_remote_get( $asg_url, [ 'timeout' => 30 ] );
 			if ( ! is_wp_error( $asg_resp ) ) {
 				$asg_body = wp_remote_retrieve_body( $asg_resp );
-				error_log( '[BizCity FB OAuth] /me/assigned_pages response: ' . substr( $asg_body, 0, 500 ) );
 				$asg_data = json_decode( $asg_body, true );
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — status + page count only (body carries access_tokens).
+				error_log( '[BizCity FB OAuth] /me/assigned_pages http=' . (int) wp_remote_retrieve_response_code( $asg_resp ) . ' pages=' . ( is_array( $asg_data['data'] ?? null ) ? count( $asg_data['data'] ) : 0 ) );
 				if ( ! empty( $asg_data['data'] ) ) {
 					$pages_collected = $asg_data['data'];
 				}
@@ -539,7 +547,8 @@ class BizCity_Facebook_OAuth {
 
 		if ( empty( $pages_collected ) ) {
 			$user_name = $me_data['name'] ?? 'Unknown';
-			error_log( '[BizCity FB OAuth] ALL endpoints returned ZERO pages for user_name=' . $user_name );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M9 — WP user id instead of the Facebook profile name.
+			error_log( '[BizCity FB OAuth] ALL endpoints returned ZERO pages for wp_user=' . (int) $user_id );
 			$msg = sprintf(
 				'Tài khoản %s đã liên kết app nhưng KHÔNG tìm thấy Fanpage qua /me/accounts, /me/businesses, hay /me/assigned_pages. '
 				. 'Nguyên nhân thường gặp với Facebook Login for Business: '

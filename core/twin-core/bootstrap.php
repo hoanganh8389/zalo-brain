@@ -62,7 +62,6 @@ if ( ! class_exists( 'BizCity_Twin_Trace' ) ) {
     require_once $legacy_twin_includes . '/class-twin-slo-store.php';
     require_once $legacy_twin_includes . '/class-twin-runtime-reliability.php';
     require_once $legacy_twin_includes . '/class-twin-reliable-http.php';
-    require_once $legacy_twin_includes . '/class-twin-mutation-guard.php';
 }
 
 // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION R15 (core-wide sweep) — BizCity_Source_HTML_Sanitizer was loaded on every request but no code
@@ -121,11 +120,8 @@ if ( class_exists( 'BizCity_Context_Bank_Event_Stream_Adapter', false ) ) {
 }
 unset( $_context_bank_event_adapter );
 
-// Phase 0.12 Wave B+ PR-B+1 — Trace projector (registered, NO-OP until Wave B+3 flip)
-require_once $twin_event_stream . '/class-twin-event-trace-projector.php';
-if ( class_exists( 'BizCity_Twin_Event_Trace_Projector' ) ) {
-    BizCity_Twin_Event_Trace_Projector::boot();
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — BizCity_Twin_Event_Trace_Projector (a registered NO-OP waiting for a Wave B+3 flip that never came; its target
+// tables lost their only writer with BizCity_Trace_Store) archived at core/_archived/runtime-trace-r126rt-20261025/.
 
 // Phase 0.12 Wave C — Router event ingester (parses _twin_events from
 // bizcity-llm-router HTTP responses + ingest_remote into local stream).
@@ -160,17 +156,16 @@ if ( class_exists( 'BizCity_Twin_Job_Event_REST' ) ) {
 }
 
 // Phase 0.12 Wave F — Admin page (Twin Event Inspector).
-if ( is_admin() ) {
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-DIAG — dev-only (bin/dev-only-paths.txt): loaded only when the file is present.
+if ( is_admin() && is_readable( $twin_event_stream . '/class-twin-event-inspector-page.php' ) ) {
 	require_once $twin_event_stream . '/class-twin-event-inspector-page.php';
 	if ( class_exists( 'BizCity_Twin_Event_Inspector_Page' ) ) {
 		BizCity_Twin_Event_Inspector_Page::boot();
 	}
 }
 
-// Phase 2 Priority 4 — Prompt Parser (write-only prompt specs)
-// [2026-10-10 11:43 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8b — no live caller (census OWNER-DECISION O-2),
-// kept loaded because the Z-7 tables harness (T5 prompt_specs writer-stop) requires this path; archive after that rebase.
-require_once $twin_includes . '/class-twin-prompt-parser.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — BizCity_Twin_Prompt_Parser (write-only prompt specs, zero callers since WP-20 Z-8b)
+// archived at core/_archived/twin-core-r126tc-20261025/; the Z-7 harness reads the archived copy.
 
 // Memory Table Migration — rename scattered tables to unified bizcity_memory_* prefix
 require_once $twin_includes . '/class-memory-table-migration.php';
@@ -189,21 +184,18 @@ require_once $twin_includes . '/class-twin-runtime-audit.php';
 require_once $twin_includes . '/class-twin-secret-provider.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — load the persistent metadata-only SLO evidence sink.
 require_once $twin_includes . '/class-twin-slo-store.php';
-require_once $twin_includes . '/class-twin-capability-guard.php';
-// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load persistent extension consent before authorization.
-require_once $twin_includes . '/class-twin-capability-consent.php';
-if ( class_exists( 'BizCity_Twin_Capability_Consent' ) ) {
-    BizCity_Twin_Capability_Consent::boot();
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — Capability_Guard + Capability_Consent (the "Twin Permissions" page) + Security_Policy are read only by the PHP agent's tool registry and
+// fetch-url tool, which live in bizcity-twin-brain-addon/twinbrain-mpr/agent/ — they moved there (loaded by agent/bootstrap.php).
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-AUD F1 — BizCity_Twin_Mutation_Guard RESTORED (R126-TC archived it as "smoke-only", which was wrong):
+// bizcity-automation/includes/class-automation-rest.php calls it unguarded on every workflow create/update/delete (preflight_workflow_mutation).
+if ( is_readable( $twin_includes . '/class-twin-mutation-guard.php' ) ) { // guarded: the file may land after this bootstrap on a manual deploy
+	require_once $twin_includes . '/class-twin-mutation-guard.php';
 }
-// [2026-07-30 Johnny Chu] PHASE-1.22-SEC — load shared SSRF and upload policy enforcement.
-require_once $twin_includes . '/class-twin-security-policy.php';
-require_once $twin_includes . '/class-twin-mutation-guard.php';
 // [2026-09-13 01:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.6 — load metadata-only before/after evidence before governed mutation consumers.
 require_once $twin_includes . '/class-twin-action-evidence.php';
 // [2026-08-10 Johnny Chu] PHASE-1.24-RUNTIME — load bounded mutation replay store before framework mutation consumers.
 require_once $twin_includes . '/class-twin-mutation-store.php';
-// [2026-09-13 10:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W8.4 — load the generic user-scoped one-time confirmation boundary before governed C mutations.
-require_once $twin_includes . '/class-twin-action-confirmation.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TC — Action_Confirmation (one-time confirmation of governed /gpt/ mutations) moved to bizcity-twinweb-addon/axis/ (its only reader).
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — load the shared reliability policy before guarded execution.
 require_once $twin_includes . '/class-twin-runtime-reliability.php';
 // [2026-07-30 Johnny Chu] PHASE-1.22-RUNTIME — expose the shared outbound HTTP reliability adapter.

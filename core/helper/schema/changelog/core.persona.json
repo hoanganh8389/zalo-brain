@@ -7,6 +7,7 @@
   "version_option": "bizcity_persona_guru_db_version",
   "tables": {
     "bizcity_guru_skills": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "none — Guru = instruction + Vault; BizCity_Guru_Skill_Bridge answers [] without SQL", "drop_candidate": true, "rows": "kept" },
       "since": "1.0.0",
       "purpose": "Many-to-many binding between Twin Guru characters and skills. Owned by BizCity_Guru_Bridge_Installer; declared here so probes can reason about its presence. Auto-installed on plugins_loaded priority 7.",
       "engine": "InnoDB",
@@ -132,6 +133,7 @@
       ],
       "since": "1.0.0",
       "owner": "core/channel-gateway/includes/class-guru-turn-controller.php",
+      "archived": "[2026-10-24] PHASE-0.126 R126-GR — route removed, controller in core/_archived/guru-runtime-bot-20261024/.",
       "purpose": "Cross-process entry point fronting BizCity_Guru_Runtime::reply()."
     }
   ],

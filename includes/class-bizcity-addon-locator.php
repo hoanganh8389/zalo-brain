@@ -20,10 +20,16 @@
  * the header so that deploying this class BEFORE the add-ons carry the header changes nothing. Adds the `twinweb/…` part
  * (bizcity-twinweb-addon). Public API unchanged: mode(), dir(), is_active(), available(), file().
  *
+ * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — owner decision "6 bảng usage tách usage/ thành add-on billing": adds the
+ * `billing/…` part (bizcity-billing-addon: usage ledger copy, plans per Zalo number + Woo sales, revenue, accounts desk, admin users overview,
+ * brain journey / digest / standing). Flat like automation/twinweb ('billing/bootstrap.php' is <plugin>/bootstrap.php); load mode 'auto' by
+ * default so a deploy that uploads the folder keeps billing working whether or not it was activated.
+ *
  * Load mode (wp-config.php, optional):
  *   define( 'BIZCITY_BRAIN_ADDON_LOAD', 'auto' | 'active' | 'off' );  // bizcity-twin-brain-addon (TwinBrain, memory, knowledge-legacy)
  *   define( 'BIZCITY_AUTOMATION_LOAD',  'auto' | 'active' | 'off' );  // bizcity-automation (Automation only)
  *   define( 'BIZCITY_TWINWEB_LOAD',     'auto' | 'active' | 'off' );  // bizcity-twinweb-addon (/gpt/) — default 'active'
+ *   define( 'BIZCITY_BILLING_LOAD',     'auto' | 'active' | 'off' );  // bizcity-billing-addon (usage / plans / revenue) — default 'auto'
  *   auto   — load from the plugin folder when it is present, activated or not, so a deploy that uploads
  *            the folder changes nothing for users (default for brain-addon and Automation);
  *   active — load only when that plugin is activated (site or network) (default for twinweb: users install it themselves);
@@ -57,6 +63,12 @@ final class BizCity_Addon_Locator {
 	/** Parts resolved against TWINWEB_SLUG. */
 	const TWINWEB_PARTS = array( 'twinweb' );
 
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — bizcity-billing-addon (usage ledger copy, plans, revenue, users overview, brain journey). */
+	const BILLING_SLUG = 'bizcity-billing-addon';
+
+	/** Parts resolved against BILLING_SLUG. */
+	const BILLING_PARTS = array( 'billing' );
+
 	/** Option that remembers where a renamed add-on folder was found (and, briefly, that none was). */
 	const PATHS_OPTION = 'bizcity_addon_paths';
 
@@ -80,6 +92,8 @@ final class BizCity_Addon_Locator {
 			'twin-brain' => array( 'slug' => self::SLUG,           'const' => 'BIZCITY_BRAIN_ADDON_LOAD', 'default' => 'auto' ),
 			'automation' => array( 'slug' => self::AUTOMATION_SLUG, 'const' => 'BIZCITY_AUTOMATION_LOAD',  'default' => 'auto' ),
 			'twinweb'    => array( 'slug' => self::TWINWEB_SLUG,    'const' => 'BIZCITY_TWINWEB_LOAD',     'default' => 'active' ),
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — 'auto': billing ran on every site before the split, so an uploaded folder must keep it running.
+			'billing'    => array( 'slug' => self::BILLING_SLUG,    'const' => 'BIZCITY_BILLING_LOAD',     'default' => 'auto' ),
 		);
 	}
 
@@ -249,7 +263,7 @@ final class BizCity_Addon_Locator {
 	/**
 	 * Absolute path of a file inside the right sibling plugin ('' when unavailable or the file is missing).
 	 *
-	 * @param string $relative e.g. 'automation/bootstrap.php', 'twinweb/bootstrap.php', 'memory/bootstrap.php', 'knowledge-legacy/bootstrap.php'
+	 * @param string $relative e.g. 'automation/bootstrap.php', 'twinweb/bootstrap.php', 'billing/bootstrap.php', 'memory/bootstrap.php', 'knowledge-legacy/bootstrap.php'
 	 */
 	public static function file( string $relative ): string {
 		if ( isset( self::$cache[ $relative ] ) ) {
@@ -280,6 +294,18 @@ final class BizCity_Addon_Locator {
 			return self::$cache[ $relative ] = $path;
 		}
 
+		if ( in_array( $part, self::BILLING_PARTS, true ) ) {
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — flat like twinweb, and no fallback to the old core/channel-gateway/includes/usage/: a stale copy
+			// left on a server by an upload (uploads never delete) must never load next to the add-on (same class names = fatal). Billing is the add-on or nothing.
+			$path   = '';
+			$inside = ltrim( substr( ltrim( $relative, '/' ), strlen( $part ) ), '/' );
+			if ( '' !== $inside && self::addon_available( 'billing' ) ) {
+				$candidate = self::addon_dir( 'billing' ) . $inside;
+				$path      = is_file( $candidate ) ? $candidate : '';
+			}
+			return self::$cache[ $relative ] = $path;
+		}
+
 		$path = '';
 		if ( self::available() ) {
 			$candidate = self::dir() . ltrim( $relative, '/' );
@@ -294,6 +320,13 @@ if ( ! function_exists( 'bizcity_twinweb_available' ) ) {
 	/** True when the /gpt/ part (the add-on bizcity-twinweb-addon, found and allowed by its load mode) can load. */
 	function bizcity_twinweb_available(): bool {
 		return '' !== BizCity_Addon_Locator::file( 'twinweb/bootstrap.php' );
+	}
+}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — same idea for the billing add-on (file presence + load mode).
+if ( ! function_exists( 'bizcity_billing_available' ) ) {
+	/** True when the billing part (the add-on bizcity-billing-addon, found and allowed by its load mode) can load. */
+	function bizcity_billing_available(): bool {
+		return '' !== BizCity_Addon_Locator::file( 'billing/bootstrap.php' );
 	}
 }
 if ( ! function_exists( 'bizcity_twinweb_url' ) ) {

@@ -433,7 +433,29 @@ final class BizCity_Journal_Index {
 		}
 		$res = BizCity_Journal_Database::instance()->find_indexed( $filter );
 		$res['items'] = array_map( array( __CLASS__, 'to_journal_entry' ), $res['items'] );
+		$ms = (string) ( $filter['meta_status'] ?? '' );
+		if ( in_array( $ms, array( 'pending', 'failed', 'done' ), true ) ) { // [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb — the SQL only narrowed by text
+			$res['items'] = array_values( array_filter( $res['items'], static function ( $e ) use ( $ms ) { return $ms === (string) ( $e['meta']['status'] ?? '' ); } ) );
+		}
 		return $res;
+	}
+
+	/**
+	 * [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb ("Đọc lại") — ask the cell to read a saved file again: meta.status ⇒ pending (the error is cleared,
+	 * a field a person fixed stays locked). The cell's sweep picks it up (journal.find {meta_status: pending}); the site never calls a model. @return array|WP_Error
+	 */
+	public static function request_reread( int $id, int $owner ) {
+		$row = self::get( $id, $owner );
+		if ( null === $row ) {
+			return new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' );
+		}
+		if ( (int) ( $row['original']['attachment_id'] ?? 0 ) <= 0 || ! class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+			return new WP_Error( 'reread_not_file', 'Dòng này không có tệp để đọc lại.', array( 'status' => 400, 'hint' => 'Chỉ tài liệu / ảnh đã lưu mới đọc lại được.', 'help_code' => 'entry_meta' ) );
+		}
+		$ask  = BizCity_Journal_Entry_Meta::normalize( array( 'status' => 'pending', 'by' => array( 'actor' => 'owner', 'op' => 'reread', 'at' => gmdate( 'Y-m-d\TH:i:s\Z' ) ) ) )['meta'];
+		$meta = BizCity_Journal_Entry_Meta::merge( is_array( $row['meta'] ?? null ) ? $row['meta'] : array(), $ask, 'site_code' ); // by.op reread + at = one new read per request (the cell's dedupe key)
+		unset( $meta['error'] );
+		return self::file( $id, $owner, array( 'meta' => $meta ) );
 	}
 
 	/**
@@ -510,7 +532,13 @@ final class BizCity_Journal_Index {
 		}
 		if ( 'TL' === $p['prefix'] ) {
 			$row = BizCity_Journal_Database::instance()->get_by_source_ref( 'TL-' . $p['n'] );
-			return $row && (int) $row['owner_user_id'] === $owner_user_id ? self::to_journal_entry( $row ) : null;
+			if ( $row && (int) $row['owner_user_id'] === $owner_user_id ) {
+				return self::to_journal_entry( $row );
+			}
+			// [2026-10-25 PHASE-0.134] a file the assistant made: TL- lives in original.doc_code (source_ref = co_…) — the tree lists it, so it must open
+			$row = method_exists( 'BizCity_Journal_Database', 'get_by_doc_code' ) ? BizCity_Journal_Database::instance()->get_by_doc_code( 'TL-' . $p['n'], $owner_user_id ) : null;
+			$e   = $row ? self::to_journal_entry( $row ) : null;
+			return $e && strtoupper( (string) ( $e['ref_code'] ?? '' ) ) === 'TL-' . $p['n'] ? $e : null;
 		}
 		$e = self::get( $p['n'], $owner_user_id );
 		if ( ! $e ) {

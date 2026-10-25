@@ -38,6 +38,7 @@ final class BizCity_Document_MCP_Service {
 		return self::$instance;
 	}
 
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — bizcity_mcp_context_packs is FROZEN: never install, write or read it in new code; document context packs are transients (mcp_context_pack_<blog>_<uuid>).
 	private static function tbl() {
 		global $wpdb;
 		return $wpdb->prefix . 'bizcity_mcp_context_packs';
@@ -152,25 +153,9 @@ final class BizCity_Document_MCP_Service {
 			'total_chars'       => $total_chars,
 		);
 
-		global $wpdb;
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "mcp_context_packs chuyển sang transient") — the pack is a transient (TTL = the pack TTL);
+		// bizcity_mcp_context_packs is quarantined (rows stay, nothing writes it).
 		$expires_at = date( 'Y-m-d H:i:s', time() + $ttl );
-		$inserted   = $wpdb->insert(
-			self::tbl(),
-			array(
-				'pack_uuid'        => $pack_uuid,
-				'user_id'          => (int) $ctx['user_id'],
-				'client_id'        => (string) $ctx['client_id'],
-				'document_type'    => $document_type,
-				'source_refs_json' => wp_json_encode( array( 'snapshot_ids' => $snapshot_ids, 'citation_ids' => $payload['allowed_citations'] ) ),
-				'payload_json'     => wp_json_encode( $payload ),
-				'created_at'       => current_time( 'mysql' ),
-				'expires_at'       => $expires_at,
-			)
-		);
-		if ( ! $inserted ) {
-			return new WP_Error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không thể lưu document context pack.', array( 'status' => 500 ) );
-		}
-
 		$row = array(
 			'pack_uuid'     => $pack_uuid,
 			'user_id'       => (int) $ctx['user_id'],
@@ -180,6 +165,9 @@ final class BizCity_Document_MCP_Service {
 			'expires_at'    => $expires_at,
 			'is_expired'    => false,
 		);
+		if ( ! set_transient( self::cache_key( $pack_uuid ), $row, max( 60, (int) $ttl ) ) ) {
+			return new WP_Error( BizCity_MCP_Error::INTERNAL_ERROR, 'Không thể lưu document context pack.', array( 'status' => 500 ) );
+		}
 		if ( class_exists( 'BizCity_Cache' ) ) {
 			BizCity_Cache::flush_group( self::CACHE_GROUP );
 			BizCity_Cache::set( self::CACHE_GROUP, self::cache_key( $pack_uuid ), $row, min( $ttl, BizCity_Cache::TTL_MEDIUM ) );
@@ -504,26 +492,10 @@ final class BizCity_Document_MCP_Service {
 		$pack      = class_exists( 'BizCity_Cache' ) ? BizCity_Cache::get( self::CACHE_GROUP, $cache_key ) : false;
 
 		if ( $pack === false ) {
-			global $wpdb;
-			$row = $wpdb->get_row(
-				$wpdb->prepare( 'SELECT * FROM ' . self::tbl() . ' WHERE pack_uuid = %s LIMIT 1', $pack_uuid ),
-				ARRAY_A
-			);
-			if ( ! $row ) {
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — transient (expired ⇒ gone ⇒ 404, same as a missing row before).
+			$pack = get_transient( $cache_key );
+			if ( ! is_array( $pack ) ) {
 				return new WP_Error( BizCity_MCP_Error::CONTEXT_PACK_NOT_FOUND, 'Document context pack không tồn tại.', array( 'status' => 404 ) );
-			}
-			$payload = json_decode( (string) $row['payload_json'], true );
-			$pack = array(
-				'pack_uuid'     => (string) $row['pack_uuid'],
-				'user_id'       => (int) $row['user_id'],
-				'client_id'     => (string) $row['client_id'],
-				'document_type' => (string) $row['document_type'],
-				'payload'       => is_array( $payload ) ? $payload : array(),
-				'expires_at'    => (string) $row['expires_at'],
-				'is_expired'    => strtotime( (string) $row['expires_at'] ) < time(),
-			);
-			if ( class_exists( 'BizCity_Cache' ) ) {
-				BizCity_Cache::set( self::CACHE_GROUP, $cache_key, $pack, BizCity_Cache::TTL_MEDIUM );
 			}
 		}
 

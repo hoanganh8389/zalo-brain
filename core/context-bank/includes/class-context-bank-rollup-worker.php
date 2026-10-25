@@ -2,8 +2,12 @@
 /**
  * Resumable Context Bank rollup worker.
  *
- * Lease/checkpoint state is tenant-scoped SQL metadata. Rollup payloads remain
+ * Lease/checkpoint state is tenant-scoped metadata. Rollup payloads remain
  * encrypted business records and are admitted through the pointer ledger.
+ *
+ * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "context_bank_rollup_state cho thành option") — the state lives in the
+ * non-autoloaded option bizcity_context_bank_rollup_state (one row per rollup|dimension) and each lease in its own
+ * option row created with add_option() (atomic on the UNIQUE option_name). The table of the same name is quarantined.
  *
  * @package BizCity_Twin_AI
  * @subpackage Context_Bank
@@ -17,6 +21,7 @@ if ( class_exists( 'BizCity_Context_Bank_Rollup_Worker', false ) ) {
 
 final class BizCity_Context_Bank_Rollup_Worker {
 
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — bizcity_context_bank_rollup_state is FROZEN: never install, write or read it in new code; state = option bizcity_context_bank_rollup_state + lease options bizcity_cb_rollup_lease_*.
 	const TABLE_BASE = 'bizcity_context_bank_rollup_state';
 	const MODULE_ID = 'core.context-bank';
 	const DB_VERSION = '1.3.0';
@@ -24,6 +29,9 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	const ROLLUP_CONTRACT_ID = 'core.context_bank.rollup';
 	const DEFAULT_BATCH_SIZE = 100;
 	const DEFAULT_LEASE_SECONDS = 300;
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — option-backed state (was the SQL table TABLE_BASE). */
+	const STATE_OPTION = 'bizcity_context_bank_rollup_state';
+	const LEASE_OPTION_PREFIX = 'bizcity_cb_rollup_lease_';
 
 	public static function table() {
 		global $wpdb;
@@ -31,15 +39,62 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	}
 
 	public static function ensure_schema() {
-		// [2026-09-02 Johnny Chu] PHASE-CB5.1 — provision lease/checkpoint metadata only through the central additive schema owner.
-		if ( ! class_exists( 'BizCity_Diagnostics_Auto_Create' ) || ! method_exists( 'BizCity_Diagnostics_Auto_Create', 'run' ) ) {
-			return array( 'ok' => false, 'reason' => 'diagnostics_auto_create_unavailable' );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — nothing to provision: the state is an option (the table is quarantined, never created again).
+		return array( 'ok' => true, 'storage' => 'option' );
+	}
+
+	private static function state_key( $rollup_id, $dimension_key ) {
+		return sanitize_key( (string) $rollup_id ) . '|' . sanitize_text_field( (string) $dimension_key );
+	}
+
+	private static function state_all() {
+		$all = get_option( self::STATE_OPTION, array() );
+		return is_array( $all ) ? $all : array();
+	}
+
+	private static function state_row( $rollup_id, $dimension_key ) {
+		$all = self::state_all();
+		$key = self::state_key( $rollup_id, $dimension_key );
+		return isset( $all[ $key ] ) && is_array( $all[ $key ] ) ? $all[ $key ] : null;
+	}
+
+	private static function state_put( $rollup_id, $dimension_key, array $row ) {
+		$all = self::state_all();
+		$all[ self::state_key( $rollup_id, $dimension_key ) ] = array_merge(
+			array( 'checkpoint_record_id' => '', 'checkpoint_occurred_at' => '', 'processed_count' => 0, 'last_output_hash' => '', 'last_error' => '', 'dirty_since' => '', 'dirty_record_id' => '', 'superseded_record_id' => '' ),
+			$row,
+			array( 'updated_at' => gmdate( 'Y-m-d H:i:s' ) )
+		);
+		update_option( self::STATE_OPTION, $all, false );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — the oldest dirty dimension of this tenant (was the cron's
+	 * SELECT … WHERE dirty_since IS NOT NULL ORDER BY dirty_since ASC LIMIT 1 on the table).
+	 *
+	 * @return array{rollup_id:string,dimension_key:string}|null
+	 */
+	public static function next_dirty_dimension() {
+		$best = null;
+		foreach ( self::state_all() as $key => $row ) {
+			if ( ! is_array( $row ) || '' === (string) ( $row['dirty_since'] ?? '' ) || false === strpos( (string) $key, '|' ) ) {
+				continue;
+			}
+			if ( null === $best || (string) $row['dirty_since'] < $best['dirty_since'] ) {
+				list( $rollup_id, $dimension_key ) = explode( '|', (string) $key, 2 );
+				$best = array( 'rollup_id' => $rollup_id, 'dimension_key' => $dimension_key, 'dirty_since' => (string) $row['dirty_since'] );
+			}
 		}
-		$result = BizCity_Diagnostics_Auto_Create::run( self::TABLE_BASE );
-		if ( is_array( $result ) && ! empty( $result['ok'] ) && function_exists( 'update_option' ) ) {
-			update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
-		}
-		return is_array( $result ) ? $result : array( 'ok' => false, 'reason' => 'provisioning_unknown' );
+		return null === $best ? null : array( 'rollup_id' => $best['rollup_id'], 'dimension_key' => $best['dimension_key'] );
+	}
+
+	private static function lease_option( $rollup_id, $dimension_key ) {
+		return self::LEASE_OPTION_PREFIX . md5( (string) get_current_blog_id() . '|' . self::state_key( $rollup_id, $dimension_key ) );
+	}
+
+	private static function lease_owned( array $lease ) {
+		$held = get_option( self::lease_option( (string) ( $lease['rollup_id'] ?? '' ), (string) ( $lease['dimension_key'] ?? '' ) ), array() );
+		return is_array( $held ) && '' !== (string) ( $lease['token'] ?? '' ) && hash_equals( (string) ( $held['token'] ?? '' ), (string) $lease['token'] );
 	}
 
 	/**
@@ -55,7 +110,6 @@ final class BizCity_Context_Bank_Rollup_Worker {
 		if ( self::diagnostics_blocked() ) {
 			return array( 'ok' => false, 'reason' => 'diagnostics_cli_isolated' );
 		}
-		global $wpdb;
 		$blog_id = (int) get_current_blog_id();
 		$rollup_id = sanitize_key( (string) $rollup_id );
 		$dimension_key = sanitize_text_field( (string) $dimension_key );
@@ -63,24 +117,24 @@ final class BizCity_Context_Bank_Rollup_Worker {
 		if ( $blog_id <= 0 || $rollup_id === '' || $dimension_key === '' ) {
 			return array( 'ok' => false, 'reason' => 'lease_identity_invalid' );
 		}
-		if ( function_exists( 'bizcity_tbl_exists' ) && ! bizcity_tbl_exists( self::table() ) ) {
-			return array( 'ok' => false, 'reason' => 'rollup_state_not_provisioned' );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — the lease is one option row; add_option() fails while another worker holds it (UNIQUE option_name).
+		$name = self::lease_option( $rollup_id, $dimension_key );
+		$held = get_option( $name, null );
+		if ( is_array( $held ) && (int) ( $held['until'] ?? 0 ) >= time() ) {
+			return array( 'ok' => false, 'reason' => 'rollup_lease_busy' );
+		}
+		if ( null !== $held ) {
+			delete_option( $name ); // expired lease of a crashed worker
 		}
 		$token = hash( 'sha256', wp_generate_uuid4() . '|' . microtime( true ) );
 		$expires = gmdate( 'Y-m-d H:i:s', time() + $lease_seconds );
-		$sql = 'UPDATE ' . self::table() . ' SET lock_token = %s, lock_expires_at = %s, updated_at = %s WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s AND (lock_token = %s OR lock_expires_at IS NULL OR lock_expires_at < UTC_TIMESTAMP())';
-		$updated = $wpdb->query( $wpdb->prepare( $sql, $token, $expires, gmdate( 'Y-m-d H:i:s' ), $blog_id, $rollup_id, $dimension_key, '' ) );
-		if ( 1 === (int) $updated ) {
-			return array( 'ok' => true, 'token' => $token, 'expires_at' => $expires, 'blog_id' => $blog_id, 'rollup_id' => $rollup_id, 'dimension_key' => $dimension_key );
+		if ( ! add_option( $name, array( 'token' => $token, 'until' => time() + $lease_seconds ), '', false ) ) {
+			return array( 'ok' => false, 'reason' => 'rollup_lease_busy' );
 		}
-		$inserted = $wpdb->query( $wpdb->prepare( 'INSERT INTO ' . self::table() . ' (blog_id, rollup_id, dimension_key, lock_token, lock_expires_at) VALUES (%d, %s, %s, %s, %s)', $blog_id, $rollup_id, $dimension_key, $token, $expires ) );
-		if ( false !== $inserted ) {
-			return array( 'ok' => true, 'token' => $token, 'expires_at' => $expires, 'blog_id' => $blog_id, 'rollup_id' => $rollup_id, 'dimension_key' => $dimension_key );
+		if ( null === self::state_row( $rollup_id, $dimension_key ) ) {
+			self::state_put( $rollup_id, $dimension_key, array() );
 		}
-		$updated = $wpdb->query( $wpdb->prepare( $sql, $token, $expires, gmdate( 'Y-m-d H:i:s' ), $blog_id, $rollup_id, $dimension_key, '' ) );
-		return 1 === (int) $updated
-			? array( 'ok' => true, 'token' => $token, 'expires_at' => $expires, 'blog_id' => $blog_id, 'rollup_id' => $rollup_id, 'dimension_key' => $dimension_key )
-			: array( 'ok' => false, 'reason' => 'rollup_lease_busy' );
+		return array( 'ok' => true, 'token' => $token, 'expires_at' => $expires, 'blog_id' => $blog_id, 'rollup_id' => $rollup_id, 'dimension_key' => $dimension_key );
 	}
 
 	/**
@@ -93,9 +147,12 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	 */
 	public static function release_lease( $rollup_id, $dimension_key, $token ) {
 		// [2026-09-02 Johnny Chu] PHASE-CB5.1 — release only the exact lease token so a late worker cannot unlock a newer owner.
-		global $wpdb;
-		$result = $wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET lock_token = %s, lock_expires_at = NULL, updated_at = %s WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s AND lock_token = %s', '', gmdate( 'Y-m-d H:i:s' ), (int) get_current_blog_id(), sanitize_key( (string) $rollup_id ), sanitize_text_field( (string) $dimension_key ), (string) $token ) );
-		return false === $result ? array( 'ok' => false, 'reason' => 'rollup_lease_release_failed' ) : array( 'ok' => true, 'released' => (int) $result );
+		$lease = array( 'rollup_id' => sanitize_key( (string) $rollup_id ), 'dimension_key' => sanitize_text_field( (string) $dimension_key ), 'token' => (string) $token );
+		if ( ! self::lease_owned( $lease ) ) {
+			return array( 'ok' => true, 'released' => 0 );
+		}
+		delete_option( self::lease_option( $lease['rollup_id'], $lease['dimension_key'] ) );
+		return array( 'ok' => true, 'released' => 1 );
 	}
 
 	/**
@@ -107,14 +164,13 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	 */
 	public static function checkpoint( $rollup_id, $dimension_key ) {
 		// [2026-09-02 Johnny Chu] PHASE-CB5.1 — expose resumable metadata without returning any rollup payload.
-		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare( 'SELECT checkpoint_record_id, checkpoint_occurred_at, processed_count, last_output_hash, last_error, dirty_since, dirty_record_id, superseded_record_id FROM ' . self::table() . ' WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s LIMIT 1', (int) get_current_blog_id(), sanitize_key( (string) $rollup_id ), sanitize_text_field( (string) $dimension_key ) ), ARRAY_A );
-		return is_array( $row ) ? $row : array( 'checkpoint_record_id' => '', 'checkpoint_occurred_at' => '', 'processed_count' => 0, 'last_output_hash' => '', 'last_error' => '', 'dirty_since' => '', 'dirty_record_id' => '', 'superseded_record_id' => '' );
+		$empty = array( 'checkpoint_record_id' => '', 'checkpoint_occurred_at' => '', 'processed_count' => 0, 'last_output_hash' => '', 'last_error' => '', 'dirty_since' => '', 'dirty_record_id' => '', 'superseded_record_id' => '' );
+		$row = self::state_row( $rollup_id, $dimension_key );
+		return is_array( $row ) ? array_intersect_key( array_merge( $empty, $row ), $empty ) : $empty;
 	}
 
 	public static function mark_dirty( $rollup_id, $dimension_key, $occurred_at, $record_id = '', $superseded_record_id = '' ) {
 		// [2026-09-02 Johnny Chu - Chu Hoàng Anh] PHASE-CB5.1 — reopen one tenant rollup dimension from an explicit late event and preserve the superseded derived state reference.
-		global $wpdb;
 		if ( self::diagnostics_blocked() ) {
 			return array( 'ok' => false, 'reason' => 'diagnostics_cli_isolated' );
 		}
@@ -127,13 +183,19 @@ final class BizCity_Context_Bank_Rollup_Worker {
 		if ( $blog_id <= 0 || $rollup_id === '' || $dimension_key === '' || $occurred_at === '' ) {
 			return array( 'ok' => false, 'reason' => 'rollup_dirty_identity_invalid' );
 		}
-		$updated = $wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET dirty_record_id = IF(dirty_since IS NULL OR dirty_since > %s, %s, dirty_record_id), dirty_since = IF(dirty_since IS NULL OR dirty_since > %s, %s, dirty_since), superseded_record_id = %s, last_error = %s, updated_at = %s WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s', $occurred_at, $record_id, $occurred_at, $occurred_at, $superseded_record_id, 'rollup_dirty', gmdate( 'Y-m-d H:i:s' ), $blog_id, $rollup_id, $dimension_key ) );
-		if ( false === $updated ) {
-			return array( 'ok' => false, 'reason' => 'rollup_dirty_update_failed' );
-		}
-		if ( 0 === (int) $updated ) {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — option-backed state; the earliest dirty event wins (same rule as the old SQL IF()).
+		$row = self::state_row( $rollup_id, $dimension_key );
+		if ( null === $row ) {
 			return array( 'ok' => false, 'reason' => 'rollup_dimension_not_found' );
 		}
+		$dirty_since = (string) ( $row['dirty_since'] ?? '' );
+		if ( $dirty_since === '' || $dirty_since > $occurred_at ) {
+			$row['dirty_since'] = $occurred_at;
+			$row['dirty_record_id'] = $record_id;
+		}
+		$row['superseded_record_id'] = $superseded_record_id;
+		$row['last_error'] = 'rollup_dirty';
+		self::state_put( $rollup_id, $dimension_key, $row );
 		return array( 'ok' => true, 'dirty_since' => $occurred_at, 'record_id' => $record_id, 'superseded_record_id' => $superseded_record_id );
 	}
 
@@ -296,10 +358,21 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	}
 
 	private static function persist_checkpoint( array $lease, $record_id, $occurred_at, $processed_count, $output_hash ) {
-		global $wpdb;
-		$sql = 'UPDATE ' . self::table() . ' SET checkpoint_record_id = %s, checkpoint_occurred_at = %s, processed_count = processed_count + %d, last_output_hash = %s, last_error = %s, dirty_since = NULL, dirty_record_id = %s, superseded_record_id = %s, updated_at = %s WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s AND lock_token = %s';
-		$result = $wpdb->query( $wpdb->prepare( $sql, (string) $record_id, (string) $occurred_at, max( 0, (int) $processed_count ), (string) $output_hash, '', '', '', gmdate( 'Y-m-d H:i:s' ), (int) $lease['blog_id'], (string) $lease['rollup_id'], (string) $lease['dimension_key'], (string) $lease['token'] ) );
-		return false === $result ? array( 'ok' => false, 'reason' => 'checkpoint_update_failed' ) : array( 'ok' => true, 'updated' => (int) $result, 'record_id' => (string) $record_id, 'occurred_at' => (string) $occurred_at );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — only the lease owner advances the checkpoint (was: UPDATE … WHERE lock_token = %s).
+		if ( ! self::lease_owned( $lease ) ) {
+			return array( 'ok' => false, 'reason' => 'checkpoint_update_failed' );
+		}
+		$row = (array) self::state_row( $lease['rollup_id'], $lease['dimension_key'] );
+		$row['checkpoint_record_id'] = (string) $record_id;
+		$row['checkpoint_occurred_at'] = (string) $occurred_at;
+		$row['processed_count'] = (int) ( $row['processed_count'] ?? 0 ) + max( 0, (int) $processed_count );
+		$row['last_output_hash'] = (string) $output_hash;
+		$row['last_error'] = '';
+		$row['dirty_since'] = '';
+		$row['dirty_record_id'] = '';
+		$row['superseded_record_id'] = '';
+		self::state_put( $lease['rollup_id'], $lease['dimension_key'], $row );
+		return array( 'ok' => true, 'updated' => 1, 'record_id' => (string) $record_id, 'occurred_at' => (string) $occurred_at );
 	}
 
 	private static function output_record_id( $rollup_id, $dimension_key, $output_hash ) {
@@ -318,8 +391,12 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	}
 
 	private static function mark_error( array $lease, $reason ) {
-		global $wpdb;
-		$wpdb->query( $wpdb->prepare( 'UPDATE ' . self::table() . ' SET last_error = %s, updated_at = %s WHERE blog_id = %d AND rollup_id = %s AND dimension_key = %s AND lock_token = %s', sanitize_key( (string) $reason ), gmdate( 'Y-m-d H:i:s' ), (int) $lease['blog_id'], (string) $lease['rollup_id'], (string) $lease['dimension_key'], (string) $lease['token'] ) );
+		if ( ! self::lease_owned( $lease ) ) {
+			return;
+		}
+		$row = (array) self::state_row( $lease['rollup_id'], $lease['dimension_key'] );
+		$row['last_error'] = sanitize_key( (string) $reason );
+		self::state_put( $lease['rollup_id'], $lease['dimension_key'], $row );
 	}
 
 	private static function after_checkpoint( array $records, array $checkpoint, $ignore_checkpoint = false ) {
@@ -355,6 +432,4 @@ final class BizCity_Context_Bank_Rollup_Worker {
 	}
 }
 
-if ( class_exists( 'BizCity_Schema_Registry' ) ) {
-	BizCity_Schema_Registry::register( BizCity_Context_Bank_Rollup_Worker::TABLE_BASE, BizCity_Context_Bank_Rollup_Worker::MODULE_ID, BizCity_Context_Bank_Rollup_Worker::DB_VERSION, BizCity_Context_Bank_Rollup_Worker::DB_VERSION_OPTION, array( 'BizCity_Context_Bank_Rollup_Worker', 'ensure_schema' ) );
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — no Schema_Registry entry any more: the state is an option, the table is quarantined.

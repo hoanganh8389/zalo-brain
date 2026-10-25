@@ -469,7 +469,7 @@ class BizCity_Gateway_Sender {
 	}
 
 	/**
-	 * Log outbound message to global_inbox_admin.
+	 * Log outbound message (JSONL audit; the global_inbox_admin table write left in R126-TB).
 	 *
 	 * @param string $chat_id
 	 * @param string $message
@@ -480,7 +480,7 @@ class BizCity_Gateway_Sender {
 		global $wpdb;
 
 		// [2026-08-01 Johnny Chu] PHASE-1.26-CORRELATION — file evidence precedes
-		// the legacy global_inbox_admin DB write. This is a child event of the
+		// the (retired) legacy global_inbox_admin DB write. This is a child event of the
 		// current send trace, not a reuse of the send_started UUID.
 		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
 			$trace = isset( $GLOBALS['_bizcity_channel_send_trace'] ) && is_array( $GLOBALS['_bizcity_channel_send_trace'] )
@@ -505,26 +505,8 @@ class BizCity_Gateway_Sender {
 			);
 		}
 
-		$table = $wpdb->base_prefix . 'global_inbox_admin';
-
-		// Only log if table exists (checked once per request)
-		static $table_exists = null;
-		if ( null === $table_exists ) {
-			$table_exists = bizcity_tbl_exists( $table ); // [2026-06-21 Johnny Chu] R-SHOW-TABLES
-		}
-		if ( ! $table_exists ) {
-			return;
-		}
-
-		$wpdb->insert( $table, [
-			'client_id'     => $chat_id,
-			'client_name'   => 'AI Bot',
-			'platform_type' => strtoupper( $platform ),
-			'message_text'  => mb_substr( $message, 0, 10000 ),
-			'message_type'  => 'outbound',
-			'created_at'    => current_time( 'mysql' ),
-			'blog_id'       => get_current_blog_id(),
-		] );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "global_inbox_admin ko dùng nữa, giờ qua cell rồi") — the network-wide global_inbox_admin INSERT is gone:
+		// nothing read it; the JSONL line above + bizcity_channel_messages keep the outbound audit.
 	}
 
 	private function sanitize_log_message( string $message ): string {

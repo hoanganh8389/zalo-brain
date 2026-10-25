@@ -85,8 +85,9 @@ require_once BIZCITY_SCHEDULER_DIR . 'includes/class-reminder-personal-handler.p
 
 // [2026-06-03 Johnny Chu] SCH-NC W6 — HIL Router + timeout cron (Human-In-The-Loop
 // confirm flow cho reminder_personal từ TwinBrain master tool).
-require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-router.php';
-require_once BIZCITY_SCHEDULER_DIR . 'includes/class-scheduler-hil-cron.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — the cell answers every channel: the PHP "ok / hủy / sửa" matcher
+// (BizCity_Scheduler_HIL_Router, bizcity_channel_message_received@5) and its timeout sweep (BizCity_Scheduler_HIL_Cron) are archived at
+// core/_archived/admin-routers-r126rt2-20261025/. Their wp-cron hook is unscheduled once below.
 
 if ( is_admin() ) {
 	require_once BIZCITY_SCHEDULER_DIR . 'includes/class-admin-page.php';
@@ -109,8 +110,20 @@ BizCity_Scheduler_Heartbeat::init(); // [2026-10-05 09:15 PM Johnny Chu - Chu Ho
 
 // [2026-06-03 Johnny Chu] SCH-NC W6 — HIL listener (priority 5 trên
 // bizcity_channel_message_received) + timeout cron (every minute).
-BizCity_Scheduler_HIL_Router::init();
-BizCity_Scheduler_HIL_Cron::init();
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — both retired; clear the orphan `bizcity_scheduler_hil_timeout` events once per site
+// (one-time option flag, so later requests pay one autoloaded get_option) and drop the retired toggle option.
+add_action( 'init', static function () {
+	if ( '1' === (string) get_option( 'bizcity_scheduler_hil_retired_r126', '' ) ) {
+		return;
+	}
+	if ( function_exists( 'wp_unschedule_hook' ) ) {
+		wp_unschedule_hook( 'bizcity_scheduler_hil_timeout' );
+	} else {
+		wp_clear_scheduled_hook( 'bizcity_scheduler_hil_timeout' );
+	}
+	delete_option( 'bizcity_scheduler_hil_timeout_enabled' );
+	update_option( 'bizcity_scheduler_hil_retired_r126', '1', true );
+}, 20 );
 
 // [2026-06-15 Johnny Chu] R-UNIFY — Reminder Personal Handler.
 BizCity_Reminder_Personal_Handler::init();

@@ -735,11 +735,16 @@ class BizCity_KG_Rest_Controller {
 		}
 
 		if ( current_user_can( 'manage_options' ) && $req->get_param( 'all' ) ) {
-			// Admin explicit opt-in: pass empty array → no notebook filter.
-			$nb_ids = [];
+			// Admin explicit opt-in: pass null → no notebook filter.
+			$nb_ids = null;
 		} else {
 			$notebooks = BizCity_KG_Notebook_Service::instance()->list_for_user( $user_id, [ 'limit' => 500 ] );
 			$nb_ids    = array_map( 'intval', array_column( $notebooks, 'id' ) );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H6 — a non-admin with no readable notebook gets an
+			// empty graph (the service no longer treats [] as "all"); admins keep the previous unscoped fallback.
+			if ( empty( $nb_ids ) && current_user_can( 'manage_options' ) ) {
+				$nb_ids = null;
+			}
 		}
 
 		return rest_ensure_response(
@@ -776,6 +781,15 @@ class BizCity_KG_Rest_Controller {
 		$notebook_id = $this->get_entity_notebook_id( $canonical_id );
 		$owner = $notebook_id > 0 ? $this->assert_notebook_owner( $notebook_id ) : new WP_Error( 'not_found', 'Entity not found', array( 'status' => 404 ) );
 		if ( is_wp_error( $owner ) ) { return $owner; }
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M5 — every merged id must belong to the canonical's
+		// (owner-checked) notebook; otherwise a caller could hard-delete entities of a notebook they cannot write.
+		foreach ( $other_ids as $other_id ) {
+			$other_id = (int) $other_id;
+			if ( $other_id <= 0 || $other_id === $canonical_id ) { continue; }
+			if ( $this->get_entity_notebook_id( $other_id ) !== $notebook_id ) {
+				return new WP_Error( 'forbidden', 'All merged entities must belong to the same notebook', [ 'status' => 403 ] );
+			}
+		}
 		$count = BizCity_KG_Graph_Service::instance()->merge_entities( $canonical_id, $other_ids );
 		return rest_ensure_response( [ 'merged' => $count ] );
 	}
@@ -813,6 +827,68 @@ class BizCity_KG_Rest_Controller {
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_id FROM {$table} WHERE id = %d LIMIT 1", (int) $entity_id ) );
 	}
 
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — notebooks that own a source id, resolved server-side
+	 * (kg_sources notebook scope by id/origin_id, passages by source_id, synthetic 1B+passage_id ids by passage).
+	 *
+	 * @return int[]
+	 */
+	private function get_source_notebook_ids( $source_id ) {
+		global $wpdb;
+		$source_id = (int) $source_id;
+		if ( $source_id <= 0 || ! class_exists( 'BizCity_KG_Database' ) ) { return []; }
+		$db  = BizCity_KG_Database::instance();
+		$tp  = $db->tbl_passages();
+		$ids = [];
+		if ( $source_id >= 1000000000 ) {
+			$ids[] = (int) $wpdb->get_var( $wpdb->prepare( "SELECT notebook_id FROM {$tp} WHERE id = %d LIMIT 1", $source_id - 1000000000 ) );
+		} else {
+			if ( method_exists( $db, 'tbl_sources' ) ) {
+				$ts = $db->tbl_sources();
+				foreach ( (array) $wpdb->get_col( $wpdb->prepare(
+					"SELECT scope_id FROM {$ts} WHERE ( id = %d OR origin_id = %d ) AND scope_type = %s LIMIT 20",
+					$source_id, $source_id, 'notebook'
+				) ) as $nb ) {
+					$ids[] = (int) $nb;
+				}
+			}
+			foreach ( (array) $wpdb->get_col( $wpdb->prepare(
+				"SELECT DISTINCT notebook_id FROM {$tp} WHERE source_id = %d LIMIT 20",
+				$source_id
+			) ) as $nb ) {
+				$ids[] = (int) $nb;
+			}
+		}
+		return array_values( array_unique( array_filter( array_map( 'intval', $ids ) ) ) );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — readable notebook scope for a source. Admins keep the
+	 * previous behaviour (null = no extra restriction). Others need the requested notebook (or one owning notebook) to own the
+	 * source AND pass assert_notebook_readable.
+	 *
+	 * @return int[]|null|WP_Error
+	 */
+	private function resolve_readable_source_scope( $source_id, $notebook_id ) {
+		if ( current_user_can( 'manage_options' ) ) { return null; }
+		$owners = $this->get_source_notebook_ids( $source_id );
+		if ( (int) $notebook_id > 0 ) {
+			if ( ! in_array( (int) $notebook_id, $owners, true ) ) {
+				return new WP_Error( 'not_found', 'Source not found in this notebook', [ 'status' => 404 ] );
+			}
+			$access = $this->assert_notebook_readable( (int) $notebook_id );
+			return is_wp_error( $access ) ? $access : [ (int) $notebook_id ];
+		}
+		$readable = [];
+		foreach ( $owners as $nb ) {
+			if ( ! is_wp_error( $this->assert_notebook_readable( $nb ) ) ) { $readable[] = (int) $nb; }
+		}
+		if ( empty( $readable ) ) {
+			return new WP_Error( 'forbidden', 'Access denied: source is not readable for this account', [ 'status' => 403 ] );
+		}
+		return $readable;
+	}
+
 	private function get_relation_notebook_id( $relation_id ) {
 		global $wpdb;
 		if ( ! class_exists( 'BizCity_KG_Database' ) ) { return 0; }
@@ -831,6 +907,21 @@ class BizCity_KG_Rest_Controller {
 		$limit       = max( 1, min( 50, (int) ( $req->get_param( 'limit' ) ?: 10 ) ) );
 		if ( $entity_id <= 0 ) {
 			return new WP_Error( 'bad_request', 'Invalid entity id', [ 'status' => 400 ] );
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — resolve the entity's notebook server-side and
+		// require read access; passages are then scoped to a readable notebook (never unscoped for non-admins).
+		$entity_nb = $this->get_entity_notebook_id( $entity_id );
+		if ( $entity_nb > 0 ) {
+			$access = $this->assert_notebook_readable( $entity_nb );
+			if ( is_wp_error( $access ) ) { return $access; }
+		} elseif ( ! current_user_can( 'manage_options' ) ) {
+			return new WP_Error( 'not_found', 'Entity not found', [ 'status' => 404 ] );
+		}
+		if ( $notebook_id > 0 && $notebook_id !== $entity_nb ) {
+			$access = $this->assert_notebook_readable( $notebook_id );
+			if ( is_wp_error( $access ) ) { return $access; }
+		} elseif ( $entity_nb > 0 ) {
+			$notebook_id = $entity_nb;
 		}
 
 		$db = BizCity_KG_Database::instance();
@@ -915,6 +1006,9 @@ class BizCity_KG_Rest_Controller {
 		if ( $source_id <= 0 ) {
 			return new WP_Error( 'bad_request', 'Invalid source id', [ 'status' => 400 ] );
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — owning notebook resolved server-side + read check.
+		$scope_nbs = $this->resolve_readable_source_scope( $source_id, $notebook_id );
+		if ( is_wp_error( $scope_nbs ) ) { return $scope_nbs; }
 
 		$db = BizCity_KG_Database::instance();
 		$tp  = $db->tbl_passages();
@@ -1013,6 +1107,10 @@ class BizCity_KG_Rest_Controller {
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 
 		$where_nb = $notebook_id > 0 ? $wpdb->prepare( ' AND p.notebook_id = %d', $notebook_id ) : '';
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — no notebook_id param: limit to readable owners.
+		if ( $where_nb === '' && is_array( $scope_nbs ) ) {
+			$where_nb = ' AND p.notebook_id IN (' . implode( ',', array_map( 'intval', $scope_nbs ) ) . ')';
+		}
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$sql = $wpdb->prepare(
@@ -1198,6 +1296,9 @@ class BizCity_KG_Rest_Controller {
 	public function source_progress_log( WP_REST_Request $req ) {
 		$access = $this->assert_notebook_readable( (int) $req->get_param( 'notebook_id' ) );
 		if ( is_wp_error( $access ) ) { return $access; }
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H7 — the source must belong to that readable notebook.
+		$scope = $this->resolve_readable_source_scope( (int) $req['id'], (int) $req->get_param( 'notebook_id' ) );
+		if ( is_wp_error( $scope ) ) { return $scope; }
 		if ( ! class_exists( 'BizCity_KG_Source_Progress_Log' ) ) {
 			return new WP_Error( 'not_available', 'Progress log unavailable.', [ 'status' => 503 ] );
 		}

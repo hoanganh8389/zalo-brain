@@ -528,15 +528,4 @@ function bizcity_zalobot_resolve_wp_user( $bot_id ) {
 	return 0;
 }
 
-/**
- * Lấy danh sách bot_ids được gán cho WordPress user
- *
- * @param int $user_id WordPress user ID
- * @return array
- */
-function bizcity_zalobot_get_user_bots( $user_id ) {
-	if ( class_exists( 'BizCity_Zalo_Bot_Dashboard' ) ) {
-		return BizCity_Zalo_Bot_Dashboard::get_user_bot_ids( (int) $user_id );
-	}
-	return array();
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-LG — bizcity_zalobot_get_user_bots() removed (no caller; BizCity_Zalo_Bot_Dashboard::get_user_bot_ids() is the API).

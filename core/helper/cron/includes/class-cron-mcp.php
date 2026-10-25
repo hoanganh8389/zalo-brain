@@ -110,15 +110,8 @@ class BizCity_Cron_MCP {
 		return [ 'status' => 'done', 'result' => is_array( $r ) ? $r : [ 'ok' => (bool) $r ] ];
 	}
 
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — the retry queue is retired (owner: "cron_retries bỏ hoàn toàn"); the tool stays for the MCP contract and answers empty. */
 	public static function tool_list_retries( array $args = [], array $ctx = [] ): array {
-		global $wpdb;
-		$t = $wpdb->prefix . BizCity_Cron_Manager::TABLE_RETRIES;
-		$wpdb->suppress_errors( true );
-		$rows = (array) $wpdb->get_results(
-			"SELECT job_id, attempt, status, next_run_at, last_error FROM {$t} WHERE status IN ('pending','dead') ORDER BY next_run_at ASC LIMIT 100", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			ARRAY_A
-		);
-		$wpdb->suppress_errors( false );
-		return [ 'retries' => $rows ];
+		return [ 'retries' => [] ];
 	}
 }

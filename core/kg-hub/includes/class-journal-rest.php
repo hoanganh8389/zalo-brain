@@ -110,11 +110,26 @@ final class BizCity_Journal_REST {
 			'callback'            => array( __CLASS__, 'candidate_decide' ),
 			'permission_callback' => array( __CLASS__, 'permission' ),
 		) );
+		// [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb — "Đọc lại": the card's reextract action (the cell reads it on its next sweep)
+		register_rest_route( self::NS, '/journal/(?P<id>\d+)/reextract', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'reextract' ),
+			'permission_callback' => array( __CLASS__, 'permission' ),
+		) );
 		register_rest_route( self::NS, '/journal/(?P<id>\d+)/vault', array(
 			'methods'             => 'GET',
 			'callback'            => array( __CLASS__, 'vault' ),
 			'permission_callback' => array( __CLASS__, 'permission' ),
 		) );
+	}
+
+	/** POST journal/{id}/reextract — a person asks the cell to read the saved file again (edit rights; the row must be theirs and keep a file). */
+	public static function reextract( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			return self::respond( new WP_Error( 'access_denied', 'Không có quyền nhờ đọc lại.', array( 'status' => 403 ) ) );
+		}
+		$out = class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::request_reread( (int) $request->get_param( 'id' ), (int) get_current_user_id() ) : new WP_Error( 'journal_unavailable', 'Chỉ mục nhật ký chưa sẵn sàng.' );
+		return is_wp_error( $out ) ? self::respond( $out ) : self::respond( BizCity_Journal_MCP_Tools::card_of( $out ) );
 	}
 
 	/** POST journal/{id}/meta {meta: entry-meta@1 part, expected_rev?} — the person's hand: source owner_edit, the fields changed become locked. */
@@ -185,7 +200,7 @@ final class BizCity_Journal_REST {
 		if ( null === $row || '' === (string) ( $row['ref_code'] ?? '' ) ) {
 			return self::respond( new WP_Error( 'journal_not_found', 'Không tìm thấy mục nhật ký.' ) );
 		}
-		$args = array( 'ref' => (string) $row['ref_code'] );
+		$args = array( 'entry_id' => (int) $row['entry_id'] ); // [2026-10-24 07:02 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — by id: a TL- code resolves through source_ref, which older file rows do not carry
 		if ( $request->get_param( 'list' ) ) {
 			return self::respond( BizCity_Journal_MCP_Tools::vault_revision( $args, self::ctx() ) );
 		}
@@ -247,9 +262,17 @@ final class BizCity_Journal_REST {
 		if ( ! class_exists( 'BizCity_Journal_MCP_Tools' ) ) {
 			return new WP_REST_Response( array( 'code' => 'journal_unavailable', 'message' => 'Chỉ mục nhật ký chưa sẵn sàng trên site này.', 'hint' => '', 'help_code' => 'S100-JN-REST-1' ), 503 );
 		}
-		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer', 'context_scope', 'terms', 'match', 'person', 'has', 'source_uuid' ) ); // [2026-10-24 05:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — + find v2 // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — + context_scope (context-scope@1), one handler two doors // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
+		$args = self::read_params( $request, array( 'kind', 'kinds', 'kind_prefix', 'tags', 'subject_hash', 'from', 'to', 'q', 'limit', 'offset', 'status', 'has_file', 'job', 'layer', 'context_scope', 'terms', 'match', 'person', 'has', 'source_uuid', 'meta_status', 'has_markdown', 'folder' ) ); // [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B3 — + meta_status · has_markdown · folder (the MCP door already had them; the web could not filter "chưa có bản đọc") // [2026-10-24 05:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — + find v2 // [2026-10-24 12:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — + context_scope (context-scope@1), one handler two doors // [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J5 — + job (JB-…), layer
 		$args = self::scope_filter( $args, (int) $request->get_param( 'contact_id' ), (string) $request->get_param( 'group' ) ); // [2026-10-19 10:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 R-CONTACT-ID
 		$res  = BizCity_Journal_MCP_Tools::find( $args, self::ctx() );
+		// [2026-10-25 01:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A2 (D137-1) — every listed row carries its four steps, so Sổ cái (TwinChat) draws the same bar as Bảng tệp / Bảng nhanh
+		if ( is_array( $res ) && ! isset( $res['code'] ) && class_exists( 'BizCity_Journal_Pipeline' ) && ! empty( $res['items'] ) ) {
+			foreach ( $res['items'] as $i => $e ) {
+				if ( is_array( $e ) && isset( $e['entry_id'] ) ) {
+					$res['items'][ $i ]['pipeline'] = BizCity_Journal_Pipeline::of( $e, null );
+				}
+			}
+		}
 		return self::respond( $res );
 	}
 

@@ -26,6 +26,35 @@
 
 defined( 'ABSPATH' ) || exit;
 
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-LG — moved here from legacy-messenger-compat.php (archived); the brain add-on's astro services still call it.
+// ── _bizcity_legacy_tbl_exists — shared table-existence cache ────────────────
+// [2026-06-21 Johnny Chu] HOTFIX — SELECT 1 from information_schema + dual cache.
+// Static array  : free after first check per request (no DB at all).
+// wp_cache layer: cross-request (Redis/Memcached when available), 1-hour TTL.
+// Uses SELECT 1 (not SHOW TABLES) — no DB error on missing table, pure read.
+if ( ! function_exists( '_bizcity_legacy_tbl_exists' ) ) {
+	function _bizcity_legacy_tbl_exists( $table_name ) {
+		static $s = array();
+		if ( isset( $s[ $table_name ] ) ) {
+			return $s[ $table_name ];
+		}
+		$ck      = 'bz_tbl_' . (int) get_current_blog_id() . '_' . crc32( $table_name );
+		$present = wp_cache_get( $ck, 'bizcity_tbl' );
+		if ( false === $present ) {
+			global $wpdb;
+			$present = (int) (bool) $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+					$table_name
+				)
+			);
+			wp_cache_set( $ck, $present, 'bizcity_tbl', HOUR_IN_SECONDS );
+		}
+		$s[ $table_name ] = (bool) $present;
+		return $s[ $table_name ];
+	}
+}
+
 /* ═══════════════════════════════════════════════════════════
  * 1. NORMALIZE TRIGGER PAYLOAD
  * ═══════════════════════════════════════════════════════════ */
@@ -333,65 +362,11 @@ if ( ! function_exists( 'bizcity_gateway_classify_attachment' ) ) {
  * 6. BRIDGE: bizcity_chat_message_processed → automation
  * ═══════════════════════════════════════════════════════════ */
 
-if ( ! has_action( 'bizcity_chat_message_processed', 'bizcity_gateway_bridge_chat_to_automation' ) ) {
-	add_action( 'bizcity_chat_message_processed', 'bizcity_gateway_bridge_chat_to_automation', 10, 1 );
-}
-
-if ( ! function_exists( 'bizcity_gateway_bridge_chat_to_automation' ) ) {
-	/**
-	 * Bridge: Chat Gateway → fire automation trigger (ADMINCHAT only).
-	 *
-	 * @param array $event_data
-	 */
-	function bizcity_gateway_bridge_chat_to_automation( $event_data ) {
-		if ( ! is_array( $event_data ) ) { return; }
-		if ( defined( 'BIZCITY_CHANNEL_GATEWAY_LOADED' ) ) { return; } // new CG handles this
-		if ( ! empty( $GLOBALS['bizcity_gateway_trigger_fired'] ) ) { return; }
-
-		$platform_type = strtolower( isset( $event_data['platform_type'] ) ? $event_data['platform_type'] : '' );
-		$platform      = in_array( $platform_type, array( 'adminchat', 'webchat' ), true ) ? $platform_type : '';
-		if ( empty( $platform ) || $platform === 'webchat' ) { return; }
-
-		global $waic_current_trigger;
-		if ( ! empty( $waic_current_trigger ) ) { return; }
-
-		$trigger = bizcity_gateway_normalize_trigger( $event_data, $platform );
-		bizcity_gateway_fire_trigger( $trigger, (array) $event_data );
-	}
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF (owner: "di sản luồng bot twf cũ cần gỡ hết") — bizcity_gateway_bridge_chat_to_automation() removed (bizcity_chat_message_processed is fired by nothing).
 
 /* ═══════════════════════════════════════════════════════════
  * 7. FILTER: twf_send_message_override
  * ═══════════════════════════════════════════════════════════ */
 
-if ( ! has_filter( 'twf_send_message_override', 'bizcity_gateway_override_send_for_webchat' ) ) {
-	add_filter( 'twf_send_message_override', 'bizcity_gateway_override_send_for_webchat', 8, 5 );
-}
-
-if ( ! function_exists( 'bizcity_gateway_override_send_for_webchat' ) ) {
-	/**
-	 * Route webchat/adminchat/zalo_bot chat_id qua Gateway thay vì Telegram.
-	 *
-	 * @param mixed  $default
-	 * @param string $chat_id
-	 * @param string $text
-	 * @param string $parse_mode
-	 * @param mixed  $reply_markup
-	 * @return mixed
-	 */
-	function bizcity_gateway_override_send_for_webchat( $default, $chat_id, $text, $parse_mode = '', $reply_markup = null ) {
-		if ( $default !== false ) { return $default; }
-		if ( defined( 'BIZCITY_CHANNEL_GATEWAY_LOADED' ) ) { return false; }
-
-		$platform = function_exists( 'bizcity_gateway_detect_platform' )
-			? bizcity_gateway_detect_platform( $chat_id )
-			: 'unknown';
-
-		if ( in_array( $platform, array( 'webchat', 'adminchat', 'zalo_bot' ), true ) ) {
-			$result = bizcity_gateway_send_message( $chat_id, $text );
-			return $result['sent'] ? array( 'status' => 'sent', 'platform' => $platform ) : false;
-		}
-
-		return false;
-	}
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — bizcity_gateway_override_send_for_webchat() removed: it returned false whenever the Channel Gateway is loaded
+// (it lives inside it), so it never routed anything; the gateway's own twf_send_message_override @7 does the job.

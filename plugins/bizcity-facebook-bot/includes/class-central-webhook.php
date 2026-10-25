@@ -140,7 +140,8 @@ class BizCity_Facebook_Central_Webhook {
         $token     = (string) ( $_GET['hub_verify_token'] ?? ( $_GET['hub.verify_token'] ?? '' ) );
         $challenge = (string) ( $_GET['hub_challenge'] ?? ( $_GET['hub.challenge'] ?? '' ) );
 
-        $this->log_info( 'Central verify attempt', array( 'mode' => $mode, 'token' => $token ) );
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — never log the submitted verify token (presence only).
+        $this->log_info( 'Central verify attempt', array( 'mode' => $mode, 'token_present' => '' !== $token ) );
 
         if ( $mode === 'subscribe' && hash_equals( $this->get_verify_token(), $token ) && $challenge !== '' ) {
             while ( ob_get_level() ) ob_end_clean();
@@ -186,13 +187,14 @@ class BizCity_Facebook_Central_Webhook {
         }
 
         // [2026-10-07 01:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 S93-C5 — only Meta-signed events are routed to a blog.
-        if ( class_exists( 'BizCity_FB_Webhook_Signature' ) && ! BizCity_FB_Webhook_Signature::allow( (string) $input, BizCity_FB_Webhook_Signature::header(), 'facehook' ) ) {
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H3 — verifier class missing ⇒ refused (fail closed).
+        if ( ! class_exists( 'BizCity_FB_Webhook_Signature' ) || ! BizCity_FB_Webhook_Signature::allow( (string) $input, BizCity_FB_Webhook_Signature::header(), 'facehook' ) ) {
             status_header( 403 );
             echo 'Forbidden';
             exit;
         }
 
-        $this->verified_secret = class_exists( 'BizCity_FB_Webhook_Signature' ) ? BizCity_FB_Webhook_Signature::matching_secret( (string) $input, (string) BizCity_FB_Webhook_Signature::header() ) : '';
+        $this->verified_secret = BizCity_FB_Webhook_Signature::matching_secret( (string) $input, (string) BizCity_FB_Webhook_Signature::header() );
 
         $data = json_decode( $input, true );
         if ( ! is_array( $data ) || empty( $data['entry'] ) ) {
@@ -519,11 +521,8 @@ class BizCity_Facebook_Central_Webhook {
     /** The hand-off outcome goes to the SAME file the site's own webhook uses (fbhook-DATE.log), so one log tells the whole story of a message */
     private function log_fb( $message, $data = null ) {
         $this->log_info( $message, $data );
-        $dir = WP_CONTENT_DIR . '/mu-plugins/logs';
-        if ( is_dir( $dir ) || @mkdir( $dir, 0755, true ) ) {
-            @file_put_contents( $dir . '/fbhook-' . gmdate( 'Y-m-d' ) . '.log', json_encode( array( 'time' => gmdate( 'H:i:s' ), 'blog_id' => get_current_blog_id(), 'type' => 'info', 'data' => array( 'message' => $message, 'data' => $data ) ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "
-", FILE_APPEND | LOCK_EX );
-        }
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — same protected dir / salted name / redaction as the site handler.
+        $this->append_log( 'fbhook', 'info', array( 'message' => $message, 'data' => $data ) );
     }
 
     private function log_error( $message, $data = null ) {
@@ -535,25 +534,35 @@ class BizCity_Facebook_Central_Webhook {
     }
 
     private function write_log( $type, $data ) {
-        $log_dir = WP_CONTENT_DIR . '/mu-plugins/logs';
-        if ( ! file_exists( $log_dir ) ) {
-            @mkdir( $log_dir, 0755, true );
+        $this->append_log( 'facehook', $type, $data );
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC H4 — one writer for facehook-/fbhook- rows: protected dir (deny .htaccess +
+     * index.php), salted file name, redacted data (no text / names / URLs / tokens). Helpers live on the site handler; missing ⇒ no log.
+     */
+    private function append_log( string $prefix, $type, $data ) {
+        $h = 'BizCity_Facebook_Bot_Webhook_Handler';
+        if ( ! class_exists( $h ) || ! method_exists( $h, 'protected_log_dir' ) ) {
+            return;
         }
-
-        $date_str = gmdate( 'Y-m-d' );
-        $time_str = gmdate( 'H:i:s' );
-        $blog_id  = get_current_blog_id();
-
-        $log_file = $log_dir . "/facehook-{$date_str}.log";
+        $log_dir = $h::protected_log_dir();
+        if ( '' === $log_dir ) {
+            return;
+        }
+        $safe = $h::redact_log_value( $data );
+        if ( is_array( $data ) && isset( $data['message'] ) && is_string( $data['message'] ) && is_array( $safe ) ) {
+            $safe['message'] = $data['message']; // top-level 'message' is our own log label
+        }
         $log_entry = array(
-            'time'    => $time_str,
-            'blog_id' => $blog_id,
+            'time'    => gmdate( 'H:i:s' ),
+            'blog_id' => get_current_blog_id(),
             'type'    => $type,
-            'data'    => $data,
+            'data'    => $safe,
         );
 
         @file_put_contents(
-            $log_file,
+            $log_dir . '/' . $prefix . '-' . gmdate( 'Y-m-d' ) . '-' . $h::log_file_suffix() . '.log',
             json_encode( $log_entry, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) . "\n",
             FILE_APPEND | LOCK_EX
         );

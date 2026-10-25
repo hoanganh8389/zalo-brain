@@ -68,7 +68,7 @@ final class BizCity_Journal_Entry_Meta {
 	 */
 	public static function normalize( array $in, bool $strict = false ): array {
 		$errors = array();
-		$known  = array( 'contract', 'about', 'caption', 'ocr', 'keywords', 'topics', 'entities', 'people', 'amounts', 'file', 'source', 'by', 'status', 'error', 'locked', 'rev', 'title' );
+		$known  = array( 'contract', 'about', 'caption', 'ocr', 'keywords', 'topics', 'entities', 'people', 'amounts', 'file', 'source', 'by', 'status', 'error', 'locked', 'rev', 'title', 'folder' );
 		foreach ( array_keys( $in ) as $k ) {
 			if ( ! in_array( (string) $k, $known, true ) ) {
 				$errors[] = 'unknown_field:' . $k;
@@ -90,6 +90,14 @@ final class BizCity_Journal_Entry_Meta {
 		}
 		if ( array_key_exists( 'title', $in ) ) {
 			$out['title'] = $text( $in['title'], 200, 'title' );
+		}
+		if ( array_key_exists( 'folder', $in ) ) { // the digital folder (twin-vault D134-10): "30" or "30/slug", else dropped
+			$fl = trim( (string) $in['folder'] );
+			if ( '' === $fl || 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', $fl ) ) {
+				$out['folder'] = $fl;
+			} elseif ( $strict ) {
+				$errors[] = 'bad_value:folder';
+			}
 		}
 		if ( is_array( $in['ocr'] ?? null ) ) {
 			$o    = $in['ocr'];
@@ -547,6 +555,10 @@ final class BizCity_Journal_Entry_Meta {
 			'locked'      => array_values( (array) ( $meta['locked'] ?? array() ) ),
 			'rev'         => (int) ( $entry['rev'] ?? 1 ),
 		);
+		// [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B2 (D137-1) — the card carries the four-step pipeline of the row (level left to brain-map: null here)
+		if ( class_exists( 'BizCity_Journal_Pipeline' ) ) {
+			$out['pipeline'] = BizCity_Journal_Pipeline::of( $entry, null );
+		}
 		if ( '' !== $preview_url && self::is_image( $entry ) ) {
 			$out['preview'] = array( 'type' => 'image', 'url' => $preview_url );
 		}

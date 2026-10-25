@@ -9,7 +9,8 @@
  * Both wrap BizCity_Responder_Stamper so the resulting `_bizcity_channel_messages`
  * row carries `responder_kind` + `responder_user_id` + `responder_character_id`.
  *
- * Permission: `edit_posts` (CSKH agents). Use cap filter to refine per project.
+ * Permission: tenant admin, or `bizcity_channel_send` (filter `bizcity_inbox_reply_cap`) + CRM conversation scope via
+ * body.conversation_id (PHASE-0.126 R126-SEC M3; was `edit_posts`).
  *
  * Request body (JSON):
  *   send: { chat_id, platform, message, responder_kind?, character_id?, hybrid_source? }
@@ -48,13 +49,49 @@ class BizCity_Inbox_Send_REST {
 	}
 
 	public static function can_reply(): bool {
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M3 — `edit_posts` (every author/contributor) could push
+		// outbound messages to any chat_id. Now: tenant admin, or the dedicated `bizcity_channel_send` cap (R-CH-5) plus the
+		// per-conversation CRM inbox scope enforced in the handlers.
+		if ( self::is_tenant_admin() ) {
+			return true;
+		}
 		/**
 		 * Filter the capability required to reply through the CRM composer.
 		 *
-		 * @param string $cap Default 'edit_posts'.
+		 * @param string $cap Default 'bizcity_channel_send' (was 'edit_posts' before PHASE-0.126).
 		 */
-		$cap = (string) apply_filters( 'bizcity_inbox_reply_cap', 'edit_posts' );
-		return current_user_can( $cap );
+		$cap = (string) apply_filters( 'bizcity_inbox_reply_cap', 'bizcity_channel_send' );
+		return $cap !== '' && current_user_can( $cap );
+	}
+
+	private static function is_tenant_admin(): bool {
+		return class_exists( 'BizCity_Network_Admin_Capability' )
+			? BizCity_Network_Admin_Capability::can_manage()
+			: current_user_can( 'manage_options' );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M3 — non-admins must name a CRM conversation they can
+	 * see (BizCity_CRM_Inbox_Access); the outbound chat_id/platform are then resolved server-side from that conversation.
+	 *
+	 * @return array{chat_id:string,platform:string}|WP_REST_Response Admins get the posted target back unchanged.
+	 */
+	private static function authorize_target( array $body, string $chat_id, string $platform ) {
+		if ( self::is_tenant_admin() ) {
+			return array( 'chat_id' => $chat_id, 'platform' => $platform );
+		}
+		$conversation_id = isset( $body['conversation_id'] ) ? (int) $body['conversation_id'] : 0;
+		if ( $conversation_id <= 0
+			|| ! class_exists( 'BizCity_CRM_Inbox_Access' )
+			|| ! class_exists( 'BizCity_CRM_Repository' )
+			|| ! BizCity_CRM_Inbox_Access::can_view_conversation( $conversation_id, (int) get_current_user_id() ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'conversation_id outside your inbox scope' ), 403 );
+		}
+		$target = BizCity_CRM_Repository::resolve_chat_id( $conversation_id );
+		if ( ! is_array( $target ) || empty( $target['chat_id'] ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'conversation target unavailable' ), 404 );
+		}
+		return array( 'chat_id' => (string) $target['chat_id'], 'platform' => strtoupper( (string) ( $target['platform'] ?? '' ) ) );
 	}
 
 	/* ─────────────────────────── /inbox/send ─────────────────────────── */
@@ -67,9 +104,18 @@ class BizCity_Inbox_Send_REST {
 		$platform = strtoupper( trim( (string) ( $body['platform'] ?? '' ) ) );
 		$message  = (string) ( $body['message']  ?? '' );
 		$kind     = (string) ( $body['responder_kind'] ?? 'manual' );
-		$cid      = isset( $body['character_id'] ) ? (int) $body['character_id'] : 0;
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M3 — client-sent character_id is ignored; the Guru
+		// comes from the channel binding only.
+		$cid      = 0;
 
-		if ( $chat_id === '' || $message === '' ) {
+		if ( $message === '' || ( $chat_id === '' && empty( $body['conversation_id'] ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'chat_id and message are required' ), 400 );
+		}
+		$target = self::authorize_target( $body, $chat_id, $platform );
+		if ( $target instanceof WP_REST_Response ) { return $target; }
+		$chat_id  = $target['chat_id'];
+		$platform = $target['platform'];
+		if ( $chat_id === '' ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'chat_id and message are required' ), 400 );
 		}
 		if ( ! in_array( $kind, array( 'manual', 'hybrid', 'auto', 'system' ), true ) ) {
@@ -135,7 +181,15 @@ class BizCity_Inbox_Send_REST {
 		$platform = strtoupper( trim( (string) ( $body['platform'] ?? '' ) ) );
 		$note     = (string) ( $body['body']     ?? '' );
 
-		if ( $chat_id === '' || $note === '' ) {
+		if ( $note === '' || ( $chat_id === '' && empty( $body['conversation_id'] ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'message' => 'chat_id and body are required' ), 400 );
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC M3 — same conversation-scope gate as /inbox/send.
+		$target = self::authorize_target( $body, $chat_id, $platform );
+		if ( $target instanceof WP_REST_Response ) { return $target; }
+		$chat_id  = $target['chat_id'];
+		$platform = $target['platform'];
+		if ( $chat_id === '' ) {
 			return new WP_REST_Response( array( 'ok' => false, 'message' => 'chat_id and body are required' ), 400 );
 		}
 		if ( ! class_exists( 'BizCity_Responder_Stamper' ) ) {

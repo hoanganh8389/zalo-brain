@@ -27,9 +27,10 @@ define( 'BIZCITY_CHANNEL_GATEWAY_LOADED', true );
 // All functions/shortcodes use function_exists()/shortcode_exists() guards so
 // old mu-plugin copies still active on some installs won't cause fatal conflicts.
 $_bizcity_legacy_dir = __DIR__ . '/legacy/';
-if ( file_exists( $_bizcity_legacy_dir . 'legacy-messenger-compat.php' ) ) {
-	require_once $_bizcity_legacy_dir . 'legacy-messenger-compat.php';
-}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-LG — legacy-messenger-compat.php archived at core/_archived/legacy-messenger-r126lg-20261025/: it shadowed the Facebook bot's own
+// copies (core loads first) with an older one that read the pre-CRM bizgpt_inbox_customer table; fb_messenger_reply / take_thread_control /
+// get_profile_by_client_id / get_or_update_page_access_token had no caller left (the PHP Messenger reply is gone, R126-FB). The FB bot keeps
+// messenger_get_fb_customer + send_notice_to_zalo_admin; _bizcity_legacy_tbl_exists moved into legacy-gateway-functions.php.
 if ( file_exists( $_bizcity_legacy_dir . 'legacy-zalo-compat.php' ) ) {
 	require_once $_bizcity_legacy_dir . 'legacy-zalo-compat.php';
 }
@@ -67,12 +68,11 @@ require_once $gateway_dir . 'class-channel-menu-registry.php';
 
 // PHASE 0.37 M3.W3 — Built-in stub adapters for legacy platforms.
 $adapters_dir = $gateway_dir . 'adapters/';
-$webchat_dir  = $gateway_dir . 'webchat/';
 // [2026-09-02 05:45 PM Johnny Chu - Chu Hoàng Anh] R-SAFE-LOADER — a partial deploy must degrade one stub adapter instead of fatalling the whole gateway.
 $_bzc_stub_adapters = array(
 	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R9 — telegram adapter retired with the Telegram admin bot (R-ONE-AXIS D-30):
 	// it sent through the global twf_bot_token and its inbound was the unverified base stub (verify_webhook() === true).
-	$webchat_dir  . 'class-webchat-adapter.php'       => 'channel.adapter.webchat',
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC — webchat adapter (outbound to the retired visitor widget) archived at core/_archived/webchat-public-r126wc-20261025/.
 	$adapters_dir . 'class-adminchat-adapter.php'     => 'channel.adapter.adminchat',
 	// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — zalo_hotline adapter retired with the Hotline channel (R-ONE-AXIS D-29).
 );
@@ -91,16 +91,9 @@ unset( $_bzc_stub_adapters, $_bzc_stub_file, $_bzc_stub_label );
 // [2026-10-10 11:25 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-8a — the PHASE 0.36 W1 webchat auto-binding helper
 // (BizCity_WebChat_Binding_Bootstrap) had no hook and no caller anywhere; moved to core/_archived/z8a-20261010/.
 
-// PHASE 0.36 W4 — WebChat Inbox REST (admin SPA bubble UI backend).
-require_once $webchat_dir . 'class-webchat-inbox-rest.php';
-
-// [2026-07-02 Johnny Chu] PHASE-TWINWEB — WebChat widget settings REST (system prompt, float toggle, appearance).
-$_bzc_wc_settings = $gateway_dir . 'class-webchat-settings-rest.php';
-if ( file_exists( $_bzc_wc_settings ) ) {
-	require_once $_bzc_wc_settings;
-	BizCity_Webchat_Settings_REST::init();
-}
-unset( $_bzc_wc_settings );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-WC (owner: "webchat public ko còn quan trọng" — every channel answers through the cell) — the WebChat Inbox REST (GET webchat/sessions|messages, visitor-widget rows only)
+// and the widget settings REST (GET/POST webchat/settings, bizcity_webchat_* options nothing else reads) archived with their SPA screens:
+// the visitor float widget (modules/webchat, BizCity_WebChat_Trigger) is gone. TwinChat keeps the bizcity_webchat_* tables (platform_type TWINCHAT).
 
 // PHASE 0.37 M4 — Full BizCity_Channel_Integration adapters (credential storage + send + webhook).
 require_once $adapters_dir . 'class-facebook-page-integration.php';
@@ -299,17 +292,17 @@ require_once $gateway_dir . 'class-web-post-publisher.php';
 // Admin NLU: bizcity_zalo_message_received → classify → create draft event.
 // Contract: core/diagnostics/changelog/core.scheduler.json v3.2.1.
 require_once $gateway_dir . 'class-zalo-reminder.php';
-require_once $gateway_dir . 'class-cmd-classifier.php';
-require_once $gateway_dir . 'class-cg-admin-router.php';
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — the cell answers every channel; the PHP admin router (BizCity_CG_Admin_Router, regex
+// intent → draft task + Zalo reply on bizcity_zalo_message_received@5) and BizCity_CMD_Classifier are archived at core/_archived/admin-routers-r126rt2-20261025/.
 
 // PHASE CG-TASK-UNIFY v0.3 — Phase 3 handlers (legacy migration).
 // event_type='woo_product_create'/'woo_product_edit' → BizCity_Woo_Product_Handler (priority 35).
 // event_type='lead_report' → BizCity_Lead_Report_Handler (priority 38).
-// event_type='woo_order_create' → BizCity_Woo_Order_Handler (priority 40).
 // Contract: core/diagnostics/changelog/core.scheduler.json v3.3.0.
 require_once $gateway_dir . 'class-woo-product-handler.php';
 require_once $gateway_dir . 'class-lead-report-handler.php';
-require_once $gateway_dir . 'class-woo-order-handler.php';
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-ING (owner: LLM lúc nạp → cell) — BizCity_Woo_Order_Handler (free text → Woo order through a PHP LLM
+// call) archived at core/_archived/ingest-llm-20261024/: nothing produces woo_order_create rows; the cell creates orders through MCP order.create / order.place.
 
 // [2026-06-07 Johnny Chu] PHASE-0.38.W3.5 — Public order tracking REST (bizcity-channel/v1 GET+POST /order-tracking/{token}).
 require_once $gateway_dir . 'class-cg-order-tracking-rest.php';
@@ -407,6 +400,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'class-zalo-transport-capability.php' => 'channel.zalo_transport_capability',
 	// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE GS-1 — the one Guru content source (instruction/prompt split, gate 0); before the builder that composes it.
 	$gateway_dir . 'bot/class-guru-context-resolver.php' => 'channel.bot.guru_context_resolver',
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-S1 — the two default Gurus (Quản gia · Đối ngoại) from contracts/GURU-SEED-v1.json.
+	$gateway_dir . 'bot/class-guru-seed.php' => 'channel.bot.guru_seed',
 	// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — notebook passages for the PHP engine (listener of the resolver's notebook seam).
 	$gateway_dir . 'bot/class-guru-notebook-blocks.php' => 'channel.bot.guru_notebook_blocks',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
@@ -425,6 +420,9 @@ foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	}
 }
 unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+if ( class_exists( 'BizCity_Guru_Seed', false ) ) {
+	BizCity_Guru_Seed::boot(); // PHASE-0.136 S136-S1 — seeds once per site version (init 99)
+}
 // [2026-10-16 05:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector permission rows join the shell registry (group connectors: Phân quyền module only, never the ActivityBar).
 if ( class_exists( 'BizCity_Connector_Registry', false ) ) {
 	BizCity_Connector_Registry::boot();
@@ -451,150 +449,23 @@ if ( class_exists( 'BizCity_Guru_Notebook_Blocks' ) ) {
 	BizCity_Guru_Notebook_Blocks::boot(); // [2026-09-27] PHASE-0.81 S81-R4
 }
 
-// [2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-L9/L10/L12/L2'/L13 — menu "Sử dụng": the site's copy of its own client
-// ledger (usage-ledger@1 ingest) + usage-view@1 read routes. Partial deploy degrades this module only (R-SAFE-LOADER).
-$_bzc_usage_files = array(
-	$gateway_dir . 'usage/class-usage-schema.php'    => 'channel.usage.schema',
-	$gateway_dir . 'usage/class-usage-prices.php'    => 'channel.usage.prices',
-	$gateway_dir . 'usage/class-usage-ingest.php'    => 'channel.usage.ingest',
-	$gateway_dir . 'usage/class-usage-ops-day.php' => 'channel.usage.ops_day', // [2026-10-21 09:29 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C2 — the owner copy of the cell's day as an Orchestrator (ops-day@1, counts only)
-	$gateway_dir . 'usage/class-usage-activity-day.php' => 'channel.usage.activity_day', // [2026-10-15 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L1 — the cell's daily activity counts (activity-day@1)
-	$gateway_dir . 'usage/class-usage-view-rest.php' => 'channel.usage.view_rest',
-	// [2026-10-13 02:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 round 4 (L14–L18): wallet proxy, client plans, site-side enforcement (AI switch + owner notice), Woo Pro, REST.
-	$gateway_dir . 'usage/class-usage-wallet.php'     => 'channel.usage.wallet',
-	$gateway_dir . 'usage/class-usage-plans.php'      => 'channel.usage.plans',
-	$gateway_dir . 'usage/class-usage-plan-enforce.php' => 'channel.usage.plan_enforce',
-	$gateway_dir . 'usage/class-usage-plan-woo.php'   => 'channel.usage.plan_woo',
-	$gateway_dir . 'usage/class-usage-plans-rest.php' => 'channel.usage.plans_rest',
-	// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L18.2 — revenue ledger (records a sale AFTER
-	// BizCity_Usage_Plan_Woo::apply() extends the plan; does not own the double-extend lock itself).
-	$gateway_dir . 'usage/class-usage-plan-sales.php' => 'channel.usage.plan_sales',
-	// [2026-10-13 09:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.108 vòng 2 (20-REVENUE-PER-NUMBER, 24-TECH-DESIGN-REVENUE): sell plans per number — expected end (L20.1),
-	// price floor from the Hub (L21), 1/3/6/12-month price list + hidden Woo products (L17), order for ONE number (L19.1), Zalo link/receipt (L22.1), their REST (L17.1/L19.2/L19.3)
-	// and the revenue report REST (L20.3-5). New files only; the 0.107 plan classes above are not edited beyond one do_action in Plan_Woo::apply().
-	$gateway_dir . 'usage/class-usage-plan-expect.php'      => 'channel.usage.plan_expect',
-	$gateway_dir . 'usage/class-usage-plan-floor.php'       => 'channel.usage.plan_floor',
-	$gateway_dir . 'usage/class-usage-plan-packages.php'    => 'channel.usage.plan_packages',
-	$gateway_dir . 'usage/class-usage-plan-orders.php'      => 'channel.usage.plan_orders',
-	$gateway_dir . 'usage/class-usage-plan-notices.php'     => 'channel.usage.plan_notices',
-	$gateway_dir . 'usage/class-usage-plan-orders-rest.php' => 'channel.usage.plan_orders_rest',
-	$gateway_dir . 'usage/class-usage-revenue-rest.php'     => 'channel.usage.revenue_rest',
-	$gateway_dir . 'usage/class-usage-myplans-endpoint.php' => 'channel.usage.myplans_endpoint', // Woo My Account "Gói Zalo của tôi" (customer screen ⑥)
-	$gateway_dir . 'usage/class-usage-accounts-rest.php'    => 'channel.usage.accounts_rest',    // PHASE-0.109 — account desk + token ledger tabs
-	// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview (read only, one row per WP user).
-	$gateway_dir . 'usage/class-admin-users-overview-rest.php' => 'channel.usage.admin_users_overview',
-	// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — "Thêm người dùng" on the same page (admin-user-create@1, R-ADMIN-12).
-	$gateway_dir . 'usage/class-admin-users-create-rest.php' => 'channel.usage.admin_users_create',
-	$gateway_dir . 'usage/class-usage-standing.php'         => 'channel.usage.standing',        // S108-L23 — the site's window on its domain title (Hub-issued from cell-measured numbers)
-	$gateway_dir . 'usage/class-brain-standing-rules.php'   => 'channel.brain.standing_rules',   // cap20_customer_only@1 reference (shared fixture with the cell, T108-33)
-);
-foreach ( $_bzc_usage_files as $_bzc_usage_file => $_bzc_usage_label ) {
-	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-		BizCity_Safe_Loader::require_file( $_bzc_usage_file, $_bzc_usage_label );
-	} elseif ( is_file( $_bzc_usage_file ) && is_readable( $_bzc_usage_file ) ) {
-		require_once $_bzc_usage_file;
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — owner decision "6 bảng usage tách usage/ thành add-on billing": the menu
+// "Sử dụng" (PHASE-0.107 S107-L9…: the site's copy of its client ledger, usage-ledger@1 ingest + usage-view@1), plans per Zalo number + Woo sales
+// (0.107 round 4 / 0.108 vòng 2), revenue, the "Tài khoản" + "Sổ cái token" desk (0.109), the admin "Người dùng" overview + create (0.117 S117-M1/V2),
+// the domain standing (S108-L23) and "Thành tích" (0.108 S108-L1..L15 / 0.112: brain journey, ROI, digest, maturity, ladder, payback) — the two
+// Safe_Loader arrays that stood here, their labels, order and init calls — moved verbatim to the add-on bizcity-billing-addon (includes/usage/ +
+// bootstrap.php). Required at this same point so every hook keeps its priority/order. Without the add-on (or BIZCITY_BILLING_LOAD = 'off') the core
+// is complete: no usage REST, no plan enforcement (ai_off_by_plan never set), no billing crons; every core consumer is class_exists-guarded.
+if ( class_exists( 'BizCity_Addon_Locator' ) ) {
+	$_bzc_billing_boot = BizCity_Addon_Locator::file( 'billing/bootstrap.php' );
+	if ( '' !== $_bzc_billing_boot && is_readable( $_bzc_billing_boot ) ) {
+		if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+			BizCity_Safe_Loader::require_file( $_bzc_billing_boot, 'channel.billing.addon' );
+		} else {
+			require_once $_bzc_billing_boot;
+		}
 	}
-}
-unset( $_bzc_usage_files, $_bzc_usage_file, $_bzc_usage_label );
-if ( class_exists( 'BizCity_Usage_Schema' ) ) {
-	add_action( 'admin_init', array( 'BizCity_Usage_Schema', 'maybe_install' ) );
-}
-if ( class_exists( 'BizCity_Usage_Ingest' ) && class_exists( 'BizCity_Usage_Prices' ) ) {
-	BizCity_Usage_Ingest::init();
-}
-if ( class_exists( 'BizCity_Usage_Activity_Day' ) && class_exists( 'BizCity_Usage_Schema' ) ) {
-	BizCity_Usage_Activity_Day::init(); // PHASE-0.112 S112-L1
-}
-if ( class_exists( 'BizCity_Usage_Ops_Day' ) ) {
-	BizCity_Usage_Ops_Day::init(); // PHASE-0.127 S127-C2
-}
-if ( class_exists( 'BizCity_Usage_View_REST' ) && class_exists( 'BizCity_Usage_Ingest' ) ) {
-	BizCity_Usage_View_REST::init();
-}
-if ( class_exists( 'BizCity_Usage_Plans' ) && class_exists( 'BizCity_Usage_Schema' ) ) {
-	BizCity_Usage_Plans::init(); // daily cron + trial start on first login
-}
-if ( class_exists( 'BizCity_Usage_Plan_Woo' ) && class_exists( 'BizCity_Usage_Plans' ) ) {
-	add_action( 'init', array( 'BizCity_Usage_Plan_Woo', 'init' ), 5 ); // WooCommerce is loaded by then; init() is a no-op without it
-}
-if ( class_exists( 'BizCity_Usage_Plan_Sales' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
-	add_action( 'init', array( 'BizCity_Usage_Plan_Sales', 'init' ), 6 ); // after Plan_Woo's own init() (5); WooCommerce guard inside init() itself
-}
-if ( class_exists( 'BizCity_Usage_Plans_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Usage_Plans_REST::init();
-}
-// PHASE-0.108 vòng 2 — each module starts only when everything it calls is present (partial deploy degrades that module only, R-SAFE-LOADER).
-if ( class_exists( 'BizCity_Usage_Plan_Notices' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
-	BizCity_Usage_Plan_Notices::init(); // receipt on bizcity_usage_plan_applied (priority 20, after the revenue ledger)
-}
-if ( class_exists( 'BizCity_Usage_Plan_Orders_REST' ) && class_exists( 'BizCity_Usage_Plan_Orders' ) && class_exists( 'BizCity_Usage_Plan_Packages' )
-	&& class_exists( 'BizCity_Usage_Plan_Floor' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) && class_exists( 'BizCity_Usage_Plans' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Usage_Plan_Orders_REST::init();
-}
-if ( class_exists( 'BizCity_Usage_MyPlans_Endpoint' ) && class_exists( 'BizCity_Usage_Plan_Orders_REST' ) && class_exists( 'BizCity_Usage_Plan_Orders' ) && class_exists( 'BizCity_Usage_Plan_Woo' ) ) {
-	add_action( 'init', array( 'BizCity_Usage_MyPlans_Endpoint', 'init' ), 7 ); // WooCommerce is loaded by then; init() is a no-op without it
-}
-if ( class_exists( 'BizCity_Usage_Standing' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Usage_Standing::init();
-}
-if ( class_exists( 'BizCity_Usage_Revenue_REST' ) && class_exists( 'BizCity_Usage_Plan_Sales' ) && class_exists( 'BizCity_Usage_Plan_Expect' )
-	&& class_exists( 'BizCity_Usage_Plans_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Usage_Revenue_REST::init();
-}
-
-// [2026-10-14 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 — "Tài khoản" + "Sổ cái token" tabs (read-only, billed figures only).
-if ( class_exists( 'BizCity_Usage_Accounts_REST' ) && class_exists( 'BizCity_Usage_Wallet' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Usage_Accounts_REST::init();
-}
-
-// [2026-10-17 11:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-M1 — admin "Người dùng" overview; reads the same owners as the Accounts tab.
-if ( class_exists( 'BizCity_Admin_Users_Overview_REST' ) && class_exists( 'BizCity_Usage_View_REST' ) ) {
-	BizCity_Admin_Users_Overview_REST::init();
-	// [2026-10-18 12:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-V2 — its gate is the overview's can_manage(), so it loads only with it.
-	if ( class_exists( 'BizCity_Admin_Users_Create_REST' ) ) {
-		BizCity_Admin_Users_Create_REST::init();
-	}
-}
-
-// [2026-10-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.108 S108-L1..L6 — menu "Sử dụng" → tab Thành tích: achievements/ROI
-// built entirely from the usage-ledger copy above (D108-2, R-CELL-METER-ONLY). Partial deploy degrades this module
-// only. Q108-1..9 not yet owner-locked — code follows the master plan's suggested defaults (00-MASTER-PLAN.md §6).
-$_bzc_brain_files = array(
-	$gateway_dir . 'usage/class-brain-journey-schema.php'     => 'channel.brain.schema',
-	$gateway_dir . 'usage/class-brain-milestones-catalog.php' => 'channel.brain.milestones_catalog',
-	$gateway_dir . 'usage/class-brain-roi.php'                => 'channel.brain.roi',
-	$gateway_dir . 'usage/class-brain-digest.php'              => 'channel.brain.digest',       // S108-L7 — daily Zalo bulletins (owner + site admin)
-	$gateway_dir . 'usage/class-brain-settings.php'            => 'channel.brain.settings',     // S108-L15 — REST for minutes/wage/action tools/bulletin switches
-	$gateway_dir . 'usage/class-brain-maturity.php'            => 'channel.brain.maturity', // [2026-10-16 12:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.112 S112-L5 — maturity 0–100 (five axes × efficiency multiplier)
-	$gateway_dir . 'usage/class-brain-owner-ladder.php'        => 'channel.brain.owner_ladder', // S108-L13 — 6-step ladder + what is missing (pure)
-	$gateway_dir . 'usage/class-brain-board.php'               => 'channel.brain.board',          // S108-L11/L12 — ranges, flags, ranking, next milestones, badges (pure)
-	$gateway_dir . 'usage/class-brain-period-metrics.php'      => 'channel.brain.period_metrics', // S108-L11a — 7d / 30d / month windows with the 20/customer/day cap
-	$gateway_dir . 'usage/class-brain-payback-history.php'     => 'channel.brain.payback_history', // S108-L14 — payback.silver/gold + savings + owner Master/Grandmaster counts
-	$gateway_dir . 'usage/class-brain-journey-evaluator.php'  => 'channel.brain.evaluator',
-	$gateway_dir . 'usage/class-brain-journey-rest.php'       => 'channel.brain.journey_rest',
-);
-foreach ( $_bzc_brain_files as $_bzc_brain_file => $_bzc_brain_label ) {
-	if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-		BizCity_Safe_Loader::require_file( $_bzc_brain_file, $_bzc_brain_label );
-	} elseif ( is_file( $_bzc_brain_file ) && is_readable( $_bzc_brain_file ) ) {
-		require_once $_bzc_brain_file;
-	}
-}
-unset( $_bzc_brain_files, $_bzc_brain_file, $_bzc_brain_label );
-if ( class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
-	add_action( 'admin_init', array( 'BizCity_Brain_Journey_Schema', 'maybe_install' ) );
-}
-if ( class_exists( 'BizCity_Brain_Journey_Evaluator' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
-	BizCity_Brain_Journey_Evaluator::init();
-}
-if ( class_exists( 'BizCity_Brain_Journey_REST' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
-	BizCity_Brain_Journey_REST::init();
-}
-if ( class_exists( 'BizCity_Brain_Settings' ) && class_exists( 'BizCity_Brain_ROI' ) && class_exists( 'BizCity_Brain_Journey_Evaluator' ) ) {
-	BizCity_Brain_Settings::init(); // S108-L15
-}
-if ( class_exists( 'BizCity_Brain_Digest' ) && class_exists( 'BizCity_Brain_Settings' ) && class_exists( 'BizCity_Brain_Journey_Schema' ) ) {
-	BizCity_Brain_Digest::init(); // S108-L7 — hourly tick; sends at most once a day per person
+	unset( $_bzc_billing_boot );
 }
 
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
@@ -641,15 +512,29 @@ if ( class_exists( 'BizCity_Bot_Studio_REST' ) ) { BizCity_Bot_Studio_REST::init
 // [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BOT — Turn_Claim / Turn_Runner / Media_Jobs / Schedule / Group_Guard / Media_Client
 // init() calls removed with the PHP engine. Their WP-Cron events are cleared once per blog below (bizcity_bot_engine_cron_cleared).
 add_action( 'init', static function () {
-	if ( get_option( 'bizcity_bot_engine_cron_cleared' ) ) {
-		return;
-	}
-	foreach ( array( 'bizcity_bot_turn_sweep', 'bizcity_bot_run_turn', 'bizcity_bot_media_job', 'bizcity_bot_flood_kick' ) as $hook ) {
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-AUD — clear on EVERY request while any of these hooks is still in the
+	// (autoloaded) cron array, not once behind the flag: an old bot file left on a site could re-schedule one after the flag was set.
+	$bot_hooks = array( 'bizcity_bot_turn_sweep', 'bizcity_bot_run_turn', 'bizcity_bot_media_job', 'bizcity_bot_flood_kick' );
+	$crons     = function_exists( '_get_cron_array' ) ? _get_cron_array() : array();
+	foreach ( $bot_hooks as $hook ) {
+		$present = false;
+		foreach ( is_array( $crons ) ? $crons : array() as $events ) {
+			if ( isset( $events[ $hook ] ) ) {
+				$present = true;
+				break;
+			}
+		}
+		if ( ! $present ) {
+			continue;
+		}
 		if ( function_exists( 'wp_unschedule_hook' ) ) {
 			wp_unschedule_hook( $hook );
 		} else {
 			wp_clear_scheduled_hook( $hook );
 		}
+	}
+	if ( get_option( 'bizcity_bot_engine_cron_cleared' ) ) {
+		return;
 	}
 	// The Cron Manager registry row channel_bot_turn_sweeper stays as history (the manager has no unregister); its hook is unscheduled above.
 	// Reminders the PHP bot booked (core/scheduler rows event_type=bot_task) had BizCity_Bot_Schedule as their only handler: cancel the
@@ -660,6 +545,21 @@ add_action( 'init', static function () {
 	$wpdb->suppress_errors( $prev );
 	update_option( 'bizcity_bot_engine_cron_cleared', 1, false );
 }, 40 );
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-FB / R126-ZB (owner: 100% xử lý qua cell — Facebook "ép cell_direct, bỏ PHP", Zalo Bot "tắt trả lời PHP")
+// — the Automation plugin's built-in safety net (BizCity_Automation_Default_Reply: TwinBrain MPR reasoning in PHP when no workflow matched) never
+// answers a channel message any more. Workflows the owner configured still run; an unmatched message is answered by the cell or by staff.
+add_filter( 'bizcity_automation_default_reply_enabled', '__return_false', 100 );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-AUD — the public WebChat widget options (settings REST archived in R126-WC) were
+// autoloaded on every request with no reader: delete them once per blog.
+add_action( 'admin_init', static function () {
+	if ( get_option( 'bizcity_webchat_widget_options_purged' ) ) {
+		return;
+	}
+	foreach ( array( 'widget_enabled', 'widget_position', 'primary_color', 'bot_name', 'bot_avatar', 'welcome', 'placeholder', 'show_mobile', 'auto_open', 'system_prompt', 'excluded_pages', 'business_hours', 'outside_hours_message', 'pre_chat_form' ) as $key ) {
+		delete_option( 'bizcity_webchat_' . $key );
+	}
+	update_option( 'bizcity_webchat_widget_options_purged', 1, false );
+}, 50 );
 // [2026-10-13 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.106 S106-C5 — cell outputs (image/audio/video) → media library; hooks + WP-Cron action.
 if ( class_exists( 'BizCity_Twin_Cell_Output_Store' ) ) { BizCity_Twin_Cell_Output_Store::init(); }
 if ( class_exists( 'BizCity_Twin_Cell_Output_Go_REST' ) ) { BizCity_Twin_Cell_Output_Go_REST::init(); }
@@ -675,9 +575,6 @@ if ( class_exists( 'BizCity_Mabel_Wheel_Channel_Listener' ) ) {
 // PHASE 0.37 M3.W3 — Register built-in stub adapters with Gateway Bridge.
 // These provide coverage for legacy platforms until full adapters are built (M5).
 add_action( 'bizcity_register_channel', function ( $bridge ) {
-	if ( class_exists( 'BizCity_WebChat_Adapter' ) ) {
-		$bridge->register_adapter( new BizCity_WebChat_Adapter() );
-	}
 	if ( class_exists( 'BizCity_AdminChat_Adapter' ) ) {
 		$bridge->register_adapter( new BizCity_AdminChat_Adapter() );
 	}
@@ -711,20 +608,14 @@ if ( class_exists( 'BizCity_Web_Post_Publisher' ) ) { BizCity_Web_Post_Publisher
 
 // PHASE CG-TASK-UNIFY v0.2 — Zalo Reminder + Admin Router.
 if ( class_exists( 'BizCity_Zalo_Reminder' ) ) { BizCity_Zalo_Reminder::init(); }
-if ( class_exists( 'BizCity_CG_Admin_Router' ) ) { BizCity_CG_Admin_Router::init(); }
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — BizCity_CG_Admin_Router::init() removed (router archived; no PHP admin replies).
 
 // PHASE CG-TASK-UNIFY v0.3 — Phase 3 handlers.
 if ( class_exists( 'BizCity_Woo_Product_Handler' ) ) { BizCity_Woo_Product_Handler::init(); }
 if ( class_exists( 'BizCity_Lead_Report_Handler' ) ) { BizCity_Lead_Report_Handler::init(); }
-if ( class_exists( 'BizCity_Woo_Order_Handler' ) ) { BizCity_Woo_Order_Handler::init(); }
 
-// PHASE-0.35 GURU-ZALO-BOT §1.3/§1.5 (2026-05-26) — Channel formatter base +
-// Zalo concrete + REST controller fronting BizCity_Guru_Runtime. R-CH-NS
-// namespace bizcity-channel/v1. Schema contract: core.persona.json v1.0.0.
-require_once $gateway_dir . 'formatters/class-channel-formatter.php';
-require_once $gateway_dir . 'formatters/class-zalo-formatter.php';
-require_once $gateway_dir . 'class-guru-turn-controller.php';
-if ( class_exists( 'BizCity_Guru_Turn_Controller' ) ) { BizCity_Guru_Turn_Controller::init(); }
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-GR (owner: "chỉ những thứ liên quan đến cơ chế bot dùng php cũ phải tối ưu") — the channel formatters (Guru Reply DTO → Zalo text) and
+// POST bizcity-channel/v1/guru/turn (a PHP Guru Runtime reply, no caller) are archived at core/_archived/guru-runtime-bot-20261024/.
 
 // Register prune cron (TTL 3 days).
 if ( class_exists( 'BizCity_Webhook_Log' ) ) { BizCity_Webhook_Log::register_cron(); }
@@ -1009,7 +900,7 @@ add_action( 'rest_api_init', function () {
  */
 function bizcity_channel_gateway_install(): void {
 	BizCity_User_Resolver::maybe_install();
-	BizCity_Blog_Resolver::maybe_install_inbox();
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — global_inbox_admin left (quarantined); maybe_install_inbox() is a no-op.
 }
 
 /* ─── Backward Compat: Override twf_send_message_override ─── */
@@ -1035,63 +926,5 @@ add_filter( 'twf_send_message_override', function ( $default, $chat_id, $text ) 
 	return false;
 }, 7, 3 ); // Priority 7 — before legacy @8
 
-/* ─── Backward Compat: Bridge chat → automation ─── */
-
-/**
- * Bridge: Chat Gateway processed message → fire automation trigger (ADMINCHAT only).
- *
- * WEBCHAT is knowledge-only and should NOT trigger TWF.
- */
-add_action( 'bizcity_chat_message_processed', function ( $event_data ) {
-	if ( ! is_array( $event_data ) ) {
-		return;
-	}
-
-	$platform_type = strtolower( $event_data['platform_type'] ?? '' );
-
-	// Only ADMINCHAT triggers automation
-	if ( $platform_type !== 'adminchat' ) {
-		return;
-	}
-
-	// Prevent double-fire
-	if ( ! empty( $GLOBALS['bizcity_gateway_trigger_fired'] ) ) {
-		return;
-	}
-
-	// Prevent infinite loop
-	global $waic_current_trigger;
-	if ( ! empty( $waic_current_trigger ) ) {
-		return;
-	}
-
-	$bridge  = BizCity_Gateway_Bridge::instance();
-	$trigger = bizcity_gateway_normalize_trigger_compat( $event_data, $platform_type );
-	$bridge->fire_trigger( $trigger, (array) $event_data );
-}, 9 ); // Priority 9 — before legacy @10
-
-/**
- * Build a legacy-compatible normalized trigger from event data.
- *
- * @param array  $data
- * @param string $platform
- * @return array
- */
-function bizcity_gateway_normalize_trigger_compat( array $data, string $platform ): array {
-	// If the legacy function exists, delegate to it
-	if ( function_exists( 'bizcity_gateway_normalize_trigger' ) ) {
-		return bizcity_gateway_normalize_trigger( $data, $platform );
-	}
-
-	// Minimal normalization
-	return [
-		'platform'    => $platform,
-		'chat_id'     => $data['session_id'] ?? $data['chat_id'] ?? '',
-		'client_id'   => $data['session_id'] ?? $data['client_id'] ?? '',
-		'user_id'     => $data['user_id'] ?? '',
-		'message'     => $data['user_message'] ?? $data['text'] ?? '',
-		'text'        => $data['user_message'] ?? $data['text'] ?? '',
-		'client_name' => $data['client_name'] ?? '',
-		'raw'         => $data,
-	];
-}
+// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF (owner: "di sản luồng bot twf cũ cần gỡ hết") — the "chat processed → automation (ADMINCHAT)" bridge on bizcity_chat_message_processed is gone:
+// nothing fires that action any more (the old twf chat pipeline). Channel messages reach automation through waic_twf_process_flow (UCL).

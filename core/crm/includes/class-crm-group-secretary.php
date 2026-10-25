@@ -30,7 +30,7 @@ final class BizCity_CRM_Group_Secretary {
 
 	const CONTRACT        = 'group-transcript@1';
 	const OPTION_PREFIX   = 'bizcity_group_secretary_';
-	const MAX_GROUPS      = 200;
+	const MAX_GROUPS      = 1000; // PHASE-0.136: Premium quản lý tới 1000 nhóm (trước: 200)
 	const MAX_ASSIGNEES   = 10;
 	const PAGE_MAX_MSGS   = 200;
 	const PAGE_MAX_BYTES  = 24000;
@@ -50,6 +50,13 @@ final class BizCity_CRM_Group_Secretary {
 	const FILES_LIST_MAX   = 20;
 	/** tag journal của tài liệu nhóm (encode_tags chỉ giữ a-z0-9 và "-") */
 	const TAG_PREFIX       = 'grp-';
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-13/17/18 — tệp nhóm lưu MẶC ĐỊNH cho mọi nhóm (chủ tắt từng nhóm ở cột "Tự lưu tệp"), trong trần
+	// "số nhóm được quản lý" của gói (Hub ⇒ plan.limits.groups_managed; thiếu ⇒ theo tier: free 10 · pro 50 · premium 1000; không rõ ⇒ 10).
+	// "Được quản lý" = nhóm trợ lý LƯU tệp hoặc THEO DÕI; nhóm trợ lý chỉ trả lời thì không tính (Q136-12). Hạ gói ⇒ giữ nhóm đang có suất, chỉ khoá thêm (Q136-11).
+	const OPTION_MANAGED   = 'bizcity_group_secretary_managed_';
+	const MANAGED_BY_TIER  = array( 'free' => 10, 'pro' => 50, 'premium' => 1000, 'enterprise' => 1000 );
+	const MANAGED_DEFAULT  = 10;
+	const MANAGED_MAX      = 5000;
 
 	/**
 	 * Test seams: get_option · update_option · policy(bridge) · groups(bridge, q, limit, gid) · conversation(conv_id) · messages(conv_id, q) ·
@@ -193,6 +200,16 @@ final class BizCity_CRM_Group_Secretary {
 				return new WP_Error( 'group_action_unknown', 'Lệnh không hợp lệ.', array( 'status' => 400 ) );
 		}
 		$new     = self::normalize_setting( $new );
+		// PHASE-0.136 D136-18: bật theo dõi / bật lưu tệp cần một suất trong trần gói; tắt lưu tệp (và không theo dõi) trả suất
+		if ( ( 'follow_on' === $action && ! $cur['follow'] ) || ( 'save_files_on' === $action && ! $cur['save_files'] ) ) {
+			if ( ! self::claim_managed( $bridge, $gid ) ) {
+				$lim = self::managed_limit( $bridge );
+				return new WP_Error( 'group_managed_limit', 'Gói hiện tại quản lý tối đa ' . $lim . ' nhóm (lưu tệp / theo dõi). Tắt bớt nhóm khác hoặc nâng gói.', array( 'status' => 409, 'limit' => $lim ) );
+			}
+		}
+		if ( ( 'save_files_off' === $action && ! $new['follow'] ) || ( 'follow_off' === $action && ! $new['save_files'] ) ) {
+			self::release_managed( $bridge, $gid );
+		}
 		$changed = $new['follow'] !== $cur['follow'] || $new['assignees'] !== $cur['assignees'] || $new['brief_every'] !== $cur['brief_every'] || $new['notice'] !== $cur['notice'] || $new['save_files'] !== $cur['save_files'];
 		if ( $changed ) {
 			if ( ! isset( $all[ $gid ] ) && count( $all ) >= self::MAX_GROUPS ) {
@@ -208,6 +225,80 @@ final class BizCity_CRM_Group_Secretary {
 			self::save_all( $bridge, $all );
 		}
 		return $new + array( 'changed' => $changed );
+	}
+
+	/** PHASE-0.136 D136-18 — trần số nhóm được quản lý của chủ số này (gói Hub). Pure trên $plan khi truyền vào. */
+	public static function managed_limit( string $bridge, ?array $plan = null ): int {
+		if ( isset( self::$readers['managed_limit'] ) ) {
+			return (int) call_user_func( self::$readers['managed_limit'], $bridge );
+		}
+		if ( null === $plan ) {
+			$owner = (int) self::call_reader( 'owner_user', array( $bridge ), 0 );
+			$plan  = function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_user_workspace_plan', array( 'tier' => '', 'max_risk' => 'R3', 'limits' => array() ), $owner ) : array();
+			// gói Hub của khoá site (bizcity-llm entitlement sync ghi option bizcity_hub_master_tier: free · pro · premium · enterprise) — không gọi Hub ở đây
+			if ( is_array( $plan ) && '' === (string) ( $plan['tier'] ?? '' ) && function_exists( 'get_option' ) ) {
+				$plan['tier'] = (string) get_option( 'bizcity_hub_master_tier', '' );
+			}
+		}
+		return self::limit_of_plan( is_array( $plan ) ? $plan : array() );
+	}
+
+	/** plan.limits.groups_managed thắng; không có ⇒ theo tier (free 10 · pro 50 · premium 1000); không rõ ⇒ 10. Pure. */
+	public static function limit_of_plan( array $plan ): int {
+		$lim = $plan['limits']['groups_managed'] ?? null;
+		if ( is_numeric( $lim ) ) {
+			return max( 0, min( self::MANAGED_MAX, (int) $lim ) );
+		}
+		$tier = strtolower( trim( (string) ( $plan['tier'] ?? '' ) ) );
+		return self::MANAGED_BY_TIER[ $tier ] ?? self::MANAGED_DEFAULT;
+	}
+
+	/** Nhóm đang giữ suất: danh sách đã lưu (theo thứ tự nhận suất) + nhóm đang theo dõi (luôn giữ suất, kể cả khi hạ gói). */
+	public static function managed_gids( string $bridge ): array {
+		$raw  = isset( self::$readers['get_option'] ) ? call_user_func( self::$readers['get_option'], self::OPTION_MANAGED . $bridge ) : get_option( self::OPTION_MANAGED . $bridge, array() );
+		$list = array();
+		foreach ( is_array( $raw ) ? $raw : array() as $g ) {
+			$g = self::clean_gid( (string) $g );
+			if ( '' !== $g ) {
+				$list[ $g ] = true;
+			}
+		}
+		foreach ( self::all_settings( $bridge ) as $gid => $s ) {
+			if ( $s['follow'] ) {
+				$list[ (string) $gid ] = true;
+			}
+		}
+		return array_map( 'strval', array_keys( $list ) );
+	}
+
+	/** Lấy một suất cho nhóm (đã có ⇒ true; còn chỗ ⇒ giữ ⇒ true; hết ⇒ false). */
+	public static function claim_managed( string $bridge, string $gid ): bool {
+		$gid  = self::clean_gid( $gid );
+		$have = self::managed_gids( $bridge );
+		if ( '' === $gid || in_array( $gid, $have, true ) ) {
+			return '' !== $gid;
+		}
+		if ( count( $have ) >= self::managed_limit( $bridge ) ) {
+			return false;
+		}
+		$have[] = $gid;
+		self::save_managed( $bridge, $have );
+		return true;
+	}
+
+	public static function release_managed( string $bridge, string $gid ): void {
+		$gid  = self::clean_gid( $gid );
+		$have = array_values( array_diff( self::managed_gids( $bridge ), array( $gid ) ) );
+		self::save_managed( $bridge, $have );
+	}
+
+	private static function save_managed( string $bridge, array $gids ): void {
+		$gids = array_values( array_unique( array_map( 'strval', $gids ) ) );
+		if ( isset( self::$readers['update_option'] ) ) {
+			call_user_func( self::$readers['update_option'], self::OPTION_MANAGED . $bridge, $gids );
+		} else {
+			update_option( self::OPTION_MANAGED . $bridge, $gids, false );
+		}
 	}
 
 	private static function save_all( string $bridge, array $all ): void {
@@ -556,9 +647,6 @@ final class BizCity_CRM_Group_Secretary {
 			return;
 		}
 		$idx = self::following_index();
-		if ( ! $idx ) {
-			return;
-		}
 		$conv_id = (int) ( $p['conversation_id'] ?? 0 );
 		$msg_id  = (int) ( $p['message_id'] ?? 0 );
 		$row     = $conv_id > 0 && $msg_id > 0 ? self::conversation( $conv_id ) : null;
@@ -567,8 +655,12 @@ final class BizCity_CRM_Group_Secretary {
 		}
 		$gid    = self::gid_of( $row );
 		$bridge = '' !== (string) ( $row['account_id'] ?? '' ) ? (string) $row['account_id'] : (string) ( $row['inbox_ref_id'] ?? '' );
-		if ( '' === $gid || ! in_array( $gid, (array) ( $idx[ $bridge ] ?? array() ), true ) || ! self::setting( $bridge, $gid )['save_files'] ) {
+		if ( '' === $gid || ! self::setting( $bridge, $gid )['save_files'] ) {
 			return; // B10: cột "Tự lưu tệp" tắt ⇒ chỉ lưu theo lệnh
+		}
+		// PHASE-0.136 D136-13: mọi nhóm (không cần "Theo dõi") — trong trần gói; nhóm đang theo dõi luôn có suất
+		if ( ! in_array( $gid, (array) ( $idx[ $bridge ] ?? array() ), true ) && ! self::claim_managed( $bridge, $gid ) ) {
+			return;
 		}
 		$msgs  = (array) self::call_reader( 'messages_by_ids', array( $conv_id, array( $msg_id ) ), array() );
 		$files = self::files_from_rows( $msgs, $conv_id, self::owner_uid( $bridge ), self::setting( $bridge, $gid )['assignees'], false );
@@ -773,10 +865,54 @@ final class BizCity_CRM_Group_Secretary {
 				'settings'  => $all[ $gid ] ?? self::normalize_setting( array() ),
 			);
 		}
+		// PHASE-0.136 D136-17: 100 % nhóm trợ lý có mặt — nhóm cell đọc được bằng zca (danh bạ, đã nhập CRM) mà chưa có hội thoại
+		foreach ( (array) self::call_reader( 'directory_groups', array( $bridge ), array() ) as $d ) {
+			$gid = self::clean_gid( (string) ( $d['gid'] ?? '' ) );
+			if ( '' === $gid || isset( $seen[ $gid ] ) ) {
+				continue;
+			}
+			$seen[ $gid ] = true;
+			$out[]        = array( 'group_ref' => '', 'thread_id' => $gid, 'name' => '' !== trim( (string) ( $d['name'] ?? '' ) ) ? self::clean_label( (string) $d['name'] ) : 'Nhóm ' . substr( $gid, -6 ), 'last_at' => '', 'settings' => $all[ $gid ] ?? self::normalize_setting( array() ) );
+		}
 		foreach ( $all as $gid => $s ) {
 			if ( ! isset( $seen[ $gid ] ) ) {
 				$out[] = array( 'group_ref' => '', 'thread_id' => (string) $gid, 'name' => 'Nhóm ' . substr( (string) $gid, -6 ), 'last_at' => '', 'settings' => $s );
 			}
+		}
+		$managed = array_flip( self::managed_gids( $bridge ) );
+		foreach ( $out as $i => $g ) {
+			$out[ $i ]['managed'] = isset( $managed[ (string) $g['thread_id'] ] );
+		}
+		return $out;
+	}
+
+	/** PHASE-0.136 — trần + đang dùng cho đầu ma trận ("Đang quản lý 7 / 10"). */
+	public static function managed_summary( string $bridge ): array {
+		return array( 'limit' => self::managed_limit( $bridge ), 'count' => count( self::managed_gids( $bridge ) ) );
+	}
+
+	/** Nhóm trong danh bạ CRM của inbox (nguồn `group:<gid>`, nhập từ danh bạ zca của cell — BizCity_CRM_Zalo_Directory). */
+	private static function db_directory_groups( string $bridge ): array {
+		if ( ! class_exists( 'BizCity_CRM_Zalo_Directory' ) || ! class_exists( 'BizCity_CRM_DB_Installer_V2' ) ) {
+			return array();
+		}
+		$inbox_id = 0;
+		foreach ( BizCity_CRM_Zalo_Directory::zalo_inboxes() as $inbox ) {
+			if ( (string) ( $inbox['channel_ref_id'] ?? '' ) === $bridge ) {
+				$inbox_id = (int) $inbox['id'];
+				break;
+			}
+		}
+		if ( $inbox_id <= 0 ) {
+			return array();
+		}
+		global $wpdb;
+		$ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT ci.source_id AS source_id, c.name AS name FROM {$ci} ci INNER JOIN {$ct} c ON c.id = ci.contact_id WHERE ci.inbox_id = %d AND ci.source_id LIKE %s AND c.deleted_at IS NULL ORDER BY ci.id DESC LIMIT %d", $inbox_id, $wpdb->esc_like( 'group:' ) . '%', self::MANAGED_MAX ), ARRAY_A );
+		$out  = array();
+		foreach ( is_array( $rows ) ? $rows : array() as $r ) {
+			$out[] = array( 'gid' => substr( (string) $r['source_id'], 6 ), 'name' => (string) $r['name'] );
 		}
 		return $out;
 	}

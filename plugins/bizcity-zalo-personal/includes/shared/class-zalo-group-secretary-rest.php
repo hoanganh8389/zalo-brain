@@ -71,7 +71,8 @@ final class BizCity_Zalo_Group_Secretary_REST {
 		// [2026-10-20 08:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — còn nhóm mang tên tạm ("Nhóm Zalo 78066454") ⇒ kéo tên thật cell đã đọc bằng zca (danh bạ qua Hub), nhập CRM, đọc lại
 		$pending = self::placeholder_count( $groups );
 		// [2026-10-20 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — việc kéo tên là phụ: thiếu hàm (file chưa lên đủ) hoặc lỗi ⇒ bỏ qua, KHÔNG làm hỏng danh sách (từng 500)
-		if ( $pending > 0 && class_exists( 'BizCity_CRM_Zalo_Directory' ) && method_exists( 'BizCity_CRM_Zalo_Directory', 'refresh_for_bridge' ) ) {
+		// [2026-10-25] PHASE-0.136 D136-17 — 100 % nhóm: kéo danh bạ nhóm của cell (zca) theo nhịp của refresh_for_bridge (≤ 1 lần / số / giờ), không chỉ khi còn tên tạm
+		if ( class_exists( 'BizCity_CRM_Zalo_Directory' ) && method_exists( 'BizCity_CRM_Zalo_Directory', 'refresh_for_bridge' ) ) {
 			try {
 				$r = BizCity_CRM_Zalo_Directory::refresh_for_bridge( $b['bridge_id'] );
 				if ( ! empty( $r['imported'] ) ) {
@@ -96,6 +97,8 @@ final class BizCity_Zalo_Group_Secretary_REST {
 			'can_edit'  => $manage,
 			'owner_set' => '' !== BizCity_CRM_Group_Secretary::owner_uid( $b['bridge_id'] ),
 			'names_pending' => $pending,
+			// [2026-10-25] PHASE-0.136 D136-17/18 — 100 % nhóm (cả nhóm chưa có hội thoại) + trần gói: "Đang quản lý count / limit"
+			'managed'   => method_exists( 'BizCity_CRM_Group_Secretary', 'managed_summary' ) ? BizCity_CRM_Group_Secretary::managed_summary( $b['bridge_id'] ) : null,
 			'groups'    => array_map( array( __CLASS__, 'view' ), $groups ),
 			'limits'    => array( 'brief_min' => BizCity_CRM_Group_Secretary::BRIEF_MIN, 'brief_max' => BizCity_CRM_Group_Secretary::BRIEF_MAX, 'assignees_max' => BizCity_CRM_Group_Secretary::MAX_ASSIGNEES, 'notice_max' => BizCity_CRM_Group_Secretary::NOTICE_MAX ),
 		), 200 );
@@ -161,6 +164,7 @@ final class BizCity_Zalo_Group_Secretary_REST {
 			'name'      => (string) $g['name'],
 			'last_at'   => (string) $g['last_at'],
 			'settings'  => self::settings_view( (array) $g['settings'] ),
+			'managed'   => ! empty( $g['managed'] ), // [2026-10-25] PHASE-0.136 D136-18 — nhóm đang giữ suất (lưu tệp / theo dõi)
 		);
 	}
 

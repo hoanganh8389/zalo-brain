@@ -42,9 +42,8 @@ if ( ! function_exists( 'biz_send_message' ) ) {
 
 if ( ! function_exists( 'twf_telegram_send_message' ) ) {
 	function twf_telegram_send_message( $chat_id, $text, $parse_mode = 'HTML', $reply_markup = null ) {
-		if ( function_exists( 'bizgpt_log_chat_message' ) ) {
-			bizgpt_log_chat_message( $chat_id, $text, 'bot', '', 'telegram' );
-		}
+		// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF — the old twf chat log (bizgpt_log_chat_message, defined nowhere any more) is gone here and in
+		// twf_telegram_send_photo(). The send itself is live (override filter) and stays.
 		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8/R9 — the Zalo Hotline branch (twf_check_client_use_zalo) and the
 		// Telegram admin-bot delivery (api.telegram.org with the global twf_bot_token) are retired (R-ONE-AXIS D-29, D-30).
 		// Delivery now happens only through the override filter (Channel Gateway: WEBCHAT / ADMINCHAT / ZALO_BOT;
@@ -93,17 +92,6 @@ if ( ! function_exists( 'bizgpt_zalo_format' ) ) {
 
 if ( ! function_exists( 'twf_telegram_send_photo' ) ) {
 	function twf_telegram_send_photo( $chat_id, $photo_url, $caption = '', $extra = array() ) {
-		if ( function_exists( 'bizgpt_log_chat_message' ) ) {
-			$msg = '<img src="' . $photo_url . '" class="bizgpt-photo-msg" style="max-width:220px;max-height:160px;border-radius:8px;display:block;margin:6px auto;">';
-			if ( $caption ) {
-				$msg .= '<div style="margin-top:4px">' . esc_html( $caption ) . '</div>';
-			}
-			$GLOBALS['twf_chat_msg_batch'][] = [
-				'chat_id' => $chat_id,
-				'msg'     => $msg,
-			];
-			bizgpt_log_chat_message( $chat_id, $msg, 'bot', '', 'telegram' );
-		}
 		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8/R9 — Hotline branch and Telegram admin-bot sendPhoto retired
 		// (R-ONE-AXIS D-29, D-30). Only the override filter delivers (bizcity-zalo-bot); otherwise false.
 		$override = apply_filters( 'twf_telegram_send_photo_override', false, $chat_id, $photo_url, $caption, $extra );

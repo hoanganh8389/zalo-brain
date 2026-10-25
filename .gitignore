@@ -179,3 +179,10 @@ vendor/
 /core/channel-gateway/includes/class-sprint-diagnostic.php
 /core/channel-gateway/includes/class-phase-037-diagnostic.php
 /modules/twinchat/includes/diagnostics/
+# [2026-10-25] PHASE-0.126 R126-CLI — the developer half of the WP-CLI family (same list as bin/dev-only-paths.txt).
+/core/cli/class-bizcity-framework-cli-dev.php
+# [2026-10-25] PHASE-0.126 R126-DIAG — diagnostic admin pages (same list as bin/dev-only-paths.txt). Already-tracked copies: run
+# `git rm --cached <path>` once on the VPS (R-DL-6).
+/core/channel-gateway/includes/class-cg-debug-logger-admin.php
+/core/twin-core/event-stream/class-twin-event-inspector-page.php
+/core/helper/class-bizcity-log-explorer.php

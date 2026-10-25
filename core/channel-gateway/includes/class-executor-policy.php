@@ -45,10 +45,32 @@ final class BizCity_Executor_Policy {
 
 	public static function register_routes(): void {
 		$gate = array( 'BizCity_Admin_Users_Overview_REST', 'can_manage' ); // R-ADMIN-2: one admin gate
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — the users overview moved to bizcity-billing-addon; the executor policy is core and
+		// must keep working without it, so the same admin rule answers here (a missing class as permission_callback would 500 every call).
+		if ( ! class_exists( 'BizCity_Admin_Users_Overview_REST' ) || ! method_exists( 'BizCity_Admin_Users_Overview_REST', 'can_manage' ) ) {
+			$gate = array( __CLASS__, 'can_manage' );
+		}
 		register_rest_route( self::NS, '/admin/executor-policy', array(
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'route_get' ), 'permission_callback' => $gate ),
 			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'route_save' ), 'permission_callback' => $gate ),
 		) );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — fallback admin gate when the billing add-on (BizCity_Admin_Users_Overview_REST) is absent:
+	 * the same rule as its can_manage() (signed in + network/site manager), same error codes.
+	 *
+	 * @return true|WP_Error
+	 */
+	public static function can_manage() {
+		if ( ! is_user_logged_in() ) {
+			return new WP_Error( 'rest_not_logged_in', 'Bạn cần đăng nhập.', array( 'status' => 401, 'hint' => 'Đăng nhập lại rồi mở trang này.', 'help_code' => 'login_required' ) );
+		}
+		$ok = class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' );
+		if ( ! $ok ) {
+			return new WP_Error( 'admin_only', 'Chỉ quản trị website được xem màn hình này.', array( 'status' => 403, 'hint' => 'Nhờ quản trị website mở trang này.', 'help_code' => 'admin_users_forbidden' ) );
+		}
+		return true;
 	}
 
 	/** @return array{roles:array<string,string[]>,people:array<string,string[]>} */

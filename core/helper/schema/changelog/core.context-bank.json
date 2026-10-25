@@ -71,6 +71,7 @@
       }
     },
     "bizcity_context_bank_rollup_state": {
+      "lifecycle": { "wave": "PHASE-0.126 R126-TB", "date": "2026-10-25", "state": "quarantine", "replacement": "option bizcity_context_bank_rollup_state + lease options bizcity_cb_rollup_lease_*", "drop_candidate": true, "rows": "kept" },
       "since": "1.2.0",
       "purpose": "Tenant-scoped rollup worker lease and checkpoint state. It stores resumable processing metadata only; rollup payload remains in the registered encrypted business filestore.",
       "note": "No source payload, message body, credential or provider secret may be stored here. A checkpoint advances only after the rollup receipt and Context Bank pointer succeed.",

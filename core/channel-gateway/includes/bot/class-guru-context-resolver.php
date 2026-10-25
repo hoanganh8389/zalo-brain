@@ -322,6 +322,14 @@ final class BizCity_Guru_Context_Resolver {
 		if ( function_exists( 'get_transient' ) && false !== get_transient( self::CREATE_LOCK ) ) {
 			return 0; // another request is creating it right now; the caller falls back to engine defaults for this turn
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-24 — the default Guru is the seeded "Đối ngoại" (+ the "Quản gia" next to it); the old single
+		// "Trợ lý mặc định" below stays only as the fallback when the seed template cannot run. The seed never calls this with $create = true (no loop).
+		if ( empty( self::$readers ) && class_exists( 'BizCity_Guru_Seed' ) ) {
+			$seeded = BizCity_Guru_Seed::seed();
+			if ( ! empty( $seeded['ok'] ) && (int) $seeded['outward'] > 0 && self::character( (int) $seeded['outward'] ) ) {
+				return (int) $seeded['outward'];
+			}
+		}
 		if ( function_exists( 'set_transient' ) ) { set_transient( self::CREATE_LOCK, 1, 30 ); }
 		try {
 			$site = self::site();
@@ -352,6 +360,9 @@ final class BizCity_Guru_Context_Resolver {
 	 * @return int|WP_Error Default character id, or an R-ERROR-UX error when it still cannot be made.
 	 */
 	public static function ensure_default() {
+		if ( empty( self::$readers ) && class_exists( 'BizCity_Guru_Seed' ) ) {
+			BizCity_Guru_Seed::seed(); // PHASE-0.136 S136-S5 — the four-step setup: Quản gia for the owner + Đối ngoại for customers, before step ④
+		}
 		$id = self::default_character_id( true );
 		if ( $id <= 0 ) {
 			usleep( 500000 );
@@ -528,6 +539,13 @@ final class BizCity_Guru_Context_Resolver {
 		if ( array_key_exists( 'consult_min_score', $raw ) ) {
 			$s['consult_min_score'] = self::clean_consult_min_score( $raw['consult_min_score'] );
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-L3 (D136-4) — the Guru's ROLE (care · sales · teach · legal · content); "none" / unknown ⇒ not stored (Guru tự do, etag unchanged)
+		if ( array_key_exists( 'role', $raw ) ) {
+			$role = self::clean_role( $raw['role'] );
+			if ( 'none' !== $role ) {
+				$s['role'] = $role;
+			}
+		}
 		if ( isset( $raw['providers'] ) && is_array( $raw['providers'] ) ) {
 			// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A1 — project Guru context only to registered transports that support it.
 			$providers = self::registered_guru_providers();
@@ -535,6 +553,15 @@ final class BizCity_Guru_Context_Resolver {
 			$s['providers'] = $p ? $p : self::registered_guru_providers();
 		}
 		return $s;
+	}
+
+	/** PHASE-0.136 — the roles a Guru may play (doc 20 §3 of 0.136). Pure. */
+	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-25 — + `personal` (Quản gia: owner / staff turns, never narrows folders)
+	const ROLES = array( 'personal', 'care', 'sales', 'teach', 'legal', 'content', 'none' );
+
+	public static function clean_role( $v ): string {
+		$v = strtolower( trim( (string) $v ) );
+		return in_array( $v, self::ROLES, true ) ? $v : 'none';
 	}
 
 	/** Return registered transports that expose the Guru projection surface. */
@@ -595,7 +622,10 @@ final class BizCity_Guru_Context_Resolver {
 		// [2026-09-28 Claude Sonnet 5] PHASE-0.81 S-1 (peer review) — engine_rules_version must be in the hash: a code deploy that
 		// changes ENGINE_RULES is not a Guru edit, so without this the etag never moves and a cell that cached the old profile gets
 		// 304 forever, never receiving the new C-8 rules until the Guru itself is edited or the cell restarts.
-		$hash  = md5( (string) wp_json_encode( array( $text, $faq, $scope, self::engine_rules_version(), $policy ) ) );
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.134 D134-20 — the Kho tri thức folders this Guru reads as its knowledge (folder sheet); [] = as before
+		$vault_folders = $cid > 0 && class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'folders_for_guru' ) ? BizCity_Twin_Vault::folders_for_guru( $cid ) : array();
+		$vault_public  = $vault_folders && method_exists( 'BizCity_Twin_Vault', 'public_folders_for_guru' ) ? BizCity_Twin_Vault::public_folders_for_guru( $cid ) : array(); // PHASE-0.136 S136-L5
+		$hash  = md5( (string) wp_json_encode( array_merge( array( $text, $faq, $scope, self::engine_rules_version(), $policy ), $vault_folders ? array( $vault_folders, $vault_public ) : array() ) ) ); // no folders ⇒ the etag every cell already holds; a folder turning public changes it
 		$ver   = self::version_of( $c, $hash );
 		return array(
 			'contract'    => self::CONTRACT,
@@ -614,9 +644,14 @@ final class BizCity_Guru_Context_Resolver {
 				// [2026-10-05 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — automation tools do not read notebooks, so they pass without them.
 				// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F13 (D95-18) — filtered by GROUP: knowledge.* needs the notebooks,
 				// commerce.search_products needs WooCommerce, automation.* needs nothing (no longer "notebooks or automation only").
-				'customer_tools'    => self::filter_customer_tools( (array) $scope['customer_tools'], 'base+notebooks' === $scope['knowledge'] && ! empty( $scope['notebook_ids'] ), self::has_woo() ),
+				// PHASE-0.136 S136-L5 — a Guru with PUBLIC Kho tri thức folders has something for knowledge.* to read even without notebooks
+				'customer_tools'    => self::filter_customer_tools( (array) $scope['customer_tools'], ( 'base+notebooks' === $scope['knowledge'] && ! empty( $scope['notebook_ids'] ) ) || ( $cid > 0 && class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'public_folders_for_guru' ) && array() !== BizCity_Twin_Vault::public_folders_for_guru( $cid ) ), self::has_woo() ),
 				// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-F14 (D95-20) — [] = every category; the site expands descendants per call.
 				'product_cat_ids'   => self::has_woo() ? array_values( array_map( 'intval', (array) ( $scope['product_cat_ids'] ?? array() ) ) ) : array(),
+				// PHASE-0.134 D134-20 — optional (a cell that does not know it reads as before): narrow vault / journal reads with context_scope.folder
+				'vault_folders'     => $vault_folders,
+				// PHASE-0.136 S136-L3 — optional: the role this Guru plays (cell: Scope Resolver role input; absent = none)
+				'role'              => (string) ( $scope['role'] ?? 'none' ),
 			),
 			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G4 — doctor-style consult rule: on/off + suggestion threshold (40–90).
 			'consult'     => array(

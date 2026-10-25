@@ -21,58 +21,20 @@ class BizCity_Guru_Bridge_Installer {
 
 	const SCHEMA_VERSION  = '1.0.0';
 	const OPTION_VERSION  = 'bizcity_guru_bridge_schema_version';
+	// ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — bizcity_guru_skills is FROZEN: never install, write or read it in new code; Guru = instruction + Vault; BizCity_Guru_Skill_Bridge answers [] without SQL.
 	const TABLE_SKILLS    = 'bizcity_guru_skills';
 	const TABLE_PROVIDERS = 'bizcity_guru_providers';
 
-	/** Run on plugins_loaded — install/upgrade if version drifted. */
+	/**
+	 * Run on plugins_loaded — install/upgrade if version drifted.
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — both bridge tables are quarantined (guru_skills never had a writer;
+	 * Guru = instruction + Vault): nothing is created any more. Kept as a no-op so an older bootstrap that still hooks it does not fatal.
+	 */
 	public static function maybe_install(): void {
-		if ( get_option( self::OPTION_VERSION ) === self::SCHEMA_VERSION ) {
-			return;
-		}
-		self::install();
-		update_option( self::OPTION_VERSION, self::SCHEMA_VERSION, false );
 	}
 
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — retired (see maybe_install()); the old DDL is in git history / core.persona.json. */
 	public static function install(): void {
-		global $wpdb;
-		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-		$charset = $wpdb->get_charset_collate();
-		$tbl_s   = $wpdb->prefix . self::TABLE_SKILLS;
-		$tbl_p   = $wpdb->prefix . self::TABLE_PROVIDERS;
-
-		dbDelta(
-			"CREATE TABLE {$tbl_s} (
-				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-				guru_id BIGINT UNSIGNED NOT NULL,
-				tool_id VARCHAR(191) NOT NULL,
-				tool_class VARCHAR(20) NOT NULL DEFAULT 'producer',
-				priority INT NOT NULL DEFAULT 100,
-				enabled TINYINT(1) NOT NULL DEFAULT 1,
-				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY  (id),
-				UNIQUE KEY uniq_guru_tool (guru_id, tool_id),
-				KEY idx_guru (guru_id, enabled, priority)
-			) {$charset};"
-		);
-
-		// [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-2 (R-LEAN-4) — the provider-binding table is quarantined (no reader/writer since R13c-a):
-		// new sites no longer create it; existing copies stay until the owner signs the drop.
-		if ( false ) {
-		dbDelta(
-			"CREATE TABLE {$tbl_p} (
-				id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-				guru_id BIGINT UNSIGNED NOT NULL,
-				provider_class VARCHAR(191) NOT NULL,
-				scope_json LONGTEXT NULL,
-				enabled TINYINT(1) NOT NULL DEFAULT 1,
-				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY  (id),
-				UNIQUE KEY uniq_guru_provider (guru_id, provider_class),
-				KEY idx_guru (guru_id, enabled)
-			) {$charset};"
-		);
-		}
 	}
 
 	public static function table_skills(): string {

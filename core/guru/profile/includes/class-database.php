@@ -167,9 +167,11 @@ class BizCity_Knowledge_Database {
             KEY character_id (character_id),
             KEY content_hash (content_hash)
         ) {$charset_collate};";
-        
-        dbDelta($sql_chunks);
-        
+
+        // ⛔ R-TABLE-FREEZE [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF — bizcity_knowledge_chunks is FROZEN (policy $quarantine):
+        // never created again, never written; old rows stay readable. Guru knowledge = Vault / KG notebooks. Do not re-enable.
+        unset( $sql_chunks, $table_chunks );
+
         // [2026-10-01 Claude Sonnet 5] CORE-REDUCTION WP-17 K-3 (R-LEAN-4) — bizcity_character_intents and
         // bizcity_character_conversations are quarantined (WP-17 K-0): class-intent-provider.php never ran
         // intent_name lookups against the former (it uses BizCity_Intent_Parser regex matching instead) and only
@@ -1223,6 +1225,7 @@ Phong cách giao tiếp:
     /**
      * Get knowledge chunks for character
      */
+    // ⛔ R-TABLE-FREEZE (docs/rules/PHASE-0-RULE-TABLE-FREEZE.md) — bizcity_knowledge_chunks is FROZEN: never install, write or read it in new code; read-only fallback for old rows; Guru knowledge = Vault / KG notebooks.
     public function get_knowledge_chunks($character_id, $limit = 100) {
         global $wpdb;
         $table = $wpdb->prefix . 'bizcity_knowledge_chunks';
@@ -1277,22 +1280,9 @@ Phong cách giao tiếp:
      * Create knowledge chunk
      */
     public function create_chunk($data) {
-        global $wpdb;
-        $table = $wpdb->prefix . 'bizcity_knowledge_chunks';
-        
-        if (isset($data['embedding']) && is_array($data['embedding'])) {
-            $data['embedding'] = json_encode($data['embedding']);
-        }
-        
-        if (isset($data['metadata']) && is_array($data['metadata'])) {
-            $data['metadata'] = json_encode($data['metadata'], JSON_UNESCAPED_UNICODE);
-        }
-        
-        $data['content_hash'] = md5($data['content']);
-        
-        $result = $wpdb->insert($table, $data);
-        
-        return $result ? $wpdb->insert_id : new WP_Error('db_error', $wpdb->last_error);
+        // ⛔ R-TABLE-FREEZE [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TF — bizcity_knowledge_chunks is FROZEN: no write.
+        // Guru knowledge goes to the Vault (KG notebook ingest). Kept as a refusing stub so old callers get an error, not a fatal.
+        return new WP_Error( 'guru_knowledge_moved_to_vault', 'bizcity_knowledge_chunks is frozen (R-TABLE-FREEZE): attach a Vault notebook to the Guru.' );
     }
     
     /**

@@ -3,6 +3,7 @@
   "module_id": "core.intent",
   "owner": "core/intent",
   "installer_id": "intent_tool_index",
+  "installer_archived": "[2026-10-25] PHASE-0.126 R126-TC — BizCity_Intent_Tool_Index archived (core/_archived/twin-core-r126tc-20261025/); bizcity_tool_registry quarantined.",
   "current_version": "1.9.0",
   "version_option": "bizcity_tool_registry_schema_ver",
   "tables": {

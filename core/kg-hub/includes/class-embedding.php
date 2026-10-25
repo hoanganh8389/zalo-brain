@@ -647,7 +647,8 @@ class BizCity_Knowledge_Embedding {
         if ( file_exists( $cache_file ) ) {
             $raw = @file_get_contents( $cache_file );
             if ( $raw !== false ) {
-                $data = @unserialize( $raw );
+                // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-SEC LOW — cache holds plain arrays only; never instantiate objects (POP gadget chain).
+                $data = @unserialize( $raw, array( 'allowed_classes' => false ) );
                 if ( is_array( $data ) && ( $data['_count'] ?? 0 ) === $chunk_count ) {
                     unset( $data['_count'] );
                     $mem[ $character_id ] = $data;
@@ -731,8 +732,12 @@ class BizCity_Knowledge_Embedding {
      * @return array|WP_Error Result with chunks count or error
      */
     public function process_source($source_id, $content) {
-        global $wpdb;
-        
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "knowledge_chunks ko cần nữa, bỏ — guru chỉ là instruction và gắn với vault") —
+        // the legacy Guru-knowledge chunk store is quarantined (rows stay, nothing writes it): Guru knowledge = Vault / notebooks
+        // (kg_sources + kg_passages through the normal KG ingest). Its only caller was the Guru admin upload/website handlers, which refuse first.
+        return new WP_Error( 'guru_knowledge_moved_to_vault', 'Guru knowledge lives in the Vault (attach a notebook to the Guru).' );
+        global $wpdb; // phpcs:ignore -- unreachable since R126-TB; body kept for the KG backfill driver's legacy reference.
+
         // Get source info
         $source = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$wpdb->prefix}bizcity_knowledge_sources WHERE id = %d",

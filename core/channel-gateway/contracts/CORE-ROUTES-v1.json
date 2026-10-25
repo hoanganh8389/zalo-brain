@@ -7,7 +7,8 @@
     "bizcity-twinweb-addon",
     "bizcity-twin-brain-addon",
     "bizcity-twin-crm",
-    "bizcity-automation"
+    "bizcity-automation",
+    "bizcity-billing-addon"
   ],
   "axes": {
     "crm spine (inbox, conversations, contacts)": {

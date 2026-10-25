@@ -484,6 +484,9 @@ class BizCity_Zalobot_User_Linker {
 		}
 
 		$raw = is_array( $envelope['raw'] ?? null ) ? $envelope['raw'] : array();
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — the command router is archived; the two identity commands it owned
+		// (`/link <nonce>` bind, explicit login request from an unlinked sender) live here so Zalo↔WP binding keeps working without it.
+		self::maybe_handle_identity_command( $envelope, $raw );
 		self::maybe_auto_send_link( array(
 			'code'           => 'zalo_bot',
 			'bot_id'         => (int) ( $envelope['account_id'] ?? 0 ),
@@ -541,6 +544,189 @@ class BizCity_Zalobot_User_Linker {
 		if ( ! is_array( $msg ) ) { return; }
 		// [2026-09-01 Johnny Chu] PHASE-0.45-W4 — normal unlinked messages are owned by the automation login-required workflow; do not send a second link from this compatibility hook.
 		return;
+	}
+
+	/** @var array<string,bool> [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — message ids already handled as identity commands (direct + normalized replay). */
+	private static $identity_handled_mids = array();
+
+	/** @var string[] [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — explicit login requests (the automation matcher still leaves these to us). */
+	private static $login_request_kw = array(
+		'đăng nhập', 'dang nhap',
+		'đăng ký',   'dang ky',
+		'login',     'register',
+		'liên kết',  'lien ket',
+		'kết nối',   'ket noi',
+		'connect',   'bind',
+	);
+
+	/** @var string[] [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — "hủy liên kết" contains "liên kết"; never answer it with a login link. */
+	private static $unlink_request_kw = array(
+		'hủy liên kết', 'huy lien ket', 'huỷ liên kết',
+		'bỏ liên kết',  'bo lien ket',
+		'unlink', 'đăng xuất', 'dang xuat', 'logout',
+	);
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — identity commands formerly answered by
+	 * BizCity_Zalobot_Command_Router (archived). Only two survive, both identity, not reasoning:
+	 *   1. `/link <nonce>` — consume the Twin GPT / CRM staff deep-link nonce and bind (bot_id, zalo_user_id) → wp_user_id.
+	 *   2. An explicit login request ("đăng nhập", "login", …) from an UNLINKED sender in a private chat — force-send the
+	 *      login link (BizCity_Automation_Trigger_Matcher::dispatch_unlinked_zalobot_workflow() deliberately skips these words).
+	 * Everything else (tôi là ai / hủy liên kết / xem trí nhớ / help, any linked sender) is left to the cell.
+	 *
+	 * @param array $envelope Canonical Zone 2 envelope (bizcity_channel_normalized).
+	 * @param array $raw      Raw provider payload carried by the envelope.
+	 */
+	private static function maybe_handle_identity_command( array $envelope, array $raw ): void {
+		// Mixed deploy: while an old class-command-router.php is still loaded it owns these commands — never answer twice.
+		if ( class_exists( 'BizCity_Zalobot_Command_Router', false ) ) {
+			return;
+		}
+		$bot_id     = (int) ( $envelope['account_id'] ?? 0 );
+		$zalo_uid   = trim( (string) ( $envelope['user_id'] ?? $envelope['sender_user_id'] ?? '' ) );
+		$text       = trim( (string) ( $envelope['message'] ?? $envelope['message_text_clean'] ?? $envelope['raw_text'] ?? '' ) );
+		$message_id = trim( (string) ( $envelope['message_id'] ?? '' ) );
+		$chat_kind  = sanitize_key( (string) ( $envelope['chat_kind'] ?? 'private' ) );
+		$display    = (string) ( $envelope['display_name'] ?? $raw['from_user_name'] ?? '' );
+		if ( $bot_id <= 0 || $zalo_uid === '' || $text === '' ) {
+			return;
+		}
+		if ( $message_id !== '' && isset( self::$identity_handled_mids[ $message_id ] ) ) {
+			return;
+		}
+
+		$nonce = self::extract_link_nonce( $text );
+		if ( $nonce === '' ) {
+			if ( $chat_kind === 'group' || ! self::is_login_request( $text ) ) {
+				return;
+			}
+			// A matched automation workflow outranks the generic login keyword (R-INBOUND-DISPATCH-PRIORITY).
+			if ( $message_id !== '' && ! empty( $GLOBALS['bizcity_automation_matched_mids'][ $message_id ] ) ) {
+				return;
+			}
+			if ( self::resolve_wp_user( $zalo_uid, $bot_id ) > 0 ) {
+				return; // Linked sender — the cell answers.
+			}
+		}
+
+		global $wpdb;
+		$bot = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}bizcity_zalo_bots WHERE id = %d LIMIT 1",
+			$bot_id
+		) );
+		if ( ! $bot ) {
+			return;
+		}
+		if ( $message_id !== '' ) {
+			self::$identity_handled_mids[ $message_id ] = true;
+		}
+
+		if ( $nonce !== '' ) {
+			self::identity_trace( 'link_command_detected', array(
+				'bot_id'         => $bot_id,
+				'zalo_user_hash' => substr( md5( $zalo_uid ), 0, 10 ),
+				'nonce_hash'     => substr( md5( $nonce ), 0, 10 ),
+			) );
+			self::handle_link_nonce( $bot, $zalo_uid, $bot_id, $display, $nonce );
+			return;
+		}
+
+		// Explicit request → bypass the 5-minute cooldown.
+		delete_transient( 'bzzalolink_cd_' . md5( $zalo_uid . '_' . $bot_id ) );
+		if ( ! self::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display, true ) ) {
+			self::identity_trace( 'login_link_failed', array(
+				'bot_id'         => $bot_id,
+				'zalo_user_hash' => substr( md5( $zalo_uid ), 0, 10 ),
+			) );
+			self::send_via_bot( $bot, $zalo_uid, '❌ Chưa tạo được đường link đăng nhập. Vui lòng thử lại sau.' );
+		}
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — moved from the archived command router:
+	 * consume a member-issued `/link <nonce>` and bind deterministic identity.
+	 */
+	private static function handle_link_nonce( object $bot, string $zalo_uid, int $bot_id, string $display, string $nonce ): void {
+		$res = self::consume_twin_gpt_link_nonce( $nonce, $bot_id, $zalo_uid, $display );
+		if ( is_wp_error( $res ) ) {
+			self::identity_trace( 'link_command_failed', array(
+				'bot_id'     => $bot_id,
+				'reason'     => (string) $res->get_error_code(),
+				'nonce_hash' => substr( md5( $nonce ), 0, 10 ),
+			) );
+			$current_user_id = self::resolve_wp_user( $zalo_uid, $bot_id );
+			if ( $current_user_id > 0 ) {
+				$current_user = get_user_by( 'id', $current_user_id );
+				$current_name = $current_user ? $current_user->display_name : "User #{$current_user_id}";
+				self::send_via_bot( $bot, $zalo_uid,
+					"ℹ️ Mã liên kết này không còn dùng được, nhưng bạn đang sử dụng tài khoản: {$current_name}.\n"
+					. 'Tài khoản Zalo Bot đã được liên kết rồi.'
+				);
+			} else {
+				self::send_via_bot( $bot, $zalo_uid, 'ℹ️ Mã liên kết không còn dùng được. Bạn chưa đăng nhập bằng tài khoản nào.' );
+				delete_transient( 'bzzalolink_cd_' . md5( $zalo_uid . '_' . $bot_id ) );
+				if ( ! self::maybe_send_login_link( $zalo_uid, $bot_id, $bot, $display, true ) ) {
+					self::send_via_bot( $bot, $zalo_uid, '❌ Chưa tạo được đường link đăng nhập mới. Vui lòng thử lại sau.' );
+				}
+			}
+			return;
+		}
+
+		$wp_user_id = isset( $res['wp_user_id'] ) ? (int) $res['wp_user_id'] : 0;
+		$user       = $wp_user_id > 0 ? get_user_by( 'id', $wp_user_id ) : null;
+		$name       = $user ? $user->display_name : 'tài khoản của bạn';
+		self::identity_trace( 'link_command_bound', array(
+			'bot_id'         => $bot_id,
+			'wp_user_id'     => $wp_user_id,
+			'zalo_user_hash' => substr( md5( $zalo_uid ), 0, 10 ),
+		) );
+		self::send_via_bot( $bot, $zalo_uid,
+			"✅ Liên kết thành công!\n"
+			. "Tài khoản WordPress: {$name}\n\n"
+			. 'Từ bây giờ bot sẽ nhận diện đúng danh tính của bạn cho Twin GPT, Astro và automation.'
+		);
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — strict `/link <nonce>` parser (same regex the automation matcher reserves). */
+	private static function extract_link_nonce( string $text ): string {
+		$t = trim( $text );
+		if ( $t !== '' && preg_match( '/^\/?link\s+([a-zA-Z0-9_-]{8,80})$/i', $t, $m ) ) {
+			return sanitize_text_field( (string) $m[1] );
+		}
+		return '';
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — short standalone login request (≤ 40 chars, never an unlink phrase). */
+	private static function is_login_request( string $text ): bool {
+		$t = function_exists( 'mb_strtolower' ) ? mb_strtolower( trim( $text ), 'UTF-8' ) : strtolower( trim( $text ) );
+		$len = function_exists( 'mb_strlen' ) ? mb_strlen( $t, 'UTF-8' ) : strlen( $t );
+		if ( $t === '' || $len > 40 ) {
+			return false;
+		}
+		foreach ( self::$unlink_request_kw as $kw ) {
+			if ( strpos( $t, $kw ) !== false ) {
+				return false;
+			}
+		}
+		foreach ( self::$login_request_kw as $kw ) {
+			if ( strpos( $t, $kw ) !== false ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — JSONL evidence without the raw nonce or full Zalo user id. */
+	private static function identity_trace( string $event, array $ctx = array() ): void {
+		if ( class_exists( 'BizCity_Channel_File_Logger' ) ) {
+			BizCity_Channel_File_Logger::write(
+				BizCity_Channel_File_Logger::CH_ZALO_BOT,
+				BizCity_Channel_File_Logger::LEVEL_INFO,
+				$event,
+				'ZaloBot user linker identity command',
+				$ctx
+			);
+		}
 	}
 
 	/**

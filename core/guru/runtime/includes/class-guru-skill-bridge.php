@@ -29,31 +29,18 @@ class BizCity_Guru_Skill_Bridge {
 	 *
 	 * @return string[]
 	 */
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB (owner: "bizcity_guru_skills cũng bỏ, giờ qua vault, gắn vault vào guru") — the Guru ↔ tool binding table is quarantined:
+	 * it never had a writer, so every Guru already meant "no restriction" (empty list). What a Guru knows comes from its Vault /
+	 * notebooks; what it may do is the cell's tool policy. The API stays (brain add-on + CRM admin-chat call it) and answers without SQL.
+	 */
 	public static function tools_for_guru( int $guru_id ): array {
-		if ( $guru_id <= 0 ) { return array(); }
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		$rows = $wpdb->get_col(
-			$wpdb->prepare(
-				"SELECT tool_id FROM {$tbl} WHERE guru_id = %d AND enabled = 1 ORDER BY priority ASC, id ASC",
-				$guru_id
-			)
-		);
-		return is_array( $rows ) ? array_values( array_unique( array_map( 'strval', $rows ) ) ) : array();
+		return array();
 	}
 
 	/** @return array<int,array<string,mixed>> */
 	public static function list_for_guru( int $guru_id ): array {
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		$rows = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$tbl} WHERE guru_id = %d ORDER BY priority ASC, id ASC",
-				$guru_id
-			),
-			ARRAY_A
-		);
-		return is_array( $rows ) ? $rows : array();
+		return array(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — no binding rows any more.
 	}
 
 	/**
@@ -66,65 +53,15 @@ class BizCity_Guru_Skill_Bridge {
 	 * @return int|false Inserted/updated row id, or false on validation fail.
 	 */
 	public static function attach( int $guru_id, string $tool_id, string $tool_class = 'producer', int $priority = 100 ) {
-		$tool_id = trim( $tool_id );
-		if ( $guru_id <= 0 || $tool_id === '' ) { return false; }
-		if ( ! in_array( $tool_class, self::VALID_CLASSES, true ) ) {
-			$tool_class = 'producer';
-		}
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-
-		$existing = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT id FROM {$tbl} WHERE guru_id = %d AND tool_id = %s",
-				$guru_id, $tool_id
-			)
-		);
-		if ( $existing ) {
-			$wpdb->update(
-				$tbl,
-				array( 'tool_class' => $tool_class, 'priority' => $priority, 'enabled' => 1 ),
-				array( 'id' => (int) $existing ),
-				array( '%s', '%d', '%d' ),
-				array( '%d' )
-			);
-			return (int) $existing;
-		}
-		$ok = $wpdb->insert(
-			$tbl,
-			array(
-				'guru_id'    => $guru_id,
-				'tool_id'    => $tool_id,
-				'tool_class' => $tool_class,
-				'priority'   => $priority,
-				'enabled'    => 1,
-				'created_at' => current_time( 'mysql', true ),
-			),
-			array( '%d', '%s', '%s', '%d', '%d', '%s' )
-		);
-		return $ok ? (int) $wpdb->insert_id : false;
+		return false; // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — binding retired (Guru = instruction + Vault).
 	}
 
 	public static function detach( int $guru_id, string $tool_id ): bool {
-		if ( $guru_id <= 0 || $tool_id === '' ) { return false; }
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		$n   = $wpdb->delete( $tbl, array( 'guru_id' => $guru_id, 'tool_id' => $tool_id ), array( '%d', '%s' ) );
-		return $n !== false && $n > 0;
+		return false; // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — binding retired.
 	}
 
 	public static function set_enabled( int $guru_id, string $tool_id, bool $enabled ): bool {
-		if ( $guru_id <= 0 || $tool_id === '' ) { return false; }
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		$n   = $wpdb->update(
-			$tbl,
-			array( 'enabled' => $enabled ? 1 : 0 ),
-			array( 'guru_id' => $guru_id, 'tool_id' => $tool_id ),
-			array( '%d' ),
-			array( '%d', '%s' )
-		);
-		return $n !== false;
+		return false; // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — binding retired.
 	}
 
 	/**
@@ -196,15 +133,11 @@ class BizCity_Guru_Skill_Bridge {
 	}
 
 	public static function count_total(): int {
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$tbl}" );
+		return 0; // [2026-10-25] PHASE-0.126 R126-TB — bizcity_guru_skills quarantined, no bindings.
 	}
 
 	public static function count_for_guru( int $guru_id ): int {
-		global $wpdb;
-		$tbl = BizCity_Guru_Bridge_Installer::table_skills();
-		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$tbl} WHERE guru_id = %d", $guru_id ) );
+		return 0; // [2026-10-25] PHASE-0.126 R126-TB — bizcity_guru_skills quarantined, no bindings.
 	}
 
 	/** @param mixed $thing */

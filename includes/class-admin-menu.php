@@ -118,11 +118,39 @@ class BizCity_Admin_Menu {
 				$children = isset( $submenu[ self::SLUG_CONTROL_PANEL ] ) && is_array( $submenu[ self::SLUG_CONTROL_PANEL ] )
 					? array_values( $submenu[ self::SLUG_CONTROL_PANEL ] )
 					: array();
-				usort( $children, static function ( $a, $b ) {
-					$is_gw = static function ( $child ) {
-						return isset( $child[2] ) && ( false !== strpos( (string) $child[2], 'page=bizchat-gateway-spa' ) || false !== strpos( (string) $child[2], 'plugin=gateway' ) );
-					};
-					return (int) $is_gw( $b ) <=> (int) $is_gw( $a ); // stable on PHP 8: other items keep their order
+				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] owner (screenshot): flyout order = Cấu hình Zalo → Zalo Second Brain → Vault - Kho tri thức →
+				// Lịch & nhiệm vụ → API Settings → Đội ngũ Zalo Brain → Workflow. The control-panel page is shown ONCE, as "API Settings": WordPress adds the
+				// root as a first child titled "Zalo Brain", and register_zalo_brain_surfaces() adds "Setting" on the same slug — they were duplicates.
+				$is_panel = static function ( $child ) {
+					return isset( $child[2] ) && ( self::SLUG_CONTROL_PANEL === $child[2] || false !== strpos( (string) $child[2], 'plugin=settings' ) );
+				};
+				$seen_panel = false;
+				$deduped    = array();
+				foreach ( $children as $child ) {
+					if ( $is_panel( $child ) ) {
+						if ( $seen_panel ) {
+							continue;
+						}
+						$seen_panel = true;
+						$child[0]   = __( 'API Settings', 'bizcity-twin-ai' );
+						$child[3]   = __( 'API Settings', 'bizcity-twin-ai' );
+					}
+					$deduped[] = $child;
+				}
+				$children = $deduped;
+				$rank = static function ( $child ) use ( $is_panel ) {
+					$slug = isset( $child[2] ) ? (string) $child[2] : '';
+					if ( false !== strpos( $slug, 'page=bizchat-gateway-spa' ) || false !== strpos( $slug, 'plugin=gateway' ) ) { return 0; }
+					if ( false !== strpos( $slug, 'plugin=twinchat' ) ) { return 1; }
+					if ( false !== strpos( $slug, 'plugin=skills' ) ) { return 2; }
+					if ( false !== strpos( $slug, 'plugin=scheduler' ) ) { return 3; }
+					if ( $is_panel( $child ) ) { return 4; }
+					if ( false !== strpos( $slug, 'plugin=crm' ) ) { return 5; }
+					if ( false !== strpos( $slug, 'plugin=workflow' ) ) { return 6; }
+					return 7; // anything else keeps its relative order, after the known items
+				};
+				usort( $children, static function ( $a, $b ) use ( $rank ) {
+					return $rank( $a ) <=> $rank( $b ); // stable on PHP 8
 				} );
 				$submenu[ $target ] = $children;
 				$menu[ $index ][1] = self::menu_cap();
@@ -481,10 +509,8 @@ class BizCity_Admin_Menu {
 				__( 'Zalo Connections', $td ), __( 'Zalo Connections', $td ),
 				self::menu_cap(), 'bizcity-zalobot-connections',
 				[ $zb, 'render_connections_page' ] );
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Zalo Guru', $td ), __( 'Guru AI', $td ),
-				self::menu_cap(), 'bizcity-zalo-bot-guru',
-				[ $zb, 'render_guru_page' ] );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-AUD F7 — the "Guru AI" submenu (bizcity-zalo-bot-guru) is gone: its callback
+			// render_guru_page() left with the Zalo Bot Guru bridge in R126-ZB, so opening it was a fatal "invalid callback". Guru lives in Bot Studio.
 		}
 
 		// [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R8 — Zalo BizCity (Hotline) pages zalo-video-guider,
@@ -538,10 +564,7 @@ class BizCity_Admin_Menu {
 					self::menu_cap(), 'bizcity-facebook-settings',
 					[ $fb, 'render_settings_page' ] );
 			}
-			add_submenu_page( self::SLUG_PLUGINS,
-				__( 'Messenger Inbox', $td ), __( 'Messenger Inbox', $td ),
-				self::menu_cap(), 'messenger-inbox-page',
-				[ $fb, 'render_legacy_messenger_inbox_page' ] );
+			// [2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TWF (owner: gỡ hộp thư Messenger cũ — CRM Inbox đã thay) — "Messenger Inbox" submenu removed.
 		}
 
 		/* ── Zalo Hotline (mu-plugins/bizcity-admin-hook-zalo) submenu under Channels ── */
@@ -750,7 +773,7 @@ class BizCity_Admin_Menu {
 		}
 		// [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — Skills sits after Workflow (only where the TwinShell registry has the entry, i.e. core/skills is loaded)
 		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) && is_array( BizCity_Twin_Shell_Registry::instance()->get( 'skills' ) ) ) {
-			add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Skills', 'bizcity-twin-ai' ), __( 'Skills', 'bizcity-twin-ai' ), self::menu_cap(), self::surface_admin_url( 'skills', '/skills/' ) );
+			add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), self::menu_cap(), self::surface_admin_url( 'skills', '/skills/' ) );
 		}
 		// The root's own page keeps its slug (page=bizcity-twin-control-panel stays reachable); relink_setting_item() shows it as "Setting" → plugin=settings
 		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Setting', 'bizcity-twin-ai' ), __( 'Setting', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );

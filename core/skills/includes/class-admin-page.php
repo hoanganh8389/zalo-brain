@@ -66,7 +66,7 @@ final class BizCity_Skill_Admin_Page {
 
 	public static function add_menu(): void {
 		$cap = class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::menu_cap() : 'edit_posts';
-		add_submenu_page( self::PARENT, __( 'Skill', 'bizcity-twin-ai' ), '📘 ' . __( 'Skill', 'bizcity-twin-ai' ), $cap, self::SLUG, array( __CLASS__, 'render_page' ) );
+		add_submenu_page( self::PARENT, __( 'Kho tri thức', 'bizcity-twin-ai' ), '📚 ' . __( 'Kho tri thức', 'bizcity-twin-ai' ), $cap, self::SLUG, array( __CLASS__, 'render_page' ) ); // [2026-10-24 09:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-U1 — Twin Vault rebrand (D134-1): page + submenu title "📚 Kho tri thức" (was "📘 Skill")
 	}
 
 	public static function render_page(): void {

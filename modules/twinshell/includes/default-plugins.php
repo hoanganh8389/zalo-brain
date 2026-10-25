@@ -370,9 +370,9 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/skills/bootstrap.php' ) ) {
 		$defaults[] = [
 			'id'          => 'skills',
-			'label'       => __( 'Skills',                        $td ), // vi: Skill
+			'label'       => __( 'Kho tri thức',                  $td ), // [2026-10-24 09:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-U1 — Twin Vault rebrand (D134-1, Q134-3): was 'Skills'
 			'icon'        => 'skills',
-			'emoji'       => '📘',
+			'emoji'       => '📚', // [2026-10-24 09:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-U1 — 📚 Kho tri thức (was 📘)
 			'mode'        => 'link',
 			'target_url'  => admin_url( 'admin.php?page=bizcity-skills' ),
 			// [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14b — Skill opens like the other surfaces: deep link `r=/skills/x.md`
@@ -383,7 +383,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'admin_page'  => 'bizcity-skills',
 			'capability'  => class_exists( 'BizCity_Network_Admin_Capability' ) ? BizCity_Network_Admin_Capability::menu_cap() : 'edit_posts',
 			'section'     => 'top',
-			'desc'        => __( 'Custom skills: step-by-step instructions the assistant follows for a kind of request.', $td ),
+			'desc'        => __( 'Kho tri thức (Twin Vault): tài liệu, ảnh, ghi chú, sổ, việc và kỹ năng thành bản ghi đọc được, liên kết được, truy được nguồn.', $td ), // [2026-10-24 09:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 D134-1
 		];
 	}
 

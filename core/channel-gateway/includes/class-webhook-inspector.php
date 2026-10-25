@@ -709,14 +709,17 @@ class BizCity_Webhook_Inspector {
 			$rows = $db->get_characters( array( 'limit' => 200 ) );
 			// [2026-09-26 Claude Opus 5.5] PHASE-0.80 R-GURU-SOURCE — mark the site default Guru (gate 0) so Bot Studio can badge it.
 			$default_id = (int) get_option( 'bizcity_bot_default_character_id', 0 );
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 D136-26 — mark the Quản gia (owner / staff 1-1): step ④ never offers it as a number's Guru (that one answers customers)
+			$owner_guru = class_exists( 'BizCity_Guru_Seed' ) ? BizCity_Guru_Seed::owner_character_id() : 0;
 			foreach ( (array) $rows as $r ) {
 				$out[] = array(
-					'id'         => (int) $r->id,
-					'name'       => (string) $r->name,
-					'slug'       => isset( $r->slug ) ? (string) $r->slug : '',
-					'avatar'     => isset( $r->avatar ) ? (string) $r->avatar : '',
-					'status'     => isset( $r->status ) ? (string) $r->status : '',
-					'is_default' => $default_id > 0 && (int) $r->id === $default_id,
+					'id'            => (int) $r->id,
+					'name'          => (string) $r->name,
+					'slug'          => isset( $r->slug ) ? (string) $r->slug : '',
+					'avatar'        => isset( $r->avatar ) ? (string) $r->avatar : '',
+					'status'        => isset( $r->status ) ? (string) $r->status : '',
+					'is_default'    => $default_id > 0 && (int) $r->id === $default_id,
+					'is_owner_guru' => $owner_guru > 0 && (int) $r->id === $owner_guru,
 				);
 			}
 		}

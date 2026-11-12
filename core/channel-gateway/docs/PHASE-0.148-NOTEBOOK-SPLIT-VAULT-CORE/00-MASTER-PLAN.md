@@ -3,6 +3,7 @@
 <!-- [2026-11-12 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W0 — từ chỉ đạo chủ 12/11. -->
 
 > ⚠ **Vòng 1 (2026-11-12 08:58 PM) thắng khi mâu thuẫn:** Vault = `core/skills` (thư viện Skill cũ), không tạo thư mục mới — xem [50-OWNER-ROUND-1](50-OWNER-ROUND-1-VAULT-IS-CORE-SKILLS.md) + truy vết [15](15-DOC-TRACE-0120-0147.md). Đường dẫn trong file này đã đổi `core/vault` ⇒ `core/skills`.
+> ⚠ **Vòng 2 (2026-11-12 09:17 PM) thắng vòng 1:** ba module lõi **`core/vault`** (đổi tên từ `core/skills`) · **`core/journal`** · **`core/sheet`**; không gộp Sổ cái; giữ `bizcity/skill/v1` — xem [60-OWNER-ROUND-2](60-OWNER-ROUND-2-VAULT-JOURNAL-SHEET.md). Đường dẫn `core/skills/includes/journal|twin-sheet` trong file này ⇒ đọc là `core/journal` / `core/sheet`.
 
 ## 0. Chỉ đạo của chủ (12/11)
 
@@ -61,7 +62,7 @@
 | Q148-6 | Trang cài đặt "BizCity API & Gateway" đang là lớp TwinChat (`BizCity_TwinChat_Settings_Page`, dùng ở `bizcity-llm`) | **1. Dời vào `core/bizcity-llm`** (lõi cần nó dù không có notebook) · 2. đi theo notebook |
 | Q148-7 | TwinShell (learning SDK, public page) phụ thuộc TwinChat | **1. Phần learning của TwinShell đi theo notebook; TwinShell ẩn mục đó khi notebook tắt** · 2. TwinShell sang notebook luôn |
 | Q148-8 | Tài liệu phase này lên GitHub? (`.gitignore` đang chặn `**/docs/` theo R-PROD-REPO) | **1. PR riêng chỉ chứa thư mục phase này (force-add), để chủ đọc rồi quyết** · 2. giữ local |
-| Q148-9…11 | đổi tên thư mục `core/skills`? · gộp hai Sổ cái? · bỏ REST `bizcity/skill/v1`? — xem [50 §3](50-OWNER-ROUND-1-VAULT-IS-CORE-SKILLS.md) | **1. giữ tên · gộp · chưa bỏ** |
+| Q148-9…11 | đổi tên `core/skills`? · gộp hai Sổ cái? · bỏ `bizcity/skill/v1`? | ✅ **chủ 12/11 09:1x PM:** đổi tên ⇒ `core/vault` · không gộp (+ tách `core/journal`, `core/sheet`) · không bỏ — [60](60-OWNER-ROUND-2-VAULT-JOURNAL-SHEET.md) |
 
 ## 5. Năm đợt (mỗi đợt ≤ 4 bước, chi tiết [40](40-MASTER-CHECKLIST.md))
 

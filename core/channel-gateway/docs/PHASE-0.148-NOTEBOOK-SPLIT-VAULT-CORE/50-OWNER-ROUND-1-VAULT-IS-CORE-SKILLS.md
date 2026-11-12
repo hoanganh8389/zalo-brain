@@ -2,6 +2,8 @@
 
 <!-- [2026-11-12 08:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 vòng 1 — chủ 12/11 08:5x PM: "vault đang để ở core/skill, tên gọi khác của skill cũ. Trace lại tài liệu từ 0.120 -> 0.148". ⚠ File này thắng doc 00 / 20 / 30 / 95 khi mâu thuẫn. -->
 
+> ⚠ **Vòng 2 thắng file này** ([60](60-OWNER-ROUND-2-VAULT-JOURNAL-SHEET.md)): D148-2 v2 / 2a / 7 v2 (phần "gộp") bị thay bởi D148-15…19 — `core/skills` đổi tên `core/vault`; Journal ⇒ `core/journal`, Twin Sheet ⇒ `core/sheet`; không gộp Sổ cái; giữ `bizcity/skill/v1`. Q148-9…11 đã trả lời.
+
 ## 0. Lời chủ
 > *"Vault đang để ở core/skill, tên gọi khác của skill cũ."*
 

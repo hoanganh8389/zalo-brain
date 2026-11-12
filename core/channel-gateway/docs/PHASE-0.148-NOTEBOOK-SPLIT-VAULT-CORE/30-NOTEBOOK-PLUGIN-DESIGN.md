@@ -2,6 +2,8 @@
 
 <!-- [2026-11-12 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W0 — thiết kế, chưa mã, chưa tạo thư mục. -->
 
+> ⚠ **Vòng 1 (2026-11-12 08:58 PM) thắng khi mâu thuẫn:** Vault = `core/skills` (thư viện Skill cũ), không tạo thư mục mới — xem [50-OWNER-ROUND-1](50-OWNER-ROUND-1-VAULT-IS-CORE-SKILLS.md) + truy vết [15](15-DOC-TRACE-0120-0147.md). Đường dẫn trong file này đã đổi `core/vault` ⇒ `core/skills`.
+
 ## 1. Nhiệm vụ một câu
 Notebook = **xưởng học nâng cao trên Vault**: chat theo notebook (TwinChat), đồ thị tri thức (entity / relation / triplet), embedding + tìm ngữ nghĩa, học theo lô, đồ thị `brain.graph_ask`. Không có nó, Zalo Brain vẫn trả lời từ Vault.
 
@@ -10,7 +12,7 @@ Notebook = **xưởng học nâng cao trên Vault**: chat theo notebook (TwinCha
 ```
 wp-content/plugins/bizcity-twin-notebook/
 ├── bizcity-twin-notebook.php      header "Zalo Brain Addon: notebook"; không tự nạp gì — host (add-on locator) gọi
-├── zalo-brain.json                zalo-brain-extension@1: id notebook, requires.zalo-brain ≥ <bản có core/vault>, features, surfaces, tables_changelog, mcp_tools, licence
+├── zalo-brain.json                zalo-brain-extension@1: id notebook, requires.zalo-brain ≥ <bản có core/skills>, features, surfaces, tables_changelog, mcp_tools, licence
 ├── bootstrap.php                  guard: BIZCITY_VAULT_LOADED + class_exists('BizCity_Notebook_Port') ⇒ nạp kg/ rồi twinchat/; Port::register(new BizCity_Notebook_Port_Impl)
 ├── kg/                            phần KG của core/kg-hub (10 §1a): includes/, adapters/, backfill/, clients/, filestore/, skeleton/, prompts/, contracts/NOTEBOOK-GRAPH-ASK*, assets/
 ├── twinchat/                      modules/twinchat nguyên khối (includes/, notebooklm/, ui/dist — KHÔNG đưa ui/src lên repo, R-PROD-REPO)
@@ -58,7 +60,7 @@ Chống nạp đôi: cả bản lõi cũ và plugin đều kiểm `defined('BIZC
 | # | Plugin | Repo | Lõi giữ gì cho nó | Trạng thái |
 |---|---|---|---|---|
 | 1 | **CRM** `bizcity-twin-crm` | `zalo-brain-crm` | spine `core/crm` (`BizCity_CRM_Spine`) | có (0.96) |
-| 2 | **Notebook** `bizcity-twin-notebook` | `zalo-brain-notebook` (Q148-2) | `core/vault` + `BizCity_Notebook_Port` | phase này |
+| 2 | **Notebook** `bizcity-twin-notebook` | `zalo-brain-notebook` (Q148-2) | `core/skills` + `BizCity_Notebook_Port` | phase này |
 | 3 | **Bizcoach-pro** `bizcoach-pro` | — | `zalo_brain_apps`, `bizcity_twinbrain_vertical_bridge_registry` | có |
 | 4 | **Automation** `bizcity-automation` | `bizcity-automation` | add-on locator, `core/mcp` | có (0.91) |
 | … | (TwinWeb, billing, video, voice …) | | | |

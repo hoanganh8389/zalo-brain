@@ -2,16 +2,18 @@
 
 <!-- [2026-11-12 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W0 — chưa có gì để deploy; danh sách theo đợt để lúc code điền. -->
 
+> ⚠ **Vòng 1 (2026-11-12 08:58 PM) thắng khi mâu thuẫn:** Vault = `core/skills` (thư viện Skill cũ), không tạo thư mục mới — xem [50-OWNER-ROUND-1](50-OWNER-ROUND-1-VAULT-IS-CORE-SKILLS.md) + truy vết [15](15-DOC-TRACE-0120-0147.md). Đường dẫn trong file này đã đổi `core/vault` ⇒ `core/skills`.
+
 Thứ tự mọi đợt: **Site (lõi) ⇒ plugin notebook**. Hub và cell **không đổi**. Mỗi đợt deploy riêng, chạy T148-6 (T-GOLD-1) xong mới sang đợt sau.
 
 ## W1 — lõi
-- **Mới:** cả thư mục `core/vault/` (bootstrap + includes/ + contracts/).
-- **Sửa:** `bizcity-twin-ai.php` (nạp `core/vault/bootstrap.php` trước `core/mcp`) · `core/kg-hub/bootstrap.php` (bỏ file đã dời) · `core/mcp/bootstrap.php` nếu đổi thứ tự.
+- **Mới trong `core/skills/`:** `includes/{vault,journal,access,context,twin-sheet}/` + `contracts/` (file dời từ kg-hub); **sửa** `core/skills/bootstrap.php` (nạp thêm).
+- **Sửa:** `bizcity-twin-ai.php` (nạp `core/skills/bootstrap.php` trước `core/mcp`) · `core/kg-hub/bootstrap.php` (bỏ file đã dời) · `core/mcp/bootstrap.php` nếu đổi thứ tự.
 - **Xoá trên VPS sau khi chạy ổn:** các file đã dời trong `core/kg-hub/includes/` (bản lõi mới không còn require; để lại cũng vô hại nhờ guard `class_exists`).
 - Lùi: upload lại `bizcity-twin-ai.php` + `core/kg-hub/bootstrap.php` bản cũ.
 
 ## W2 — lõi + plugins kênh
-- `core/vault/includes/{search,port}/*` (mới) · `core/mcp/includes/class-mcp-tool-registry.php` · các file K/T ở 10 §4 · `plugins/bizcity-zalo-personal/includes/shared/class-zalo-personal-knowledge-capture.php` · `plugins/bizcity-zalo-bot/…/class-notebook-bridge-listener.php`, `class-upload-link-handler.php`.
+- `core/skills/includes/{search,port}/*` (mới) · `core/mcp/includes/class-mcp-tool-registry.php` · các file K/T ở 10 §4 · `plugins/bizcity-zalo-personal/includes/shared/class-zalo-personal-knowledge-capture.php` · `plugins/bizcity-zalo-bot/…/class-notebook-bridge-listener.php`, `class-upload-link-handler.php`.
 - UI (nếu Q148-5 = 1): `core/skills/assets/dist/*` (build từ `core/skills/app/src/vault/`).
 - Lùi: filter `bizcity_vault_knowledge_providers` vẫn có KG khi kg-hub còn trong lõi ⇒ hành vi cũ.
 

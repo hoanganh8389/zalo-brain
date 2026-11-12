@@ -24,7 +24,7 @@
 
 > ⚠ `/context-producers*` + `class-context-producers*.php` được `core/runtime/class-zalo-brain.php:262` dùng ⇒ xếp vào **Vault** (xem 20 §1), không đi notebook.
 
-### 1b. Phần **Vault + Journal** (ở lại lõi, dời sang `core/vault/`)
+### 1b. Phần **Vault + Journal** (ở lại lõi, dời về `core/skills` = Vault — vòng 1, doc 50)
 | Nhóm | File (`core/kg-hub/includes/`) |
 |---|---|
 | Journal (24 lớp) | `class-journal-{database, index, kinds, entry-meta, evidence, filer, doc-meta, doc-index-pack-exporter, rest, purge, ingest-listener, learning-sync, output-listener, job-link, tool-axis, skill-link, layer-rows, brain-map, pipeline, turn-uses, send-zalo, contact-profile, backfill, meta-backfill}.php` · `journal-api.php` (`bizcity_journal_record()`) |
@@ -108,12 +108,12 @@ Ký hiệu: **V** = gọi phần Vault/Journal (chỉ cần đổi đường n�
 | `plugins/bizcity-zalo-personal/includes/shared/class-zalo-personal-knowledge-capture.php` | Progress_Notifier 20, Notebook_Bridge 297, Private_File_Store 823 · Journal_Index 182, Filer 613, Kinds 677, Brain_Map 1064, Journal_Database 1132 | K + V — **đường upload Zalo chính** (D148-6) |
 | `plugins/bizcity-zalo-personal/…` `notebook-learned` 98/108 · `guru-knowledge-rest` 194/202 · `guru-knowledge-version` 81 · `pack-invalidate` 249 · `hub-guru-invalidate` 92 · `staff-principals-rest` 542 | KG_* | K |
 
-**Đếm bằng máy (selfcheck, 2026-11-12 08:38 PM, chỉ `*.php` đã track git, ngoài kg-hub/twinchat/twinkg):**
+**Đếm bằng máy (selfcheck vòng 1, 2026-11-12 08:58 PM, chỉ `*.php` đã track git, ngoài kg-hub/twinchat/twinkg; V không tính `core/skills` = Vault; `KG_Private_File_Store` tính là Vault — D148-14):**
 
 | Loại | Dòng | File | Đợt |
 |---|---|---|---|
-| V Vault/Journal | 253 | 21 | W1 — chỉ đổi đường nạp, không sửa |
-| K KG | 233 | 47 | W2 — về 0 (qua cổng) |
+| V Vault/Journal | 248 | 19 | W1 — chỉ đổi đường nạp, không sửa |
+| K KG | 224 | 45 | W2 — về 0 (qua cổng) |
 | T TwinChat | 28 | 15 | W2 — về 0 |
 
 Nặng nhất (K): `class-brain-mcp-service.php` 31 · `class-context-bank-kg-bridge.php` 17 · zalo-bot `class-notebook-bridge-listener.php` 16 · `class-upload-link-handler.php` 13 · `class-mcp-resource-service.php` 12 · twinshell primitives 9 · guru-service 9 · character-edit 9. Chạy `--list` để có từng file:dòng.
@@ -126,4 +126,4 @@ Nặng nhất (K): `class-brain-mcp-service.php` 31 · `class-context-bank-kg-br
 | `bizcity_kg_after_ingest_central`, `_after_extension_ingest`, `_after_source_delete`, `_notebook_stats_dirty`, `_notebook_deleted`, `_guru_attached/_detached` | kg-hub | mcp-resource-service 692-698, zalo-personal guru/pack invalidate | notebook bắn; người nghe ở lõi vẫn chạy (không có ai bắn = không chạy, vô hại) |
 | `bizcity_kg_notebook_learned` | kg-hub | zalo-personal 45 | như trên |
 | `bizcity_twin_agent_packs_changed` | kg-hub | crm 45, mcp 703, woo 53, zalo-pack 64 | **Vault cũng phải bắn** khi thư mục / note đổi (nay chỉ KG bắn) |
-| `bizcity_channel_normalized`, `bizcity_cell_output_created/_stored`, `bizcity_mcp_tool_finished`, `bizcity_mcp_register_tools`, `bizcity_crm_*`, `bizcity_context_emit`, `zalo_brain_register`, `bizcity_skill*`, `bizcity_scheduler_event_completed`, `bizcity_brain_profile_installed` | nơi khác | kg-hub (Journal listener phần lớn) | người nghe Journal ⇒ `core/vault`; generic channel listener KG ⇒ notebook |
+| `bizcity_channel_normalized`, `bizcity_cell_output_created/_stored`, `bizcity_mcp_tool_finished`, `bizcity_mcp_register_tools`, `bizcity_crm_*`, `bizcity_context_emit`, `zalo_brain_register`, `bizcity_skill*`, `bizcity_scheduler_event_completed`, `bizcity_brain_profile_installed` | nơi khác | kg-hub (Journal listener phần lớn) | người nghe Journal ⇒ `core/skills` (Vault); generic channel listener KG ⇒ notebook |

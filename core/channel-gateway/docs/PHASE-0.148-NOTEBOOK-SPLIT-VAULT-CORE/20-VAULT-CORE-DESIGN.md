@@ -1,6 +1,8 @@
-# PHASE-0.148 · 20 — Thiết kế `core/vault/`: Vault + Journal Index tự đứng
+# PHASE-0.148 · 20 — Thiết kế Vault ở `core/skills`: Vault + Journal Index tự đứng
 
 <!-- [2026-11-12 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W0 — thiết kế, chưa mã. -->
+
+> ⚠ **Vòng 1 (2026-11-12 08:58 PM) thắng khi mâu thuẫn:** Vault = `core/skills` (thư viện Skill cũ), không tạo thư mục mới — xem [50-OWNER-ROUND-1](50-OWNER-ROUND-1-VAULT-IS-CORE-SKILLS.md) + truy vết [15](15-DOC-TRACE-0120-0147.md). Đường dẫn trong file này đã đổi `core/vault` ⇒ `core/skills`.
 
 ## 0. Golden của lõi (phải chạy khi **không** có notebook)
 
@@ -12,11 +14,12 @@
 ## 1. Cây thư mục
 
 ```
-core/vault/
-├── bootstrap.php            nạp vô điều kiện từ bizcity-twin-ai.php (trước core/mcp), define BIZCITY_VAULT_DIR, BIZCITY_VAULT_LOADED
-├── includes/
+core/skills/                 (ĐÃ CÓ — nhà của Vault: 📚 Kho tri thức, SPA app/src/vault, uploads/bizcity-skills)
+├── bootstrap.php            SỬA: nạp thêm các nhóm dưới; define bí danh BIZCITY_VAULT_DIR = BIZCITY_SKILLS_DIR, BIZCITY_VAULT_LOADED; lật ghi chú 0.101 "journal NEVER loaded / No DB"
+├── app/ · assets/dist/      ĐÃ CÓ — SPA Kho tri thức; thêm màn Sổ cái · Brain map · Twin Sheet (D148-7 v2)
+├── includes/                ĐÃ CÓ: skill-manager, skills-service, skill-rest-api, skills-mcp-tools, skills-pack-exporter, admin-page, samples
 │   ├── journal/             24 class-journal-*.php + journal-api.php            (từ core/kg-hub/includes/)
-│   ├── vault/               class-twin-vault, brain-vault-store, vault-upload, vault-tags, scope-meter
+│   ├── vault/               class-twin-vault, brain-vault-store, vault-upload, vault-tags, scope-meter, kg-private-file-store (D148-14)
 │   ├── access/              class-brain-access, brain-resource-link
 │   ├── context/             class-context-producers*.php (runtime/class-zalo-brain.php cần)
 │   ├── twin-sheet/          9 file (từ core/kg-hub/includes/twin-sheet/)
@@ -25,7 +28,7 @@ core/vault/
 └── contracts/               BRAIN-ACCESS, BRAIN-LEDGER, BRAIN-MAP, DOC-REGISTER, ENTRY-META, JOURNAL-*, TWIN-SHEET*, TWIN-VAULT, VAULT-APPEND
 ```
 
-Thứ tự nạp trong file chính: `core/vault` ⇒ `core/mcp` ⇒ (`core/guru` …) ⇒ notebook (plugin, `plugins_loaded` ưu tiên 7). Vault không được `require` lớp KG nào ở bước nạp.
+Thứ tự nạp trong file chính: `core/skills` ⇒ `core/mcp` ⇒ (`core/guru` …) ⇒ notebook (plugin, `plugins_loaded` ưu tiên 7). Vault không được `require` lớp KG nào ở bước nạp.
 
 ### Việc cần kiểm khi dời (W1)
 - Mỗi file dời: tìm `BIZCITY_KG_HUB_DIR`, `BIZCITY_KG_HUB_INCLUDES`, `__DIR__ . '/../'`, `dirname(__FILE__)` ⇒ đổi sang `BIZCITY_VAULT_DIR`. (Memory: "No hard-coded plugin folder".)
@@ -39,7 +42,7 @@ Thứ tự nạp trong file chính: `core/vault` ⇒ `core/mcp` ⇒ (`core/guru`
 
 | Hiện nay | Sau W1 |
 |---|---|
-| Vault + Journal chỉ có khi `core/guru/profile/bootstrap.php` chạy (cổng admin ctx) | `core/vault/bootstrap.php` nạp **mọi request** (REST, MCP, cron, admin, front) — nhẹ: chỉ đăng ký route + hook, lớp nặng nạp lười |
+| Vault server + Journal chỉ có khi `core/guru/profile/bootstrap.php` chạy; SPA Vault (`core/skills`) nạp riêng ở `bizcity-twin-ai.php:802` | một module: `core/skills/bootstrap.php` nạp server + SPA, **cùng cổng `core/mcp`** (`:739` — admin / REST / cron) và trước nó; không phụ thuộc Guru profile |
 | Thiếu kg-hub ⇒ Vault + Journal mất theo | Thiếu notebook ⇒ chỉ mất KG; Vault + Journal nguyên vẹn |
 
 Kiểm hiệu năng (R-MEMORY-5-95 ở site): đo số file nạp trên một request front trước/sau W1; mục tiêu ≤ +2 file (bootstrap + autoloader map).
@@ -48,7 +51,7 @@ Kiểm hiệu năng (R-MEMORY-5-95 ở site): đo số file nạp trên một re
 
 Hiện `knowledge_search_counted` (`class-mcp-tool-registry.php:183`): `BizCity_Brain_MCP_Service::search()` (KG retriever) + `Twin_Vault::public_passages()` **chỉ** cho `guru_public`.
 
-Sau W2 (`core/vault/includes/search/class-vault-knowledge-search.php`):
+Sau W2 (`core/skills/includes/search/class-vault-knowledge-search.php`):
 
 ```
 knowledge_search_counted(args, ctx)
@@ -80,11 +83,11 @@ Một lớp tĩnh ở lõi, mặc định "không có notebook". Plugin notebook
 | `stats(): array` | `{notebooks:0}` | knowledge-stats-mcp-service |
 | `graph_ask(args, ctx): array` | `{ok:false, code:'not_available'}` | `brain.graph_ask` |
 
-⚠ `KG_Private_File_Store` đang được Vault/panel dùng như kho file riêng. W2 phải xác minh nó có phải **kho của Vault** thật không (nếu đúng ⇒ dời vào `core/vault`, không qua cổng). Ghi vào S148-C6.
+⚠ `KG_Private_File_Store` đang được Vault/panel dùng như kho file riêng. W2 phải xác minh nó có phải **kho của Vault** thật không (nếu đúng ⇒ dời vào `core/skills`, không qua cổng). Ghi vào S148-C6.
 
 ## 5. Brain map + sổ cái đi theo Vault (D148-7)
 
-- API: `/journal/map`, `/journal/maturity`, `BRAIN-LEDGER-v1` (sheet_key `brain.ledger`, twin-sheet@1) ⇒ ở `core/vault` từ W1.
+- API: `/journal/map`, `/journal/maturity`, `BRAIN-LEDGER-v1` (sheet_key `brain.ledger`, twin-sheet@1) ⇒ ở `core/skills` từ W1.
 - Màn: chuyển `BrainMapView.tsx`, `BrainMaturity.tsx`, `BrainLedger.tsx`, `brain-map-core.js` từ `modules/twinchat/ui` sang `core/skills/app/src/vault/` (trang 📚 Kho tri thức), build vào `core/skills/assets/dist/skill-app.js`. TwinChat (ở notebook) gọi lại cùng API.
 - Brain map khi không có notebook: chỉ lớp Vault (thư mục ⇒ tài liệu ⇒ phiên bản ⇒ lượt dùng); lớp entity/relation chỉ hiện khi `available()`.
 - `bizcity_twin_agent_packs_changed`: Vault bắn khi `update_folder`, `write`, `append`, `move`, upload xong (người nghe ở crm / mcp / zalo-pack đã có sẵn).

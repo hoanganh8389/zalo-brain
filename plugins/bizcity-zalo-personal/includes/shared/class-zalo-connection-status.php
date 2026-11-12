@@ -440,7 +440,12 @@ class BizCity_Zalo_Connection_Status {
 			if ( ! is_array( $acc ) || ! isset( $acc['id'] ) ) { continue; }
 			$id = (string) $acc['id'];
 			$f = $facts[ $id ] ?? array();
-			$bridge = (string) ( $f['bridge'] ?? ( $acc['provider'] ?? '' ) ) === 'zalo_hub' ? 'zalo_hub' : 'zca';
+			// [2026-11-06 Claude Sonnet 5] zca-bridge is retired (see the `has_zca` guard below): an ambiguous/missing
+			// bridge field must default to zalo_hub, not zca — defaulting to the legacy value here wrongly labels a
+			// Zalo Hub number as "zca-bridge" and, because it then flips `has_zca` true, suppresses the guard that
+			// should have cleared a stale Hub L6 "zca-bridge not responding" message, falsely failing Step ② of the
+			// 4-step setup even though the number truly runs on (and answers through) Zalo Hub.
+			$bridge = (string) ( $f['bridge'] ?? ( $acc['provider'] ?? '' ) ) === 'zca' ? 'zca' : 'zalo_hub';
 			$ai = array_key_exists( 'ai_enabled', $f ) ? (bool) $f['ai_enabled'] : ! array_key_exists( 'ai_enabled', $acc ) || (bool) $acc['ai_enabled'];
 			$bound_here = array_key_exists( 'bound_here', $acc ) ? (bool) $acc['bound_here'] : ( array_key_exists( 'bound_here', $f ) ? (bool) $f['bound_here'] : true );
 			$session = sanitize_key( (string) ( $acc['status'] ?? 'pending_qr' ) );

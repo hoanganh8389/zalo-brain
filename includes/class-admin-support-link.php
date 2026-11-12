@@ -162,6 +162,21 @@ class BizCity_Admin_Support_Link {
 		return (bool) apply_filters( 'bizcity_admin_support_link_is_internal', $internal );
 	}
 
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] Site đang ở gói trả phí của Hub (Pro / Premium / Enterprise)?
+	 * Đọc bậc đã đồng bộ từ `master/config` (`bizcity_hub_master_tier`); thiếu thì suy từ `bizcity_hub_master_level`.
+	 * Chưa nhập khoá hoặc chưa đồng bộ ⇒ coi là Free. Override: filter `bizcity_admin_support_link_is_paid`.
+	 */
+	private static function is_paid_plan(): bool {
+		$tier = sanitize_key( (string) get_option( 'bizcity_hub_master_tier', '' ) );
+		if ( '' === $tier && class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'tier_bucket_from_master_level' ) ) {
+			$tier = sanitize_key( (string) BizCity_LLM_Client::tier_bucket_from_master_level( (string) get_option( 'bizcity_hub_master_level', 'free' ) ) );
+		}
+		$paid = in_array( $tier, [ 'pro', 'premium', 'enterprise' ], true );
+
+		return (bool) apply_filters( 'bizcity_admin_support_link_is_paid', $paid, $tier );
+	}
+
 	private static function should_render( string $hook = '' ): bool {
 		if ( ! is_admin() ) {
 			return false;
@@ -170,6 +185,11 @@ class BizCity_Admin_Support_Link {
 		// 2026-05-23 — Ẩn CTA khi chạy trong hạ tầng BizCity (multisite nội bộ);
 		// chỉ hiện khi plugin được cài standalone trên site client bên ngoài.
 		if ( self::is_internal_host() ) {
+			return false;
+		}
+
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] Chủ: site đã đăng ký gói API Pro / Premium thì không hiện CTA.
+		if ( self::is_paid_plan() ) {
 			return false;
 		}
 

@@ -1,0 +1,1383 @@
+{
+  "contract": "case-guide@1",
+  "name": "Hướng dẫn nghiệp vụ — khảo sát (PHASE-0.145 S145-L10, doc 55 §2 + doc 56; cùng nguồn doc 50 B145-01…32)",
+  "_stamp": "[2026-10-27 09:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L10 — static pack of the 32 guide cards (converted from the mockup GUIDE array; group / priority from doc 50 §3). requires = 0.145 work items; [] = works today. Plain user words, no internal terms.",
+  "journeys": {
+    "send": "Gửi tài liệu",
+    "track": "Biết đã lưu, xem tiến trình",
+    "find": "Tìm lại tài liệu",
+    "deliver": "Gửi file gốc",
+    "tags": "Từ khoá",
+    "sched": "Lịch tự động",
+    "more": "Nghiệp vụ mở rộng (sắp có)",
+    "agent": "Trợ lý trả lời khách / đại lý trong nhóm"
+  },
+  "journey_order": [
+    "send",
+    "track",
+    "find",
+    "deliver",
+    "tags",
+    "sched",
+    "agent",
+    "more"
+  ],
+  "reasons_closed_list": [
+    "thieu_ket_qua",
+    "sai_ket_qua",
+    "chi_1_file",
+    "khong_gui_file_goc",
+    "cham",
+    "kho_hieu",
+    "thay_tai_lieu_nguoi_khac",
+    "khac"
+  ],
+  "reason_labels": {
+    "thieu_ket_qua": "Thiếu kết quả",
+    "sai_ket_qua": "Có cái sai",
+    "chi_1_file": "Chỉ ra 1 file",
+    "khong_gui_file_goc": "Không nhận file gốc",
+    "cham": "Chậm",
+    "kho_hieu": "Khó hiểu",
+    "thay_tai_lieu_nguoi_khac": "Thấy tài liệu của người khác",
+    "khac": "Khác"
+  },
+  "verdicts": {
+    "up": "Làm được",
+    "fix": "Được một phần",
+    "down": "Chưa được"
+  },
+  "flags": {
+    "qa": "kiểm thử nội bộ — chỉ người kiểm thử / quản trị trả lời",
+    "soon": "sắp có — không chấm"
+  },
+  "cases": [
+    {
+      "case": "B145-01",
+      "group": "A",
+      "priority": "P0",
+      "journey": "send",
+      "title": "Gửi 1 tài liệu",
+      "why": "Gửi một file PDF qua Zalo, không cần gõ gì",
+      "try": [
+        "(gửi 1 file PDF)"
+      ],
+      "expect": [
+        "Twin báo đã nhận + mã TL-",
+        "Không nói 'đã học' khi chưa đọc"
+      ],
+      "ask": {
+        "q": "Bạn nhận được biên nhận đủ tệp chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu tệp",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-02",
+      "group": "A",
+      "priority": "P0",
+      "journey": "send",
+      "title": "Gửi nhiều tài liệu một lần",
+      "why": "Chọn 10 file (ảnh, PDF, Word) gửi một lượt",
+      "try": [
+        "(chọn 10 tệp, gửi một lần)"
+      ],
+      "expect": [
+        "MỘT tin biên nhận liệt kê đủ 10",
+        "Có cả ảnh"
+      ],
+      "ask": {
+        "q": "Bạn nhận được biên nhận đủ tệp chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu tệp",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": [
+        "S145-B6",
+        "S145-H1",
+        "S145-L7"
+      ]
+    },
+    {
+      "case": "B145-03",
+      "group": "A",
+      "priority": "P0",
+      "journey": "send",
+      "title": "Một tệp lỗi không làm hỏng cả lô",
+      "why": "Gửi kèm một file quá 20 MB",
+      "try": [
+        "(gửi 3 tệp tốt + 1 tệp lớn)"
+      ],
+      "expect": [
+        "3 tệp lưu bình thường",
+        "Tệp lỗi nói rõ lý do"
+      ],
+      "ask": {
+        "q": "Bạn nhận được biên nhận đủ tệp chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu tệp",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": [
+        "S145-L7"
+      ]
+    },
+    {
+      "case": "B145-04",
+      "group": "A",
+      "priority": "P0",
+      "journey": "send",
+      "title": "Gửi trùng không bị nhân đôi",
+      "why": "Gửi lại đúng một ảnh đã gửi hôm qua",
+      "try": [
+        "(gửi lại ảnh cũ)"
+      ],
+      "expect": [
+        "Báo 'đã có trong kho', không tạo mã mới"
+      ],
+      "ask": {
+        "q": "Bạn nhận được biên nhận đủ tệp chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu tệp",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-05",
+      "group": "A",
+      "priority": "P0",
+      "journey": "track",
+      "title": "Đang đọc thì máy khởi động lại",
+      "why": "(kiểm thử nội bộ)",
+      "try": [],
+      "expect": [
+        "Tệp vẫn được đọc xong sau đó"
+      ],
+      "ask": {
+        "q": "Bạn xem được tiến trình đúng chưa?",
+        "options": [
+          "Xem được, đúng",
+          "Thiếu tệp / sai trạng thái",
+          "Không mở được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": [],
+      "flag": "qa"
+    },
+    {
+      "case": "B145-06",
+      "group": "A",
+      "priority": "P0",
+      "journey": "send",
+      "title": "Lô lớn 100 tệp",
+      "why": "(kiểm thử nội bộ)",
+      "try": [],
+      "expect": [
+        "Không mất tệp, đếm đúng"
+      ],
+      "ask": {
+        "q": "Bạn nhận được biên nhận đủ tệp chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu tệp",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "owner_capture"
+      ],
+      "requires": [
+        "S145-B6",
+        "S145-B7"
+      ],
+      "flag": "qa"
+    },
+    {
+      "case": "B145-07",
+      "group": "A",
+      "priority": "P0",
+      "journey": "track",
+      "title": "Xem tiến trình lô",
+      "why": "Bấm link 'Xem tiến trình' trong biên nhận",
+      "try": [
+        "(bấm link trong tin biên nhận)"
+      ],
+      "expect": [
+        "Thấy từng tệp: Lưu · Đọc · Tìm được",
+        "Tệp lỗi có nút Đọc lại"
+      ],
+      "ask": {
+        "q": "Bạn xem được tiến trình đúng chưa?",
+        "options": [
+          "Xem được, đúng",
+          "Thiếu tệp / sai trạng thái",
+          "Không mở được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_pipeline"
+      ],
+      "requires": [
+        "S145-L8",
+        "S145-U1"
+      ]
+    },
+    {
+      "case": "B145-08",
+      "group": "A",
+      "priority": "P0",
+      "journey": "track",
+      "title": "Xem lại lô hôm qua",
+      "why": "Mở Kho tài liệu ▸ Lô gần đây trên máy khác",
+      "try": [
+        "(mở trên điện thoại khác)"
+      ],
+      "expect": [
+        "Đúng lô, đúng trạng thái"
+      ],
+      "ask": {
+        "q": "Bạn xem được tiến trình đúng chưa?",
+        "options": [
+          "Xem được, đúng",
+          "Thiếu tệp / sai trạng thái",
+          "Không mở được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_pipeline"
+      ],
+      "requires": [
+        "S145-L8",
+        "S145-U1"
+      ]
+    },
+    {
+      "case": "B145-09",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Từ khoá cho ảnh hoá đơn",
+      "why": "Gửi ảnh hoá đơn, mở thẻ tài liệu",
+      "try": [
+        "(gửi ảnh hoá đơn điện)"
+      ],
+      "expect": [
+        "Có 5–10 từ khoá đúng",
+        "Có ngày, bên bán"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_meta_set"
+      ],
+      "requires": [
+        "S145-B8",
+        "S145-L4"
+      ]
+    },
+    {
+      "case": "B145-10",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Từ khoá cho ảnh không có chữ",
+      "why": "Gửi ảnh cái cây, mở thẻ",
+      "try": [
+        "(gửi ảnh cây)"
+      ],
+      "expect": [
+        "Từ khoá kiểu 'cây xanh', 'sân trường'"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_meta_set"
+      ],
+      "requires": [
+        "S145-B8",
+        "S145-L4"
+      ]
+    },
+    {
+      "case": "B145-11",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Từ khoá cho hợp đồng Word",
+      "why": "Gửi file Word hợp đồng du lịch Châu Âu",
+      "try": [
+        "(gửi file .docx)"
+      ],
+      "expect": [
+        "Có 'Châu Âu', 'hợp đồng du lịch'"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_meta_set"
+      ],
+      "requires": [
+        "S145-B8",
+        "S145-L5"
+      ]
+    },
+    {
+      "case": "B145-12",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Gõ không dấu vẫn ra",
+      "why": "Tìm 'chau au'",
+      "try": [
+        "tìm tài liệu chau au"
+      ],
+      "expect": [
+        "Ra cùng kết quả như 'Châu Âu'"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": [
+        "S145-L1",
+        "S145-L6"
+      ]
+    },
+    {
+      "case": "B145-13",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Sửa từ khoá không bị ghi đè",
+      "why": "Sửa một từ khoá, rồi bấm Đọc lại",
+      "try": [
+        "(sửa tag trên thẻ, bấm Đọc lại)"
+      ],
+      "expect": [
+        "Từ khoá bạn sửa vẫn giữ nguyên"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_meta_set"
+      ],
+      "requires": [
+        "S145-L4",
+        "S145-U3"
+      ]
+    },
+    {
+      "case": "B145-14",
+      "group": "B",
+      "priority": "P0",
+      "journey": "tags",
+      "title": "Xem các từ khoá và số tài liệu",
+      "why": "Mở Kho tài liệu ▸ Từ khoá",
+      "try": [
+        "(mở bảng Từ khoá)"
+      ],
+      "expect": [
+        "Mỗi từ khoá có số tài liệu",
+        "Bấm vào ra danh sách"
+      ],
+      "ask": {
+        "q": "Từ khoá có đúng và đủ chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu từ khoá",
+          "Có từ khoá sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "vault_tags_list"
+      ],
+      "requires": [
+        "S145-L6",
+        "S145-U3"
+      ]
+    },
+    {
+      "case": "B145-15",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Tìm tất cả ảnh về một chủ đề",
+      "why": "Hỏi Twin tìm mọi ảnh có cái cây",
+      "try": [
+        "Tìm cho anh tất cả ảnh có cái cây"
+      ],
+      "expect": [
+        "Twin nói tìm thấy bao nhiêu",
+        "Liệt kê đủ, không chỉ 1 ảnh"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find",
+        "send_documents"
+      ],
+      "requires": [
+        "S145-B1",
+        "S145-B2",
+        "S145-L1",
+        "S145-B5"
+      ]
+    },
+    {
+      "case": "B145-16",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Tìm đúng loại file",
+      "why": "Chỉ tìm file Word",
+      "try": [
+        "Tìm file Word hợp đồng đi Châu Âu"
+      ],
+      "expect": [
+        "Chỉ ra file Word, không lẫn PDF"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": [
+        "S145-L1",
+        "S145-B2"
+      ]
+    },
+    {
+      "case": "B145-17",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Hỏi tháng mà không nói năm",
+      "why": "",
+      "try": [
+        "Gửi hoá đơn tiền điện tháng 8"
+      ],
+      "expect": [
+        "Twin hỏi năm nào, không tự đoán"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": [
+        "S145-L1"
+      ]
+    },
+    {
+      "case": "B145-18",
+      "group": "C",
+      "priority": "P0",
+      "journey": "deliver",
+      "title": "Gửi lại theo mã",
+      "why": "",
+      "try": [
+        "Gửi lại TL-7562"
+      ],
+      "expect": [
+        "Nhận đúng file gốc, mở được"
+      ],
+      "ask": {
+        "q": "Bạn nhận đúng file gốc chưa?",
+        "options": [
+          "Nhận đủ, đúng",
+          "Thiếu file",
+          "Sai file"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khong_gui_file_goc",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "send_document"
+      ],
+      "requires": [
+        "S145-L3"
+      ]
+    },
+    {
+      "case": "B145-19",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Tìm tài liệu liên quan",
+      "why": "",
+      "try": [
+        "Tìm tài liệu liên quan Châu Âu"
+      ],
+      "expect": [
+        "Nhiều kết quả, mỗi cái có 'vì sao tìm thấy'"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": [
+        "S145-L1",
+        "S145-B3"
+      ]
+    },
+    {
+      "case": "B145-20",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Đổi tên file vẫn tìm được",
+      "why": "Đổi tên một file trong Kho rồi tìm theo nội dung",
+      "try": [
+        "tìm hợp đồng thuê nhà"
+      ],
+      "expect": [
+        "Vẫn ra file đó"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-21",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Nhân viên không thấy tài liệu riêng của chủ",
+      "why": "(kiểm thử nội bộ, 2 vai)",
+      "try": [],
+      "expect": [
+        "Không thấy tên, không thấy số lượng"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "thay_tai_lieu_nguoi_khac",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": [
+        "S145-L1"
+      ],
+      "flag": "qa"
+    },
+    {
+      "case": "B145-22",
+      "group": "C",
+      "priority": "P0",
+      "journey": "deliver",
+      "title": "Gửi tất cả 50 kết quả",
+      "why": "",
+      "try": [
+        "gửi tất cả"
+      ],
+      "expect": [
+        "Hỏi xác nhận một lần",
+        "Gửi theo đợt 10, báo từng đợt"
+      ],
+      "ask": {
+        "q": "Bạn nhận đúng file gốc chưa?",
+        "options": [
+          "Nhận đủ, đúng",
+          "Thiếu file",
+          "Sai file"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khong_gui_file_goc",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find",
+        "send_documents"
+      ],
+      "requires": [
+        "S145-B5",
+        "S145-U2"
+      ]
+    },
+    {
+      "case": "B145-23",
+      "group": "C",
+      "priority": "P0",
+      "journey": "find",
+      "title": "Tệp chưa đọc được vẫn tìm theo tên",
+      "why": "",
+      "try": [
+        "tìm ảnh mo.jpg"
+      ],
+      "expect": [
+        "Ra tệp, nói rõ 'chưa đọc được nội dung'"
+      ],
+      "ask": {
+        "q": "Twin tìm đủ và đúng chưa?",
+        "options": [
+          "Đủ và đúng",
+          "Thiếu kết quả",
+          "Có kết quả sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "chi_1_file",
+        "khac"
+      ],
+      "evidence_tool": [
+        "journal_find"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-24",
+      "group": "D",
+      "priority": "P0",
+      "journey": "sched",
+      "title": "Xem toàn bộ lịch",
+      "why": "",
+      "try": [
+        "Xem toàn bộ lịch đang chạy"
+      ],
+      "expect": [
+        "Mỗi lịch có mã, giờ, lần tới"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B10"
+      ]
+    },
+    {
+      "case": "B145-25",
+      "group": "D",
+      "priority": "P0",
+      "journey": "sched",
+      "title": "Huỷ lịch theo mã",
+      "why": "",
+      "try": [
+        "Huỷ lịch a1b2c3"
+      ],
+      "expect": [
+        "Twin hỏi xác nhận",
+        "Báo đã huỷ sau khi kiểm lại"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B9",
+        "S145-B11"
+      ]
+    },
+    {
+      "case": "B145-26",
+      "group": "D",
+      "priority": "P0",
+      "journey": "sched",
+      "title": "Sửa giờ lịch",
+      "why": "",
+      "try": [
+        "Sửa lịch a1b2c3 từ 10h thành 9h"
+      ],
+      "expect": [
+        "Twin cho xem cũ → mới",
+        "Lần tới tính lại đúng"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B9"
+      ]
+    },
+    {
+      "case": "B145-27",
+      "group": "D",
+      "priority": "P1",
+      "journey": "sched",
+      "title": "Tạm dừng / bật lại lịch",
+      "why": "",
+      "try": [
+        "Tạm dừng lịch a1b2c3",
+        "Bật lại lịch a1b2c3"
+      ],
+      "expect": [
+        "Dừng thật, bật lại đúng giờ"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B10"
+      ]
+    },
+    {
+      "case": "B145-28",
+      "group": "D",
+      "priority": "P0",
+      "journey": "sched",
+      "title": "Huỷ khi có nhiều lịch giống nhau",
+      "why": "",
+      "try": [
+        "Huỷ cái lịch 10h"
+      ],
+      "expect": [
+        "Twin hỏi bạn chọn lịch nào"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B9"
+      ]
+    },
+    {
+      "case": "B145-29",
+      "group": "D",
+      "priority": "P0",
+      "journey": "sched",
+      "title": "Huỷ bị lỗi thì Twin nói thật",
+      "why": "(kiểm thử nội bộ)",
+      "try": [],
+      "expect": [
+        "Không báo 'đã huỷ' khi chưa huỷ được"
+      ],
+      "ask": {
+        "q": "Lịch đã đúng như bạn muốn chưa?",
+        "options": [
+          "Đúng",
+          "Được một phần",
+          "Chưa đúng"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [
+        "schedule_task"
+      ],
+      "requires": [
+        "S145-B9"
+      ],
+      "flag": "qa"
+    },
+    {
+      "case": "B145-30",
+      "group": "E",
+      "priority": "P1",
+      "journey": "more",
+      "title": "Hợp đồng mẫu từ thông tin chat",
+      "why": "",
+      "try": [
+        "Làm hợp đồng cho khách Lan theo mẫu"
+      ],
+      "expect": [
+        "Có bản nháp, hỏi trước khi gửi"
+      ],
+      "ask": {
+        "q": "Việc này làm được chưa?",
+        "options": [
+          "Được",
+          "Được một phần",
+          "Chưa được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": []
+    },
+    {
+      "case": "B145-31",
+      "group": "E",
+      "priority": "P1",
+      "journey": "more",
+      "title": "Lịch thu tiền từ hợp đồng",
+      "why": "",
+      "try": [],
+      "expect": [
+        "(sắp có)"
+      ],
+      "ask": {
+        "q": "Việc này làm được chưa?",
+        "options": [
+          "Được",
+          "Được một phần",
+          "Chưa được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": [
+        "S145-B10"
+      ],
+      "flag": "soon"
+    },
+    {
+      "case": "B145-32",
+      "group": "E",
+      "priority": "P1",
+      "journey": "more",
+      "title": "Tháng trước thu bao nhiêu",
+      "why": "",
+      "try": [
+        "Tháng trước đã thu bao nhiêu?"
+      ],
+      "expect": [
+        "Số từ sổ quỹ, có kỳ"
+      ],
+      "ask": {
+        "q": "Việc này làm được chưa?",
+        "options": [
+          "Được",
+          "Được một phần",
+          "Chưa được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "cham",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": []
+    },
+    {
+      "case": "B145-33",
+      "group": "G",
+      "priority": "P0",
+      "golden": true,
+      "journey": "agent",
+      "title": "Đại lý hỏi giá tour trong nhóm",
+      "why": "Trợ lý trong nhóm tự trả lời giá, ngày khởi hành từ tài liệu tour bạn đã tải lên thư mục Công khai",
+      "try": [
+        "@trợ lý tour Trung Quốc 7 ngày 6 đêm giá bao nhiêu, khởi hành ngày nào?"
+      ],
+      "expect": [
+        "Trả lời đúng giá và ngày trên poster",
+        "Nói tên tài liệu nguồn",
+        "Không lộ tài liệu riêng"
+      ],
+      "ask": {
+        "q": "Trợ lý trả lời đúng thông tin tour chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu thông tin",
+          "Có chỗ sai"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "khong_gui_file_goc",
+        "cham",
+        "kho_hieu",
+        "thay_tai_lieu_nguoi_khac",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": []
+    },
+    {
+      "case": "B145-34",
+      "group": "G",
+      "priority": "P0",
+      "golden": true,
+      "journey": "agent",
+      "title": "Đại lý nhờ gửi ảnh chương trình",
+      "why": "Đại lý nhờ trong nhóm, trợ lý gửi ảnh poster gốc vào đúng nhóm đó",
+      "try": [
+        "@trợ lý gửi anh ảnh chương trình tour Hong Kong"
+      ],
+      "expect": [
+        "Ảnh gốc tới đúng nhóm",
+        "Tối đa 3 ảnh một lần",
+        "Không gửi sang nhóm / người khác"
+      ],
+      "ask": {
+        "q": "Nhóm nhận được ảnh chương trình chưa?",
+        "options": [
+          "Nhận đúng ảnh",
+          "Nhận thiếu / sai ảnh",
+          "Không nhận được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "khong_gui_file_goc",
+        "cham",
+        "kho_hieu",
+        "thay_tai_lieu_nguoi_khac",
+        "khac"
+      ],
+      "evidence_tool": [
+        "send_vault_media"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-35",
+      "group": "G",
+      "priority": "P0",
+      "golden": true,
+      "journey": "agent",
+      "title": "Khách hỏi tài liệu nội bộ",
+      "why": "Tài liệu ở thư mục Chủ + nhân sự hoặc Chỉ chủ không bao giờ tới tay khách",
+      "try": [
+        "@trợ lý gửi anh bảng hoa hồng đại lý"
+      ],
+      "expect": [
+        "Không nêu tên, không trích, không gửi file",
+        "Trả lời nhẹ nhàng: em nhờ nhân viên gửi"
+      ],
+      "ask": {
+        "q": "Trợ lý có giữ kín tài liệu nội bộ không?",
+        "options": [
+          "Giữ kín",
+          "Lộ một phần",
+          "Lộ tài liệu"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "khong_gui_file_goc",
+        "cham",
+        "kho_hieu",
+        "thay_tai_lieu_nguoi_khac",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": []
+    },
+    {
+      "case": "B145-36",
+      "group": "G",
+      "priority": "P0",
+      "golden": true,
+      "journey": "agent",
+      "title": "Chủ nhờ gửi ảnh tour bằng lời tự nhiên",
+      "why": "Bạn nói như thường ngày, trợ lý tìm đủ các tệp tour liên quan rồi gửi",
+      "try": [
+        "gửi anh ảnh chương trình du lịch hồng kong"
+      ],
+      "expect": [
+        "Tìm đủ các tệp Hong Kong",
+        "Gửi ảnh gốc hoặc hỏi gửi cả bộ một lần",
+        "Không trả lời \"chưa tìm thấy\" khi tệp có trong kho"
+      ],
+      "ask": {
+        "q": "Trợ lý tìm và gửi đúng ảnh chưa?",
+        "options": [
+          "Đúng và đủ",
+          "Thiếu tệp",
+          "Không tìm thấy"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "khong_gui_file_goc",
+        "cham",
+        "kho_hieu",
+        "thay_tai_lieu_nguoi_khac",
+        "khac",
+        "chi_1_file"
+      ],
+      "evidence_tool": [
+        "journal_find",
+        "send_document",
+        "send_documents"
+      ],
+      "requires": []
+    },
+    {
+      "case": "B145-37",
+      "group": "G",
+      "priority": "P1",
+      "golden": true,
+      "journey": "agent",
+      "title": "Guru đọc được kho tour",
+      "why": "Trong Agent Guru, thư mục tour hiện đúng số bản đọc và Hỏi thử như khách ra đúng poster",
+      "try": [
+        "Agent Guru ▸ Phục vụ GPT ▸ Hỏi thử: tour Hong Kong giá bao nhiêu"
+      ],
+      "expect": [
+        "Số bản đọc khác 0",
+        "Câu trả lời thử lấy từ poster"
+      ],
+      "ask": {
+        "q": "Guru đọc được tài liệu tour chưa?",
+        "options": [
+          "Được",
+          "Được một phần",
+          "Chưa được"
+        ]
+      },
+      "reasons": [
+        "thieu_ket_qua",
+        "sai_ket_qua",
+        "kho_hieu",
+        "khac"
+      ],
+      "evidence_tool": [],
+      "requires": []
+    }
+  ],
+  "_stamp_golden": "[2026-10-28 01:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 golden G (doc 57) — B145-33…37: đại lý hỏi tour trong nhóm, trợ lý trả lời từ Kho tri thức công khai + gửi ảnh chương trình. requires = S145-G*.",
+  "_stamp_golden_ready": "[2026-10-28 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 golden G — B145-33…37 đã chạy thật trên Zalo nhóm + Messenger (28/10 20:00–22:40) ⇒ requires = [] (thẻ mở ngay), thẻ 35 bỏ cờ qa để người dùng thường chấm được và nhóm G (33–36) tính điểm Thành tích."
+}

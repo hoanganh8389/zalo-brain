@@ -31,6 +31,10 @@ final class BizCity_Context_Bank_Rollup_Cron {
 	}
 
 	public static function register() {
+		// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — never register/schedule while the Context Bank kill switch is off.
+		if ( function_exists( 'bizcity_context_bank_enabled' ) && ! bizcity_context_bank_enabled() ) {
+			return false;
+		}
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB5 — let Cron Manager own the registry/schedule and keep the tenant flag as the explicit rollout gate.
 		if ( ! class_exists( 'BizCity_Cron_Manager' ) || ! method_exists( 'BizCity_Cron_Manager', 'instance' ) ) {
 			return false;
@@ -48,6 +52,10 @@ final class BizCity_Context_Bank_Rollup_Cron {
 	}
 
 	public static function run() {
+		// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — kill switch.
+		if ( function_exists( 'bizcity_context_bank_enabled' ) && ! bizcity_context_bank_enabled() ) {
+			return array( 'ok' => true, 'processed' => false, 'reason' => 'context_bank_disabled' );
+		}
 		// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB5 — defend the scheduled callback before any state read or worker entry in Diagnostics CLI.
 		if ( self::diagnostics_blocked() ) {
 			return array( 'ok' => false, 'processed' => false, 'reason' => 'diagnostics_cli_isolated' );

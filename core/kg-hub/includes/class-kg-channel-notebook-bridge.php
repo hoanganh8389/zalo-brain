@@ -1898,7 +1898,9 @@ class BizCity_KG_Channel_Notebook_Bridge {
 		// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1/L2 — a document the owner sent in the Zalo 1-1
 		// (origin owner_capture) is kept as a PRIVATE original (checked, sha256, deduped per workspace), never a public upload.
 		$private = null;
-		if ( $attach_id <= 0 && $url !== '' && ( $kind === 'file' || $kind === 'audio' ) && self::is_private_capture( $source_meta ) ) {
+		// [2026-10-27 09:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (Q145-1 = 1) — an owner / group IMAGE goes the same private door (sha256 dedupe, MIME sniff) behind the site option
+		// `bizcity_capture_images_private` (default on); an image the store refuses keeps today's media path below (like audio), so turning it on never loses a photo.
+		if ( $attach_id <= 0 && $url !== '' && ( ( ( $kind === 'file' || $kind === 'audio' ) && self::is_private_capture( $source_meta ) ) || ( $kind === 'image' && self::images_private() && self::is_private_capture( $source_meta ) ) ) ) {
 			$file_label = (string) ( $attachment['file_name'] ?? $attachment['name'] ?? '' );
 			if ( $file_label === '' ) {
 				$file_label = basename( (string) wp_parse_url( $url, PHP_URL_PATH ) );
@@ -2747,6 +2749,14 @@ class BizCity_KG_Channel_Notebook_Bridge {
 	 * [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — owner-capture documents go to the private store
 	 * (unless switched off: filter `bizcity_second_brain_private_store`). Pure on the source meta.
 	 */
+	/**
+	 * [2026-10-27 09:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (Q145-1 = 1) — do captured images go to the private store? Site option `bizcity_capture_images_private`, default on ('0' / 'off' = old media path).
+	 */
+	public static function images_private(): bool {
+		$v = function_exists( 'get_option' ) ? get_option( 'bizcity_capture_images_private', '1' ) : '1';
+		return ! in_array( strtolower( (string) $v ), array( '0', 'off', 'no', 'false', '' ), true );
+	}
+
 	public static function is_private_capture( array $source_meta ): bool {
 		// [2026-10-20 11:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.124 — tệp NHÓM (origin group_capture) cũng vào kho riêng của chủ: trước đây rơi xuống thư viện media công khai và
 		// media_handle_sideload từ chối ("lưu lỗi", notebook_bridge_sideload_failed) trong khi chat riêng cùng loại tệp lưu được.

@@ -84,8 +84,11 @@ class BizCity_CG_Debug_Logger {
 		add_action( 'bizcity_zalo_bot_webhook_event', array( __CLASS__, 'on_zalo_bot_event' ),       1, 3 );
 
 		// [2026-06-19 Johnny Chu] PHASE-CG-CF7-LOG — CF7 form submission → cf7 channel file log
-		add_action( 'wpcf7_mail_sent',   array( __CLASS__, 'on_cf7_mail_sent' ),   1, 1 );
-		add_action( 'wpcf7_mail_failed', array( __CLASS__, 'on_cf7_mail_failed' ), 1, 1 );
+		// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — register the wpcf7_* hooks only when bizcity_channel_cf7_enabled is true (default false: CF7 not deployed).
+		if ( apply_filters( 'bizcity_channel_cf7_enabled', false ) ) {
+			add_action( 'wpcf7_mail_sent',   array( __CLASS__, 'on_cf7_mail_sent' ),   1, 1 );
+			add_action( 'wpcf7_mail_failed', array( __CLASS__, 'on_cf7_mail_failed' ), 1, 1 );
+		}
 
 		// CRM event emitter dispatches actions: bizcity_crm_event_{name}.
 		add_action( 'bizcity_crm_event_crm_campaign_visit_recorded',     array( __CLASS__, 'on_campaign_visit' ),    1 );

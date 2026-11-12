@@ -1,7 +1,7 @@
 {
- "contract": "executors-catalog@1.0.0",
+ "contract": "executors-catalog@1.1.0",
  "source": "executor-registry@1 + connector manifests",
- "count": 127,
+ "count": 130,
  "connectors": [
   {
    "id": "fb_dev",
@@ -34,7 +34,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "gmail.list",
@@ -47,7 +52,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "gmail.draft",
@@ -60,7 +70,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "planned"
+     "status": "planned",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft"
+     ]
     },
     {
      "id": "gmail.send",
@@ -73,7 +88,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "verified"
+     "status": "verified",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     }
    ]
   },
@@ -89,7 +110,7 @@
    "executors": [
     {
      "id": "notebook.search",
-     "label": "Tìm trong sổ tay (có trích nguồn)",
+     "label": "Tìm sâu trong sổ tay / nội dung tài liệu (có trích nguồn)",
      "risk": "R0",
      "confirm": "never",
      "audience": [
@@ -99,7 +120,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "cell_tools": [
+      "notebook_search"
+     ]
     },
     {
      "id": "zalo.directory.read",
@@ -111,7 +137,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "contacts",
+     "domain": "contacts",
+     "cell_tools": [
+      "find_recipient"
+     ]
     },
     {
      "id": "zalo.group.brief",
@@ -124,7 +155,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "group_brief"
+     ]
     },
     {
      "id": "zalo.group.info",
@@ -138,7 +174,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "get_group_info"
+     ]
     },
     {
      "id": "zalo.group.pending",
@@ -150,7 +191,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "list_pending_group_members"
+     ]
     },
     {
      "id": "zalo.thread.read",
@@ -162,7 +208,13 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "contacts",
+     "domain": "contacts",
+     "cell_tools": [
+      "list_threads",
+      "read_thread"
+     ]
     },
     {
      "id": "deep_analysis.request",
@@ -174,7 +226,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "mode": "deep_analysis",
+     "cell_tools": [
+      "request_deep_analysis"
+     ]
     },
     {
      "id": "document.sheet.create",
@@ -187,7 +245,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "document",
+     "cell_tools": [
+      "create_excel_file",
+      "create_csv_file"
+     ]
     },
     {
      "id": "document.slides.create",
@@ -200,7 +264,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "document",
+     "cell_tools": [
+      "create_powerpoint_file"
+     ]
     },
     {
      "id": "document.write.create",
@@ -213,7 +282,15 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "document",
+     "cell_tools": [
+      "create_word_document",
+      "create_markdown_file",
+      "create_html_file",
+      "create_text_file"
+     ]
     },
     {
      "id": "journal.note",
@@ -226,7 +303,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "mode": "notebook",
+     "cell_tools": [
+      "journal_note"
+     ]
     },
     {
      "id": "media.image.create",
@@ -239,7 +322,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "media",
+     "cell_tools": [
+      "create_image"
+     ]
     },
     {
      "id": "media.music.create",
@@ -252,7 +340,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "media",
+     "cell_tools": [
+      "create_music"
+     ]
     },
     {
      "id": "media.photo_video.create",
@@ -265,7 +358,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "media",
+     "cell_tools": [
+      "create_photo_video"
+     ]
     },
     {
      "id": "media.video.create",
@@ -278,7 +376,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "media",
+     "cell_tools": [
+      "create_video"
+     ]
     },
     {
      "id": "media.voice.create",
@@ -291,7 +394,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "media",
+     "cell_tools": [
+      "create_voice"
+     ]
     },
     {
      "id": "notebook.remember",
@@ -304,7 +412,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "mode": "notebook",
+     "cell_tools": [
+      "notebook_remember"
+     ]
     },
     {
      "id": "schedule.task",
@@ -317,7 +431,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "schedule",
+     "domain": "schedule",
+     "cell_tools": [
+      "schedule_task"
+     ]
     },
     {
      "id": "zalo.group.compile",
@@ -330,7 +449,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "group_compile"
+     ]
     },
     {
      "id": "zalo.group.save",
@@ -343,7 +467,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "group_save"
+     ]
     },
     {
      "id": "zalo.group.track",
@@ -356,7 +485,12 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "cell_tools": [
+      "group_track"
+     ]
     },
     {
      "id": "zalo.file.send",
@@ -369,7 +503,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "send_file"
+     ]
     },
     {
      "id": "zalo.group.manage",
@@ -381,7 +521,20 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "scope": "account",
+     "cell_tools": [
+      "kick_member",
+      "set_group_deputy",
+      "review_pending_member",
+      "set_group_member_blocked",
+      "set_group_invite_link",
+      "rename_group",
+      "change_group_avatar",
+      "pin_group_note"
+     ]
     },
     {
      "id": "zalo.group.secretary",
@@ -393,7 +546,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "scope": "account",
+     "cell_tools": [
+      "group_secretary"
+     ]
     },
     {
      "id": "zalo.member.tag",
@@ -407,7 +566,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "tag_member"
+     ]
     },
     {
      "id": "zalo.message.reply",
@@ -421,7 +586,10 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread"
     },
     {
      "id": "zalo.message.send_other",
@@ -433,7 +601,14 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "contacts",
+     "domain": "contacts",
+     "scope": "account",
+     "cell_tools": [
+      "send_to_contact",
+      "approve_outbound"
+     ]
     },
     {
      "id": "zalo.message.undo",
@@ -445,7 +620,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "undo_message"
+     ]
     },
     {
      "id": "zalo.poll.create",
@@ -459,7 +640,13 @@
      ],
      "schedulable": true,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "create_poll"
+     ]
     },
     {
      "id": "zalo.poll.lock",
@@ -473,7 +660,13 @@
      ],
      "schedulable": true,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "lock_poll"
+     ]
     },
     {
      "id": "zalo.reaction.add",
@@ -487,7 +680,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "add_reaction"
+     ]
     },
     {
      "id": "zalo.sticker.send",
@@ -501,7 +700,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "send_sticker"
+     ]
     },
     {
      "id": "zalo.group.transfer",
@@ -513,7 +718,13 @@
      ],
      "schedulable": false,
      "side_effect": "money",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_group",
+     "domain": "zalo_group",
+     "scope": "account",
+     "cell_tools": [
+      "transfer_group_owner"
+     ]
     }
    ]
   },
@@ -536,7 +747,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "drive.meta",
@@ -549,7 +765,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     }
    ]
   },
@@ -608,7 +829,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.menu.list",
@@ -621,7 +846,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin"
     },
     {
      "id": "wp.page.history",
@@ -634,7 +863,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.page.read",
@@ -647,7 +880,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.site.info",
@@ -660,7 +897,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.theme.info",
@@ -673,7 +914,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin"
     },
     {
      "id": "wp.landing.draft",
@@ -686,7 +931,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "create_landing_page"
+     ]
     },
     {
      "id": "wp.media.upload",
@@ -699,7 +951,11 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.page.attach_form",
@@ -712,7 +968,11 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.page.draft",
@@ -725,7 +985,11 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.page.edit",
@@ -738,7 +1002,11 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "wp.menu.update",
@@ -751,7 +1019,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin",
+     "cell_tools": [
+      "update_site_menu"
+     ]
     },
     {
      "id": "wp.page.publish",
@@ -764,7 +1039,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "publish_landing_page"
+     ]
     },
     {
      "id": "wp.page.restore",
@@ -777,7 +1059,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "restore_landing_page"
+     ]
     },
     {
      "id": "wp.page.update_live",
@@ -790,7 +1079,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "update_live_page"
+     ]
     },
     {
      "id": "wp.theme.update",
@@ -803,7 +1099,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin",
+     "cell_tools": [
+      "update_theme_settings"
+     ]
     },
     {
      "id": "wp.user.create",
@@ -815,7 +1118,14 @@
      ],
      "schedulable": false,
      "side_effect": "account_access",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin",
+     "cell_tools": [
+      "create_website_account"
+     ]
     },
     {
      "id": "wp.user.set_role",
@@ -827,7 +1137,14 @@
      ],
      "schedulable": false,
      "side_effect": "account_access",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "site_admin",
+     "cell_tools": [
+      "set_website_account_role"
+     ]
     }
    ]
   },
@@ -871,7 +1188,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.conversation.list",
@@ -884,7 +1206,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "verified"
+     "status": "verified",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.message.list",
@@ -897,7 +1224,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "verified"
+     "status": "verified",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.page.list",
@@ -910,7 +1242,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "verified"
+     "status": "verified",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.page.permissions",
@@ -923,7 +1260,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.post.list",
@@ -936,7 +1278,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "fb.comment.reply",
@@ -949,7 +1296,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     },
     {
      "id": "fb.messenger.send",
@@ -962,7 +1315,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "verified"
+     "status": "verified",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     },
     {
      "id": "fb.messenger.send_media",
@@ -975,7 +1334,10 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "social",
+     "mode": "channel"
     },
     {
      "id": "fb.post.create",
@@ -988,7 +1350,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     },
     {
      "id": "fb.post.create_photo",
@@ -1001,7 +1369,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "social",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     }
    ]
   },
@@ -1042,7 +1416,11 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "cf7.form.create",
@@ -1055,7 +1433,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "create_landing_page"
+     ]
     },
     {
      "id": "cf7.form.update",
@@ -1068,7 +1453,11 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content"
     },
     {
      "id": "cf7.form.set_recipient",
@@ -1081,7 +1470,14 @@
      ],
      "schedulable": false,
      "side_effect": "publish",
-     "status": "coded"
+     "status": "coded",
+     "group": "website",
+     "domain": "website",
+     "scope": "site",
+     "mode": "content",
+     "cell_tools": [
+      "change_form_recipient"
+     ]
     }
    ]
   },
@@ -1104,7 +1500,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "sheets.spreadsheet.get",
@@ -1117,7 +1518,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "sheets.values.get",
@@ -1130,7 +1536,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
     },
     {
      "id": "sheets.checklist.revise",
@@ -1143,7 +1554,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     },
     {
      "id": "sheets.spreadsheet.create",
@@ -1156,7 +1573,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     },
     {
      "id": "sheets.values.append",
@@ -1169,7 +1592,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     }
    ]
   },
@@ -1200,7 +1629,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "astro",
+     "domain": "brain",
+     "mode": "astro_self",
+     "cell_tools": [
+      "astro_self"
+     ]
     },
     {
      "id": "contract.template.list",
@@ -1212,7 +1647,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "contract",
+     "domain": "contract",
+     "scope": "account",
+     "cell_tools": [
+      "list_contract_templates"
+     ]
     },
     {
      "id": "document.file.read",
@@ -1226,7 +1667,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "brain",
+     "scope": "thread",
+     "cell_tools": [
+      "read_file"
+     ]
     },
     {
      "id": "document.ocr.read",
@@ -1239,7 +1686,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "brain",
+     "mode": "notebook",
+     "cell_tools": [
+      "document_ocr"
+     ]
     },
     {
      "id": "document.text.read",
@@ -1252,7 +1705,14 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "brain",
+     "scope": "account",
+     "mode": "notebook",
+     "cell_tools": [
+      "read_document"
+     ]
     },
     {
      "id": "media.image.read",
@@ -1266,7 +1726,12 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "media",
+     "domain": "brain",
+     "cell_tools": [
+      "read_image"
+     ]
     },
     {
      "id": "notebook.digest",
@@ -1279,7 +1744,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "mode": "notebook",
+     "cell_tools": [
+      "notebook_digest"
+     ]
     },
     {
      "id": "profile.list",
@@ -1292,7 +1763,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "settings",
+     "domain": "settings",
+     "mode": "notebook",
+     "cell_tools": [
+      "profile_list"
+     ]
     },
     {
      "id": "research.code.search",
@@ -1305,7 +1782,13 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "search_github",
+      "search_stackexchange"
+     ]
     },
     {
      "id": "research.news.search",
@@ -1318,7 +1801,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "search_hackernews"
+     ]
     },
     {
      "id": "research.paper.search",
@@ -1331,7 +1819,13 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "search_arxiv",
+      "search_scholar"
+     ]
     },
     {
      "id": "research.wiki.search",
@@ -1345,7 +1839,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "search_wikipedia"
+     ]
     },
     {
      "id": "social.data.scrape",
@@ -1358,7 +1857,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "social",
+     "cell_tools": [
+      "scrape_social_data"
+     ]
     },
     {
      "id": "util.time.read",
@@ -1372,7 +1876,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "schedule",
+     "domain": "brain",
+     "cell_tools": [
+      "get_datetime"
+     ]
     },
     {
      "id": "web.page.fetch",
@@ -1386,7 +1895,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "web_fetch"
+     ]
     },
     {
      "id": "web.search.run",
@@ -1400,7 +1914,12 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "cell_tools": [
+      "web_search"
+     ]
     },
     {
      "id": "book.export",
@@ -1413,7 +1932,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "ledger",
+     "scope": "thread",
+     "mode": "notebook",
+     "cell_tools": [
+      "book_export"
+     ]
     },
     {
      "id": "connector.report.send",
@@ -1426,7 +1952,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "mode": "channel",
+     "cell_tools": [
+      "connected_apps_report"
+     ]
     },
     {
      "id": "contract.draft.compose",
@@ -1438,7 +1970,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "contract",
+     "domain": "contract",
+     "scope": "account",
+     "cell_tools": [
+      "compose_contract"
+     ]
     },
     {
      "id": "contract.template.save",
@@ -1450,7 +1988,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "contract",
+     "domain": "contract",
+     "scope": "account",
+     "cell_tools": [
+      "save_contract_template"
+     ]
     },
     {
      "id": "document.file.capture",
@@ -1463,7 +2007,9 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "document"
     },
     {
      "id": "document.file.send",
@@ -1476,7 +2022,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "brain",
+     "scope": "thread",
+     "mode": "notebook",
+     "cell_tools": [
+      "send_document"
+     ]
     },
     {
      "id": "document.learn.set",
@@ -1489,7 +2042,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "document",
+     "domain": "brain",
+     "scope": "account",
+     "mode": "notebook",
+     "cell_tools": [
+      "learn_document"
+     ]
     },
     {
      "id": "harness.job.request",
@@ -1501,7 +2061,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "research",
+     "domain": "research",
+     "mode": "deep_analysis",
+     "cell_tools": [
+      "request_harness"
+     ]
     },
     {
      "id": "journal.entry.purge",
@@ -1513,7 +2079,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "scope": "thread",
+     "mode": "notebook",
+     "cell_tools": [
+      "delete_document"
+     ]
     },
     {
      "id": "journal.entry.record",
@@ -1526,7 +2099,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "ledger",
+     "domain": "ledger",
+     "mode": "notebook",
+     "cell_tools": [
+      "book_record"
+     ]
     },
     {
      "id": "journal.entry.void",
@@ -1539,7 +2118,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "ledger",
+     "domain": "ledger",
+     "mode": "notebook",
+     "cell_tools": [
+      "book_void"
+     ]
     },
     {
      "id": "media.recording.transcribe",
@@ -1552,7 +2137,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "meeting",
+     "domain": "meeting",
+     "scope": "account",
+     "mode": "notebook",
+     "cell_tools": [
+      "transcribe_recording"
+     ]
     },
     {
      "id": "meeting.minutes.save",
@@ -1565,7 +2157,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "meeting",
+     "domain": "meeting",
+     "scope": "account",
+     "mode": "notebook",
+     "cell_tools": [
+      "meeting"
+     ]
     },
     {
      "id": "memory.save",
@@ -1579,7 +2178,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "scope": "thread",
+     "cell_tools": [
+      "save_memory"
+     ]
     },
     {
      "id": "panel.key.reset",
@@ -1591,7 +2196,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "settings",
+     "domain": "settings",
+     "scope": "thread",
+     "mode": "notebook",
+     "cell_tools": [
+      "panel_key_reset"
+     ]
     },
     {
      "id": "panel.link.issue",
@@ -1603,7 +2215,14 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "settings",
+     "domain": "settings",
+     "scope": "thread",
+     "mode": "notebook",
+     "cell_tools": [
+      "open_panel"
+     ]
     },
     {
      "id": "profile.propose",
@@ -1616,7 +2235,13 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "settings",
+     "domain": "settings",
+     "mode": "notebook",
+     "cell_tools": [
+      "profile_propose"
+     ]
     },
     {
      "id": "channel.card.send",
@@ -1630,7 +2255,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "commerce",
+     "scope": "thread",
+     "cell_tools": [
+      "send_channel_card"
+     ]
     },
     {
      "id": "channel.media.send",
@@ -1644,7 +2275,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "zalo_chat",
+     "domain": "zalo",
+     "scope": "thread",
+     "cell_tools": [
+      "send_site_media"
+     ]
     },
     {
      "id": "profile.policy.set",
@@ -1656,7 +2293,80 @@
      ],
      "schedulable": false,
      "side_effect": "money",
-     "status": "coded"
+     "status": "coded",
+     "group": "settings",
+     "domain": "settings",
+     "scope": "account",
+     "mode": "notebook",
+     "cell_tools": [
+      "profile_set_policy"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "googlecalendar",
+   "label": "googlecalendar",
+   "section": "other",
+   "transport": "",
+   "plan_gate": "",
+   "cell_platforms": [],
+   "executors": [
+    {
+     "id": "calendar.events",
+     "label": "Lịch Google sắp tới",
+     "risk": "R0",
+     "confirm": "never",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "read",
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_read"
+     ]
+    },
+    {
+     "id": "calendar.delete_event",
+     "label": "Huỷ sự kiện Lịch Google",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
+    },
+    {
+     "id": "calendar.move_event",
+     "label": "Dời sự kiện Lịch Google",
+     "risk": "R2",
+     "confirm": "always",
+     "audience": [
+      "owner",
+      "staff"
+     ],
+     "schedulable": false,
+     "side_effect": "external_send",
+     "status": "coded",
+     "group": "apps",
+     "domain": "apps",
+     "cell_tools": [
+      "connected_apps_draft",
+      "connected_apps_approve"
+     ]
     }
    ]
   },
@@ -1680,7 +2390,13 @@
      ],
      "schedulable": true,
      "side_effect": "read",
-     "status": "verified"
+     "status": "verified",
+     "group": "commerce",
+     "domain": "commerce",
+     "scope": "site",
+     "cell_tools": [
+      "product_lookup"
+     ]
     },
     {
      "id": "crm.customer.find",
@@ -1693,7 +2409,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "contacts",
+     "domain": "contacts",
+     "mode": "customers",
+     "cell_tools": [
+      "biz_customer_find"
+     ]
     },
     {
      "id": "inventory.stock.read",
@@ -1706,11 +2428,17 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "commerce",
+     "domain": "commerce",
+     "mode": "stock",
+     "cell_tools": [
+      "biz_stock"
+     ]
     },
     {
      "id": "journal.entry.find",
-     "label": "Tra sổ cái: dòng, mã, việc đang làm",
+     "label": "Sổ cái (Journal Index): tìm / liệt kê đã lưu theo ngày, loại, mã",
      "risk": "R0",
      "confirm": "never",
      "audience": [
@@ -1719,7 +2447,10 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "notebook",
+     "domain": "brain",
+     "mode": "notebook"
     },
     {
      "id": "order.pay_info",
@@ -1733,7 +2464,9 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "verified"
+     "status": "verified",
+     "group": "commerce",
+     "domain": "commerce"
     },
     {
      "id": "order.status",
@@ -1746,7 +2479,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "commerce",
+     "domain": "commerce",
+     "mode": "orders",
+     "cell_tools": [
+      "biz_orders"
+     ]
     },
     {
      "id": "sales.summary.read",
@@ -1759,7 +2498,13 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "commerce",
+     "domain": "commerce",
+     "mode": "sales",
+     "cell_tools": [
+      "biz_sales"
+     ]
     },
     {
      "id": "twinsheet.read",
@@ -1772,7 +2517,10 @@
      ],
      "schedulable": false,
      "side_effect": "read",
-     "status": "coded"
+     "status": "coded",
+     "group": "ledger",
+     "domain": "ledger",
+     "mode": "notebook"
     },
     {
      "id": "twinsheet.create",
@@ -1785,7 +2533,10 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "ledger",
+     "domain": "ledger",
+     "mode": "notebook"
     },
     {
      "id": "twinsheet.snapshot",
@@ -1798,7 +2549,10 @@
      ],
      "schedulable": false,
      "side_effect": "draft",
-     "status": "coded"
+     "status": "coded",
+     "group": "ledger",
+     "domain": "ledger",
+     "mode": "notebook"
     },
     {
      "id": "commerce.payment.send",
@@ -1812,7 +2566,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "commerce",
+     "domain": "commerce",
+     "scope": "thread",
+     "cell_tools": [
+      "send_order_payment"
+     ]
     },
     {
      "id": "commerce.product_card.send",
@@ -1826,7 +2586,13 @@
      ],
      "schedulable": false,
      "side_effect": "external_send",
-     "status": "coded"
+     "status": "coded",
+     "group": "commerce",
+     "domain": "commerce",
+     "scope": "thread",
+     "cell_tools": [
+      "send_product_card"
+     ]
     },
     {
      "id": "order.place",
@@ -1840,7 +2606,13 @@
      ],
      "schedulable": false,
      "side_effect": "money",
-     "status": "verified"
+     "status": "verified",
+     "group": "commerce",
+     "domain": "commerce",
+     "scope": "site",
+     "cell_tools": [
+      "place_order"
+     ]
     }
    ]
   }

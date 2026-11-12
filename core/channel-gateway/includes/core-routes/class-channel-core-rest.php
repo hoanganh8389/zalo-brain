@@ -1176,15 +1176,36 @@ class BizCity_Channel_Core_REST {
 		if ( $character_id <= 0 || $user_id <= 0 || ! class_exists( 'BizCity_Knowledge_Database' ) ) {
 			return false;
 		}
+		$character = BizCity_Knowledge_Database::instance()->get_character( $character_id );
+		// [2026-10-27 12:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 GURU-AUDIENCE (D142-12 cùng luật chủ 27/10) — a number's Guru answers CUSTOMERS: never the Quản gia, Global Memory or an old project Guru,
+		// even when one of them is the site default (the owner's own 1-1 chat already answers with the Quản gia in the cell, D136-26 — it needs no binding).
+		if ( ! $this->agent_guru_answers( $character ) ) {
+			return false;
+		}
 		$default_id = $this->agent_guru_default_id();
 		if ( $default_id > 0 && $character_id === $default_id ) {
 			return true;
 		}
-		$character = BizCity_Knowledge_Database::instance()->get_character( $character_id );
 		return $character
 			&& (int) ( $character->author_id ?? 0 ) === $user_id
 			&& 'active' === (string) ( $character->status ?? '' )
 			&& self::AGENT_GURU_GLOBAL_SLUG !== (string) ( $character->slug ?? '' );
+	}
+
+	/**
+	 * [2026-10-27 12:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 GURU-AUDIENCE — may this character answer a channel? The ONE rule of Guru Studio (`BizCity_Guru_Studio::kind_of` = guru);
+	 * without that class (older build) only Global Memory is refused, as before.
+	 *
+	 * @param object|null $character
+	 */
+	private function agent_guru_answers( $character ): bool {
+		if ( ! $character ) {
+			return false;
+		}
+		if ( class_exists( 'BizCity_Guru_Studio', false ) && method_exists( 'BizCity_Guru_Studio', 'kind_of' ) ) {
+			return 'guru' === BizCity_Guru_Studio::kind_of( $character );
+		}
+		return self::AGENT_GURU_GLOBAL_SLUG !== (string) ( $character->slug ?? '' );
 	}
 
 	/** @return object[] Gurus authored by the user (any status when $status is ''), global memory excluded. */
@@ -1231,12 +1252,13 @@ class BizCity_Channel_Core_REST {
 		$items      = array();
 		if ( $default_id > 0 ) {
 			$default = BizCity_Knowledge_Database::instance()->get_character( $default_id );
-			if ( $default ) {
+			// [2026-10-27 12:41 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 GURU-AUDIENCE — step ④ lists only Gurus that may answer customers (no Quản gia / Global Memory / old project Guru)
+			if ( $default && $this->agent_guru_answers( $default ) ) {
 				$items[] = $this->agent_guru_item( $default, $default_id, $user_id );
 			}
 		}
 		foreach ( $this->agent_guru_owned( $user_id, 'active' ) as $row ) {
-			if ( (int) $row->id === $default_id ) {
+			if ( (int) $row->id === $default_id || ! $this->agent_guru_answers( $row ) ) {
 				continue;
 			}
 			$items[] = $this->agent_guru_item( $row, $default_id, $user_id );

@@ -117,7 +117,7 @@ final class BizCity_Twin_Web_Bridge_REST {
 		// [2026-10-14 08:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S109-L14 — the Guru the site picked for a page the CELL answers (Q109-2, Guru per page): served to the cell on top of the
 		// site's default Guru, and ONLY those (a cell still cannot enumerate Gurus). Ids come from the pages in cell_direct mode (BizCity_FB_Cell_Direct::guru_ids()).
 		$page_gurus = isset( self::$readers['page_gurus'] ) ? (array) call_user_func( self::$readers['page_gurus'] ) : ( class_exists( 'BizCity_FB_Cell_Direct', false ) ? BizCity_FB_Cell_Direct::guru_ids() : array() );
-		if ( 1 === preg_match( '/^guru:([1-9][0-9]{0,17})$/', $ref, $pg ) && in_array( (int) $pg[1], array_map( 'intval', $page_gurus ), true ) ) {
+		if ( 1 === preg_match( '/^guru:([1-9][0-9]{0,17})$/', $ref, $pg ) && ( in_array( (int) $pg[1], array_map( 'intval', $page_gurus ), true ) || ( class_exists( 'BizCity_Guru_Studio', false ) && BizCity_Guru_Studio::guru_has_binding( (int) $pg[1] ) ) ) ) { // PHASE-0.142 S142-L3 — also any Guru a channel (e.g. a Composio Fanpage) is bound to
 			return array( 'ok' => true, 'character_id' => (int) $pg[1] );
 		}
 		$answering = $seam ? (int) call_user_func( self::$readers['guru_answering'] ) : (int) BizCity_Guru_Context_Resolver::answering_character_id( 0 );
@@ -292,6 +292,9 @@ final class BizCity_Twin_Web_Bridge_REST {
 			return self::refuse( BizCity_MCP_Error::DELEGATION_PRINCIPAL_UNBOUND, 'Site này chưa có Agent Guru để trả lời khách.' );
 		}
 		$ctx  = BizCity_MCP_Delegation::context_guru_public( (int) $guru['character_id'], 'web', $turn, (array) $guru['scope'], '' );
+		// [2026-10-28 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 golden G (Messenger: kho_mcp_fail MCP_NOTEBOOK_ACCESS_DENIED, account web-4560) — the Zalo bridge sets the WordPress owner of the number as `acting_user_id`;
+		// this web / Messenger bridge never did, so the Guru's PUBLIC Kho folders were searched for user 0 (no rows) and the empty result became an access-denied error. Site binding, never the request.
+		$ctx['acting_user_id'] = self::owner_user_of_channel( strtolower( trim( (string) $request->get_header( self::CHANNEL_HDR ) ) ) );
 		// [2026-10-15 Johnny Chu - Chu Hoàng Anh] PHASE-0.109 S70-3b — who is asking (platform uid), set by the cell from the Hub-signed connection; with the page of the channel header it is the identity stamped on the orders of that customer
 		$customer = self::customer_of( strtolower( trim( (string) $request->get_header( self::CHANNEL_HDR ) ) ), (string) $request->get_header( self::CUSTOMER_HDR ) );
 		if ( null !== $customer ) {
@@ -338,6 +341,26 @@ final class BizCity_Twin_Web_Bridge_REST {
 	 *
 	 * @return array{character_id:int,scope:array}|null
 	 */
+	/**
+	 * [2026-10-28 09:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 golden G — the WordPress user that owns the Kho of the page this channel belongs to: the FB_PAGE binding's owner, else the site admin. 0 when unknown.
+	 */
+	public static function owner_user_of_channel( string $channel ): int {
+		if ( isset( self::$readers['channel_owner'] ) ) {
+			return max( 0, (int) call_user_func( self::$readers['channel_owner'], $channel ) );
+		}
+		$uid = 0;
+		if ( 1 === preg_match( '/^(?:messenger|facebook|fb_page):([0-9]{5,30})$/', $channel, $m ) && class_exists( 'BizCity_Channel_Binding' ) ) {
+			$fb  = BizCity_Channel_Binding::resolve( 'FB_PAGE', $m[1] );
+			$uid = is_array( $fb ) ? (int) ( $fb['owner_user_id'] ?? 0 ) : 0;
+		}
+		if ( $uid <= 0 && function_exists( 'get_option' ) && function_exists( 'get_user_by' ) ) {
+			$mail = (string) get_option( 'admin_email', '' );
+			$u    = '' !== $mail ? get_user_by( 'email', $mail ) : false;
+			$uid  = $u ? (int) $u->ID : 0;
+		}
+		return max( 0, $uid );
+	}
+
 	private static function channel_guru( string $channel ): ?array {
 		if ( isset( self::$readers['channel_guru'] ) ) {
 			$g = call_user_func( self::$readers['channel_guru'], $channel );
@@ -349,6 +372,11 @@ final class BizCity_Twin_Web_Bridge_REST {
 		$cid = 0;
 		if ( 1 === preg_match( '/^(?:messenger|facebook|fb_page):([0-9]{5,30})$/', $channel, $m ) && class_exists( 'BizCity_FB_Cell_Direct', false ) && BizCity_FB_Cell_Direct::is_cell_direct( $m[1] ) ) {
 			$cid = BizCity_FB_Cell_Direct::guru_of( $m[1] );
+		}
+		// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 S142-L3 — a Fanpage that is not cell_direct (Composio) answers with the Guru of its FB_PAGE binding
+		if ( $cid <= 0 && 1 === preg_match( '/^(?:messenger|facebook|fb_page):([0-9]{5,30})$/', $channel, $m2 ) && class_exists( 'BizCity_Channel_Binding' ) ) {
+			$fb  = BizCity_Channel_Binding::resolve( 'FB_PAGE', $m2[1] );
+			$cid = (int) ( $fb['character_id'] ?? 0 );
 		}
 		$cid = $cid > 0 ? $cid : (int) BizCity_Guru_Context_Resolver::answering_character_id( 0 );
 		if ( $cid <= 0 ) {

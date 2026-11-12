@@ -37,16 +37,21 @@ class BizCity_KG_Reranker {
 	 * @param int    $top_k
 	 * @return int[]  IDs in selected order. Falls back to original order on failure.
 	 */
-	public function rerank( $question, array $candidates, $top_k = 5 ) {
+	public function rerank( $question, array $candidates, $top_k = 5, $allow_chat = true, $router_timeout = 30 ) {
 		if ( empty( $candidates ) ) {
 			return [];
 		}
 		$top_k = max( 1, (int) $top_k );
 
 		// Strategy A — try LLM Router /rerank first (multisite-friendly, charged via Smart Gateway).
-		$router_ids = $this->rerank_via_router( $question, $candidates, $top_k );
+		$router_ids = $this->rerank_via_router( $question, $candidates, $top_k, max( 1, (int) $router_timeout ) );
 		if ( null !== $router_ids ) {
 			return $router_ids;
+		}
+
+		// [2026-10-27 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L1 — notebook-graph-ask passes false: keep the cosine order, no LLM call.
+		if ( ! $allow_chat ) {
+			return $this->fallback( $candidates, $top_k );
 		}
 
 		// Strategy B — fallback to BizCity_LLM_Client::chat() (việc dùng /rerank
@@ -117,7 +122,7 @@ class BizCity_KG_Reranker {
 	 * @return int[]|null  Returns selected IDs in order, or NULL when router call
 	 *                     should be skipped (no client/key) so caller falls back.
 	 */
-	private function rerank_via_router( string $question, array $candidates, int $top_k ): ?array {
+	private function rerank_via_router( string $question, array $candidates, int $top_k, int $timeout = 30 ): ?array {
 		if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
 			return null;
 		}
@@ -157,7 +162,7 @@ class BizCity_KG_Reranker {
 		}
 
 		$resp = wp_remote_post( rtrim( $gateway, '/' ) . self::ROUTER_ENDPOINT, [
-			'timeout' => 30,
+			'timeout' => $timeout, // [2026-10-27 11:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 — notebook-graph-ask passes 3 s (the cell's whole read budget is 8 s; a cold 30 s wait timed the turn out)
 			'headers' => [
 				'Content-Type'  => 'application/json',
 				'Authorization' => 'Bearer ' . $api_key,

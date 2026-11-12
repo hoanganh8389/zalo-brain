@@ -715,6 +715,26 @@ class BizCity_Zalo_Bridge_REST {
 		return new WP_REST_Response( array( 'ok' => true, 'accounts' => $result['accounts'] ?? array() ) );
 	}
 
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (R-CSB CSB-5) — dev site (localhost, IP, *.local …) ⇒ the guided refusal
+	 * BizCity_Site_Environment::dev_site_error('channels') in this file's R-ERROR-UX shape {ok:false, code, message, hint, help_code}; else null.
+	 */
+	public static function dev_site_block(): ?WP_REST_Response {
+		if ( ! function_exists( 'bizcity_is_dev_site' ) || ! class_exists( 'BizCity_Site_Environment' ) || ! bizcity_is_dev_site() ) {
+			return null;
+		}
+		$e = BizCity_Site_Environment::dev_site_error( 'channels' );
+		$d = (array) $e->get_error_data();
+		return new WP_REST_Response( array(
+			'ok'        => false,
+			'code'      => 'dev_site_unreachable',
+			'message'   => $e->get_error_message(),
+			'hint'      => (string) ( $d['hint'] ?? '' ),
+			'help_code' => 'S138-DEV-CHANNELS',
+			'feature'   => 'channels',
+		), (int) ( $d['status'] ?? 409 ) );
+	}
+
 	public static function handle_create_account( WP_REST_Request $request ): WP_REST_Response {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — retain the admin REST callback while routing identity-aware callers through the owner boundary.
 		return self::create_account_for_owner( $request, (int) get_current_user_id() );
@@ -727,6 +747,10 @@ class BizCity_Zalo_Bridge_REST {
 	 */
 	public static function preflight_create_account_for_owner( WP_REST_Request $request, int $owner_user_id, bool $personal_only = false ) {
 		// [2026-09-19 Johnny Chu] PHASE-0.54A K-04 — expose the duplicate/quota gate without creating a Hub account or local mapping.
+		$dev = self::dev_site_block(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — the same dev-site refusal the create gives
+		if ( $dev ) {
+			return $dev;
+		}
 		$body = $request->get_json_params();
 		$label = sanitize_text_field( $body['label'] ?? '' );
 		$kind = in_array( $body['kind'] ?? 'personal', array( 'personal', 'oa' ), true ) ? $body['kind'] : 'personal';
@@ -1002,6 +1026,13 @@ class BizCity_Zalo_Bridge_REST {
 				'hint'      => 'Đăng nhập WordPress rồi thử lại.',
 				'help_code' => 'auth_required',
 			), 401 );
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (F24, R-CSB CSB-5) — a Zalo number on a dev site would be created on the Hub, then never
+		// receive a message (inbound / turn-complete callbacks need https to this site): refuse before the Hub is called, with the reason + fix.
+		$dev = self::dev_site_block();
+		if ( $dev ) {
+			self::trace_create_step( 'create_dev_site_blocked', array( 'kind' => $kind ) );
+			return $dev;
 		}
 		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — the phone already has a row here: hand back THAT row so the
 		// UI shows its QR (one CRM inbox, no second Hub account); a successful scan moves it to $owner_user_id.
@@ -2484,6 +2515,10 @@ class BizCity_Zalo_Bridge_REST {
 	public static function handle_oa_connect_url( WP_REST_Request $request ): WP_REST_Response {
 		$account_id = sanitize_text_field( (string) $request->get_param( 'account_id' ) );
 		$state      = sanitize_text_field( (string) $request->get_param( 'state' ) );
+		$dev        = self::dev_site_block(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — Zalo OA connect needs the OA callback to reach this site
+		if ( $dev ) {
+			return $dev;
+		}
 		$client     = BizCity_Zalo_Bridge_Client::instance();
 		$result     = $client->get_oa_connect_url( $account_id, $state );
 		if ( ! empty( $result['_degraded'] ) ) {

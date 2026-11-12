@@ -91,6 +91,14 @@ class BizCity_AV_Transcribe_Client {
         if ( ! in_array( $kind, [ 'audio', 'video' ], true ) ) {
             return new WP_Error( 'av_invalid_kind', 'kind must be "audio" or "video".', [ 'status' => 400 ] );
         }
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — STT is group A; /tools/transcribe only takes a
+        // fetchable media_url (no base64 field). On a dev site a self-hosted URL cannot be fetched by the Hub ⇒ guided error
+        // before the call (CSB-5). Public URLs (CDN, R2) are never blocked.
+        if ( class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'is_unreachable_media_url' )
+            && BizCity_LLM_Client::is_unreachable_media_url( $media_url )
+            && class_exists( 'BizCity_Site_Environment', false ) ) {
+            return BizCity_Site_Environment::dev_site_error( 'media_url' );
+        }
 
         $payload = [
             'media_url'   => $media_url,

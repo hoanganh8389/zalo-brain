@@ -1,0 +1,36 @@
+{
+  "$schema": "https://bizcity.vn/schema/notebook-graph-ask-v1.json",
+  "contract": "notebook-graph-ask@1.0.0",
+  "_stamp": "[2026-10-27 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L2 (D143-1) — GraphRAG evidence of ONE notebook as data. Site MCP tool brain.graph_ask (code: BizCity_TwinBrain_Graph_Ask in core/twinbrain). NO LLM. The cell composes, gates tokens against source_map, emits kg_highlight from entity_ids of the tokens it used. Runtime JSON; docs/ is never read at runtime.",
+  "tool": "brain.graph_ask",
+  "input": {
+    "notebook_id": { "type": "integer", "min": 1, "required": true },
+    "query": { "type": "string", "max": 2000, "required": true },
+    "source_ids": { "type": "integer[]", "note": "narrows passages to these sources; empty = all" },
+    "guru_id": { "type": "integer", "default": 0, "note": "> 0 = a Guru turn: the notebook must be in the Guru's folder scope, else mode empty (R-SCOPE-FOLDER, fails closed)" },
+    "top_k": { "type": "integer", "min": 1, "max": 12, "default": 8 },
+    "expand_hops": { "type": "integer", "min": 1, "max": 2, "default": 1 },
+    "lang": { "type": "string", "default": "vi" }
+  },
+  "output": {
+    "summary": "string (one line, for the timeline)",
+    "data": {
+      "mode": ["graph", "vector_fallback", "keyword_fallback", "empty"],
+      "reason": "string, only when mode = empty (no_passage | guru_scope_empty)",
+      "source_map": "[{ token '[nb:<notebook_id>/p<passage_id>]', notebook_id, passage_id, source_id (> 0), source_title, heading_path[], content (<= 1200 chars), score, score_source (rerank|graph_relation|vector|keyword), entity_ids[] }]",
+      "triples": "[{ relation_id, head, predicate, tail, head_id, tail_id, text }] (<= 12)",
+      "entities": "[{ id, name, type, weight }] (<= 24, entities of the used passages first)",
+      "question_seeds": "string[] (<= 6, templates, no LLM)",
+      "stats": "{ seed_entities, seed_relations, expanded, reranked, took_ms, bin: ok|missing|rebuild_required }"
+    },
+    "receipt": { "tool": "brain.graph_ask", "contract": "notebook-graph-ask@1", "notebook_id": "integer", "took_ms": "integer" }
+  },
+  "limits": { "pack_bytes_max": 24576, "passage_chars_max": 1200, "top_k_max": 12 },
+  "rules": [
+    "token format is exactly [nb:<notebook_id>/p<passage_id>]; the cell strips any token not in source_map",
+    "passages with source_id <= 0 (chat-promoted) are never evidence",
+    "mode empty ⇒ the cell says it did not find it; it never invents a citation",
+    "no chat() fallback in rerank (Hub /rerank or the cosine order)"
+  ],
+  "fixtures": "zalo-hub/contracts/fixtures/notebook-graph-ask/{graph,vector_fallback,empty}.json"
+}

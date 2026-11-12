@@ -18,7 +18,7 @@ Bizcity Twin AI security patches được phát hành cho:
 Vui lòng báo qua một trong các kênh:
 
 1. **Email (preferred):** `hoanganh.itm@gmail.com` — subject prefix `[SECURITY]`. Encrypt with PGP key (xem dưới) nếu disclosure nhạy cảm.
-2. **GitHub Security Advisory:** https://github.com/hoanganh8389/bizcity-twin-ai/security/advisories/new
+2. **GitHub Security Advisory:** https://github.com/hoanganh8389/zalo-brain/security/advisories/new
 
 **Maintainer:** Johnny Chu (Chu Hoàng Anh) — sole security responder until team scales.
 

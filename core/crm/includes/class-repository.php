@@ -1194,6 +1194,34 @@ class BizCity_CRM_Repository {
 		return (int) $wpdb->get_var( $prepared );
 	}
 
+	/**
+	 * [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 (D146-16) — "Chọn tất cả N hội thoại khớp lọc": the ids of every
+	 * conversation matching the SAME predicates as list_conversations(), same order, at most $cap (1 000). before_id is ignored (all pages).
+	 *
+	 * @return int[]
+	 */
+	public static function list_conversation_ids( array $args = array(), int $cap = 1000 ): array {
+		global $wpdb;
+		$tbl_conv = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		$tbl_ci   = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		$tbl_ct   = BizCity_CRM_DB_Installer_V2::tbl_contacts();
+		$tbl_msg  = BizCity_CRM_DB_Installer_V2::tbl_messages();
+		$tbl_ibx  = BizCity_CRM_DB_Installer_V2::tbl_inboxes();
+		unset( $args['before_id'] );
+		list( $where, $params ) = self::build_conversation_where( $args );
+		$sql = "SELECT c.id
+				FROM {$tbl_conv} c
+				LEFT JOIN {$tbl_ci} ci ON ci.id = c.contact_inbox_id
+				LEFT JOIN {$tbl_ibx} i ON i.id = c.inbox_id
+				LEFT JOIN {$tbl_ct} ct ON ct.id = ci.contact_id
+				LEFT JOIN {$tbl_msg} m ON m.id = c.last_message_id
+				WHERE " . implode( ' AND ', $where ) . "
+				ORDER BY c.priority DESC, c.last_activity_at DESC, c.id DESC
+				LIMIT %d";
+		$params[] = max( 1, min( 1000, $cap ) );
+		return array_map( 'intval', (array) $wpdb->get_col( $wpdb->prepare( $sql, $params ) ) );
+	}
+
 	private static function build_conversation_where( array $args ): array {
 		// [2026-09-08 10:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-W7 — centralize Inbox filter semantics so list and count cannot drift.
 		global $wpdb;

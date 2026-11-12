@@ -228,8 +228,8 @@ final class BizCity_Gateway_Admin_SPA {
 						? BizCity_Network_Admin_Capability::can_manage()
 						: current_user_can( 'manage_options' ) ),
 				// [2026-10-13 01:08 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-U1 — menu "Sử dụng": managers, number owners, and staff with own rows (62 §5.4).
-				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — "Sử dụng" is the billing add-on: no add-on, nobody has usage to see.
-				'usage'  => defined( 'BIZCITY_BILLING_ADDON_DIR' ) && class_exists( 'BizCity_Usage_View_REST' ) && ( ( class_exists( 'BizCity_Network_Admin_Capability' )
+				// [2026-10-25 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.139 R126-BILL — the token-usage page is core again (works without the billing add-on); money screens stay behind modules.billing.
+				'usage'  => class_exists( 'BizCity_Usage_View_REST' ) && ( ( class_exists( 'BizCity_Network_Admin_Capability' )
 						? BizCity_Network_Admin_Capability::can_manage()
 						: current_user_can( 'manage_options' ) )
 					|| ( method_exists( 'BizCity_Usage_View_REST', 'viewer_has_usage' ) && BizCity_Usage_View_REST::viewer_has_usage( (int) get_current_user_id() ) ) ),
@@ -249,7 +249,9 @@ final class BizCity_Gateway_Admin_SPA {
 				'twinweb'    => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
 				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — the billing add-on (bizcity-billing-addon) LOADED in this request (its bootstrap
 				// defines the constant): Sử dụng, Thành tích, Doanh thu, gói, Tài khoản, Người dùng show only then — without it their REST routes do not exist.
-				'billing'    => defined( 'BIZCITY_BILLING_ADDON_DIR' ) && class_exists( 'BizCity_Usage_View_REST' ),
+				// [2026-10-25 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.139 R126-BILL — 'usage' = the token-usage page (core); 'billing' = the add-on (wallet, plans, revenue, accounts, achievements, users).
+				'usage'      => class_exists( 'BizCity_Usage_View_REST' ),
+				'billing'    => class_exists( 'BizCity_Usage_Wallet' ), // PHASE-0.139: core again, true whenever the module loaded
 			],
 			'twinwebAvailable' => function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available(),
 			// PHASE-0.96 — crm-spine@1 capability map (features the extension plugin registered), for FE gates.
@@ -346,6 +348,12 @@ JS;
 			// [2026-06-12 Johnny Chu] HOTFIX — google_drive removed per user spec (not needed in Channel Gateway).
 		];
 		// [2026-06-07 Johnny Chu] PHASE-0.39 — open filter for external channel plugins to add platform tiles.
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — Contact Form 7 is not deployed: hide the CF7 tile unless bizcity_channel_cf7_enabled returns true.
+		if ( ! apply_filters( 'bizcity_channel_cf7_enabled', false ) ) {
+			$catalog = array_values( array_filter( $catalog, static function ( $tile ) {
+				return ! is_array( $tile ) || 'cf7' !== ( $tile['code'] ?? '' );
+			} ) );
+		}
 		return apply_filters( 'bizcity_channel_platform_catalog', $catalog );
 	}
 }

@@ -94,7 +94,7 @@ class BizCity_CRM_Spine_REST {
 				'scope_user_id' => array( 'type' => 'integer', 'minimum' => 1 ),
 				'unassigned'  => array( 'type' => 'boolean' ),
 				'label_id'    => array( 'type' => 'integer' ),
-				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal' ) ),
+				'thread_kind' => array( 'type' => 'string', 'enum' => array( 'group', 'personal', 'user' ) ), // [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 — + user (= personal)
 				'q'           => array( 'type' => 'string' ),
 				'limit'       => array( 'type' => 'integer', 'default' => 50 ),
 				'before_id'   => array( 'type' => 'integer' ),
@@ -106,6 +106,13 @@ class BizCity_CRM_Spine_REST {
 				'role'        => array( 'type' => 'string' ),
 				'pipeline_kind' => array( 'type' => 'string' ),
 			),
+		) );
+
+		// [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 (D146-16) — ids of every conversation matching the list filters (≤ 1 000).
+		register_rest_route( $ns, '/conversations/ids', array(
+			'methods'             => WP_REST_Server::READABLE,
+			'callback'            => array( __CLASS__, 'get_conversation_ids' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
 		) );
 
 		// [2026-09-26 PHASE-0.63C GC-21.4] Per-role thread counts for the Inbox "Vai:" chips.
@@ -1008,56 +1015,104 @@ class BizCity_CRM_Spine_REST {
 		} );
 	}
 
+	/**
+	 * [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 — `thread_kind=user` (doc 21 §7 URL word) is the same filter as `personal`.
+	 */
+	protected static function thread_kind_param( WP_REST_Request $req ): string {
+		$k = (string) $req->get_param( 'thread_kind' );
+		if ( 'user' === $k ) {
+			return 'personal';
+		}
+		return in_array( $k, array( 'group', 'personal' ), true ) ? $k : '';
+	}
+
+	/**
+	 * [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 — the scoped list filters, shared by GET conversations and
+	 * GET conversations/ids so "chọn tất cả khớp lọc" can never select outside what the list shows.
+	 *
+	 * @return array|WP_Error
+	 */
+	protected static function conversation_list_args( WP_REST_Request $req ) {
+		$args = array(
+			'inbox_id'    => (int) $req->get_param( 'inbox_id' ),
+			'status'      => (string) $req->get_param( 'status' ),
+			'priority'    => $req->get_param( 'priority' ),
+			'assignee_id' => (int) $req->get_param( 'assignee_id' ),
+			'label_id'    => (int) $req->get_param( 'label_id' ),
+			'thread_kind' => self::thread_kind_param( $req ), // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — preserve list filter semantics.
+			'q'           => (string) $req->get_param( 'q' ),
+			'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
+			'before_id'   => (int) $req->get_param( 'before_id' ),
+		);
+		$args = array_merge( $args, self::role_kind_filters( $req ) ); // [2026-09-25 PHASE-0.63C GC-21]
+		// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — ?signal=nong|am|lanh|khong_hai_long (crm_signal tags, filtered in SQL).
+		if ( class_exists( 'BizCity_CRM_Contact_Signals' ) ) { $args['signal'] = BizCity_CRM_Contact_Signals::filter_key( $req->get_param( 'signal' ) ); }
+		$scope_user_id = (int) $req->get_param( 'scope_user_id' );
+		if ( $scope_user_id > 0 ) {
+			// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — enforce the selected B2 principal's server-resolved account scope before listing conversations.
+			if ( ! self::can_manage_rules() || ! self::is_crm_assignable_user( $scope_user_id ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+				return new WP_Error( 'permission_denied', 'Không thể dùng phạm vi nhân viên đã chọn.', array( 'status' => 403, 'hint' => 'Chọn lại nhân viên từ danh sách CRM.', 'help_code' => 'permission_denied' ) );
+			}
+			$selected_scope = BizCity_CRM_Inbox_Access::resolve_scope( $scope_user_id, 'b2', true );
+			if ( is_array( $selected_scope['inbox_ids'] ?? null ) ) {
+				$args['inbox_ids'] = $selected_scope['inbox_ids'];
+			}
+			// [2026-09-18] PHASE-0.48F F-UID-05 — reading an employee's queue is audited (1 row/actor/subject/day).
+			if ( class_exists( 'BizCity_CRM_Staff_REST' ) ) {
+				BizCity_CRM_Staff_REST::record_workspace_read( get_current_user_id(), $scope_user_id, 'scope_user_list' );
+			}
+		}
+		if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
+			$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
+			if ( is_array( $allowed ) ) {
+				$args['inbox_ids'] = isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] )
+					? array_values( array_intersect( $args['inbox_ids'], $allowed ) )
+					: $allowed;
+			}
+		}
+		$snoozed_raw = $req->get_param( 'snoozed' );
+		if ( $snoozed_raw !== null && $snoozed_raw !== '' ) {
+			$args['snoozed'] = $snoozed_raw;
+		}
+		$unassigned_raw = $req->get_param( 'unassigned' );
+		if ( $unassigned_raw !== null && $unassigned_raw !== '' ) {
+			$args['unassigned'] = $unassigned_raw;
+		}
+		return $args;
+	}
+
+	/**
+	 * [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 (D146-16) — GET conversations/ids: every id matching the current
+	 * list filters (≤ 1 000) + the true total. `stage` is a computed filter (R-PIPE-2) and is not applied here: `ignored` says so.
+	 */
+	public static function get_conversation_ids( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_conversations() ) ) {
+				return array( 'ids' => array(), 'total' => 0, 'capped' => false );
+			}
+			$args = self::conversation_list_args( $req );
+			if ( is_wp_error( $args ) ) {
+				return rest_convert_error_to_response( $args );
+			}
+			$total = BizCity_CRM_Repository::count_conversations( $args );
+			$ids   = BizCity_CRM_Repository::list_conversation_ids( $args, 1000 );
+			$out   = array( 'ids' => $ids, 'total' => $total, 'capped' => $total > count( $ids ) );
+			if ( '' !== sanitize_key( (string) $req->get_param( 'stage' ) ) ) {
+				$out['ignored'] = array( 'stage' );
+			}
+			return $out;
+		} );
+	}
+
 	public static function get_conversations( WP_REST_Request $req ) {
 		return self::wrap( static function () use ( $req ) {
 			// [2026-09-22 12:15 AM OpenAI GPT-5.6 Luna] HOTFIX — avoid repeated SQL exceptions during partial CRM schema/bootstrap states.
 			if ( ! BizCity_CRM_DB_Installer_V2::table_exists( BizCity_CRM_DB_Installer_V2::tbl_conversations() ) ) {
 				return array();
 			}
-			$args = array(
-				'inbox_id'    => (int) $req->get_param( 'inbox_id' ),
-				'status'      => (string) $req->get_param( 'status' ),
-				'priority'    => $req->get_param( 'priority' ),
-				'assignee_id' => (int) $req->get_param( 'assignee_id' ),
-				'label_id'    => (int) $req->get_param( 'label_id' ),
-				'thread_kind' => in_array( (string) $req->get_param( 'thread_kind' ), array( 'group', 'personal' ), true ) ? (string) $req->get_param( 'thread_kind' ) : '', // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — preserve list filter semantics.
-				'q'           => (string) $req->get_param( 'q' ),
-				'limit'       => (int) ( $req->get_param( 'limit' ) ?: 50 ),
-				'before_id'   => (int) $req->get_param( 'before_id' ),
-			);
-			$args = array_merge( $args, self::role_kind_filters( $req ) ); // [2026-09-25 PHASE-0.63C GC-21]
-			// [2026-10-09 03:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-C9 — ?signal=nong|am|lanh|khong_hai_long (crm_signal tags, filtered in SQL).
-			if ( class_exists( 'BizCity_CRM_Contact_Signals' ) ) { $args['signal'] = BizCity_CRM_Contact_Signals::filter_key( $req->get_param( 'signal' ) ); }
-			$scope_user_id = (int) $req->get_param( 'scope_user_id' );
-			if ( $scope_user_id > 0 ) {
-				// [2026-09-08 02:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.41-CX1 — enforce the selected B2 principal's server-resolved account scope before listing conversations.
-				if ( ! self::can_manage_rules() || ! self::is_crm_assignable_user( $scope_user_id ) || ! class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
-					return new WP_Error( 'permission_denied', 'Không thể dùng phạm vi nhân viên đã chọn.', array( 'status' => 403, 'hint' => 'Chọn lại nhân viên từ danh sách CRM.', 'help_code' => 'permission_denied' ) );
-				}
-				$selected_scope = BizCity_CRM_Inbox_Access::resolve_scope( $scope_user_id, 'b2', true );
-				if ( is_array( $selected_scope['inbox_ids'] ?? null ) ) {
-					$args['inbox_ids'] = $selected_scope['inbox_ids'];
-				}
-				// [2026-09-18] PHASE-0.48F F-UID-05 — reading an employee's queue is audited (1 row/actor/subject/day).
-				if ( class_exists( 'BizCity_CRM_Staff_REST' ) ) {
-					BizCity_CRM_Staff_REST::record_workspace_read( get_current_user_id(), $scope_user_id, 'scope_user_list' );
-				}
-			}
-			if ( class_exists( 'BizCity_CRM_Inbox_Access' ) ) {
-				$allowed = BizCity_CRM_Inbox_Access::allowed_inbox_ids();
-				if ( is_array( $allowed ) ) {
-					$args['inbox_ids'] = isset( $args['inbox_ids'] ) && is_array( $args['inbox_ids'] )
-						? array_values( array_intersect( $args['inbox_ids'], $allowed ) )
-						: $allowed;
-				}
-			}
-			$snoozed_raw = $req->get_param( 'snoozed' );
-			if ( $snoozed_raw !== null && $snoozed_raw !== '' ) {
-				$args['snoozed'] = $snoozed_raw;
-			}
-			$unassigned_raw = $req->get_param( 'unassigned' );
-			if ( $unassigned_raw !== null && $unassigned_raw !== '' ) {
-				$args['unassigned'] = $unassigned_raw;
+			$args = self::conversation_list_args( $req );
+			if ( is_wp_error( $args ) ) {
+				return rest_convert_error_to_response( $args );
 			}
 			// [PHASE-0.54 R-INBOX-PIPE-8] ?stage= filters the list by resolved pipeline stage ("stuck" is a
 			// second pseudo-value). Stage isn't a stored column (it's computed on read — R-PIPE-2), so this
@@ -1084,18 +1139,28 @@ class BizCity_CRM_Spine_REST {
 				$not_modified = '' !== $client_token && hash_equals( $sync_token, $client_token );
 				$items = $not_modified ? array() : array_map( array( __CLASS__, 'shape_conversation' ), BizCity_CRM_Repository::list_conversations( $args ) );
 				$items = self::merge_pipeline_into_conversations( $items, $stage_filter, $requested_limit );
-				$response = new WP_REST_Response( array(
+				$body = array(
 					'ok'   => true,
 					'data' => $items,
 					'ts'   => (int) round( microtime( true ) * 1000 ),
-				), 200 );
+				);
+				// [2026-10-28 06:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L2 — the true total behind the filters (first page only, no
+				// computed `stage` filter), so the Inbox can offer "Chọn tất cả N hội thoại khớp lọc" (D146-16).
+				if ( ! $not_modified && '' === $stage_filter && (int) $args['before_id'] <= 0 ) {
+					$body['total'] = BizCity_CRM_Repository::count_conversations( $args );
+				}
+				$response = new WP_REST_Response( $body, 200 );
 				$response->header( 'X-BizCity-Sync-Token', $sync_token );
 				if ( $not_modified ) { $response->header( 'X-BizCity-Not-Modified', '1' ); }
 				return $response;
 			}
 			$rows = BizCity_CRM_Repository::list_conversations( $args );
 			$items = array_map( array( __CLASS__, 'shape_conversation' ), $rows );
-			return self::merge_pipeline_into_conversations( $items, $stage_filter, $requested_limit );
+			$items = self::merge_pipeline_into_conversations( $items, $stage_filter, $requested_limit );
+			if ( '' !== $stage_filter || (int) $args['before_id'] > 0 ) {
+				return $items;
+			}
+			return new WP_REST_Response( array( 'ok' => true, 'data' => $items, 'total' => BizCity_CRM_Repository::count_conversations( $args ), 'ts' => (int) round( microtime( true ) * 1000 ) ), 200 );
 		} );
 	}
 

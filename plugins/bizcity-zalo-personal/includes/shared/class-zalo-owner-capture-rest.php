@@ -94,7 +94,9 @@ final class BizCity_Zalo_Owner_Capture_REST {
 			'role'      => sanitize_key( (string) ( $body['role'] ?? '' ) ),
 			'kind'      => $kind,
 		);
-		$res = BizCity_Zalo_Personal_Knowledge_Capture::from_owner_capture( $bridge_id, $items, $idempotency_key, $ts > 0 ? $ts : 0, $principal );
+		// [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 — owner-capture@batch-145: the batch keys ride along (cleaned in from_owner_capture); a 1.x payload has none
+		$batch = array_intersect_key( $body, array_flip( array( 'batch_ref', 'batch_total', 'overflow' ) ) );
+		$res   = BizCity_Zalo_Personal_Knowledge_Capture::from_owner_capture( $bridge_id, $items, $idempotency_key, $ts > 0 ? $ts : 0, $principal, $batch );
 
 		if ( empty( $res['ok'] ) ) {
 			$code   = (string) ( $res['code'] ?? '' );

@@ -166,6 +166,14 @@ final class BizCity_MCP_Tool_Registry {
 		return $out;
 	}
 
+	/** PHASE-0.143 S143-L2 — thin door to BizCity_TwinBrain_Graph_Ask (lives in core/twinbrain; absent ⇒ 503, never a silent empty). */
+	public static function brain_graph_ask( array $args, array $ctx ) {
+		if ( ! class_exists( 'BizCity_TwinBrain_Graph_Ask', false ) ) {
+			return new WP_Error( 'retrieval_failed', 'brain.graph_ask chưa sẵn sàng.', array( 'status' => 503 ) );
+		}
+		return BizCity_TwinBrain_Graph_Ask::run( $args, $ctx );
+	}
+
 	/**
 	 * [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W3 (B7) — knowledge.search exactly as before (BizCity_Brain_MCP_Service::search), then
 	 * BizCity_Journal_Brain_Map::note_search counts the lookup (0 passages = a gap) for an owner / staff. Absent brain map ⇒ just the search.
@@ -787,6 +795,10 @@ final class BizCity_MCP_Tool_Registry {
 		if ( class_exists( 'BizCity_Scope_Meter', false ) ) {
 			BizCity_Scope_Meter::observe( (string) $name, $args, $ctx, $envelope );
 		}
+		// [2026-10-25 06:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B8 — a chat turn that opened / read / sent a TL- file is a "use" of it ("Trợ lý đã dùng tệp này"; no content, guest anonymous)
+		if ( class_exists( 'BizCity_Journal_Turn_Uses', false ) ) {
+			BizCity_Journal_Turn_Uses::observe( (string) $name, $args, $ctx, $envelope );
+		}
 		// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — a successful WRITE of a tool that declares its journal axis feeds the spine (one listener: BizCity_Journal_Tool_Axis)
 		if ( ! empty( $envelope['success'] ) && is_array( self::$tools[ $name ]['journal'] ?? null ) && empty( self::$tools[ $name ]['read_only'] ) && function_exists( 'do_action' ) ) {
 			do_action( 'bizcity_mcp_tool_finished', $name, $args, $ctx, $envelope );
@@ -994,6 +1006,40 @@ final class BizCity_MCP_Tool_Registry {
 			'brain'          => array( 'tier' => 'L2', 'permission' => 'search.vector', 'crud' => 'read', 'answer_hint' => 'detail' ),
 			'fallback_pack'  => 'owner_knowledge',
 			'since'          => '0.88.2',
+		) );
+
+		// [2026-10-27 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L2 (D143-1) — notebook-graph-ask@1: GraphRAG evidence of ONE notebook as data (source_map with [nb:X/pY] tokens,
+		// triples, entities with ids, question_seeds). No LLM; the cell composes, gates the tokens and emits kg_highlight / suggestions.
+		// @mcp bizcity-mcp-standard@1 tool brain.graph_ask
+		self::register( 'brain.graph_ask', array(
+			'title'          => 'Bóc đồ thị tri thức của một notebook',
+			'description'    => 'Trả bằng chứng GraphRAG của MỘT notebook: đoạn trích có mã [nb:ID/pID], quan hệ, thực thể (kèm id) và câu hỏi gợi ý. Không gọi LLM. Dùng trước khi trả lời mọi câu hỏi trong màn notebook.',
+			'input_schema'   => array(
+				'type'       => 'object',
+				'required'   => array( 'notebook_id', 'query' ),
+				'properties' => array(
+					'notebook_id' => array( 'type' => 'integer', 'minimum' => 1 ),
+					'query'       => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 2000 ),
+					'source_ids'  => array( 'type' => 'array', 'items' => array( 'type' => 'integer' ) ),
+					'guru_id'     => array( 'type' => 'integer', 'minimum' => 0, 'default' => 0 ),
+					'top_k'       => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 12, 'default' => 8 ),
+					'expand_hops' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 2, 'default' => 1 ),
+					'lang'        => array( 'type' => 'string', 'default' => 'vi' ),
+				),
+			),
+			'read_only'      => true,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'handler'        => array( __CLASS__, 'brain_graph_ask' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'scope'          => 'thread',
+			'scopes'         => array( 'brain.read' ),
+			'confirm'        => 'never',
+			'llm_alias'      => 'notebook_graph_ask',
+			'brain'          => array( 'tier' => 'L3', 'permission' => 'search.vector', 'crud' => 'read', 'answer_hint' => 'detail' ),
+			'fallback_pack'  => 'owner_knowledge',
+			'since'          => '0.143',
 		) );
 
 		// @mcp bizcity-mcp-standard@1 tool knowledge.get_passage

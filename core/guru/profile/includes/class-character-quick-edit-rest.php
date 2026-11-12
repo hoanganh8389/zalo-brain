@@ -211,6 +211,8 @@ class BizCity_Character_Quick_Edit_REST {
 				'system_prompt' => $prompt_body,
 				'tone'          => $tone,
 				'edit_url'      => admin_url( 'admin.php?page=bizcity-knowledge-character-edit&id=' . $id ),
+				// [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CL2 (C-BM7) — Guru icon + colour (settings.ui); empty ⇒ 🤖 + slate.
+				'ui'            => class_exists( 'BizCity_Guru_Studio' ) ? BizCity_Guru_Studio::sanitize_ui( $settings['ui'] ?? null ) : array( 'icon' => '🤖', 'color' => 'slate' ),
 			),
 			'runtime'             => array(
 				'temperature'       => $temperature,
@@ -269,6 +271,14 @@ class BizCity_Character_Quick_Edit_REST {
 			$merged = self::merge_prompt_and_tone( $prompt_body, $tone_value );
 			$db->update_character( $id, array( 'system_prompt' => $merged ) );
 			$updated['system_prompt'] = true;
+		}
+
+		// [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CL2 (C-BM7, doc 30 BM-4) — `ui = {icon, color}` ⇒ settings.ui, whitelisted by
+		// BizCity_Guru_Studio::sanitize_ui (emoji only, 6 brandbook colours). Written before `runtime` so its settings write keeps the new ui.
+		if ( isset( $params['ui'] ) && is_array( $params['ui'] ) && class_exists( 'BizCity_Guru_Studio' ) ) {
+			$settings['ui'] = BizCity_Guru_Studio::sanitize_ui( $params['ui'] );
+			$db->update_character( $id, array( 'settings' => wp_json_encode( $settings, JSON_UNESCAPED_UNICODE ) ) );
+			$updated['ui'] = $settings['ui'];
 		}
 
 		// [2026-07-15 Johnny Chu] PHASE-TWIN-GPT-CP W1 — save bounded runtime fields from Quick Sheet Tab B.

@@ -367,7 +367,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 (doc 102) — "📘 Skill" back on the ActivityBar, right after
 	// Scenarios: link to the lean core/skills editor (admin.php?page=bizcity-skills, D101-16 v2). core/skills loads in admin/REST/cron
 	// context only, so a `requires` class/const gate would always fail on /twin/ — gate on the module file instead.
-	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/skills/bootstrap.php' ) ) {
+	// [2026-11-12 11:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a — core/skills is core/vault now (D148-15).
+	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/vault/bootstrap.php' ) ) {
 		$defaults[] = [
 			'id'          => 'skills',
 			'label'       => __( 'Kho tri thức',                  $td ), // [2026-10-24 09:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-U1 — Twin Vault rebrand (D134-1, Q134-3): was 'Skills'
@@ -397,7 +398,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 		// [2026-10-05 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-0 — Automation is the plugin bizcity-automation, not core/.
 		'workflow'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-automation' ],
 		'scheduler'      => [ 'mode' => 'grantable', 'owner' => 'core/scheduler' ],
-		'skills'         => [ 'mode' => 'admin_only', 'owner' => 'core/skills' ], // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 — skills are machine instructions; owner/admin edit (doc 90 §3)
+		'skills'         => [ 'mode' => 'grantable', 'owner' => 'core/skills' ], // [2026-11-03 Claude Sonnet 5] Vault - Kho tri thức is content (docs/notes/skills), not an admin-only config surface like Zalo Setup; owner can grant per role like Notebook/Scheduler
 		'settings'      => [ 'mode' => 'admin_only', 'owner' => 'modules/twinshell' ],
 		'marketplace'    => [ 'mode' => 'grantable', 'owner' => 'marketplace' ],
 		'web'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-pagebuilder' ],

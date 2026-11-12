@@ -126,6 +126,8 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-s
 // [2026-07-14 Johnny Chu] PHASE-0.43 — core keyword search engine for notebook/all-notebook document search.
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-search-engine.php', 'twinchat.search_engine' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-rest-controller.php', 'twinchat.rest_controller' );
+// [2026-10-27 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L6 — GET notebooks/{id}/vault-pool · POST …/migrate-pins (the write is Twin_Vault::append)
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-vault-pool-controller.php', 'twinchat.vault_pool_controller' );
 // PHASE-0.41 L6 (R-GW) — Entitlement proxy: client FE → this proxy → gateway.
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'class-twinchat-entitlement-proxy.php', 'twinchat.entitlement_proxy' );
 // PHASE-0.41 L7 (R-GW-8) — Search proxy: wraps search/router/v1/{query,extract}.
@@ -159,6 +161,8 @@ BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-t
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-job-queue.php', 'twinchat.learning_job_queue' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-notifier.php', 'twinchat.learning_notifier' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-pipeline.php', 'twinchat.learning_pipeline' );
+// [2026-10-27 07:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L4 — the welcome card, driven by journal.meta.set (no queue, no PHP LLM)
+BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-welcome-listener.php', 'twinchat.welcome_listener' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-stream.php', 'twinchat.learning_stream' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-extractor-bridge.php', 'twinchat.learning_extractor_bridge' );
 BizCity_Safe_Loader::require_file( BIZCITY_TWINCHAT_INCLUDES . 'learning/class-twinchat-learning-aggregator.php', 'twinchat.learning_aggregator' );
@@ -194,6 +198,9 @@ add_action( 'init', static function () {
 	if ( class_exists( 'BizCity_TwinChat_Learning_Notifier' ) ) {
 		BizCity_TwinChat_Learning_Notifier::bind();
 	}
+	if ( class_exists( 'BizCity_TwinChat_Welcome_Listener' ) ) {
+		BizCity_TwinChat_Welcome_Listener::bind();
+	}
 	if ( class_exists( 'BizCity_TwinChat_Learning_Extractor_Bridge' ) ) {
 		BizCity_TwinChat_Learning_Extractor_Bridge::bind();
 	}
@@ -225,6 +232,9 @@ add_filter( 'bizcity_kg_register_source_table', static function ( $entries ) {
 
 add_action( 'rest_api_init', static function () {
 	BizCity_TwinChat_REST_Controller::instance()->register_routes();
+	if ( class_exists( 'BizCity_TwinChat_Vault_Pool_Controller' ) ) {
+		BizCity_TwinChat_Vault_Pool_Controller::instance()->register_routes();
+	}
 	if ( class_exists( 'BizCity_TwinChat_Entitlement_Proxy' ) ) {
 		BizCity_TwinChat_Entitlement_Proxy::instance()->register_routes();
 	}

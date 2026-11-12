@@ -1,10 +1,11 @@
 {
   "contract": "zalo-brain-developer-kit@1",
-  "note": "Mirrored files are copies of sources that do not ship (docs/, bin/). Edit the source, then run `node bin/build-developer-kit.mjs`. README.md, AGENTS.md, STANDARD.md and starter/ are authored in docs/developer/.",
+  "note": "Mirrored files are copies of sources that do not ship (docs/, bin/). Edit the source, then run `node bin/build-developer-kit.mjs`. README.md, AGENTS.md, STANDARD.md, CELL-SERVICES.md and starter/ are authored in docs/developer/.",
   "authored": [
     "README.md",
     "AGENTS.md",
-    "STANDARD.md"
+    "STANDARD.md",
+    "CELL-SERVICES.md"
   ],
   "mirrored": [
     {

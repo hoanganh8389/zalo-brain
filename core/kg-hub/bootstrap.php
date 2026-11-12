@@ -107,56 +107,27 @@ require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-source-service.php';
 // [2026-07-25 Johnny Chu] PHASE-0.46 W4.5 — dedicated JSONL logger for notebook bridge capture lifecycle.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-notebook-bridge-file-logger.php';
 BizCity_KG_Notebook_Bridge_File_Logger::init();
-// [2026-09-26 Claude Opus 5.5] CORE-REDUCTION WP-12 R3 — Journal Entry storage moved here from core/skills (archived);
-// the Zalo Bot capture refuses to learn ("Không thể lưu nhật ký") without it.
-if ( class_exists( 'BizCity_Safe_Loader' ) ) {
-	BizCity_Safe_Loader::require_file( BIZCITY_KG_HUB_INCLUDES . 'class-journal-database.php', 'kg_hub.journal_database' );
-}
-// [2026-10-12 12:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L15/L16/L17/L18/L22 (R-JOURNAL) — the journal
-// index/filer/kinds/pack/REST layer on top of `bizcity_journal_entries` (doc 92). Order matters: kinds before
-// index/filer (both read it), index before the pack exporter (the exporter reads the index/database directly).
+// [2026-11-12 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1 (doc 60 D148-16/19) — the journal, Twin Sheet and Vault server
+// left this module for three core modules: core/journal ⇒ core/sheet ⇒ core/vault (one-way). They still load HERE, at the
+// same point and in the same order as before (same context, same Safe Loader labels); each bootstrap is idempotent, and
+// bizcity-twin-ai.php loads them itself when this module is absent (the notebook add-on, W3).
 foreach ( array(
-	'class-journal-kinds.php'                    => 'kg_hub.journal_kinds',
-	// [2026-10-24 05:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 — resource link · entry-meta · evidence · vault store (pure / file helpers the index reads; before it).
-	'class-brain-resource-link.php'              => 'kg_hub.brain_resource_link',
-	'class-journal-entry-meta.php'               => 'kg_hub.journal_entry_meta',
-	'class-journal-evidence.php'                 => 'kg_hub.journal_evidence',
-	'class-brain-vault-store.php'                => 'kg_hub.brain_vault_store',
-	'class-twin-vault.php'                       => 'kg_hub.twin_vault', // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 — Twin Vault · Kho tri thức (REST bizcity-vault/v1, MCP vault.list/search/write)
-	'class-journal-index.php'                    => 'kg_hub.journal_index',
-	'class-journal-contact-profile.php'            => 'kg_hub.journal_contact_profile', // [2026-10-25] PHASE-0.136 S136-L4 — Hồ sơ khách (view over the contact's rows)
-	'class-scope-meter.php'                        => 'kg_hub.scope_meter', // [2026-10-25] PHASE-0.136 S136-M2 — Matrix "Phạm vi tri thức": every knowledge read measured at the site
-	'class-journal-filer.php'                     => 'kg_hub.journal_filer',
-	'class-journal-doc-index-pack-exporter.php'  => 'kg_hub.journal_doc_index_pack_exporter',
-	'class-journal-rest.php'                      => 'kg_hub.journal_rest',
-	'class-journal-purge.php'                     => 'kg_hub.journal_purge', // [2026-10-18 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-K1 — xoá thật một mục (hai bước, mã chủ tự gõ)
-	'class-context-producers.php'                 => 'kg_hub.context_producers', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C1 — context-producer@1 (after the journal index it writes to)
-	'journal-api.php'                             => 'kg_hub.journal_api', // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J5 (R-JN-17) — bizcity_journal_record() + friends, the ONE write door for plugins
-	'class-journal-ingest-listener.php'           => 'kg_hub.journal_ingest_listener',
-	'class-journal-learning-sync.php'             => 'kg_hub.journal_learning_sync',
-	'class-journal-output-listener.php'           => 'kg_hub.journal_output_listener',
-	// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J1…J3 / P1…P2 (R-BRAIN-SKELETON) — job link (JB- header + join keys) and the one access decision point; after the index they read.
-	'class-journal-job-link.php'                  => 'kg_hub.journal_job_link',
-	'class-brain-access.php'                      => 'kg_hub.brain_access',
-	'class-journal-tool-axis.php'                 => 'kg_hub.journal_tool_axis', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 W3 — write tools that declare `journal` feed the spine
-	'class-journal-skill-link.php'                => 'kg_hub.journal_skill_link', // [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — skill.define / revision / state rows (KN-)
-	'class-journal-layer-rows.php'                => 'kg_hub.journal_layer_rows', // [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 — notebook (NB-) and person-made sheet (SO-) rows
-	'class-journal-brain-map.php'                 => 'kg_hub.journal_brain_map', // [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — Bản đồ não (brain-map@1): a view over the person's rows, after the index + pack exporter it reads
-	'class-journal-pipeline.php'                  => 'kg_hub.journal_pipeline', // [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B1 — journal-pipeline@1: the four steps of a file derived from its row (after brain-map, whose doc_level it reuses)
-	'class-kg-learn-gate.php'                     => 'kg_hub.learn_gate', // [2026-10-17 09:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B3-1 (S121-K6) — the one L2 (graph) gate // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — cell outputs + Automation results get one row (R-JN-19) // [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 (S121-A1) — learning progress onto the row // [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 (R-JN-13) — every notebook source gets a row
-	'class-journal-backfill.php'                  => 'kg_hub.journal_backfill', // [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-6 (S121-J8) — admin batch backfill, dry run first
-	'class-journal-meta-backfill.php'             => 'kg_hub.journal_meta_backfill', // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc — find_text + resource for older rows, dry run first
-	'class-context-producer-sources.php'          => 'kg_hub.context_producer_sources', // [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.104 S104-C7 — Woo · CF7 · CRM sources (auto; option bizcity_context_producers=off)
-	// [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 — Twin Sheet ("Sổ"): definitions + read doors over journal rows (no table, D123-1). After the journal index they read.
-	'twin-sheet/class-twin-sheet-schema.php'      => 'kg_hub.twin_sheet_schema',
-	'twin-sheet/class-twin-sheet-registry.php'    => 'kg_hub.twin_sheet_registry',
-	'twin-sheet/class-twin-sheet-store.php'       => 'kg_hub.twin_sheet_store',
-	'twin-sheet/class-twin-sheet-builder.php'     => 'kg_hub.twin_sheet_builder', // [2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — the person's own sheets: builder (pure) + CPT definitions
-	'twin-sheet/class-twin-sheet-defs.php'        => 'kg_hub.twin_sheet_defs',
-	'twin-sheet/class-twin-sheet-service.php'     => 'kg_hub.twin_sheet_service', // [2026-10-19 10:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W2 — apply_changes (before the API that calls it)
-	'twin-sheet/class-twin-sheet-snapshot.php'    => 'kg_hub.twin_sheet_snapshot', // [2026-10-20 01:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — Chốt sổ + khóa kỳ
-	'twin-sheet/class-twin-sheet-structure.php'   => 'kg_hub.twin_sheet_structure', // [2026-10-21 08:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — structure versions of my own sheet
-	'twin-sheet/class-twin-sheet-api.php'         => 'kg_hub.twin_sheet_api',
+	'journal/bootstrap.php'              => 'core.journal.bootstrap',
+	'sheet/bootstrap.php'                => 'core.sheet.bootstrap',
+	'vault/includes/vault/bootstrap.php' => 'core.vault.server_bootstrap',
+) as $_bizcity_core_rel => $_bizcity_core_label ) {
+	$_bizcity_core_path = dirname( __DIR__ ) . '/' . $_bizcity_core_rel;
+	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
+		BizCity_Safe_Loader::require_file( $_bizcity_core_path, $_bizcity_core_label );
+	} elseif ( is_file( $_bizcity_core_path ) && is_readable( $_bizcity_core_path ) ) {
+		require_once $_bizcity_core_path;
+	}
+}
+unset( $_bizcity_core_rel, $_bizcity_core_label, $_bizcity_core_path );
+// What stays with the KG (goes to the notebook add-on, doc 30): learning progress onto the journal row + the one L2 (graph) gate.
+foreach ( array(
+	'class-journal-learning-sync.php' => 'kg_hub.journal_learning_sync', // PHASE-0.121 B1-1 (S121-A1)
+	'class-kg-learn-gate.php'         => 'kg_hub.learn_gate', // PHASE-0.121 B3-1 (S121-K6)
 ) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
 	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
 	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
@@ -178,10 +149,11 @@ add_action( 'rest_api_init', static function () {
 			$out = array(
 				'php_version'       => PHP_VERSION,
 				'kg_hub_includes'   => BIZCITY_KG_HUB_INCLUDES,
+				'journal_includes'  => defined( 'BIZCITY_JOURNAL_INCLUDES' ) ? BIZCITY_JOURNAL_INCLUDES : '', // [2026-11-12 11:26 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1b — the producers live in core/journal now
 				'bootstrap_reached' => true, // phải thấy true — nếu route này 404 thì bootstrap.php chưa chạy tới dòng này
 			);
 			foreach ( array( 'class-context-producers.php', 'class-context-producer-sources.php' ) as $f ) {
-				$p = BIZCITY_KG_HUB_INCLUDES . $f;
+				$p = ( defined( 'BIZCITY_JOURNAL_INCLUDES' ) ? BIZCITY_JOURNAL_INCLUDES : BIZCITY_KG_HUB_INCLUDES ) . $f;
 				$out['files'][ $f ] = array(
 					'exists'   => is_file( $p ),
 					'readable' => is_file( $p ) && is_readable( $p ),
@@ -197,72 +169,11 @@ add_action( 'rest_api_init', static function () {
 		},
 	) );
 }, 5 );
-if ( class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter', false ) ) {
-	BizCity_Journal_Doc_Index_Pack_Exporter::register();
-}
-if ( class_exists( 'BizCity_Journal_REST', false ) ) {
-	BizCity_Journal_REST::init();
-}
-// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — GET bizcity-knowledge/v2/journal/map (TwinChat › Journal › Bản đồ)
-if ( class_exists( 'BizCity_Journal_Brain_Map', false ) ) {
-	BizCity_Journal_Brain_Map::init();
-}
-if ( class_exists( 'BizCity_Journal_Purge', false ) ) {
-	BizCity_Journal_Purge::init(); // [2026-10-18 07:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-K1 — MCP journal.purge
-}
-// [2026-10-19 09:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W1 — REST bizcity-knowledge/v2/twinsheets* + MCP twinsheet.* (read only).
-if ( class_exists( 'BizCity_Twin_Sheet_API', false ) ) {
-	BizCity_Twin_Sheet_API::init();
-}
-// [2026-10-17 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-J4 — web / notebook uploads write their journal row (R-JN-13).
-if ( class_exists( 'BizCity_Journal_Ingest_Listener', false ) ) {
-	BizCity_Journal_Ingest_Listener::register();
-}
-// [2026-10-17 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B1-1 — embed / graph / error progress onto the journal row (R-JN-20/21).
+// [2026-11-12 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1 — journal / sheet / vault registrations moved into their
+// module bootstraps (loaded above). Only the KG one stays: embed / graph / error progress onto the journal row (R-JN-20/21).
 if ( class_exists( 'BizCity_Journal_Learning_Sync', false ) ) {
 	BizCity_Journal_Learning_Sync::register();
 }
-// [2026-10-17 09:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 B2-4/B2-5 — what the machine MAKES for the owner gets one row; machine history stays in its own ledgers (R-JN-19).
-if ( class_exists( 'BizCity_Journal_Output_Listener', false ) ) {
-	BizCity_Journal_Output_Listener::register();
-}
-if ( class_exists( 'BizCity_Journal_Backfill', false ) ) {
-	BizCity_Journal_Backfill::register();
-}
-if ( class_exists( 'BizCity_Journal_Contact_Profile', false ) ) {
-	BizCity_Journal_Contact_Profile::init(); // [2026-10-25] PHASE-0.136 S136-L4
-}
-if ( class_exists( 'BizCity_Scope_Meter', false ) ) {
-	BizCity_Scope_Meter::init(); // [2026-10-25] PHASE-0.136 S136-M2 — REST bizcity-vault/v1/scope-matrix*
-}
-if ( class_exists( 'BizCity_Twin_Vault', false ) ) {
-	BizCity_Twin_Vault::init(); // [2026-10-24 09:04 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134
-}
-if ( class_exists( 'BizCity_Journal_Meta_Backfill', false ) ) {
-	BizCity_Journal_Meta_Backfill::register(); // [2026-10-24 05:56 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mc
-}
-// [2026-10-25 12:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B2/B4 — GET journal/pipeline (Bảng tệp) + POST journal/rebuild-read (≤ 20 old files per call)
-if ( class_exists( 'BizCity_Journal_Pipeline', false ) ) {
-	BizCity_Journal_Pipeline::register();
-}
-// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-J2 (job-link@1, BS-5) — a job-event@1.1 that reached the site opens / folds the JB- header row (after BizCity_Sheet_Bindings at 10).
-if ( class_exists( 'BizCity_Journal_Job_Link', false ) ) {
-	BizCity_Journal_Job_Link::register();
-}
-// [2026-10-20 11:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — every skill change (propose · save · on/off · undo) is a KN- row of the client's brain.
-if ( class_exists( 'BizCity_Journal_Skill_Link', false ) ) {
-	BizCity_Journal_Skill_Link::register();
-}
-if ( class_exists( 'BizCity_Journal_Tool_Axis', false ) ) {
-	BizCity_Journal_Tool_Axis::register();
-}
-// [2026-10-21 11:14 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-B3 (BS-2) — each notebook and each person-made sheet is one row of the ledger (NB- / SO-).
-if ( class_exists( 'BizCity_Journal_Layer_Rows', false ) ) {
-	BizCity_Journal_Layer_Rows::register();
-}
-// [2026-10-17 04:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.121 S121-L1 — private originals of owner-capture documents (before the bridge that uses them).
-require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-private-file-store.php';
-BizCity_KG_Private_File_Store::register();
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.5 — one notebook workspace per Zalo number (Q96-13 = a).

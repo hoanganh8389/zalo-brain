@@ -145,12 +145,18 @@ final class BizCity_Panel_Link {
 	/** Pure ([2026-10-20 03:30 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.125 Q1): a job id the panel may open on, or ''. */
 	public static function clean_focus( string $focus ): string {
 		// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — + `entry:<id>`: the journal row a brain.map link opens on (the receipt's file)
-		return 1 === preg_match( '/^(job_[0-9A-Za-z]{10,40}|entry:[1-9][0-9]{0,11})$/', $focus ) ? $focus : '';
+		// [2026-10-27 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L11 — + `entry:<id>@CB-<6 hex>`: the receipt of a capture BATCH opens the map on its first file AND shows the batch block
+		return 1 === preg_match( '/^(job_[0-9A-Za-z]{10,40}|entry:[1-9][0-9]{0,11}(@CB-[0-9a-f]{6})?)$/', $focus ) ? $focus : '';
 	}
 
 	/** Pure ([2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2): the entry id of an `entry:<id>` focus, else 0. */
 	public static function focus_entry( string $focus ): int {
-		return 1 === preg_match( '/^entry:([1-9][0-9]{0,11})$/', $focus, $m ) ? (int) $m[1] : 0;
+		return 1 === preg_match( '/^entry:([1-9][0-9]{0,11})(@CB-[0-9a-f]{6})?$/', $focus, $m ) ? (int) $m[1] : 0;
+	}
+
+	/** Pure ([2026-10-27 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L11): the batch ref of an `entry:<id>@CB-…` focus, else ''. */
+	public static function focus_batch( string $focus ): string {
+		return 1 === preg_match( '/^entry:[1-9][0-9]{0,11}@(CB-[0-9a-f]{6})$/', $focus, $m ) ? $m[1] : '';
 	}
 
 	/** Pure: `connect.gmail` ⇒ `connect`; `key` ⇒ `key`. */

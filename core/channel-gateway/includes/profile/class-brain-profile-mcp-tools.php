@@ -131,12 +131,12 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'required_scope' => 'memory.write',
 			'required_cap'   => 'edit_posts', // = self::CAP (literal for the R19 marker check)
 			'handler'        => array( __CLASS__, 'set_policy' ),
-			'preview_handler' => array( __CLASS__, 'set_policy_preview' ),
 			'mode'           => 'notebook',
 			'roles'          => array( 'owner' ),
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'always',
-			'preview'        => true,
+			// [2026-10-26 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-PROFILE-REG — the registry needs the preview CALLABLE (was `true` + an unknown key `preview_handler` ⇒ "refused: confirm=always needs a preview callable" on every request, tool never offered)
+			'preview'        => array( __CLASS__, 'set_policy_preview' ),
 			'llm_alias'      => 'profile_set_policy',
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
@@ -161,6 +161,7 @@ final class BizCity_Brain_Profile_MCP_Tools {
 			'roles'          => array( 'owner' ),
 			'scopes'         => array( 'memory.write' ),
 			'confirm'        => 'always',
+			'preview'        => array( __CLASS__, 'export_preview' ), // [2026-10-26 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-PROFILE-REG — was missing ⇒ refused at every register
 			'llm_alias'      => 'profile_export',
 			'fallback_pack'  => null,
 			'since'          => self::SINCE,
@@ -260,8 +261,20 @@ final class BizCity_Brain_Profile_MCP_Tools {
 		return array( 'draft_id' => $draft_id, 'open_url' => $open_url );
 	}
 
+	/** side-effect free: what set_policy would change (the confirm gate shows it and issues the token). */
 	public static function set_policy_preview( array $args, array $ctx = array() ) {
-		return array( 'preview' => array( 'guru_id' => (int) ( $args['guru_id'] ?? 0 ), 'ask_threshold' => (int) ( $args['threshold'] ?? 60 ) ) );
+		$threshold = max( 40, min( 90, (int) ( $args['threshold'] ?? 60 ) ) );
+		return array( 'summary' => 'Đổi mức hỏi kỹ của Guru #' . (int) ( $args['guru_id'] ?? 0 ) . ' thành ' . $threshold . '.', 'guru_id' => (int) ( $args['guru_id'] ?? 0 ), 'ask_threshold' => $threshold );
+	}
+
+	/** [2026-10-26 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-PROFILE-REG — side-effect free: nothing is packed until the owner confirms. */
+	public static function export_preview( array $args, array $ctx = array() ) {
+		$guru_id = (int) ( $args['guru_id'] ?? 0 );
+		if ( $guru_id <= 0 ) {
+			return new WP_Error( 'invalid_param', 'guru_id required', array( 'hint' => 'Truyền guru_id hợp lệ.', 'help_code' => 'invalid_param' ) );
+		}
+		$knowledge = ! empty( $args['include_knowledge'] );
+		return array( 'summary' => 'Xuất hồ sơ Guru #' . $guru_id . ' thành gói .zip' . ( $knowledge ? ' (kèm tri thức)' : '' ) . '.', 'guru_id' => $guru_id, 'include_knowledge' => $knowledge );
 	}
 
 	public static function set_policy( array $args, array $ctx = array() ) {

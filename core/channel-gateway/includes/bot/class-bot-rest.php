@@ -76,6 +76,10 @@ final class BizCity_Bot_REST {
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_tuning' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
 			array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_save_tuning' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ) ),
 		) );
+		// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — ONE read for the "Phạm vi công cụ" matrix: tool-scope@1 contract + the three existing switch stores (Guru off-list, per-number off-list, Guru role/domains). Read only.
+		register_rest_route( self::NAMESPACE_V1, '/bot/tool-scope', array(
+			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_tool_scope' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
+		) );
 		register_rest_route( self::NAMESPACE_V1, '/bot/tools', array(
 			'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_get_tools' ), 'permission_callback' => array( __CLASS__, 'can_or_error' ),
 			// [2026-09-27 Claude Sonnet 5] PHASE-0.80 — account_id optional: the ONE number the caller has in
@@ -248,6 +252,55 @@ final class BizCity_Bot_REST {
 			'registry'  => BizCity_Bot_Config_Repo::tuning_registry(),
 			'overrides' => BizCity_Bot_Config_Repo::tuning_overrides( $result ),
 		) );
+	}
+
+	/* ── /bot/tool-scope ── */
+
+	// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — GET /bot/tool-scope ⇒ { ok, data: { contract, gurus[], numbers[] } }. No new store: every value is read from where it is already written
+	// (settings.bot.disabled_tools · settings.bot.scope.{role,domains} via the resolver · binding office_hours_json.disabled_tools).
+	public static function rest_get_tool_scope( WP_REST_Request $req ) {
+		$file     = dirname( __DIR__, 2 ) . '/contracts/TOOL-SCOPE-v1.json';
+		$contract = ( is_file( $file ) && is_readable( $file ) ) ? json_decode( (string) file_get_contents( $file ), true ) : null;
+		if ( ! is_array( $contract ) || empty( $contract['tools'] ) ) {
+			return self::err( 'tool_scope_contract_missing', 'The tool scope table is not shipped with this site.', 503, 'Reinstall the plugin so contracts/TOOL-SCOPE-v1.json is present, then reload.', 'tool_scope_contract_missing' );
+		}
+		$gurus = array();
+		if ( class_exists( 'BizCity_Knowledge_Database' ) && class_exists( 'BizCity_Bot_Config_Repo' ) ) {
+			$default_id = (int) get_option( 'bizcity_bot_default_character_id', 0 );
+			$owner_guru = class_exists( 'BizCity_Guru_Seed' ) ? BizCity_Guru_Seed::owner_character_id() : 0;
+			foreach ( (array) BizCity_Knowledge_Database::instance()->get_characters( array( 'limit' => 200 ) ) as $r ) {
+				$kind = class_exists( 'BizCity_Guru_Studio', false ) ? BizCity_Guru_Studio::kind_of( $r, $owner_guru ) : 'guru';
+				if ( 'guru' !== $kind ) {
+					continue; // only a Guru answers a channel (D142-12)
+				}
+				$id    = (int) $r->id;
+				$cfg   = BizCity_Bot_Config_Repo::get( $id );
+				$scope = class_exists( 'BizCity_Guru_Context_Resolver' ) ? BizCity_Guru_Context_Resolver::scope( $id ) : array();
+				$gurus[] = array(
+					'id'             => $id,
+					'name'           => (string) $r->name,
+					'is_default'     => $default_id > 0 && $id === $default_id,
+					'role'           => (string) ( $scope['role'] ?? 'none' ),
+					'domains'        => class_exists( 'BizCity_Guru_Context_Resolver' ) ? BizCity_Guru_Context_Resolver::clean_domains( $scope['domains'] ?? array() ) : array(),
+					'disabled_tools' => array_values( array_map( 'strval', (array) ( $cfg['disabled_tools'] ?? array() ) ) ),
+				);
+			}
+		}
+		$numbers = array();
+		if ( class_exists( 'BizCity_Channel_Binding' ) ) {
+			foreach ( (array) BizCity_Channel_Binding::all() as $b ) {
+				$oh = $b['office_hours_json'] ?? ( $b['office_hours'] ?? array() );
+				$oh = is_string( $oh ) ? json_decode( $oh, true ) : $oh;
+				$oh = is_array( $oh ) ? $oh : array();
+				$numbers[] = array(
+					'platform'       => strtoupper( (string) ( $b['platform'] ?? '' ) ),
+					'account_id'     => (string) ( $b['account_id'] ?? '' ),
+					'character_id'   => (int) ( $b['character_id'] ?? 0 ),
+					'disabled_tools' => array_values( array_map( 'strval', (array) ( $oh['disabled_tools'] ?? array() ) ) ),
+				);
+			}
+		}
+		return self::ok( array( 'contract' => $contract, 'gurus' => $gurus, 'numbers' => $numbers ) );
 	}
 
 	/* ── /bot/tools ── */

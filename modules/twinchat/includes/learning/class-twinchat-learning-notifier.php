@@ -55,6 +55,10 @@ class BizCity_TwinChat_Learning_Notifier {
 			return;
 		}
 		$nb     = (int) $job['notebook_id'];
+		// [2026-10-27 07:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L4 (D143-7) — a source with a welcome card updates the card's numbers
+		if ( class_exists( 'BizCity_TwinChat_Welcome_Listener', false ) ) {
+			BizCity_TwinChat_Welcome_Listener::on_job_done( $nb, $job );
+		}
 		$key    = $this->transient_key( $nb );
 		$bucket = get_transient( $key );
 		if ( ! is_array( $bucket ) ) {
@@ -114,7 +118,11 @@ class BizCity_TwinChat_Learning_Notifier {
 
 		$jobs = $bucket['jobs'];
 		// Filter out jobs with zero entities AND zero triplets (nothing to celebrate).
-		$jobs = array_values( array_filter( $jobs, static function ( $j ) {
+		$jobs = array_values( array_filter( $jobs, static function ( $j ) use ( $nb ) {
+			// PHASE-0.143 S143-L4 (D143-7): the welcome card already says it (and shows the numbers)
+			if ( class_exists( 'BizCity_TwinChat_Welcome_Listener', false ) && BizCity_TwinChat_Welcome_Listener::has_card( $nb, (int) ( $j['source_id'] ?? 0 ) ) ) {
+				return false;
+			}
 			return ( (int) $j['entities_approved'] > 0 ) || ( (int) $j['triplets_extracted'] > 0 );
 		} ) );
 		if ( empty( $jobs ) ) {

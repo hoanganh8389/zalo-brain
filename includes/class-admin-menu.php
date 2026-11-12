@@ -773,7 +773,8 @@ class BizCity_Admin_Menu {
 		}
 		// [2026-10-22 06:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — Skills sits after Workflow (only where the TwinShell registry has the entry, i.e. core/skills is loaded)
 		if ( class_exists( 'BizCity_Twin_Shell_Registry' ) && is_array( BizCity_Twin_Shell_Registry::instance()->get( 'skills' ) ) ) {
-			add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), self::menu_cap(), self::surface_admin_url( 'skills', '/skills/' ) );
+			// [2026-11-03 Claude Sonnet 5] 'read' like its sibling surfaces (line ~771) — the per-role gate for this item is the module-access meta cap bizcity_use_skills, now grantable (default-plugins.php), not this wp-admin menu capability.
+			add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), __( 'Vault - Kho tri thức', 'bizcity-twin-ai' ), 'read', self::surface_admin_url( 'skills', '/skills/' ) );
 		}
 		// The root's own page keeps its slug (page=bizcity-twin-control-panel stays reachable); relink_setting_item() shows it as "Setting" → plugin=settings
 		add_submenu_page( self::SLUG_CONTROL_PANEL, __( 'Setting', 'bizcity-twin-ai' ), __( 'Setting', 'bizcity-twin-ai' ), self::menu_cap(), self::SLUG_CONTROL_PANEL, [ __CLASS__, 'render_control_panel_page' ] );

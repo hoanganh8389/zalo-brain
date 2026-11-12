@@ -1,0 +1,2231 @@
+{
+ "contract": "tool-scope@1.0.0",
+ "domains": [
+  {
+   "id": "brain",
+   "label": "Lưu trữ & tra cứu sổ"
+  },
+  {
+   "id": "ledger",
+   "label": "Ghi sổ"
+  },
+  {
+   "id": "research",
+   "label": "Tra cứu & nghiên cứu"
+  },
+  {
+   "id": "document",
+   "label": "Soạn tài liệu"
+  },
+  {
+   "id": "contract",
+   "label": "Hợp đồng"
+  },
+  {
+   "id": "media",
+   "label": "Ảnh · giọng · nhạc · video"
+  },
+  {
+   "id": "social",
+   "label": "Mạng xã hội"
+  },
+  {
+   "id": "schedule",
+   "label": "Lịch & nhắc việc"
+  },
+  {
+   "id": "meeting",
+   "label": "Cuộc họp & ghi âm"
+  },
+  {
+   "id": "contacts",
+   "label": "Liên hệ & gửi thay"
+  },
+  {
+   "id": "commerce",
+   "label": "Bán hàng & đơn"
+  },
+  {
+   "id": "zalo",
+   "label": "Chat Zalo"
+  },
+  {
+   "id": "zalo_group",
+   "label": "Nhóm Zalo"
+  },
+  {
+   "id": "apps",
+   "label": "Ứng dụng đã kết nối"
+  },
+  {
+   "id": "website",
+   "label": "Website"
+  },
+  {
+   "id": "settings",
+   "label": "Cài đặt & Guru"
+  }
+ ],
+ "flows": [
+  {
+   "id": "owner_chat",
+   "cap": 16,
+   "domains": [
+    "brain",
+    "ledger",
+    "document",
+    "contract",
+    "research",
+    "schedule",
+    "meeting",
+    "contacts",
+    "commerce",
+    "social",
+    "website",
+    "apps",
+    "media",
+    "zalo",
+    "zalo_group",
+    "settings"
+   ],
+   "role_cut": true,
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt"
+   ]
+  },
+  {
+   "id": "care",
+   "cap": 16,
+   "domains": [
+    "brain",
+    "research",
+    "commerce",
+    "zalo",
+    "schedule",
+    "document",
+    "media"
+   ],
+   "role_cut": false,
+   "surfaces": [
+    "channel",
+    "zalo_personal"
+   ]
+  },
+  {
+   "id": "group",
+   "cap": 16,
+   "domains": [
+    "brain",
+    "research",
+    "document",
+    "media",
+    "meeting",
+    "schedule",
+    "commerce",
+    "zalo",
+    "zalo_group"
+   ],
+   "role_cut": false,
+   "surfaces": [
+    "zalo_personal"
+   ]
+  },
+  {
+   "id": "background",
+   "cap": 3,
+   "domains": "*",
+   "role_cut": false,
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ]
+  },
+  {
+   "id": "scheduled",
+   "cap": null,
+   "domains": "*",
+   "role_cut": false,
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ]
+  }
+ ],
+ "roles": [
+  {
+   "id": "personal",
+   "domains": null
+  },
+  {
+   "id": "care",
+   "domains": [
+    "brain",
+    "ledger",
+    "document",
+    "schedule",
+    "contacts",
+    "commerce",
+    "apps",
+    "research",
+    "zalo",
+    "zalo_group"
+   ]
+  },
+  {
+   "id": "sales",
+   "domains": [
+    "brain",
+    "ledger",
+    "document",
+    "commerce",
+    "contacts",
+    "schedule",
+    "apps",
+    "social",
+    "research",
+    "zalo",
+    "zalo_group"
+   ]
+  },
+  {
+   "id": "teach",
+   "domains": [
+    "brain",
+    "document",
+    "research",
+    "media",
+    "meeting",
+    "schedule",
+    "zalo",
+    "zalo_group"
+   ]
+  },
+  {
+   "id": "legal",
+   "domains": [
+    "brain",
+    "ledger",
+    "document",
+    "contract",
+    "research",
+    "schedule",
+    "zalo",
+    "zalo_group"
+   ]
+  },
+  {
+   "id": "content",
+   "domains": [
+    "brain",
+    "document",
+    "media",
+    "social",
+    "research",
+    "website",
+    "schedule",
+    "zalo",
+    "zalo_group"
+   ]
+  },
+  {
+   "id": "none",
+   "domains": [
+    "brain",
+    "zalo",
+    "schedule"
+   ]
+  }
+ ],
+ "tools": [
+  {
+   "key": "add_reaction",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Thả cảm xúc",
+   "risk": "R2",
+   "executor": "zalo.reaction.add",
+   "bot_id": "react_message"
+  },
+  {
+   "key": "approve_outbound",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Gửi tin thay chủ sang người / nhóm khác (nháp → chủ duyệt)",
+   "risk": "R2",
+   "executor": "zalo.message.send_other",
+   "bot_id": ""
+  },
+  {
+   "key": "astro_self",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Tử vi / chiêm tinh của chính chủ",
+   "risk": "R0",
+   "executor": "astro.self.read",
+   "bot_id": ""
+  },
+  {
+   "key": "biz_customer_find",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "commerce.customer_history"
+   ],
+   "label": "Tìm khách trong CRM của website",
+   "risk": "R0",
+   "executor": "crm.customer.find",
+   "bot_id": ""
+  },
+  {
+   "key": "biz_orders",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "commerce.order_recap",
+    "commerce.daily_brief",
+    "commerce.customer_history"
+   ],
+   "label": "Trạng thái đơn hàng",
+   "risk": "R0",
+   "executor": "order.status",
+   "bot_id": ""
+  },
+  {
+   "key": "biz_sales",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "schedule.daily_sales_brief",
+    "commerce.daily_brief"
+   ],
+   "label": "Doanh số (từ website)",
+   "risk": "R0",
+   "executor": "sales.summary.read",
+   "bot_id": ""
+  },
+  {
+   "key": "biz_stock",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "commerce.daily_brief",
+    "commerce.restock_sheet"
+   ],
+   "label": "Tồn kho của website",
+   "risk": "R0",
+   "executor": "inventory.stock.read",
+   "bot_id": ""
+  },
+  {
+   "key": "book_export",
+   "domain": "ledger",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "ledger.monthly_close"
+   ],
+   "label": "Xuất sổ ra bảng tính",
+   "risk": "R1",
+   "executor": "book.export",
+   "bot_id": ""
+  },
+  {
+   "key": "book_record",
+   "domain": "ledger",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "ledger.receipt_to_book",
+    "ledger.sync_to_sheets"
+   ],
+   "label": "Ghi sổ (journal)",
+   "risk": "R1",
+   "executor": "journal.entry.record",
+   "bot_id": ""
+  },
+  {
+   "key": "book_void",
+   "domain": "ledger",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Hủy dòng sổ",
+   "risk": "R1",
+   "executor": "journal.entry.void",
+   "bot_id": ""
+  },
+  {
+   "key": "change_form_recipient",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Đổi người nhận thư của form (xem trước đã che → xác nhận)",
+   "risk": "R2",
+   "executor": "cf7.form.set_recipient",
+   "bot_id": ""
+  },
+  {
+   "key": "change_group_avatar",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Đổi ảnh nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "change_group_avatar"
+  },
+  {
+   "key": "compose_contract",
+   "domain": "contract",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Soạn hợp đồng cho khách mới từ mẫu",
+   "risk": "R1",
+   "executor": "contract.draft.compose",
+   "bot_id": ""
+  },
+  {
+   "key": "connected_apps_approve",
+   "domain": "apps",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Huỷ sự kiện Lịch Google",
+   "risk": "R2",
+   "executor": "calendar.delete_event",
+   "bot_id": ""
+  },
+  {
+   "key": "connected_apps_draft",
+   "domain": "apps",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "publish.trend_post",
+    "publish.post_full",
+    "social.daily_engagement",
+    "social.messenger_followup",
+    "social.post_with_image",
+    "ledger.sync_to_sheets"
+   ],
+   "label": "Huỷ sự kiện Lịch Google",
+   "risk": "R2",
+   "executor": "calendar.delete_event",
+   "bot_id": ""
+  },
+  {
+   "key": "connected_apps_read",
+   "domain": "apps",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "schedule.meeting_prep",
+    "social.daily_engagement",
+    "social.messenger_followup",
+    "social.page_health",
+    "gmail.triage_summary",
+    "gmail.reply_flow"
+   ],
+   "label": "Lịch Google sắp tới",
+   "risk": "R0",
+   "executor": "calendar.events",
+   "bot_id": ""
+  },
+  {
+   "key": "connected_apps_report",
+   "domain": "apps",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Báo cáo Fanpage hằng ngày: xem, đổi giờ, hủy, gửi thử",
+   "risk": "R1",
+   "executor": "connector.report.send",
+   "bot_id": ""
+  },
+  {
+   "key": "create_csv_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo file Word / Excel / CSV / Markdown",
+   "risk": "R1",
+   "executor": "document.sheet.create",
+   "bot_id": "create_document"
+  },
+  {
+   "key": "create_excel_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "document.plan_to_sheet",
+    "trend.social_scan",
+    "market.competitor_table",
+    "research.social_insight",
+    "social.content_week",
+    "ledger.weekly_summary"
+   ],
+   "label": "Tạo file Word / Excel / CSV / Markdown",
+   "risk": "R1",
+   "executor": "document.sheet.create",
+   "bot_id": "create_document"
+  },
+  {
+   "key": "create_html_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo tài liệu (Word, Markdown, HTML, văn bản)",
+   "risk": "R1",
+   "executor": "document.write.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_image",
+   "domain": "media",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "publish.post_full",
+    "publish.scheduled_post",
+    "social.post_with_image",
+    "website.theme_refresh",
+    "media.product_video"
+   ],
+   "label": "Vẽ ảnh AI",
+   "risk": "R1",
+   "executor": "media.image.create",
+   "bot_id": "generate_image"
+  },
+  {
+   "key": "create_landing_page",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.landing_launch",
+    "website.menu_refresh"
+   ],
+   "label": "Tạo form liên hệ (Contact Form 7)",
+   "risk": "R1",
+   "executor": "cf7.form.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_markdown_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo file Word / Excel / CSV / Markdown",
+   "risk": "R1",
+   "executor": "document.write.create",
+   "bot_id": "create_document"
+  },
+  {
+   "key": "create_music",
+   "domain": "media",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo nhạc",
+   "risk": "R1",
+   "executor": "media.music.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_photo_video",
+   "domain": "media",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "publish.video_clip",
+    "media.product_video"
+   ],
+   "label": "Tạo video từ ảnh",
+   "risk": "R1",
+   "executor": "media.photo_video.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_poll",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.poll_cycle"
+   ],
+   "label": "Tạo bình chọn",
+   "risk": "R2",
+   "executor": "zalo.poll.create",
+   "bot_id": "create_poll"
+  },
+  {
+   "key": "create_powerpoint_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "research.slides_from_web"
+   ],
+   "label": "Tạo bài trình chiếu",
+   "risk": "R1",
+   "executor": "document.slides.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_text_file",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo tài liệu (Word, Markdown, HTML, văn bản)",
+   "risk": "R1",
+   "executor": "document.write.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_video",
+   "domain": "media",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Tạo video",
+   "risk": "R1",
+   "executor": "media.video.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_voice",
+   "domain": "media",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "media.voice_announcement"
+   ],
+   "label": "Giọng nói (TTS)",
+   "risk": "R1",
+   "executor": "media.voice.create",
+   "bot_id": "tts"
+  },
+  {
+   "key": "create_website_account",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.account_onboard"
+   ],
+   "label": "Tạo tài khoản website (R3: xem trước → xác nhận từng lần)",
+   "risk": "R3",
+   "executor": "wp.user.create",
+   "bot_id": ""
+  },
+  {
+   "key": "create_word_document",
+   "domain": "document",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "research.topic_report",
+    "document.plan_to_word",
+    "trend.news_digest",
+    "trend.research_watch",
+    "publish.caption_drafts",
+    "market.research_report"
+   ],
+   "label": "Tạo file Word / Excel / CSV / Markdown",
+   "risk": "R1",
+   "executor": "document.write.create",
+   "bot_id": "create_document"
+  },
+  {
+   "key": "delete_document",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Xoá hẳn một mục Bộ não thứ hai",
+   "risk": "R1",
+   "executor": "journal.entry.purge",
+   "bot_id": ""
+  },
+  {
+   "key": "document_ocr",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "ledger.receipt_to_book",
+    "document.ocr_to_word"
+   ],
+   "label": "Đọc chữ trong ảnh / tài liệu",
+   "risk": "R0",
+   "executor": "document.ocr.read",
+   "bot_id": ""
+  },
+  {
+   "key": "find_recipient",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "contacts.send_on_behalf_flow"
+   ],
+   "label": "Tìm người / nhóm trong danh bạ và hội thoại của số (chat riêng với chủ)",
+   "risk": "R0",
+   "executor": "zalo.directory.read",
+   "bot_id": ""
+  },
+  {
+   "key": "get_datetime",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Ngày giờ hiện tại",
+   "risk": "R0",
+   "executor": "util.time.read",
+   "bot_id": "current_datetime"
+  },
+  {
+   "key": "get_group_info",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Xem thành viên nhóm",
+   "risk": "R0",
+   "executor": "zalo.group.info",
+   "bot_id": "get_group_info"
+  },
+  {
+   "key": "group_brief",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.weekly_digest",
+    "group.task_follow",
+    "group.poll_cycle"
+   ],
+   "label": "Đọc và tóm tắt nhóm Zalo (thư ký nhóm)",
+   "risk": "R0",
+   "executor": "zalo.group.brief",
+   "bot_id": ""
+  },
+  {
+   "key": "group_compile",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.weekly_digest"
+   ],
+   "label": "Tổng hợp nhóm Zalo thành Excel / Word có nguồn và phiên bản",
+   "risk": "R1",
+   "executor": "zalo.group.compile",
+   "bot_id": ""
+  },
+  {
+   "key": "group_save",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Lưu bản gốc tệp gửi trong nhóm Zalo vào sổ của chủ",
+   "risk": "R1",
+   "executor": "zalo.group.save",
+   "bot_id": ""
+  },
+  {
+   "key": "group_secretary",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Thư ký nhóm: bật / tắt theo dõi, giao người được giao",
+   "risk": "R2",
+   "executor": "zalo.group.secretary",
+   "bot_id": ""
+  },
+  {
+   "key": "group_track",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.task_follow"
+   ],
+   "label": "Ghi việc của nhóm Zalo vào sổ sau khi xác nhận",
+   "risk": "R1",
+   "executor": "zalo.group.track",
+   "bot_id": ""
+  },
+  {
+   "key": "journal_note",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "knowledge.learn_file"
+   ],
+   "label": "Ghi nhật ký",
+   "risk": "R1",
+   "executor": "journal.note",
+   "bot_id": ""
+  },
+  {
+   "key": "kick_member",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.onboard_members"
+   ],
+   "label": "Kick thành viên",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "kick_group_member"
+  },
+  {
+   "key": "learn_document",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "knowledge.learn_file"
+   ],
+   "label": "Đổi mức học tài liệu trong sổ",
+   "risk": "R1",
+   "executor": "document.learn.set",
+   "bot_id": ""
+  },
+  {
+   "key": "list_contract_templates",
+   "domain": "contract",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Xem các hợp đồng mẫu",
+   "risk": "R0",
+   "executor": "contract.template.list",
+   "bot_id": ""
+  },
+  {
+   "key": "list_pending_group_members",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.onboard_members"
+   ],
+   "label": "Xem danh sách chờ duyệt",
+   "risk": "R0",
+   "executor": "zalo.group.pending",
+   "bot_id": "list_pending_group_members"
+  },
+  {
+   "key": "list_threads",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Liệt kê nhóm khác (chủ tài khoản)",
+   "risk": "R0",
+   "executor": "zalo.thread.read",
+   "bot_id": "list_threads"
+  },
+  {
+   "key": "lock_poll",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "group.poll_cycle"
+   ],
+   "label": "Khoá bình chọn",
+   "risk": "R2",
+   "executor": "zalo.poll.lock",
+   "bot_id": "lock_poll"
+  },
+  {
+   "key": "meeting",
+   "domain": "meeting",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "meeting.full_cycle",
+    "meeting.minutes_to_word"
+   ],
+   "label": "Ghi cuộc họp - biên bản, việc cần làm, nhắc việc",
+   "risk": "R1",
+   "executor": "meeting.minutes.save",
+   "bot_id": ""
+  },
+  {
+   "key": "notebook_digest",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "schedule.evening_digest",
+    "knowledge.weekly_digest"
+   ],
+   "label": "Tóm tắt sổ tay",
+   "risk": "R0",
+   "executor": "notebook.digest",
+   "bot_id": ""
+  },
+  {
+   "key": "notebook_remember",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "trend.weekly_watch",
+    "gmail.triage_summary",
+    "drive.find_and_note",
+    "document.summarize_sent",
+    "media.describe_and_file"
+   ],
+   "label": "Ghi vào sổ tay",
+   "risk": "R1",
+   "executor": "notebook.remember",
+   "bot_id": ""
+  },
+  {
+   "key": "notebook_search",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "contract.new_customer",
+    "knowledge.answer_cited"
+   ],
+   "label": "Tìm sâu trong sổ tay / nội dung tài liệu (có trích nguồn)",
+   "risk": "R0",
+   "executor": "notebook.search",
+   "bot_id": ""
+  },
+  {
+   "key": "open_panel",
+   "domain": "settings",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Gửi chủ link Bảng nhanh",
+   "risk": "R1",
+   "executor": "panel.link.issue",
+   "bot_id": ""
+  },
+  {
+   "key": "panel_key_reset",
+   "domain": "settings",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Đổi khoá Bảng nhanh",
+   "risk": "R1",
+   "executor": "panel.key.reset",
+   "bot_id": ""
+  },
+  {
+   "key": "pin_group_note",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Ghim thông báo nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "pin_group_note"
+  },
+  {
+   "key": "place_order",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "channel"
+   ],
+   "skills": [
+    "commerce.order_full"
+   ],
+   "label": "Tạo đơn hàng (xem trước → xác nhận)",
+   "risk": "R3",
+   "executor": "order.place",
+   "bot_id": ""
+  },
+  {
+   "key": "product_lookup",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "commerce.quote_card",
+    "commerce.order_full"
+   ],
+   "label": "Tìm sản phẩm của website",
+   "risk": "R0",
+   "executor": "commerce.search_products",
+   "bot_id": ""
+  },
+  {
+   "key": "profile_list",
+   "domain": "settings",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Xem các đề xuất hồ sơ",
+   "risk": "R0",
+   "executor": "profile.list",
+   "bot_id": ""
+  },
+  {
+   "key": "profile_propose",
+   "domain": "settings",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Đề xuất hồ sơ để chủ duyệt",
+   "risk": "R1",
+   "executor": "profile.propose",
+   "bot_id": ""
+  },
+  {
+   "key": "profile_set_policy",
+   "domain": "settings",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Đặt chính sách trả lời / hồ sơ cho tài khoản",
+   "risk": "R3",
+   "executor": "profile.policy.set",
+   "bot_id": ""
+  },
+  {
+   "key": "publish_landing_page",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.landing_launch"
+   ],
+   "label": "Đăng trang landing (xem trước → xác nhận)",
+   "risk": "R2",
+   "executor": "wp.page.publish",
+   "bot_id": ""
+  },
+  {
+   "key": "read_document",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "contract.new_customer",
+    "document.compare_saved",
+    "knowledge.answer_cited"
+   ],
+   "label": "Đọc tài liệu trong sổ theo mã",
+   "risk": "R0",
+   "executor": "document.text.read",
+   "bot_id": ""
+  },
+  {
+   "key": "read_file",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.landing_fix_live",
+    "document.summarize_sent"
+   ],
+   "label": "Đọc lại file đã gửi trong cuộc trò chuyện",
+   "risk": "R0",
+   "executor": "document.file.read",
+   "bot_id": ""
+  },
+  {
+   "key": "read_image",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "media.describe_and_file"
+   ],
+   "label": "Xem ảnh khách gửi",
+   "risk": "R0",
+   "executor": "media.image.read",
+   "bot_id": "read_image"
+  },
+  {
+   "key": "read_thread",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Đọc nội dung nhóm khác (chủ tài khoản)",
+   "risk": "R0",
+   "executor": "zalo.thread.read",
+   "bot_id": "read_thread"
+  },
+  {
+   "key": "rename_group",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Đổi tên nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "rename_group"
+  },
+  {
+   "key": "request_deep_analysis",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Yêu cầu phân tích sâu",
+   "risk": "R1",
+   "executor": "deep_analysis.request",
+   "bot_id": ""
+  },
+  {
+   "key": "request_harness",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Yêu cầu chạy harness (skill + executor)",
+   "risk": "R1",
+   "executor": "harness.job.request",
+   "bot_id": ""
+  },
+  {
+   "key": "restore_landing_page",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Hoàn tác trang về bản cũ (xem trước → xác nhận)",
+   "risk": "R2",
+   "executor": "wp.page.restore",
+   "bot_id": ""
+  },
+  {
+   "key": "review_pending_member",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Duyệt / từ chối thành viên",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "review_pending_group_member"
+  },
+  {
+   "key": "save_contract_template",
+   "domain": "contract",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Lưu hợp đồng mẫu",
+   "risk": "R1",
+   "executor": "contract.template.save",
+   "bot_id": ""
+  },
+  {
+   "key": "save_memory",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Ghi nhớ lâu dài",
+   "risk": "R1",
+   "executor": "memory.save",
+   "bot_id": "save_memory"
+  },
+  {
+   "key": "schedule_task",
+   "domain": "schedule",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "schedule.followup_once",
+    "schedule.multi_reminder",
+    "schedule.daily_sales_brief",
+    "schedule.evening_digest",
+    "schedule.meeting_prep",
+    "trend.weekly_watch"
+   ],
+   "label": "Hẹn lịch nhắc / việc lặp",
+   "risk": "R1",
+   "executor": "schedule.task",
+   "bot_id": "schedule_task"
+  },
+  {
+   "key": "scrape_social_data",
+   "domain": "social",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "trend.social_scan",
+    "research.social_insight"
+   ],
+   "label": "Cào dữ liệu mạng xã hội",
+   "risk": "R0",
+   "executor": "social.data.scrape",
+   "bot_id": "scrape_social_data"
+  },
+  {
+   "key": "search_arxiv",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "trend.research_watch",
+    "research.academic_brief"
+   ],
+   "label": "Tra cứu arXiv",
+   "risk": "R0",
+   "executor": "research.paper.search",
+   "bot_id": "search_arxiv"
+  },
+  {
+   "key": "search_github",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "research.tech_brief"
+   ],
+   "label": "Tra cứu GitHub",
+   "risk": "R0",
+   "executor": "research.code.search",
+   "bot_id": "search_github"
+  },
+  {
+   "key": "search_hackernews",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "trend.news_digest",
+    "research.tech_brief"
+   ],
+   "label": "Tra cứu Hacker News",
+   "risk": "R0",
+   "executor": "research.news.search",
+   "bot_id": "search_hackernews"
+  },
+  {
+   "key": "search_scholar",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Tra cứu bài báo khoa học",
+   "risk": "R0",
+   "executor": "research.paper.search",
+   "bot_id": "search_scholar"
+  },
+  {
+   "key": "search_stackexchange",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Tra cứu StackOverflow",
+   "risk": "R0",
+   "executor": "research.code.search",
+   "bot_id": "search_stackexchange"
+  },
+  {
+   "key": "search_wikipedia",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Tra cứu Wikipedia",
+   "risk": "R0",
+   "executor": "research.wiki.search",
+   "bot_id": "search_wikipedia"
+  },
+  {
+   "key": "send_channel_card",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "channel"
+   ],
+   "skills": [],
+   "label": "Gửi thẻ vào kênh khách (Messenger…)",
+   "risk": "R2",
+   "executor": "channel.card.send",
+   "bot_id": ""
+  },
+  {
+   "key": "send_document",
+   "domain": "brain",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "contract.new_customer"
+   ],
+   "label": "Gửi lại tài liệu đã lưu",
+   "risk": "R1",
+   "executor": "document.file.send",
+   "bot_id": ""
+  },
+  {
+   "key": "send_file",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "publish.video_clip",
+    "meeting.minutes_to_word",
+    "group.weekly_digest",
+    "media.product_video"
+   ],
+   "label": "Gửi file",
+   "risk": "R2",
+   "executor": "zalo.file.send",
+   "bot_id": "send_file"
+  },
+  {
+   "key": "send_order_payment",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "channel"
+   ],
+   "skills": [
+    "commerce.order_full",
+    "commerce.order_recap"
+   ],
+   "label": "Gửi thông tin thanh toán của đơn (chữ, QR, nút)",
+   "risk": "R2",
+   "executor": "commerce.payment.send",
+   "bot_id": ""
+  },
+  {
+   "key": "send_product_card",
+   "domain": "commerce",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "commerce.quote_card"
+   ],
+   "label": "Gửi thẻ sản phẩm vào cuộc trò chuyện",
+   "risk": "R2",
+   "executor": "commerce.product_card.send",
+   "bot_id": ""
+  },
+  {
+   "key": "send_site_media",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Gửi ảnh từ website vào cuộc trò chuyện",
+   "risk": "R2",
+   "executor": "channel.media.send",
+   "bot_id": ""
+  },
+  {
+   "key": "send_sticker",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Gửi sticker",
+   "risk": "R2",
+   "executor": "zalo.sticker.send",
+   "bot_id": "send_sticker"
+  },
+  {
+   "key": "send_to_contact",
+   "domain": "contacts",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [
+    "website.account_onboard",
+    "contacts.send_on_behalf_flow"
+   ],
+   "label": "Gửi tin thay chủ sang người / nhóm khác (nháp → chủ duyệt)",
+   "risk": "R2",
+   "executor": "zalo.message.send_other",
+   "bot_id": ""
+  },
+  {
+   "key": "set_group_deputy",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Bổ nhiệm / gỡ phó nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "set_group_deputy"
+  },
+  {
+   "key": "set_group_invite_link",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Bật / tắt link mời nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "set_group_invite_link"
+  },
+  {
+   "key": "set_group_member_blocked",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Chặn / bỏ chặn khỏi nhóm",
+   "risk": "R2",
+   "executor": "zalo.group.manage",
+   "bot_id": "set_group_member_blocked"
+  },
+  {
+   "key": "set_website_account_role",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [],
+   "label": "Đổi vai trò tài khoản website (R3: xem trước → xác nhận từng lần)",
+   "risk": "R3",
+   "executor": "wp.user.set_role",
+   "bot_id": ""
+  },
+  {
+   "key": "tag_member",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Nhắc tên (@tag) thành viên",
+   "risk": "R2",
+   "executor": "zalo.member.tag",
+   "bot_id": "mention_member"
+  },
+  {
+   "key": "transcribe_recording",
+   "domain": "meeting",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "meeting.full_cycle"
+   ],
+   "label": "Chuyển chữ tệp ghi âm",
+   "risk": "R1",
+   "executor": "media.recording.transcribe",
+   "bot_id": ""
+  },
+  {
+   "key": "transfer_group_owner",
+   "domain": "zalo_group",
+   "flows": [
+    "owner_chat",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Chuyển quyền trưởng nhóm",
+   "risk": "R3",
+   "executor": "zalo.group.transfer",
+   "bot_id": "transfer_group_owner"
+  },
+  {
+   "key": "undo_message",
+   "domain": "zalo",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal"
+   ],
+   "skills": [],
+   "label": "Thu hồi tin bot vừa gửi",
+   "risk": "R2",
+   "executor": "zalo.message.undo",
+   "bot_id": "recall_message"
+  },
+  {
+   "key": "update_live_page",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.landing_fix_live"
+   ],
+   "label": "Sửa trang đang công khai (xem trước diff → xác nhận)",
+   "risk": "R2",
+   "executor": "wp.page.update_live",
+   "bot_id": ""
+  },
+  {
+   "key": "update_site_menu",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.menu_refresh"
+   ],
+   "label": "Sửa menu website (xem trước diff → xác nhận)",
+   "risk": "R2",
+   "executor": "wp.menu.update",
+   "bot_id": ""
+  },
+  {
+   "key": "update_theme_settings",
+   "domain": "website",
+   "flows": [
+    "owner_chat"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "website.theme_refresh"
+   ],
+   "label": "Đổi giao diện website (xem trước cũ → mới → xác nhận)",
+   "risk": "R2",
+   "executor": "wp.theme.update",
+   "bot_id": ""
+  },
+  {
+   "key": "web_fetch",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "research.topic_report",
+    "trend.web_scan",
+    "market.research_report",
+    "market.competitor_table",
+    "research.academic_brief",
+    "research.slides_from_web"
+   ],
+   "label": "Đọc nội dung trang",
+   "risk": "R0",
+   "executor": "web.page.fetch",
+   "bot_id": "read_url"
+  },
+  {
+   "key": "web_search",
+   "domain": "research",
+   "flows": [
+    "owner_chat",
+    "care",
+    "group"
+   ],
+   "surfaces": [
+    "zalo_personal",
+    "twinchat",
+    "gpt",
+    "channel"
+   ],
+   "skills": [
+    "research.topic_report",
+    "trend.web_scan",
+    "trend.news_digest",
+    "trend.weekly_watch",
+    "publish.trend_post",
+    "market.research_report"
+   ],
+   "label": "Tra cứu web",
+   "risk": "R0",
+   "executor": "web.search.run",
+   "bot_id": "web_search"
+  }
+ ]
+}

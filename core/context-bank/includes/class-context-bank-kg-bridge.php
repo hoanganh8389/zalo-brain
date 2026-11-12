@@ -270,7 +270,8 @@ final class BizCity_Context_Bank_KG_Bridge {
 
 	private static function schedule_recheck( array $pointer, $reason, $attempt = 0 ) {
 		// [2026-09-04 Johnny Chu - Chu Hoàng Anh] PHASE-CB6.4 — cap tenant-bound KG retries so an unavailable KG cannot create an unbounded cron loop.
-		if ( self::diagnostics_blocked() || ! function_exists( 'wp_schedule_single_event' ) ) {
+		// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — no recheck cron while the Context Bank kill switch is off.
+		if ( ( function_exists( 'bizcity_context_bank_enabled' ) && ! bizcity_context_bank_enabled() ) || self::diagnostics_blocked() || ! function_exists( 'wp_schedule_single_event' ) ) {
 			return false;
 		}
 		$attempt = max( 0, (int) $attempt );

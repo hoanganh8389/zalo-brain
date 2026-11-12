@@ -2202,7 +2202,8 @@ class BizCity_TwinChat_Settings_Page {
 					</li>
 					<li style="margin-bottom:8px;">
 						<strong><?php esc_html_e( 'Tải plugin Bizcity Twin Brain', 'bizcity-twin-ai' ); ?></strong> —
-						<a href="https://github.com/bizcity/bizcity-twin-ai" target="_blank" rel="noopener">GitHub</a>
+						<?php /* [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-OPS6 — public repo is hoanganh8389/zalo-brain (F35). */ ?>
+						<a href="https://github.com/hoanganh8389/zalo-brain" target="_blank" rel="noopener">GitHub</a>
 						→ <?php esc_html_e( '"Code → Download ZIP"', 'bizcity-twin-ai' ); ?>
 						<em style="color:#646970;">(<?php esc_html_e( 'KHÔNG tải bizcity-llm-router — đó là plugin chỉ chạy trên server BizCity', 'bizcity-twin-ai' ); ?>)</em>.
 					</li>

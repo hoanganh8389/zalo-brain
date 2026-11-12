@@ -297,6 +297,10 @@ final class BizCity_MCP_Delegation {
 	 */
 	public static function context_guru_public( int $character_id, string $account_id, string $turn_id, array $scope, string $user_hash = '' ): array {
 		$tools = array_values( array_map( 'strval', (array) ( $scope['customer_tools'] ?? array() ) ) );
+		// [2026-10-28 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-G3 (D145-18) — a Guru with a PUBLIC Kho tri thức folder always lets its customers search it: no separate switch to forget (the folder access itself is the opt-in)
+		if ( ! in_array( 'knowledge.search', $tools, true ) && class_exists( 'BizCity_Twin_Vault', false ) && method_exists( 'BizCity_Twin_Vault', 'public_folders_for_guru' ) && BizCity_Twin_Vault::public_folders_for_guru( $character_id ) ) {
+			$tools[] = 'knowledge.search';
+		}
 		$ids   = $tools ? array_values( array_filter( array_map( 'intval', (array) ( $scope['notebook_ids'] ?? array() ) ) ) ) : array();
 		// [2026-10-05 11:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-PERM — automation for guests: mode + scope only when the Guru opened the tools, and the sender's
 		// hash (value from the cell's own binding) so the result goes back to THAT person and the per-person rate holds.

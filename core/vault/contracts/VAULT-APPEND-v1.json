@@ -1,0 +1,40 @@
+{
+  "$schema": "https://bizcity.vn/schema/vault-append-v1.json",
+  "contract": "vault-append@1.0.0",
+  "_stamp": "[2026-10-27 06:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L5 (D143-8…12) — 'Lưu vào kho tri thức': ONE pool .md per notebook in the Kho tri thức, one entries[] property + one body section per save. Code: BizCity_Twin_Vault::append (REST POST bizcity-vault/v1/note/append, MCP vault.append). Runtime JSON; docs/ is never read at runtime.",
+  "input": {
+    "notebook_id": { "type": "integer", "min": 1, "required": true },
+    "q": { "type": "string", "max": 300, "required": true, "note": "the question; stored clipped" },
+    "answer_md": { "type": "string", "max": 100000, "required": true, "note": "the answer as the assistant wrote it; [nb:X/pY] tokens are kept" },
+    "message_id": { "type": "string", "max": 60, "note": "the answering message; the same id saved twice is ONE entry (idempotency vault-append:<blog>:<nb>:<message_id>)" },
+    "cites": { "type": "string[]", "pattern": "^nb:[0-9]+/p[0-9]+$", "max": 20, "note": "malformed tokens are dropped" },
+    "folder": { "type": "string", "note": "number or name; required on the notebook's FIRST save, else error vault_pool_folder_needed (409) with suggest[]" }
+  },
+  "output": {
+    "contract": "vault-append@1",
+    "id": "lib:/60/dd-noi-khoa.md",
+    "path": "lib:/60/dd-noi-khoa.md",
+    "entry_id": "e-YYYYMMDD-HHMM-xxxx",
+    "anchor": "#e-…",
+    "journal_entry_id": "integer (the `learn` row; 0 when the Journal is absent or the save was a duplicate)",
+    "entries_count": "integer",
+    "created_file": "boolean",
+    "duplicated": "boolean",
+    "vault_folder": "string"
+  },
+  "pool_file": {
+    "frontmatter_order": ["schema", "type", "kind=notebook_pool", "title", "notebook_ref=NB-<id>", "folder", "tags", "entries", "source_ref", "rev", "created", "updated"],
+    "entries": "one JSON object per line under `entries:` (valid YAML flow map; the vault YAML subset has no list-of-maps). Entry = {id, q, saved_at, by, source_ref, anchor, cites[], idem}",
+    "body": "intro, then one block per save: '## <q> {#<entry id>}', the answer, '**Nguồn:** [nb:X/pY] …', a stamp line. Newest at the bottom.",
+    "max_entries": 200,
+    "rollover": "the 201st save goes to '<slug>-2.md' (…-9.md); notebooks.settings.vault_pool.path follows",
+    "guards": ["BizCity_Twin_Vault::write refuses a pool (vault_pool_use_append, 409)", "vault.move keeps entries[] and the notebook's settings.vault_pool.folder follows"]
+  },
+  "side_effects": {
+    "journal": "first save: one `common.note` row for the file (via write); every save: one `learn` row, source_ref 'lib:<path>#<entry id>'",
+    "settings": "notebooks.settings.vault_pool = {path, folder, chosen_at, entries_count}",
+    "hooks": ["bizcity_vault_appended($path, $entry, $notebook_id)", "bizcity_kg_notebook_notes_pinned($notebook_id, $user_id, $journal_entry_id) — the skeleton keeps preferring saved answers"],
+    "no": ["no new table", "no JSONL note", "no LLM"]
+  },
+  "errors": ["vault_append_invalid 400", "vault_not_found 404", "vault_pool_folder_needed 409", "vault_folder_denied 403", "vault_pool_conflict 409", "vault_pool_full 409", "vault_write_failed 500", "vault_unavailable 503"]
+}

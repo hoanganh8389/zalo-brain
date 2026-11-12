@@ -126,13 +126,38 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 			$att_kind = in_array( $kind, self::ATTACHMENT_KINDS, true ) ? $kind : 'file';
 			$att      = array( 'kind' => $att_kind, 'url' => $url, 'source_url' => $url );
-			$name     = (string) ( $it['file_name'] ?? '' );
+			$name     = (string) ( $it['file_name'] ?? ( $it['name'] ?? '' ) ); // [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 — owner-capture@batch-145 items say `name`
 			if ( '' !== $name ) {
 				$att['file_name'] = $name;
 			}
-			$out[] = array( 'kind' => $att_kind, 'attachment' => $att, 'raw_index' => $i, 'card' => $card );
+			$row = array( 'kind' => $att_kind, 'attachment' => $att, 'raw_index' => $i, 'card' => $card );
+			// [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (doc 20 §1) — a batch item keeps ITS OWN key `oc:<key>:<acct>:<msgId>:<i>` (the one a single event used),
+			// so a batch replayed after a single send — or the reverse — still finds the item already kept (the bridge dedupes on message_id)
+			$ikey = (string) ( $it['key'] ?? '' );
+			if ( 1 === preg_match( '/^oc:[A-Za-z0-9:_.\-]{3,180}$/', $ikey ) ) {
+				$row['item_key'] = $ikey;
+			}
+			$out[] = $row;
 		}
 		return $out;
+	}
+
+	/**
+	 * [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (doc 20 §1 H1) — the batch keys of an owner-capture@batch-145 event, cleaned. Pure.
+	 * batch_ref = "CB-" + hex (stable on replay); batch_total 1..64; overflow 0..999 (messages the cell's batcher dropped). No valid batch_ref ⇒ [] (a single event).
+	 *
+	 * @return array{batch_ref?:string,batch_total?:int,overflow?:int}
+	 */
+	public static function batch_of( array $b ): array {
+		$ref = strtoupper( substr( (string) ( $b['batch_ref'] ?? '' ), 0, 3 ) ) . strtolower( (string) substr( (string) ( $b['batch_ref'] ?? '' ), 3 ) );
+		if ( 1 !== preg_match( '/^CB-[0-9a-f]{6,16}$/', $ref ) ) {
+			return array();
+		}
+		return array(
+			'batch_ref'   => $ref,
+			'batch_total' => max( 0, min( 64, (int) ( $b['batch_total'] ?? 0 ) ) ),
+			'overflow'    => max( 0, min( 999, (int) ( $b['overflow'] ?? 0 ) ) ),
+		);
 	}
 
 	/**
@@ -206,9 +231,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 * @param string $idempotency_key contract `idempotency_key` — becomes the per-item dedupe key downstream
 	 * @param int    $ts              contract `sent_at` (unix time), 0 = now
 	 * @param array  $principal       owner-capture@1.1 {user_hash, role, kind}; empty / no role = the owner (wave 1)
+	 * @param array  $batch           owner-capture@batch-145 {batch_ref, batch_total, overflow} — the whole message-batcher batch in ONE event (PHASE-0.145 S145-L7); empty = a single event
 	 * @return array { ok:bool, code:string, duplicate?:bool }
 	 */
-	public static function from_owner_capture( string $bridge_id, array $raw_items, string $idempotency_key, int $ts = 0, array $principal = array() ): array {
+	public static function from_owner_capture( string $bridge_id, array $raw_items, string $idempotency_key, int $ts = 0, array $principal = array(), array $batch = array() ): array {
 		// [2026-09-30 Claude Opus 5.5] PHASE-0.87 — R-CLI-ASYNC-ISOLATION §3.2: check before any schedule.
 		if ( self::in_diagnostics_cli() ) {
 			return array( 'ok' => false, 'code' => 'cli_isolated' );
@@ -264,6 +290,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			'role'           => $role,
 			'items'          => $items,
 		);
+		// [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 — a batch rides ONE job (one download pass, one receipt); the batch keys travel with it
+		$job += self::batch_of( $batch );
 		// WP ignores the same hook+args within 10 minutes: a Hub retry of the same idempotency_key schedules nothing new.
 		// The real dedupe (survives past that window, and past an already-run job) is the per-item message_id lookup
 		// BizCity_KG_Channel_Notebook_Bridge does inside capture() below — this flag is only the fast, best-effort signal.
@@ -274,7 +302,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			return array( 'ok' => false, 'code' => 'schedule_failed' );
 		}
 		if ( ! $already ) {
-			self::log( 'knowledge_capture_queued', array( 'account_id' => $bridge_id, 'origin' => 'owner_capture', 'items' => count( $items ), 'thread' => 'owner_1to1' ) );
+			self::log( 'knowledge_capture_queued', array( 'account_id' => $bridge_id, 'origin' => 'owner_capture', 'items' => count( $items ), 'thread' => 'owner_1to1' ) + array_intersect_key( $job, array_flip( array( 'batch_ref', 'batch_total', 'overflow' ) ) ) );
 			// Zalo CDN links expire: wake WP-cron now instead of waiting for the next page view (non-blocking).
 			if ( function_exists( 'spawn_cron' ) ) {
 				spawn_cron();
@@ -629,6 +657,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		$notebook_id = (int) ( $res['notebook_id'] ?? 0 );
 		$role        = (string) ( $job['role'] ?? 'owner' );
 		$rows        = array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) );
+		// [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (H2) — every row of a batch carries metadata.belongs.batch_ref (pipeline / "đọc xong lô" count by it, S145-L8)
+		$belongs     = self::belongs_of( $job );
 		foreach ( $rows as $r ) {
 			if ( ! is_array( $r ) ) {
 				continue;
@@ -683,7 +713,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				'source_type'     => null !== $grp ? 'group_capture' : 'owner_capture',
 				'idempotency_key' => (string) $meta['idempotency_key'],
 				'by'              => array( 'role' => $role ),
-			) );
+			) + $belongs );
 			if ( is_wp_error( $entry ) ) {
 				continue;
 			}
@@ -731,7 +761,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				'source_type'     => is_array( $meta['group'] ?? null ) ? 'group_capture' : 'owner_capture',
 				'idempotency_key' => (string) $meta['idempotency_key'],
 				'by'              => array( 'role' => $role ),
-			) );
+			) + $belongs );
 		}
 	}
 
@@ -761,20 +791,39 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 * @param array $res capture_batch() return (items[], queued_jobs[], failed[]) or {failed[]} for a batch-level failure
 	 * @return array{event_type:string,text:string,stored:int,duplicate:int,failed:int}|null
 	 */
-	public static function receipt( array $res ): ?array {
+	/**
+	 * [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 — the `belongs` part of a journal row of this job: {belongs: {batch_ref}} or [] (no batch). Pure.
+	 */
+	public static function belongs_of( array $job ): array {
+		$b = self::batch_of( $job );
+		return isset( $b['batch_ref'] ) ? array( 'belongs' => array( 'batch_ref' => $b['batch_ref'] ) ) : array();
+	}
+
+	/**
+	 * [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (doc 90 §3) — `$batch` = {batch_ref, batch_total, overflow} of an owner-capture@batch-145 job. With a batch
+	 * the receipt is ONE message for the whole batch: images count too, a head line "Em đã nhận N tài liệu" (N = lưu + đã có + chưa lưu), ≤ 10 listed lines + "và N tệp nữa",
+	 * overflow ⇒ "còn N tệp em chưa nhận". It never says the file was read / learnt (that is the separate "đọc xong lô" message). Without a batch: the S121 receipt, unchanged.
+	 * A row may also come in the site_capture_result shape ({name, source_ref, state}).
+	 */
+	public static function receipt( array $res, array $batch = array() ): ?array {
+		$batch  = self::batch_of( $batch );
+		$kinds  = isset( $batch['batch_ref'] ) ? array( 'file', 'image' ) : array( 'file' );
 		$stored = array();
 		$dups   = array();
 		$failed = array();
 		$name   = static function ( array $r ): string {
-			$n = trim( wp_strip_all_tags( (string) ( $r['file_name'] ?? '' ) ) );
-			return '' !== $n ? mb_substr( $n, 0, 80 ) : 'tài liệu';
+			$n = trim( wp_strip_all_tags( (string) ( $r['file_name'] ?? ( $r['name'] ?? '' ) ) ) );
+			return '' !== $n ? mb_substr( $n, 0, 80 ) : ( 'image' === (string) ( $r['kind'] ?? '' ) ? 'ảnh' : 'tài liệu' );
 		};
 		$code   = static function ( array $r ): string {
 			$id = (int) ( $r['attachment_id'] ?? 0 );
+			if ( $id <= 0 && 1 === preg_match( '/^TL-[0-9]{1,12}$/', (string) ( $r['source_ref'] ?? '' ) ) ) {
+				return ' (' . (string) $r['source_ref'] . ')';
+			}
 			return $id > 0 ? ' (' . ( class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::doc_code( $id ) : 'TL-' . $id ) . ')' : '';
 		};
 		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
-			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) ) {
+			if ( ! is_array( $r ) || ! in_array( (string) ( $r['kind'] ?? '' ), $kinds, true ) ) {
 				continue;
 			}
 			if ( ! empty( $r['duplicate'] ) ) {
@@ -784,7 +833,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			}
 		}
 		foreach ( (array) ( $res['failed'] ?? array() ) as $r ) {
-			if ( ! is_array( $r ) || 'file' !== (string) ( $r['kind'] ?? '' ) ) {
+			if ( ! is_array( $r ) || ! in_array( (string) ( $r['kind'] ?? '' ), $kinds, true ) ) {
 				continue;
 			}
 			$why      = class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::reason_text( (string) ( $r['code'] ?? '' ) ) : 'lỗi khi lưu trên trang';
@@ -793,12 +842,26 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 			$detail   = trim( mb_substr( wp_strip_all_tags( (string) ( $r['error'] ?? '' ) ), 0, 160 ) );
 			$failed[] = '- ' . $name( $r ) . ' — ' . $why . ( '' !== $rc ? ' [' . $rc . ( '' !== $detail ? ': ' . $detail : '' ) . ']' : '' );
 		}
-		if ( ! $stored && ! $dups && ! $failed ) {
+		$over = (int) ( $batch['overflow'] ?? 0 );
+		if ( ! $stored && ! $dups && ! $failed && $over <= 0 ) {
 			return null;
 		}
+		$n     = array( 'stored' => count( $stored ), 'dup' => count( $dups ), 'failed' => count( $failed ) );
 		$parts = array();
+		$more  = 0;
+		if ( isset( $batch['batch_ref'] ) ) {
+			// PHASE-0.145 S145-L7 — one head line (nhận = lưu + đã có + chưa lưu), then ≤ 10 listed lines in all (stored first, then already there, then not kept)
+			$parts[] = '📥 Em đã nhận ' . array_sum( $n ) . ' tài liệu: ' . $n['stored'] . ' đã lưu · ' . $n['dup'] . ' đã có sẵn · ' . $n['failed'] . ' chưa lưu được.';
+			$room    = 10;
+			$stored  = array_slice( $stored, 0, $room );
+			$room   -= count( $stored );
+			$dups    = array_slice( $dups, 0, max( 0, $room ) );
+			$room   -= count( $dups );
+			$failed  = array_slice( $failed, 0, max( 0, $room ) );
+			$more    = array_sum( $n ) - count( $stored ) - count( $dups ) - count( $failed );
+		}
 		if ( $stored ) {
-			$parts[] = '✅ Đã lưu an toàn ' . count( $stored ) . ' tài liệu vào Bộ não thứ hai (bản gốc chỉ anh/chị xem được):' . "\n" . implode( "\n", $stored );
+			$parts[] = '✅ Đã lưu an toàn ' . $n['stored'] . ' tài liệu vào Bộ não thứ hai (bản gốc chỉ anh/chị xem được):' . "\n" . implode( "\n", $stored );
 		}
 		if ( $dups ) {
 			$parts[] = '📎 Đã có sẵn, em không lưu lại lần nữa:' . "\n" . implode( "\n", $dups );
@@ -806,12 +869,19 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		if ( $failed ) {
 			$parts[] = '⚠️ Chưa lưu được:' . "\n" . implode( "\n", $failed );
 		}
+		if ( $more > 0 ) {
+			$parts[] = '… và ' . $more . ' tệp nữa (xem đủ trong Kho tài liệu).';
+		}
+		if ( $over > 0 ) {
+			$parts[] = '⏳ Còn ' . $over . ' tệp em chưa nhận (gửi cùng lúc quá nhiều) — anh/chị gửi lại giúp em nhé.';
+		}
 		return array(
-			'event_type' => ( $stored || $dups ) ? 'second_brain.stored' : 'second_brain.failed',
+			'event_type' => ( $n['stored'] || $n['dup'] ) ? 'second_brain.stored' : 'second_brain.failed',
 			'text'       => implode( "\n\n", $parts ),
-			'stored'     => count( $stored ),
-			'duplicate'  => count( $dups ),
-			'failed'     => count( $failed ),
+			'stored'     => $n['stored'],
+			'duplicate'  => $n['dup'],
+			'failed'     => $n['failed'],
+			'overflow'   => $over,
 		);
 	}
 
@@ -866,8 +936,11 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		return $out;
 	}
 
-	public static function receipt_letter( array $receipt, string $dedupe_key, string $user_hash, int $key_id, string $instance, int $blog_id ): array {
-		$event_id = (int) ( sprintf( '%u', crc32( $dedupe_key ) ) % 2147483646 ) + 1;
+	public static function receipt_letter( array $receipt, string $dedupe_key, string $user_hash, int $key_id, string $instance, int $blog_id, string $batch_ref = '' ): array {
+		// [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 (doc 90 §3) — a batch receipt is idempotent by its batch_ref (`sb_<blog>_<sha256(batch_ref)>`): a replayed batch never sends twice
+		$batch_ref  = self::batch_of( array( 'batch_ref' => $batch_ref ) )['batch_ref'] ?? '';
+		$dedupe_key = '' !== $batch_ref ? $batch_ref : $dedupe_key;
+		$event_id   = (int) ( sprintf( '%u', crc32( $dedupe_key ) ) % 2147483646 ) + 1;
 		$channel  = array( 'platform' => 'scheduler', 'channel_ref' => $instance );
 		return array(
 			'contract'   => 'channel-inbound@1.1.0',
@@ -946,10 +1019,32 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 *
 	 * @return string[]
 	 */
+	/**
+	 * [2026-10-28 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 (chủ 28/10: "báo nội dung 2 bức ảnh, từ khoá, tên em đặt") — every file AND photo just kept as `read_refs` [{doc_code, file_name, kind_label}] (≤ 20):
+	 * the cell reads them right after the receipt (not 5 minutes later) and reports what each one shows. NOT the docs_v1 register rows (those stay files only).
+	 */
+	public static function read_refs_for( array $res ): array {
+		$out = array();
+		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
+			if ( ! is_array( $r ) || ! in_array( (string) ( $r['kind'] ?? '' ), array( 'file', 'image' ), true ) || ! empty( $r['duplicate'] ) || (int) ( $r['attachment_id'] ?? 0 ) <= 0 ) {
+				continue;
+			}
+			$code = 'TL-' . (int) $r['attachment_id'];
+			if ( ! isset( $out[ $code ] ) ) {
+				$out[ $code ] = array( 'doc_code' => $code, 'file_name' => substr( (string) ( $r['name'] ?? $r['file_name'] ?? '' ), 0, 160 ), 'kind_label' => 'image' === (string) $r['kind'] ? 'ảnh' : '' );
+			}
+			if ( count( $out ) >= 20 ) {
+				break;
+			}
+		}
+		return array_values( $out );
+	}
+
 	public static function kept_codes( array $res ): array {
 		$out = array();
 		foreach ( array_merge( (array) ( $res['items'] ?? array() ), (array) ( $res['queued_jobs'] ?? array() ) ) as $r ) {
-			if ( is_array( $r ) && 'file' === (string) ( $r['kind'] ?? '' ) && empty( $r['duplicate'] ) && (int) ( $r['attachment_id'] ?? 0 ) > 0 ) {
+			// [2026-10-28 01:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 runtime fix — a kept PHOTO counts too (before: kind 'file' only ⇒ a photo-only batch got no Bản đồ não link)
+			if ( is_array( $r ) && in_array( (string) ( $r['kind'] ?? '' ), array( 'file', 'image' ), true ) && empty( $r['duplicate'] ) && (int) ( $r['attachment_id'] ?? 0 ) > 0 ) {
 				$out[ 'TL-' . (int) $r['attachment_id'] ] = true;
 			}
 			if ( count( $out ) >= 20 ) {
@@ -964,14 +1059,15 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	 * [2026-10-22 07:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 reflect #5 — tries each kept file until one has THIS owner's row (a row not filed yet, or another
 	 * owner's row with the same code, no longer drops the link).
 	 */
-	private static function map_link_for( array $res, int $owner ): ?array {
+	// [2026-10-27 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L11 — + $batch_ref: the link of a batch receipt opens the map on its first kept file AND carries the batch block
+	private static function map_link_for( array $res, int $owner, string $batch_ref = '' ): ?array {
 		if ( ! class_exists( 'BizCity_Journal_Brain_Map' ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
 			return null;
 		}
 		foreach ( self::kept_codes( $res ) as $code ) {
 			$e = BizCity_Journal_Index::find_by_ref( $code, $owner );
 			if ( is_array( $e ) && (int) ( $e['entry_id'] ?? 0 ) > 0 ) {
-				return BizCity_Journal_Brain_Map::receipt_panel_link( $owner, (int) $e['entry_id'] );
+				return BizCity_Journal_Brain_Map::receipt_panel_link( $owner, (int) $e['entry_id'], $batch_ref );
 			}
 		}
 		return null;
@@ -987,7 +1083,8 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		if ( ( 'owner_capture' !== $origin && ! $group_cmd ) || ! class_exists( 'BizCity_KG_Private_File_Store' ) || ! BizCity_KG_Private_File_Store::enabled() ) {
 			return;
 		}
-		$receipt = self::receipt( $res );
+		$batch   = self::batch_of( $job ); // [2026-10-27 09:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L7 — one receipt per batch (images, failures, overflow)
+		$receipt = self::receipt( $res, $batch );
 		if ( null === $receipt ) {
 			return;
 		}
@@ -1024,7 +1121,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 				return;
 			}
 			BizCity_Scheduler_Hub_Pipe::ensure_registered( $target, $instance );
-			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ) );
+			$letter = self::receipt_letter( $receipt, (string) ( $job['dedupe_key'] ?? '' ), $hash, $key_id, $instance, (int) ( $job['blog_id'] ?? 0 ), (string) ( $batch['batch_ref'] ?? '' ) );
+			if ( isset( $batch['batch_ref'] ) ) {
+				$letter['job']['batch'] = array( 'batch_ref' => $batch['batch_ref'], 'batch_total' => (int) $batch['batch_total'], 'overflow' => (int) $batch['overflow'] ); // PHASE-0.145 S145-L7 — the cell starts the batch drain (S145-B7); older cells drop the key
+			}
 			// [2026-10-24 09:53 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — chủ chốt: tự tóm tắt mọi file chữ, CHỈ chat riêng ⇒ the 1-1 receipt lists them (`summarize`); the cell
 			// reads, summarises (its model), sends "📝 Tóm tắt" after the receipt and writes it back with document.summary.set. Older cells ignore the key.
 			if ( 'owner_capture' === $origin ) {
@@ -1055,11 +1155,15 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 					$letter['job']['register_rows'] = $rows;
 				}
 			}
+			$read_refs = self::read_refs_for( $res ); // PHASE-0.145 — photos too
+			if ( array() !== $read_refs ) {
+				$letter['job']['read_refs'] = $read_refs;
+			}
 			// [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 (brain-map@1 receipt_link) — 1-1 owner capture with a KEPT file: a one-time "Bản đồ não" link opening on
 			// that row (the row exists now, so it can say "Đã lưu · TL-… · L1" honestly). The URL rides `job.panel_link` only: the cell sends it as its own fixed sentence and
 			// never puts it in history / the log (R-PL-8). ≤ 1 / 10 min, off by the person. Older cells drop the unknown key.
 			// [2026-10-23 09:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 — a group file the owner keeps gets the same "Bản đồ não" link (chủ: "Gửi link panel secondbrain để nhìn thấy file")
-			$panel_link = 'owner_capture' === $origin || 'group_capture' === $origin ? self::map_link_for( $res, $owner ) : null;
+			$panel_link = 'owner_capture' === $origin || 'group_capture' === $origin ? self::map_link_for( $res, $owner, (string) ( $batch['batch_ref'] ?? '' ) ) : null; // PHASE-0.145 S145-L11 — + the batch block
 			if ( null !== $panel_link ) {
 				$letter['job']['panel_link'] = $panel_link;
 			}

@@ -446,6 +446,34 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/**
+	 * [2026-10-28 06:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.146 S146-L6 (doc 21 §5) — "Lịch thông báo" runs of one number through the Hub brain
+	 * relay (root `broadcast`, S146-H1). A FIXED list of paths: schedules · runs · one run · control a run. Never a free path.
+	 */
+	public function broadcast_call( string $method, string $path, string $bridge_account_id, array $query = array(), array $body = array() ): array {
+		$method  = strtoupper( $method );
+		$id      = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		$run     = 'BR-[a-f0-9]{6,32}';
+		$allowed = array(
+			'GET'  => array( '#^broadcast/schedules$#', '#^broadcast/runs$#', '#^broadcast/runs/' . $run . '$#' ),
+			'POST' => array( '#^broadcast/runs/' . $run . '/control$#' ),
+		);
+		$ok = false;
+		foreach ( $allowed[ $method ] ?? array() as $re ) {
+			$ok = $ok || 1 === preg_match( $re, $path );
+		}
+		if ( '' === $id || ! $ok ) {
+			return $this->degraded( 'broadcast_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		$full = '/zalo-personal-bridge/brain/' . $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+		if ( 'GET' === $method ) {
+			return $this->get( $full );
+		}
+		$body['account_id'] = (int) $id;
+		return $this->post( $full, $body );
+	}
+
+	/**
 	 * [2026-10-22 12:02 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.127 S127-C5 / H2 — agent-config@1 of one number (tab "Cấu hình"): read, or write ONE key of the
 	 * number's own layer. Two fixed calls only (GET / PATCH agent-config); PATCH goes as POST + `_method=PATCH` like schedule_call.
 	 */
@@ -493,6 +521,26 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/**
+	 * [2026-10-27 09:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L10 (case-feedback@1, doc 56 §6) — the Gateway "Hướng dẫn" survey: two fixed calls only,
+	 * POST brain/case-feedback (one answer) and GET brain/case-scoreboard (the caller's own answers + totals). Anything else is refused here, before the Hub.
+	 */
+	public function guide_call( string $method, string $path, string $bridge_account_id, array $query = array(), array $body = array() ): array {
+		$method  = strtoupper( $method );
+		$id      = preg_replace( '/[^0-9]/', '', $bridge_account_id );
+		$allowed = array( 'POST' => 'case-feedback', 'GET' => 'case-scoreboard' );
+		if ( '' === $id || ( $allowed[ $method ] ?? '' ) !== $path ) {
+			return $this->degraded( 'guide_path_not_allowed' );
+		}
+		$query['account_id'] = $id;
+		$full = '/zalo-personal-bridge/brain/' . $path . '?' . http_build_query( $query, '', '&', PHP_QUERY_RFC3986 );
+		if ( 'GET' === $method ) {
+			return $this->get( $full );
+		}
+		$body['account_id'] = $id;
+		return $this->post( $full, $body );
+	}
+
+	/**
 	 * Shared GET for the two read-only report methods above: short timeout (reports are UI-blocking, not the
 	 * long timeout budgeted for a send call) and a `contract` field required on the body — an endpoint that
 	 * forgets to stamp its contract fails closed here instead of handing the caller a half-shaped array.
@@ -519,7 +567,7 @@ final class BizCity_Zalo_Personal_Hub_Client {
 	}
 
 	/** Enqueue Personal outbound through the managed Hub. */
-	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user', array $mentions = array(), string $idempotency_key = '', array $quote = array() ): array { // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
+	public function enqueue_outbound( string $account_id, string $recipient, string $text, string $type = 'text', array $attachments = array(), string $thread_kind = 'user', array $mentions = array(), string $idempotency_key = '', array $quote = array(), array $extra = array() ): array { // [2026-10-27 11:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-U6 — + $extra (only `purpose: owner_files` passes: the person's own files ⇒ the cell does not pause the bot) // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — carry group delivery semantics through the managed Hub wrapper.
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39H — keep native mentions inside the managed exact-key outbound boundary.
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — outbound remains inside exact key/account scope.
 		// [2026-09-05 Johnny Chu - Chu Hoàng Anh] PHASE-0.39C — forward the stable outbound idempotency key to Branch 19.
@@ -533,7 +581,7 @@ final class BizCity_Zalo_Personal_Hub_Client {
 			'mentions'    => $mentions,
 			'idempotency_key' => sanitize_key( $idempotency_key ),
 			'quote'       => $quote,
-		) );
+		) + ( 'owner_files' === ( $extra['purpose'] ?? '' ) ? array( 'purpose' => 'owner_files' ) : array() ) );
 	}
 
 	/**

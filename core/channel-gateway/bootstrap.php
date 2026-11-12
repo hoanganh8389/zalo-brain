@@ -137,6 +137,7 @@ require_once $gateway_dir . 'connect/class-connect-composio.php';
 BizCity_Connect_Composio_REST::init();
 add_action( 'init', static function () { if ( class_exists( 'BizCity_User_Workspace_Pusher' ) ) { BizCity_User_Workspace_Pusher::init(); } }, 20 );
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Job_View_REST' ) ) { BizCity_Job_View_REST::init(); } }, 20 );
+add_action( 'init', static function () { if ( class_exists( 'BizCity_CG_Guide_Survey' ) ) { BizCity_CG_Guide_Survey::init(); } }, 20 ); // [2026-10-27 09:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L10 — loaded by the module map below
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Channel_Core_REST' ) ) { BizCity_Channel_Core_REST::init(); } }, 20 ); // [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3
 add_action( 'init', static function () { if ( class_exists( 'BizCity_Sheet_Bindings' ) ) { BizCity_Sheet_Bindings::init(); } }, 20 ); // [2026-10-17 03:10 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-S7 — adopt a book the cell created // [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 // loaded by the module map below, so hook after it // [2026-10-16 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I5
 require_once $gateway_dir . 'connect/class-connect-widget.php';
@@ -361,6 +362,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'class-sheet-bindings.php'           => 'channel.sheet_bindings',
 	// [2026-10-17 02:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-J5 — "Việc đã làm": the person's assistant Jobs folded from the twin event stream.
 	$gateway_dir . 'class-job-view-rest.php'            => 'channel.job_view_rest',
+	// [2026-10-27 09:52 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L10 — "Hướng dẫn" survey: GET/POST bizcity-channel/v1/guide/* (case-guide@1 pack ⇒ Hub ⇒ cell case-feedback@1)
+	$gateway_dir . 'class-cg-guide-survey.php'          => 'channel.cg_guide_survey',
 	// [2026-10-23 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-T3 — the core serves its own core routes (mychannels · me · skills · admin Guru/kết nối/mức dùng · mcp keys) under bizcity-channel/v1; generated from twinweb-rest by tools/reduction-gen-core-rest.mjs.
 	$gateway_dir . 'core-routes/class-channel-core-identity.php' => 'channel.core_identity',
 	$gateway_dir . 'core-routes/class-channel-core-rest.php'     => 'channel.core_rest',
@@ -402,6 +405,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-guru-context-resolver.php' => 'channel.bot.guru_context_resolver',
 	// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-S1 — the two default Gurus (Quản gia · Đối ngoại) from contracts/GURU-SEED-v1.json.
 	$gateway_dir . 'bot/class-guru-seed.php' => 'channel.bot.guru_seed',
+	// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 S142-L1…L10 — Guru Studio: kind_of, FB_MESS ⇒ FB_PAGE, guru-studio-view@1, guru-channels@1, guru-folders@1.
+	$gateway_dir . 'bot/class-guru-studio.php' => 'channel.bot.guru_studio',
 	// [2026-09-27 Claude Opus 5.5] PHASE-0.81 S81-R4 — notebook passages for the PHP engine (listener of the resolver's notebook seam).
 	$gateway_dir . 'bot/class-guru-notebook-blocks.php' => 'channel.bot.guru_notebook_blocks',
 	$gateway_dir . 'bot/class-bot-turn-claim.php'     => 'channel.bot.turn_claim',
@@ -420,6 +425,9 @@ foreach ( $_bzc_bot_files as $_bzc_bot_file => $_bzc_bot_label ) {
 	}
 }
 unset( $_bzc_bot_files, $_bzc_bot_file, $_bzc_bot_label );
+if ( class_exists( 'BizCity_Guru_Studio', false ) ) {
+	BizCity_Guru_Studio::boot(); // PHASE-0.142 S142-L1 — REST routes + one-time FB_MESS ⇒ FB_PAGE Guru key migration (admin_init)
+}
 if ( class_exists( 'BizCity_Guru_Seed', false ) ) {
 	BizCity_Guru_Seed::boot(); // PHASE-0.136 S136-S1 — seeds once per site version (init 99)
 }
@@ -449,24 +457,16 @@ if ( class_exists( 'BizCity_Guru_Notebook_Blocks' ) ) {
 	BizCity_Guru_Notebook_Blocks::boot(); // [2026-09-27] PHASE-0.81 S81-R4
 }
 
-// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — owner decision "6 bảng usage tách usage/ thành add-on billing": the menu
-// "Sử dụng" (PHASE-0.107 S107-L9…: the site's copy of its client ledger, usage-ledger@1 ingest + usage-view@1), plans per Zalo number + Woo sales
-// (0.107 round 4 / 0.108 vòng 2), revenue, the "Tài khoản" + "Sổ cái token" desk (0.109), the admin "Người dùng" overview + create (0.117 S117-M1/V2),
-// the domain standing (S108-L23) and "Thành tích" (0.108 S108-L1..L15 / 0.112: brain journey, ROI, digest, maturity, ladder, payback) — the two
-// Safe_Loader arrays that stood here, their labels, order and init calls — moved verbatim to the add-on bizcity-billing-addon (includes/usage/ +
-// bootstrap.php). Required at this same point so every hook keeps its priority/order. Without the add-on (or BIZCITY_BILLING_LOAD = 'off') the core
-// is complete: no usage REST, no plan enforcement (ai_off_by_plan never set), no billing crons; every core consumer is class_exists-guarded.
-if ( class_exists( 'BizCity_Addon_Locator' ) ) {
-	$_bzc_billing_boot = BizCity_Addon_Locator::file( 'billing/bootstrap.php' );
-	if ( '' !== $_bzc_billing_boot && is_readable( $_bzc_billing_boot ) ) {
-		if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
-			BizCity_Safe_Loader::require_file( $_bzc_billing_boot, 'channel.billing.addon' );
-		} else {
-			require_once $_bzc_billing_boot;
-		}
-	}
-	unset( $_bzc_billing_boot );
+// [2026-10-25 10:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.139 R126-BILL (owner "build khôi phục trọn vẹn lại page sử dụng, không cần bật bizcity-billing-addon nữa") — the usage / billing module (token usage page "Sử dụng", wallet, plans per Zalo number +
+// Woo sales, revenue, accounts desk, admin users overview, brain journey / achievements) is core again — no billing add-on. One Safe_Loader require;
+// the file lists, labels, order and init calls are in includes/usage/bootstrap.php (moved verbatim from the add-on).
+$_bzc_usage_boot = $gateway_dir . 'usage/bootstrap.php';
+if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+	BizCity_Safe_Loader::require_file( $_bzc_usage_boot, 'channel.usage.bootstrap' );
+} elseif ( is_file( $_bzc_usage_boot ) && is_readable( $_bzc_usage_boot ) ) {
+	require_once $_bzc_usage_boot;
 }
+unset( $_bzc_usage_boot );
 
 // Phase CG-Listener S1 — live tail bus + SSE for Listener UI + Automation debug.
 require_once $gateway_dir . 'listener/class-listener-bus.php';

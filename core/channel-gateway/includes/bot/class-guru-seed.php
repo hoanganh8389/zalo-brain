@@ -183,10 +183,15 @@ class BizCity_Guru_Seed {
 		}
 		if ( $id <= 0 ) {
 			$id = self::default_id();
+			// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 D142-12/13 — never adopt a system character (`__global_memory__`) or an old
+			// project Guru as Đối ngoại: adopting renamed the memory character "Đối ngoại" and overwrote its instruction. A fresh Đối ngoại is created instead.
+			if ( $id > 0 && ! self::adoptable( $id ) ) {
+				$id = 0;
+			}
 		}
 		if ( $id <= 0 && class_exists( 'BizCity_Guru_Context_Resolver' ) ) {
 			$legacy = self::character( BizCity_Guru_Context_Resolver::LEGACY_CHARACTER_ID );
-			$id     = $legacy && 'active' === (string) ( $legacy->status ?? 'active' ) ? BizCity_Guru_Context_Resolver::LEGACY_CHARACTER_ID : 0;
+			$id     = $legacy && 'active' === (string) ( $legacy->status ?? 'active' ) && self::adoptable( BizCity_Guru_Context_Resolver::LEGACY_CHARACTER_ID ) ? BizCity_Guru_Context_Resolver::LEGACY_CHARACTER_ID : 0;
 		}
 		if ( $id > 0 ) {
 			$c        = self::character( $id );
@@ -208,6 +213,13 @@ class BizCity_Guru_Seed {
 			self::set_default( $id );
 		}
 		return $id;
+	}
+
+	/** PHASE-0.142 — only a normal Guru may become Đối ngoại (same slug rules as BizCity_Guru_Studio::kind_of, kept local so the seed has no new dependency). */
+	private static function adoptable( int $id ): bool {
+		$c    = self::character( $id );
+		$slug = (string) ( $c->slug ?? '' );
+		return $c && 1 !== preg_match( '/^__.+__$/', $slug ) && 1 !== preg_match( '/^project-.+-[0-9a-f]{8}$/', $slug );
 	}
 
 	private static function ensure_butler( array $g, array $state, array $site ): int {

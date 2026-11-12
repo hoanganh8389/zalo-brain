@@ -103,6 +103,19 @@ class BizCity_Video_Client {
 			'trace_id'   => $trace_id,
 		);
 
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C: hosted ⇒ Hub (below, unchanged); key ⇒ BYOK; else byok_missing.
+		$route = $this->group_c_route();
+		if ( 'hub' !== $route ) {
+			if ( 'byok' !== $route || ! class_exists( 'BizCity_BYOK', false ) ) {
+				return $this->with_error( $base, BizCity_LLM_Client::group_c_missing_error() );
+			}
+			$r = BizCity_BYOK::video_submit( $prompt, $options );
+			if ( is_wp_error( $r ) ) {
+				return $this->with_error( $base, $r );
+			}
+			return array_merge( $base, $r, array( 'success' => true ) );
+		}
+
 		if ( ! $this->is_ready() ) {
 			$base['error']     = 'BizCity API key chưa được cấu hình.';
 			$base['_degraded'] = true;
@@ -178,6 +191,25 @@ class BizCity_Video_Client {
 			'trace_id'      => $trace_id,
 		);
 
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — same route as submit(); a BYOK job's finished file is
+		// downloaded into the Media Library by the adapter and result_url is that local URL.
+		$route = $this->group_c_route();
+		if ( 'hub' !== $route ) {
+			if ( 'byok' !== $route || ! class_exists( 'BizCity_BYOK', false ) ) {
+				return $this->with_error( $base, BizCity_LLM_Client::group_c_missing_error() );
+			}
+			if ( $task_id === '' ) {
+				$base['error'] = 'get_status: task_id rỗng.';
+				$base['code']  = 'invalid_param';
+				return $base;
+			}
+			$r = BizCity_BYOK::video_status( $task_id );
+			if ( is_wp_error( $r ) ) {
+				return $this->with_error( $base, $r );
+			}
+			return array_merge( $base, $r, array( 'success' => true ) );
+		}
+
 		if ( ! $this->is_ready() ) {
 			$base['_degraded'] = true;
 			$base['error']     = 'BizCity API key chưa cấu hình.';
@@ -232,6 +264,25 @@ class BizCity_Video_Client {
 	/* ─────────────────────────────────────────────────────────────
 	 *  Internal helpers
 	 * ───────────────────────────────────────────────────────────── */
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — the one group C decision lives in BizCity_LLM_Client. */
+	private function group_c_route(): string {
+		return class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'group_c_route' )
+			? BizCity_LLM_Client::group_c_route( 'video' )
+			: 'hub';
+	}
+
+	/** WP_Error → this client's array shape (error / error_code / code / hint / help_code). */
+	private function with_error( array $base, WP_Error $err ): array {
+		$data              = $err->get_error_data();
+		$base['error']      = $err->get_error_message();
+		$base['error_code'] = (string) $err->get_error_code();
+		$base['code']       = (string) $err->get_error_code();
+		$base['hint']       = is_array( $data ) ? (string) ( $data['hint'] ?? '' ) : '';
+		$base['help_code']  = (string) $err->get_error_code();
+		$base['status']     = is_array( $data ) && ! empty( $data['status'] ) ? (int) $data['status'] : 502;
+		return $base;
+	}
 
 	private function request( string $name, string $url, array $args, array $context = array() ) {
 		// [2026-08-10 Johnny Chu] PHASE-1.24-VIDEO-KLING — lazy-load the canonical reliability boundary; never fall back to raw transport.

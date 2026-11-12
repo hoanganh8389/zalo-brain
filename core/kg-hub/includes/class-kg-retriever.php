@@ -47,6 +47,9 @@ class BizCity_KG_Retriever {
 			'rerank_top_k'   => 5,
 			'expand_hops'    => 1,
 			'answer'         => true,
+			// [2026-10-27 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L1 (D143-1/M2) — false = Hub /rerank or the cosine order only, never the chat() fallback (no LLM on the notebook request path).
+			'rerank_chat_fallback' => true,
+			'rerank_router_timeout' => 30, // PHASE-0.143: seconds the Hub /rerank may take (graph_ask: 3)
 			// [2026-10-11 11:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.99 S99-P19 — fast: passages by vector only (no entity/relation graph, no LLM rerank).
 			'fast'           => false,
 		], $opts );
@@ -150,7 +153,7 @@ class BizCity_KG_Retriever {
 
 		// ── Step 3: LLM Rerank
 		$selected_ids = BizCity_KG_Reranker::instance()->rerank(
-			$question, $expanded['relations'], (int) $opts['rerank_top_k']
+			$question, $expanded['relations'], (int) $opts['rerank_top_k'], ! empty( $opts['rerank_chat_fallback'] ), (int) $opts['rerank_router_timeout']
 		);
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP — retain scores for relations added during subgraph expansion.
 		$relation_score_map = [];
@@ -567,6 +570,11 @@ class BizCity_KG_Retriever {
 	 * @param int    $top_k
 	 * @return array<int, array{id:int,content:string,source_id:int,score:float}>
 	 */
+	/** PHASE-0.143 S143-L1 — public door to the keyword path for notebook-graph-ask (the .bin missing case). */
+	public function keyword_passages( $notebook_id, $question, $top_k = 8 ) {
+		return $this->search_passages_keyword( (int) $notebook_id, (string) $question, (int) $top_k );
+	}
+
 	private function search_passages_keyword( $notebook_id, $question, $top_k = 8 ) {
 		global $wpdb;
 		$db = BizCity_KG_Database::instance();

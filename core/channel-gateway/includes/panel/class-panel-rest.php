@@ -18,6 +18,8 @@
  *   GET  brain/overview · brain/find · brain/{id}   brain   BizCity_Journal_REST (the person's own register)
  *   PATCH brain/{id} {pinned|review}     brain         nothing else (delete = "XOÁ <mã>" in Zalo, D122-14)
  *   GET  brain/{id}/file                 brain         15-minute signed link of the private original
+ *   GET  brain/folders · POST brain/{id}/folder {folder}   brain  the folders the person may file into · file ONE of their own entries into one (or "" = out) — BizCity_Twin_Vault::move, PHASE-0.137 A3, owner OK 2026-10-25
+ *   GET  brain/{id}/reading?offset       brain         the readable copy (Markdown, ≤ 6 000 chars a page) of the person's own file — PHASE-0.137 A3, read only
  *   GET  brain/map · PUT brain/map/receipt   brain     brain-map@1 of the person (BizCity_Journal_Brain_Map) · map link in the receipt on/off (PHASE-0.129)
  * [2026-10-18 07:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F2/F3 — jobs.next, brain.docs, brain.notes.
  *
@@ -65,6 +67,9 @@ final class BizCity_Panel_REST {
 			array( '/brain/(?P<id>[0-9]+)', 'GET', 'brain_get', 'brain' ),
 			array( '/brain/(?P<id>[0-9]+)', 'PATCH', 'brain_patch', 'brain' ),
 			array( '/brain/(?P<id>[0-9]+)/file', 'GET', 'brain_file', 'brain' ),
+			array( '/brain/(?P<id>[0-9]+)/reading', 'GET', 'brain_reading', 'brain' ),
+			array( '/brain/folders', 'GET', 'brain_folders', 'brain' ), // [2026-10-25 07:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A3 — "Xếp vào thư mục" (owner OK 25/10; the one write the brain map has)
+			array( '/brain/(?P<id>[0-9]+)/folder', 'POST', 'brain_move', 'brain' ), // [2026-10-25 06:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A3 — "Xem bản đọc" (read only)
 			array( '/brain/note', 'POST', 'brain_note', 'brain' ), // [2026-10-18 09:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F4 — a text note (R1)
 			array( '/brain/(?P<id>[0-9]+)/title', 'PUT', 'brain_title', 'brain' ), // S122-F4 — rename an entry (R1)
 			array( '/users', 'GET', 'users', 'users' ), // [2026-10-18 09:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.122 S122-F5 — read only; every change goes through Zalo (R3, two steps)
@@ -74,6 +79,7 @@ final class BizCity_Panel_REST {
 			array( '/jobs/(?P<id>[A-Za-z0-9_.:\-]{4,80})', 'GET', 'job', 'jobs' ),
 			array( '/tz/ask', 'POST', 'tz_ask', 'twinzalo' ), // [2026-10-22 08:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U5 — the ask sheet = Cell Chat of the owner's number (SSE)
 			// [2026-10-22 11:46 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U15 ⑭ · U17 ⑱ — views built by BizCity_Panel_TZ_Views (web-83: cell → Hub → site); admin check for accounts is inside it
+			array( '/subscription', 'GET', 'subscription', 'twinzalo' ), // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI4 — "Gói · còn N ngày" card on Hôm nay
 			array( '/tz/track', 'GET', 'tz_track', 'twinzalo' ),
 			array( '/tz/accounts', 'GET', 'tz_accounts', 'twinzalo' ),
 			// [2026-10-23 07:24 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo U17 ⑱ "Thêm số QR" (chủ "code tiếp" = đề xuất 1: route panel bọc luồng QR, chỉ admin) —
@@ -667,24 +673,65 @@ final class BizCity_Panel_REST {
 
 	// ── brain (the person's own register, BizCity_Journal_REST) ───────────
 
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI4 (D139-4, SB-6) — the site's subscription for the owner's Hôm nay card: plan · days left · end date.
+	 * Read from the mirrored option (BizCity_LLM_Client::subscription(), counted down on this clock) — no Hub call, no price (SB-10). The renew link is
+	 * given only to a site manager (`can_renew`); anyone else reads "nhờ quản trị viên gia hạn". An older Hub / no key ⇒ state 'none' ⇒ the card is hidden.
+	 */
+	public static function subscription(): WP_REST_Response {
+		$sub = class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'subscription' ) ? (array) BizCity_LLM_Client::subscription() : array( 'state' => 'none' );
+		$can = current_user_can( 'manage_options' ) || ( class_exists( 'BizCity_Network_Admin_Capability' ) && BizCity_Network_Admin_Capability::can_manage() );
+		return new WP_REST_Response( array(
+			'ok'        => true,
+			'sub'       => array_intersect_key( $sub, array_flip( array( 'contract', 'plan_code', 'plan_label', 'state', 'period_start_at', 'period_end_at', 'days_left', 'grace_days', 'next_plan_code' ) ) ),
+			'can_renew' => $can,
+			'renew_url' => $can && class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'renew_url' ) ? BizCity_LLM_Client::renew_url() : '',
+		), 200 );
+	}
+
 	public static function brain_overview(): WP_REST_Response {
 		$resp = class_exists( 'BizCity_Journal_REST' ) ? BizCity_Journal_REST::overview( new WP_REST_Request( 'GET', '/bizcity-knowledge/v2/documents/overview' ) ) : self::brain_off();
 		// [2026-10-22 09:22 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 TwinZalo ㉑ (U19) — + storage of the person's brain: used (every file, once) / quota (50 GB by default)
 		if ( 200 === $resp->get_status() && class_exists( 'BizCity_Journal_Database' ) && method_exists( 'BizCity_Journal_Database', 'storage_bytes' ) ) {
 			$uid = (int) get_current_user_id();
 			$s   = BizCity_Journal_Database::instance()->storage_bytes( $uid );
-			$resp->set_data( (array) $resp->get_data() + array( 'storage' => self::storage_view( $s, (int) apply_filters( 'bizcity_brain_storage_quota_bytes', self::STORAGE_QUOTA_DEFAULT, $uid ) ) ) );
+			$resp->set_data( (array) $resp->get_data() + array( 'storage' => self::storage_view( $s, self::storage_quota( $uid ) ) ) );
 		}
 		return $resp;
 	}
 
-	const STORAGE_QUOTA_DEFAULT = 53687091200; // 50 GB (chủ 2026-10-22 20:2x); a plan may set its own through `bizcity_brain_storage_quota_bytes`
+	/**
+	 * Legacy value only (PHASE-0.128, chủ 2026-10-22 20:2x: 50 GB per person). [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL7 (F16,
+	 * R-CSB CSB-4) — no longer used as a fallback: a quota the site was never promised must not be shown. Kept so older add-ons that read it keep compiling.
+	 */
+	const STORAGE_QUOTA_DEFAULT = 53687091200;
 
-	/** Pure: storage numbers the panel shows (bytes only — never a path or a file name). */
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL7 (F16, R-CSB CSB-4) — the quota the panel shows: the Hub-mirrored option
+	 * `bizcity_hub_storage_quota_bytes` (0 = none), then filter `bizcity_brain_storage_quota_bytes` (the multisite 1 TB gift hooks it). 0 ⇒ "used only".
+	 */
+	public static function storage_quota( int $uid ): int {
+		$default = (int) get_option( 'bizcity_hub_storage_quota_bytes', 0 );
+		return max( 0, (int) apply_filters( 'bizcity_brain_storage_quota_bytes', max( 0, $default ), $uid ) );
+	}
+
+	/**
+	 * Pure: storage numbers the panel shows (bytes only — never a path or a file name).
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL7 — quota 0 (no gift, no plan quota) ⇒ quota_bytes 0, pct null, quota_display false
+	 * ("đã dùng X", no bar). The owner-panel bundle reads quota_bytes 0 as "used only" (tz-core.js storageLine, built 2026-10-25);
+	 * an older bundle falls back to its own 50 GB constant (no NaN, no crash).
+	 */
 	public static function storage_view( array $s, int $quota ): array {
-		$quota = $quota > 0 ? $quota : self::STORAGE_QUOTA_DEFAULT;
+		$quota = max( 0, $quota );
 		$used  = max( 0, (int) ( $s['bytes'] ?? 0 ) );
-		return array( 'used_bytes' => $used, 'quota_bytes' => $quota, 'files' => max( 0, (int) ( $s['files'] ?? 0 ) ), 'pct' => (int) min( 100, round( 100 * $used / $quota ) ), 'capped' => ! empty( $s['capped'] ) );
+		return array(
+			'used_bytes'    => $used,
+			'quota_bytes'   => $quota,
+			'files'         => max( 0, (int) ( $s['files'] ?? 0 ) ),
+			'pct'           => $quota > 0 ? (int) min( 100, round( 100 * $used / $quota ) ) : null,
+			'quota_display' => $quota > 0,
+			'capped'        => ! empty( $s['capped'] ),
+		);
 	}
 
 	public static function brain_find( WP_REST_Request $request ): WP_REST_Response {
@@ -714,9 +761,27 @@ final class BizCity_Panel_REST {
 		$resp  = BizCity_Journal_Brain_Map::rest( $request, $focus );
 		if ( 200 === $resp->get_status() ) {
 			$data = (array) $resp->get_data();
-			$resp->set_data( array( 'ok' => true, 'receipt_on' => BizCity_Journal_Brain_Map::receipt_on( get_current_user_id() ), 'journal_url' => self::journal_map_url( (int) ( $data['focus']['entry_id'] ?? 0 ) ) ) + $data );
+			$resp->set_data( array( 'ok' => true, 'receipt_on' => BizCity_Journal_Brain_Map::receipt_on( get_current_user_id() ), 'journal_url' => self::journal_map_url( (int) ( $data['focus']['entry_id'] ?? 0 ) ) ) + self::batch_block() + $data );
 		}
 		return $resp;
+	}
+
+	/**
+	 * [2026-10-27 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L11 — the session's focus `entry:<id>@CB-…` (a batch receipt) ⇒ `batch` = journal-pipeline@1.145 view of
+	 * that batch for THIS person (brain-access filtered by BizCity_Journal_Pipeline::batch_for) + `batch_url` (TwinChat Sổ cái with the batch panel). Nothing readable ⇒ no key
+	 * (never a count of someone else's batch). Read only; the narrow brain.map session gains no new route.
+	 */
+	private static function batch_block(): array {
+		$ref = class_exists( 'BizCity_Panel_Link' ) ? BizCity_Panel_Link::focus_batch( (string) ( self::$session['focus'] ?? '' ) ) : '';
+		if ( '' === $ref || ! class_exists( 'BizCity_Journal_Pipeline' ) ) {
+			return array();
+		}
+		$view = BizCity_Journal_Pipeline::batch_for( array( 'owner_user_id' => get_current_user_id(), 'role' => current_user_can( 'manage_options' ) ? 'owner' : 'staff' ), $ref );
+		if ( is_wp_error( $view ) || ! is_array( $view ) ) {
+			return array();
+		}
+		$base = class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'twinchat' ) : admin_url( 'admin.php?page=bizcity-twinchat&plugin=twinchat' );
+		return array( 'batch' => $view, 'batch_url' => add_query_arg( 'ledger', rawurlencode( 'batch_ref=' . $ref ), $base ) );
 	}
 
 	/** [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — TwinChat › Journal › Bản đồ on the same row (one `ledger` key through the Twin shell; needs a WordPress login there). */
@@ -778,6 +843,64 @@ final class BizCity_Panel_REST {
 			return new WP_REST_Response( array( 'ok' => false, 'code' => 'no_file', 'message' => 'Mục này không có file gốc.' ), 404 );
 		}
 		return new WP_REST_Response( array( 'ok' => true, 'url' => BizCity_KG_Private_File_Store::signed_url( $aid ), 'expires_in' => BizCity_KG_Private_File_Store::SIGNED_TTL ), 200 );
+	}
+
+	/** [2026-10-25 07:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A3 — the folders this person may file into (their role sees them), for the "Xếp vào thư mục" list. Read only. */
+	public static function brain_folders( WP_REST_Request $request ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Twin_Vault' ) ) {
+			return self::brain_off();
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'folders' => BizCity_Twin_Vault::folders_for_current_user() ), 200 );
+	}
+
+	/**
+	 * [2026-10-25 07:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A3 (owner: "có thêm nút Xếp vào thư mục trên Bảng nhanh", which replaces the read-only D129-3 for THIS one write) — file ONE entry of
+	 * the panel person into a folder (or take it out with folder ""). Only through BizCity_Twin_Vault::move (the same role gate, the same entry-meta door as the Kho tri thức and the vault.move tool); nothing
+	 * else is written. The same focus rule as the file / reading routes: a brain.map link sent unasked acts only on the file it was sent for. A read-only session (a remembered device) is refused by the
+	 * scope check (POST) with stepup_required, like every write of the panel.
+	 */
+	public static function brain_move( WP_REST_Request $request ): WP_REST_Response {
+		if ( 'brain.map' === (string) ( self::$session['panel'] ?? '' ) && (int) $request['id'] !== BizCity_Panel_Link::focus_entry( (string) ( self::$session['focus'] ?? '' ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'focus_only', 'message' => 'Link bản đồ chỉ xếp được file vừa lưu vào thư mục.', 'hint' => 'Mở Kho tri thức (đăng nhập website) để xếp tệp khác.', 'help_code' => 'panel_brain' ), 403 );
+		}
+		if ( ! class_exists( 'BizCity_Journal_Index' ) || ! class_exists( 'BizCity_Twin_Vault' ) ) {
+			return self::brain_off();
+		}
+		$e = BizCity_Journal_Index::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $e ) || '' === (string) ( $e['ref_code'] ?? '' ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Không thấy mục này trong sổ của anh/chị.', 'help_code' => 'panel_brain' ), 404 );
+		}
+		$p   = (array) $request->get_json_params();
+		$res = BizCity_Twin_Vault::move_as_current_user( (string) $e['ref_code'], (string) ( $p['folder'] ?? '' ) );
+		if ( is_wp_error( $res ) ) {
+			$d = (array) $res->get_error_data();
+			return new WP_REST_Response( array( 'ok' => false, 'code' => $res->get_error_code(), 'message' => $res->get_error_message(), 'hint' => (string) ( $d['hint'] ?? '' ), 'help_code' => 'panel_brain' ), (int) ( $d['status'] ?? 400 ) );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'ref' => (string) $e['ref_code'], 'folder' => (string) ( $res['vault_folder'] ?? '' ) ), 200 );
+	}
+
+	/**
+	 * [2026-10-25 06:37 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A3 (mockup ②b) — "Xem bản đọc" on the Bảng nhanh: the person's OWN readable copy (Markdown of the
+	 * latest representation, ≤ 6 000 chars a page, `offset` for the next one). Read only (D129-3 keeps the brain map read only). Same focus rule as brain_file: a brain.map
+	 * session (link sent unasked) opens only the file it was sent for. No file content leaves for anyone else: BizCity_Journal_Index::get scopes to the panel person.
+	 */
+	public static function brain_reading( WP_REST_Request $request ): WP_REST_Response {
+		if ( 'brain.map' === (string) ( self::$session['panel'] ?? '' ) && (int) $request['id'] !== BizCity_Panel_Link::focus_entry( (string) ( self::$session['focus'] ?? '' ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'focus_only', 'message' => 'Link bản đồ chỉ mở được bản đọc của file vừa lưu.', 'hint' => 'Mở Kho tri thức (đăng nhập website) để xem tệp khác.', 'help_code' => 'panel_brain' ), 403 );
+		}
+		if ( ! class_exists( 'BizCity_Journal_Index' ) || ! class_exists( 'BizCity_Brain_Vault_Store' ) ) {
+			return self::brain_off();
+		}
+		$e = BizCity_Journal_Index::get( (int) $request['id'], get_current_user_id() );
+		if ( ! is_array( $e ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'not_found', 'message' => 'Không thấy mục này trong sổ của anh/chị.', 'help_code' => 'panel_brain' ), 404 );
+		}
+		$r = BizCity_Brain_Vault_Store::read( $e, 0, max( 0, (int) $request->get_param( 'offset' ) ), 6000 );
+		if ( is_wp_error( $r ) ) {
+			$d = (array) $r->get_error_data();
+			return new WP_REST_Response( array( 'ok' => false, 'code' => $r->get_error_code(), 'message' => $r->get_error_message(), 'hint' => (string) ( $d['hint'] ?? 'Trợ lý đọc tệp xong sẽ có bản đọc.' ), 'help_code' => 'panel_brain' ), 404 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'ref' => (string) ( $e['ref_code'] ?? '' ), 'markdown' => (string) $r['markdown'], 'chars' => (int) $r['chars'], 'next_offset' => $r['next_offset'], 'rev' => (int) $r['rev'] ), 200 );
 	}
 
 	/**

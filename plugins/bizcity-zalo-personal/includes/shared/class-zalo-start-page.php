@@ -27,7 +27,8 @@ class BizCity_Zalo_Start_Page {
 	const SLUG            = 'bizcity-start';
 	const REDIRECT_OPTION = 'bizcity_start_redirect';
 	const DONE_OPTION     = 'bizcity_start_done';
-	const MAIN_PLUGIN     = 'bizcity-twin-ai/bizcity-twin-ai.php';
+	/** Main plugin FILE name only — the folder may be renamed (WordPress.org slug "twin-brain", GitHub zip "zalo-brain-main"). [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL10 */
+	const MAIN_PLUGIN     = 'bizcity-twin-ai.php';
 
 	public static function init(): void {
 		add_action( 'activated_plugin', array( __CLASS__, 'on_activated' ), 10, 2 );
@@ -84,7 +85,7 @@ class BizCity_Zalo_Start_Page {
 
 	/** Remember to show the start page once, only for a single-plugin activation of Twin AI on this site. */
 	public static function on_activated( $plugin, $network_wide = false ): void {
-		if ( $plugin !== self::MAIN_PLUGIN || $network_wide ) {
+		if ( basename( (string) $plugin ) !== self::MAIN_PLUGIN || $network_wide ) {
 			return;
 		}
 		update_option( self::REDIRECT_OPTION, 1, false );

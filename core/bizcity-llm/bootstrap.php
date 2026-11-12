@@ -153,6 +153,17 @@ if ( is_readable( $bizcity_piapi_client_file ) ) {
     require_once $bizcity_piapi_client_file;
 }
 unset( $bizcity_piapi_client_file );
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL5 — R-CSB CSB-3: the ONE BYOK adapter for group C tools on community sites
+// (core/byok/). R-SAFE-LOADER: a partial deploy without the file never fatals the LLM bootstrap — the BizCity network keeps the Hub
+// path, a community site answers 'byok_missing' (BizCity_LLM_Client::group_c_route()).
+$bizcity_byok_file = dirname( BIZCITY_LLM_DIR ) . '/byok/class-byok.php';
+if ( ! class_exists( 'BizCity_BYOK', false ) && class_exists( 'BizCity_Safe_Loader' ) ) {
+    BizCity_Safe_Loader::require_file( $bizcity_byok_file, 'bizcity_llm.byok' );
+}
+if ( class_exists( 'BizCity_BYOK', false ) ) {
+    BizCity_BYOK::init();
+}
+unset( $bizcity_byok_file );
 
 /* ── Boot ── */
 add_action( 'plugins_loaded', function () {

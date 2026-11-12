@@ -34,6 +34,9 @@ if ( ! defined( 'BIZCITY_CONTEXT_BANK_VERSION' ) ) {
 	}
 	unset( $_context_bank_access );
 
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — capture/REST/cron/KG entries boot only when bizcity_context_bank_enabled(); ledger + memory adapter (read path) always load.
+$_context_bank_on = function_exists( 'bizcity_context_bank_enabled' ) && bizcity_context_bank_enabled();
+
 // [2026-09-01 Johnny Chu] CB2.2.1 — load the contract registry only after a guarded artifact check.
 $_context_bank_contract_registry = __DIR__ . '/contracts/class-context-bank-contract-registry.php';
 if ( class_exists( 'BizCity_Safe_Loader', false )
@@ -87,7 +90,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_channel_archive_adapter ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_channel_archive_adapter, 'context_bank.channel_archive_adapter' );
 }
-if ( class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
 	BizCity_Context_Bank_Channel_Archive_Adapter::boot();
 }
 unset( $_context_bank_channel_archive_adapter );
@@ -99,7 +102,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_crm_pipeline_adapter ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_crm_pipeline_adapter, 'context_bank.crm_pipeline_adapter' );
 }
-if ( class_exists( 'BizCity_Context_Bank_CRM_Pipeline_Adapter', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_CRM_Pipeline_Adapter', false ) ) {
 	BizCity_Context_Bank_CRM_Pipeline_Adapter::boot();
 }
 unset( $_context_bank_crm_pipeline_adapter );
@@ -124,7 +127,7 @@ unset( $_context_bank_retrieval_pack );
 
 // [2026-09-01 Johnny Chu] PHASE-CB-MVP — mount the metadata-only REST consumer only for the Context Bank namespace.
 $_context_bank_rest_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVER['REQUEST_URI'] : '';
-if ( false !== strpos( $_context_bank_rest_uri, '/wp-json/bizcity-context/' ) ) {
+if ( $_context_bank_on && false !== strpos( $_context_bank_rest_uri, '/wp-json/bizcity-context/' ) ) {
 	$_context_bank_rest = __DIR__ . '/includes/class-context-bank-rest-controller.php';
 	if ( class_exists( 'BizCity_Safe_Loader', false )
 		&& is_file( $_context_bank_rest )
@@ -214,7 +217,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_kg_bridge ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_kg_bridge, 'context_bank.kg_bridge' );
 }
-if ( class_exists( 'BizCity_Context_Bank_KG_Bridge', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_KG_Bridge', false ) ) {
 	// [2026-09-03 Johnny Chu - Chu Hoàng Anh] PHASE-CB6.4 — attach the bounded KG recheck dispatcher without scheduling work at bootstrap.
 	add_action( BizCity_Context_Bank_KG_Bridge::RECHECK_HOOK, array( 'BizCity_Context_Bank_KG_Bridge', 'run_recheck' ), 10, 1 );
 }
@@ -227,7 +230,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_commerce_adapter ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_commerce_adapter, 'context_bank.commerce_adapter' );
 }
-if ( class_exists( 'BizCity_Context_Bank_Commerce_Adapter', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_Commerce_Adapter', false ) ) {
 	BizCity_Context_Bank_Commerce_Adapter::boot();
 }
 unset( $_context_bank_commerce_adapter );
@@ -257,7 +260,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_rule_reference_adapter ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_rule_reference_adapter, 'context_bank.rule_reference_adapter' );
 }
-if ( class_exists( 'BizCity_Context_Bank_Rule_Reference_Adapter', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_Rule_Reference_Adapter', false ) ) {
 	BizCity_Context_Bank_Rule_Reference_Adapter::boot();
 }
 unset( $_context_bank_rule_reference_adapter );
@@ -269,7 +272,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_identity_merge_adapter ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_identity_merge_adapter, 'context_bank.identity_merge_adapter' );
 }
-if ( class_exists( 'BizCity_Context_Bank_Identity_Merge_Adapter', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_Identity_Merge_Adapter', false ) ) {
 	BizCity_Context_Bank_Identity_Merge_Adapter::boot();
 }
 unset( $_context_bank_identity_merge_adapter );
@@ -281,7 +284,7 @@ if ( class_exists( 'BizCity_Safe_Loader', false )
 	&& is_readable( $_context_bank_rollup_cron ) ) {
 	BizCity_Safe_Loader::require_file( $_context_bank_rollup_cron, 'context_bank.rollup_cron' );
 }
-if ( class_exists( 'BizCity_Context_Bank_Rollup_Cron', false ) ) {
+if ( $_context_bank_on && class_exists( 'BizCity_Context_Bank_Rollup_Cron', false ) ) {
 	BizCity_Context_Bank_Rollup_Cron::boot();
 }
 unset( $_context_bank_rollup_cron );

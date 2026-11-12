@@ -631,6 +631,10 @@ class BizCity_TwinChat_REST_Controller {
 			'text'        => $message,
 			'history'     => $history,
 			'notebook_id' => $notebook_id,
+			// [2026-10-27 06:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L3 — source picks, KG switch and @Guru reach the cell (they were dropped)
+			'source_ids'  => (array) ( $args['source_ids'] ?? array() ),
+			'use_kg'      => ! array_key_exists( 'use_kg', $args ) || (bool) $args['use_kg'],
+			'target_guru' => (array) ( $args['target_guru'] ?? array() ),
 			'thread_key'  => 'twinchat:' . $user_id . ':' . $notebook_id,
 			'effort'      => (string) ( $args['answer_depth'] ?? '' ), // Nhanh/Vừa/Cao/Sâu ⇒ cell reasoning level (clamped there)
 			'no_php'      => true, // [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết"): a cell that cannot take the turn answers with its error, never with the PHP pipeline
@@ -638,6 +642,7 @@ class BizCity_TwinChat_REST_Controller {
 				$db = BizCity_TwinChat_Database::instance();
 				$db->insert_message( [ 'notebook_id' => $notebook_id, 'user_id' => $user_id, 'session_id' => $session_id, 'role' => 'user', 'content' => $message ] );
 				$db->upsert_session( [ 'notebook_id' => $notebook_id, 'user_id' => $user_id, 'session_id' => $session_id, 'title' => mb_substr( $message, 0, 80 ), 'preview' => mb_substr( $message, 0, 255 ) ] );
+				$follow = array_slice( array_values( array_filter( array_map( 'strval', (array) ( $done['follow_up'] ?? array() ) ) ) ), 0, 5 ); // the FE reads persisted chips as string[]
 				return (int) $db->insert_message( [
 					'notebook_id'       => $notebook_id,
 					'user_id'           => $user_id,
@@ -647,6 +652,10 @@ class BizCity_TwinChat_REST_Controller {
 					'prompt_tokens'     => (int) ( $done['tokens']['prompt'] ?? 0 ),
 					'completion_tokens' => (int) ( $done['tokens']['completion'] ?? 0 ),
 					'finish_reason'     => (string) ( $done['finish_reason'] ?? '' ),
+					// [2026-10-27 07:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L3 — what the notebook answer stood on survives F5: the source chips, the lit graph nodes and the follow-up chips (all optional in final_done)
+					'sources'           => array_slice( array_values( array_filter( (array) ( $done['cited_passages'] ?? array() ), 'is_array' ) ), 0, 20 ), // the FE rebuilds the source chips from `sources`
+					'kg_entities'       => ! empty( $done['cited_entity_ids'] ) ? array( 'cited_entity_ids' => array_slice( array_map( 'intval', (array) $done['cited_entity_ids'] ), 0, 60 ) ) : null,
+					'suggestions'       => $follow,
 				] );
 			},
 		) );

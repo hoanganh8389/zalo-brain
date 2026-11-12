@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lõi Vault, Notebook riêng</title>
+<!-- [2026-11-12 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W0 — mockup: ① đường ranh lõi / plugin · ② golden không notebook (4 bước) · ③ 📚 Kho tri thức có Sổ tài liệu + Brain map · ④ họ plugin Zalo Brain. Dữ liệu mẫu. -->
+<style>
+:root{--ink:#101828;--mute:#667085;--line:#e4e7ec;--bg:#fff;--page:#f6f7f9;--brand:#d92d20;--brandbg:#fef3f2;--ok:#067647;--okbg:#ecfdf3;--warn:#b54708;--warnbg:#fffaeb;--grey:#f2f4f7;--nb:#4f46e5;--nbbg:#eef2ff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ink:#f2f4f7;--mute:#98a2b3;--line:#344054;--bg:#101828;--page:#0c111d;--brandbg:#55160c;--okbg:#053321;--warnbg:#4e1d09;--grey:#1d2939;--nbbg:#1e1b4b}}
+:root[data-theme="dark"]{--ink:#f2f4f7;--mute:#98a2b3;--line:#344054;--bg:#101828;--page:#0c111d;--brandbg:#55160c;--okbg:#053321;--warnbg:#4e1d09;--grey:#1d2939;--nbbg:#1e1b4b}
+*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0}h2{font-size:17px;margin:0 0 10px}h3{font-size:14px;margin:0 0 6px}
+.mut{color:var(--mute)}.sm{font-size:12px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 16px}.tabs button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;font:inherit}.tabs button[aria-selected="true"]{background:var(--brand);color:#fff;border-color:var(--brand)}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.box{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg)}
+.box.core{border-color:var(--brand);background:var(--brandbg)}.box.nb{border-color:var(--nb);background:var(--nbbg)}
+.box ul{margin:6px 0 0;padding-left:18px}.box li{margin:2px 0}
+.pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600}.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.grey{background:var(--grey);color:var(--mute)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;counter-reset:s}
+.step{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--bg);position:relative}
+.step b.n{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;align-items:center;justify-content:center;font-size:13px;margin-right:6px}
+.src{margin-top:8px;font-size:12px;color:var(--mute);border-top:1px dashed var(--line);padding-top:6px}
+code{font:12px ui-monospace,Consolas,monospace;background:var(--grey);padding:1px 5px;border-radius:5px;word-break:break-word}
+table{width:100%;border-collapse:collapse}th,td{border-top:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}th{font-size:12px;color:var(--mute);font-weight:600}
+.scroll{overflow-x:auto}
+.chat{display:flex;flex-direction:column;gap:6px;max-width:420px}
+.msg{padding:8px 12px;border-radius:14px;max-width:85%}.me{align-self:flex-end;background:var(--brand);color:#fff}.bot{align-self:flex-start;background:var(--grey)}
+.map{display:flex;flex-wrap:wrap;gap:8px}.node{border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:var(--bg)}.node.f{border-color:var(--brand)}
+.toggle{display:flex;align-items:center;gap:8px;margin:8px 0}
+[hidden]{display:none!important}
+@media (max-width:600px){th,td{padding:6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>PHASE-0.148 — Lõi = Channel Gateway + Vault · Notebook là plugin riêng</h1>
+  <div class="mut sm">Mockup W0, dữ liệu mẫu. Mỗi màn ghi "dữ liệu từ đâu" (route · tool · lớp).</div>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-t="a">① Đường ranh</button>
+    <button role="tab" aria-selected="false" data-t="b">② Golden không notebook</button>
+    <button role="tab" aria-selected="false" data-t="c">③ 📚 Kho tri thức</button>
+    <button role="tab" aria-selected="false" data-t="d">④ Họ plugin</button>
+  </div>
+
+  <section data-p="a" class="card">
+    <h2>① Cái gì ở đâu</h2>
+    <div class="cols">
+      <div class="box core"><h3>🧠 Lõi <code>bizcity-twin-ai</code></h3>
+        <ul>
+          <li><b>Channel Gateway</b> — Zalo, Messenger, web, Guru Studio</li>
+          <li><b><code>core/vault/</code> (mới)</b> — thư mục, note, upload, tags, scope meter, store markdown</li>
+          <li><b>Journal Index + sổ cái</b> — <code>bizcity_journal_entries</code></li>
+          <li><b>Brain map</b> + maturity + BrainLedger</li>
+          <li>Twin Sheet · brain-access</li>
+          <li><code>core/mcp</code>: <code>journal.*</code> · <code>vault.*</code> · <code>knowledge.search</code> (từ Vault)</li>
+          <li><code>BizCity_Notebook_Port</code> — rỗng khi chưa cài notebook</li>
+        </ul></div>
+      <div class="box nb"><h3>📓 <code>bizcity-twin-notebook</code></h3>
+        <ul>
+          <li><b>TwinChat</b> — chat theo notebook, sources, learning, notes, public page</li>
+          <li><b>KG</b> — notebooks, passages, entity/relation, triplet, embedding, retriever</li>
+          <li><b>TwinKG</b> — UI đồ thị</li>
+          <li><code>brain.graph_ask</code> · <code>notebook.study</code> · passage KG thêm vào <code>knowledge.search</code></li>
+          <li>Nghe <code>bizcity_journal_entry_added</code> ⇒ học thêm</li>
+          <li>19 bảng <code>bizcity_kg_*</code> + 3 bảng learning</li>
+        </ul></div>
+      <div class="box"><h3>☁️ Cell <code>zalo-hub</code> — không đổi</h3>
+        <ul>
+          <li>Một cửa MCP ⇒ Hub ⇒ site <code>bizcity-mcp/v1/mcp</code></li>
+          <li><code>journal_find</code> theo thư mục Guru ⇒ <code>vault.get</code> / <code>notebook_search</code></li>
+          <li><code>brain.graph_ask</code> = <code>not_available</code> ⇒ bỏ <code>kg_highlight</code>, vẫn trả lời</li>
+        </ul></div>
+    </div>
+    <div class="src">Nguồn: 10-INVENTORY §1–3 · census selfcheck: K 233 dòng / 47 file, T 28 / 15 phải về 0 ở W2.</div>
+  </section>
+
+  <section data-p="b" class="card" hidden>
+    <h2>② Golden: không cài notebook vẫn trả lời (4 bước, R-LEAN-4)</h2>
+    <div class="steps">
+      <div class="step"><b class="n">1</b><b>Tải tài liệu</b><div>Chủ gửi <i>bang-gia-2026.pdf</i> qua Zalo, hoặc kéo vào 📚 Kho tri thức.</div>
+        <div class="src"><code>BizCity_Vault_Upload::ingest_bytes()</code> · REST <code>POST bizcity-vault/v1/upload</code></div></div>
+      <div class="step"><b class="n">2</b><b>Vào sổ cái</b><div>Vault lưu <code>vault://TL-47/v1/r1</code> + một dòng journal, thư mục <b>20 · Bảng giá</b>.</div>
+        <div class="src"><code>Journal_Index::add()</code> ⇒ hook <code>bizcity_journal_entry_added</code></div></div>
+      <div class="step"><b class="n">3</b><b>Guru chọn thư mục</b><div>Guru Studio: Guru <b>Đối ngoại</b> ✓ 20 · Bảng giá (công khai).</div>
+        <div class="src"><code>PATCH bizcity-vault/v1/folder/20</code> · <code>folders_for_guru()</code></div></div>
+      <div class="step"><b class="n">4</b><b>Khách hỏi</b>
+        <div class="chat"><div class="msg me">Gói Pro bao nhiêu vậy shop?</div><div class="msg bot">Gói Pro 30 ngày là 299.000đ, dùng được 2 số Zalo ạ. [TL-47]</div></div>
+        <div class="src"><code>journal.find</code>{folders:[20]} ⇒ <code>knowledge.search</code> (Vault) ⇒ trích <code>[TL-47]</code></div></div>
+    </div>
+    <div class="toggle"><label><input type="checkbox" id="nb"> Bật <code>bizcity-twin-notebook</code></label><span id="nbnote" class="pill grey">notebook tắt — không lớp BizCity_KG_* nào được nạp</span></div>
+  </section>
+
+  <section data-p="c" class="card" hidden>
+    <h2>③ 📚 Kho tri thức — Sổ tài liệu + Brain map (chuyển từ TwinChat về đây)</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>Mã</th><th>Tài liệu</th><th>Thư mục</th><th>Nguồn</th><th>Bản</th><th>Guru dùng</th><th>Lượt dùng 7 ngày</th></tr></thead>
+      <tbody>
+        <tr><td>TL-47</td><td>bang-gia-2026.pdf</td><td>20 · Bảng giá</td><td>Zalo</td><td>v1</td><td>Đối ngoại</td><td>18</td></tr>
+        <tr><td>TL-46</td><td>quy-trinh-doi-tra.docx</td><td>30 · Chính sách</td><td>Admin</td><td>v3</td><td>Đối ngoại · Quản gia</td><td>7</td></tr>
+        <tr><td>TL-41</td><td>hop-dong-mau.docx</td><td>60 · Hợp đồng</td><td>Admin</td><td>v2</td><td>Quản gia</td><td>2</td></tr>
+      </tbody></table></div>
+    <div class="src">Nguồn: <code>GET bizcity-knowledge/v2/journal/find</code> · <code>/journal/versions</code> · BRAIN-LEDGER-v1 (sheet_key <code>brain.ledger</code>)</div>
+    <h3 style="margin-top:14px">Brain map</h3>
+    <div class="map" id="map">
+      <span class="node f">20 · Bảng giá (1)</span><span class="node f">30 · Chính sách (1)</span><span class="node f">60 · Hợp đồng (1)</span>
+      <span class="node">Guru Đối ngoại → 20, 30</span><span class="node">Guru Quản gia → 30, 60</span><span class="node">Câu hỏi chưa có tài liệu: 3</span>
+    </div>
+    <div class="src">Nguồn: <code>/journal/map</code> · <code>/journal/maturity</code> · lớp entity/relation chỉ hiện khi <code>BizCity_Notebook_Port::available()</code></div>
+  </section>
+
+  <section data-p="d" class="card" hidden>
+    <h2>④ Họ plugin quanh Zalo Brain</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>Plugin</th><th>Làm gì</th><th>Lõi giữ cho nó</th><th>Trạng thái</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>CRM <code>bizcity-twin-crm</code></td><td>khách, đơn, đội Zalo Bot</td><td>spine <code>core/crm</code></td><td><span class="pill ok">có</span></td></tr>
+        <tr><td>2</td><td>Notebook <code>bizcity-twin-notebook</code></td><td>TwinChat, đồ thị tri thức, học</td><td><code>core/vault</code> + Notebook Port</td><td><span class="pill warn">phase 0.148</span></td></tr>
+        <tr><td>3</td><td>Bizcoach-pro <code>bizcoach-pro</code></td><td>huấn luyện, giáo trình</td><td><code>zalo_brain_apps</code>, vertical bridge</td><td><span class="pill ok">có</span></td></tr>
+        <tr><td>4</td><td>Automation <code>bizcity-automation</code></td><td>quy trình tự động</td><td>add-on locator, <code>core/mcp</code></td><td><span class="pill ok">có</span></td></tr>
+        <tr><td>…</td><td>TwinWeb · billing · video · voice</td><td></td><td></td><td><span class="pill grey">—</span></td></tr>
+      </tbody></table></div>
+    <div class="src">Chuẩn chung: zalo-brain-extension@1 · tool qua <code>core/mcp</code> · tài liệu vào Vault · repo = gói runtime (R-PROD-REPO).</div>
+  </section>
+</div>
+<script>
+document.querySelectorAll('.tabs button').forEach(function(b){b.addEventListener('click',function(){
+  document.querySelectorAll('.tabs button').forEach(function(x){x.setAttribute('aria-selected',x===b?'true':'false');});
+  document.querySelectorAll('section[data-p]').forEach(function(s){s.hidden=s.getAttribute('data-p')!==b.getAttribute('data-t');});
+});});
+var nb=document.getElementById('nb'),note=document.getElementById('nbnote'),map=document.getElementById('map');
+nb.addEventListener('change',function(){
+  if(nb.checked){note.className='pill ok';note.textContent='notebook bật — học TL-47 vào notebook qua hook; brain.graph_ask có kg_highlight';
+    var n=document.createElement('span');n.className='node';n.id='kgn';n.textContent='🔗 entity: Gói Pro · 299.000đ · 2 số';map.appendChild(n);}
+  else{note.className='pill grey';note.textContent='notebook tắt — không lớp BizCity_KG_* nào được nạp';var k=document.getElementById('kgn');if(k)k.remove();}
+});
+</script>
+</body>
+</html>

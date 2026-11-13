@@ -780,14 +780,19 @@ final class BizCity_Panel_REST {
 		if ( is_wp_error( $view ) || ! is_array( $view ) ) {
 			return array();
 		}
-		$base = class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'twinchat' ) : admin_url( 'admin.php?page=bizcity-twinchat&plugin=twinchat' );
-		return array( 'batch' => $view, 'batch_url' => add_query_arg( 'ledger', rawurlencode( 'batch_ref=' . $ref ), $base ) );
+		// [2026-11-13 10:34 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-U3b — the batch panel lives in Kho tri thức › Sổ tài liệu (core) now, not in TwinChat (the notebook
+		// add-on): the link works on a site without the notebook. Same shell door (R-ROUTE `r`); old TwinChat links (?ledger=batch_ref=…) are sent on by the notebook.
+		$route = '/vault/so-tai-lieu?batch=' . rawurlencode( $ref );
+		$url   = class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'skills', $route ) : add_query_arg( array( 'page' => 'bizcity-twinchat', 'plugin' => 'skills', 'r' => rawurlencode( $route ) ), admin_url( 'admin.php' ) );
+		return array( 'batch' => $view, 'batch_url' => $url );
 	}
 
 	/** [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — TwinChat › Journal › Bản đồ on the same row (one `ledger` key through the Twin shell; needs a WordPress login there). */
 	private static function journal_map_url( int $entry ): string {
-		$base = class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'twinchat' ) : admin_url( 'admin.php?page=bizcity-twinchat&plugin=twinchat' );
-		return add_query_arg( 'ledger', rawurlencode( 'mode=map' . ( $entry > 0 ? '&entry=' . $entry : '' ) ), $base );
+		// [2026-11-13 10:49 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-U3c — the map lives in Kho tri thức › Sổ tài liệu › Bản đồ (core) now, not TwinChat (the notebook
+		// add-on): the receipt's map link works on a site without the notebook. Old TwinChat links (?ledger=mode=map…) are sent on by the notebook.
+		$route = '/vault/so-tai-lieu?view=map' . ( $entry > 0 ? '&entry=' . $entry : '' );
+		return class_exists( 'BizCity_Twin_Route' ) ? BizCity_Twin_Route::url( 'skills', $route ) : add_query_arg( array( 'page' => 'bizcity-twinchat', 'plugin' => 'skills', 'r' => rawurlencode( $route ) ), admin_url( 'admin.php' ) );
 	}
 
 	/** [2026-10-22 01:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.129 W2 — {on: bool}: the receipt of the next saves carries (or not) a map link. Only the person's own notification. */

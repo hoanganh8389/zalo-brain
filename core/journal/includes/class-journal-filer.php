@@ -114,6 +114,7 @@ final class BizCity_Journal_Filer {
 	}
 
 	/** Find a notebook whose settings contain every key of `$match`, else create one (name never overwritten later). */
+	// c9-guarded-by: apply() — its only caller returns early when BizCity_KG_Notebook_Service is absent (PHASE-0.148 S148-C9).
 	private static function find_or_create_notebook( int $owner_user_id, string $name, array $match, array &$created ): int {
 		$svc = BizCity_KG_Notebook_Service::instance();
 		foreach ( (array) $svc->list_for_user( $owner_user_id, array( 'limit' => 200, 'with_stats' => false ) ) as $row ) {

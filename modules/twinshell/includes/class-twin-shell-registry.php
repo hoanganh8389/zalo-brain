@@ -51,9 +51,11 @@ class BizCity_Twin_Shell_Registry {
 		'gpt'            => 10,
 		// [2026-10-24 10:09 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 (owner order 2026-10-24): Cấu hình Zalo · Sổ tay (TwinChat) · Kho tri thức (Twin Vault) · Lịch & nhiệm vụ · Đội Zalo (CRM) · Kịch bản (Automation)
 		'gateway'        => 20,
-		'twinchat'       => 30,
 		'skills'         => 40,
 		'scheduler'      => 50,
+		// [2026-11-13 10:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 (owner 13/11: "move icon brain của twinchat xuống phía sau scheduler") — the notebook add-on (PRO) opens
+		// the add-on group right after Lịch & nhiệm vụ, before CRM / Workflow (was 30, after Cấu hình Zalo).
+		'twinchat'       => 55,
 		'crm'            => 60,
 		'workflow'       => 70,
 		// [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.1 — the 7 Zalo Brain surfaces in order: Trợ lý · Cấu hình Zalo · Đội Zalo · Sổ tay · Lịch & nhiệm vụ · Kịch bản · Cài đặt.

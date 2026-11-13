@@ -75,7 +75,9 @@ final class BizCity_MCP_Client_Scope_Resolver {
 	private static function policy_notebook_ids( array $policy ) {
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP-TWINWEB — derive scope from all site administrators in auto mode or the selected Guru's attached notebooks.
 		$admin_ids = self::admin_user_ids( isset( $policy['user_id'] ) ? (int) $policy['user_id'] : 0 );
-		if ( empty( $admin_ids ) ) {
+		// [2026-11-13 08:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-C9 — local guard (the public caller allowed_notebook_ids() already
+		// checks the class at its top): every KG call in core is guarded inside its own function, so the C9 gate can check that statically.
+		if ( empty( $admin_ids ) || ! class_exists( 'BizCity_KG_Notebook_Service' ) ) {
 			return array();
 		}
 

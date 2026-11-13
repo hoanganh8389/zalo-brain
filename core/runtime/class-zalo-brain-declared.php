@@ -11,6 +11,7 @@
  *   - `features` of the `zalo-brain.json` of every ACTIVE plugin (site + network) whose contract is zalo-brain-extension@1,
  *   - bizcity-automation only when BizCity_Addon_Locator resolves it (this plugin loads it, WordPress does not; same rule
  *     the /flow/ surface availability uses).
+ *   - bizcity-twin-notebook the same way (PHASE-0.148 W3): through the locator only, so BIZCITY_NOTEBOOK_LOAD = off hides it.
  * Owner = manifest id, version = manifest version: what each extension's own register_extension() records, so in the
  * everything-loaded case BizCity_Zalo_Brain::features() is unchanged. Read once per request (memo); record-only, no hooks.
  *
@@ -31,6 +32,13 @@ final class BizCity_Zalo_Brain_Declared {
 
 	/** Plugin folder loaded through BizCity_Addon_Locator, never by WordPress' active_plugins. */
 	const LOCATOR_SLUG = 'bizcity-automation';
+
+	/**
+	 * [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 — the notebook add-on, also loaded through the locator: its manifest
+	 * counts when the locator resolves it (auto = present on disk, activated or not) and NOT when BIZCITY_NOTEBOOK_LOAD = off, even if
+	 * WordPress has it active. Key = the plugin folder name the locator found (any folder, header `Zalo Brain Addon: notebook`).
+	 */
+	const NOTEBOOK_PART = 'notebook/kg/bootstrap.php';
 
 	/** @var array<string,array{version:string,owner:string}>|null */
 	private static $memo = null;
@@ -74,16 +82,27 @@ final class BizCity_Zalo_Brain_Declared {
 		if ( function_exists( 'is_multisite' ) && is_multisite() && function_exists( 'get_site_option' ) ) {
 			$active = array_merge( $active, array_keys( (array) get_site_option( 'active_sitewide_plugins', array() ) ) );
 		}
-		$files = array();
+		$files   = array();
+		$nb_boot = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( self::NOTEBOOK_PART ) : '';
+		$nb_dir  = '' !== $nb_boot ? dirname( $nb_boot, 2 ) : ''; // <plugin>/kg/bootstrap.php ⇒ <plugin>
 		foreach ( $active as $basename ) {
 			$dir = dirname( str_replace( '\\', '/', (string) $basename ) );
-			if ( '.' !== $dir && '' !== $dir && self::LOCATOR_SLUG !== $dir ) {
-				$files[ $dir ] = $base . '/' . $dir . '/zalo-brain.json';
+			if ( '.' === $dir || '' === $dir || self::LOCATOR_SLUG === $dir ) {
+				continue;
 			}
+			// An active plugin carrying the notebook header is the locator's call (load mode), not WordPress'.
+			$main = $base . '/' . str_replace( '\\', '/', (string) $basename );
+			if ( is_file( $main ) && preg_match( '/^[ \t\/*#@]*Zalo Brain Addon:[ \t]*notebook[ \t]*(\*\/)?[ \t]*$/mi', (string) @file_get_contents( $main, false, null, 0, 8192 ) ) ) {
+				continue;
+			}
+			$files[ $dir ] = $base . '/' . $dir . '/zalo-brain.json';
 		}
 		$boot = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) : '';
 		if ( '' !== $boot ) {
 			$files[ self::LOCATOR_SLUG ] = dirname( $boot ) . '/zalo-brain.json';
+		}
+		if ( '' !== $nb_dir ) {
+			$files[ basename( $nb_dir ) ] = $nb_dir . '/zalo-brain.json';
 		}
 		return array_values( array_filter( $files, 'is_file' ) );
 	}

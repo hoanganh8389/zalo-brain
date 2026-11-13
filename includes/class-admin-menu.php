@@ -1131,14 +1131,17 @@ class BizCity_Admin_Menu {
 	 */
 	public static function render_workspace_page(): void {
 		// [2026-08-20 Johnny Chu] PHASE-1.26-MENU — send Workspace directly to the canonical TwinChat iframe.
-		$target = add_query_arg(
-			array(
-				'page'  => self::SLUG_CHAT,
-				'plugin' => 'twinchat',
-				'_iurl' => '/twinchat/?bizcity_iframe=1',
-			),
-			admin_url( 'admin.php' )
-		);
+		// [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N6 — TwinChat is the notebook add-on's; without it the Vault (Kho tri thức) is the home.
+		$target = ( function_exists( 'bizcity_notebook_available' ) && ! bizcity_notebook_available() )
+			? self::surface_admin_url( 'skills', '/skills/' )
+			: add_query_arg(
+				array(
+					'page'  => self::SLUG_CHAT,
+					'plugin' => 'twinchat',
+					'_iurl' => '/twinchat/?bizcity_iframe=1',
+				),
+				admin_url( 'admin.php' )
+			);
 		wp_safe_redirect( $target );
 		exit;
 	}

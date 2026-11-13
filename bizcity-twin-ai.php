@@ -436,6 +436,8 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
     // [2026-11-12 11:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1 (doc 60 D148-16/19) — the three core knowledge modules
     // core/journal ⇒ core/sheet ⇒ core/vault (server). core/kg-hub loads them at their old point (above, via core/guru/profile);
     // this is the same gate, so it is a no-op while kg-hub is there and keeps Vault + Journal alive without the notebook (W3).
+    // [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 — core/guru/profile loads them itself now (before the notebook add-on's KG);
+    // this stays for the one path where that bootstrap returns early (legacy mu-plugin already loaded the knowledge DB class).
     foreach ( array( 'core/journal/bootstrap.php' => 'BIZCITY_JOURNAL_LOADED', 'core/sheet/bootstrap.php' => 'BIZCITY_SHEET_LOADED', 'core/vault/includes/vault/bootstrap.php' => 'BIZCITY_VAULT_SERVER_LOADED' ) as $_bizcity_core_rel => $_bizcity_core_flag ) {
         if ( ! defined( $_bizcity_core_flag ) && is_file( __DIR__ . '/' . $_bizcity_core_rel ) ) {
             require_once __DIR__ . '/' . $_bizcity_core_rel;
@@ -455,9 +457,12 @@ if ( $_bizcity_twinchat_admin_shell_request ) {
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13b — the shared document-search engine now lives in core/kg-hub (same gate).
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php' ) ) {
-    require_once __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php';
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N2 — it went with the KG to the notebook add-on (same gate; absent without it).
+$_bizcity_twinsearch_core = BizCity_Addon_Locator::file( 'notebook/kg/includes/class-twinsearch-core.php' );
+if ( ! $_bizcity_twinchat_admin_shell_request && '' !== $_bizcity_twinsearch_core ) {
+    require_once $_bizcity_twinsearch_core;
 }
+unset( $_bizcity_twinsearch_core );
 
 // [2026-06-11 Johnny Chu] PERF-CRON-FIX — Register ALL custom cron schedule NAMES
 // unconditionally (every request, BEFORE the $_bizcity_admin_ctx gate below).
@@ -920,10 +925,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI
 // [2026-08-09 Johnny Chu] R-PERF — TwinChat has a public /twinchat/ route; do not load its full DB/studio/learning graph elsewhere.
 $_bizcity_twinchat_public_request = ! empty( $_SERVER['REQUEST_URI'] )
     && preg_match( '#/twinchat(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
-if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
-    && file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
-    require_once __DIR__ . '/modules/twinchat/bootstrap.php';
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N3 — TwinChat is the notebook add-on's (twinchat/); same gate, same point.
+$_bizcity_twinchat_bootstrap = BizCity_Addon_Locator::file( 'notebook/twinchat/bootstrap.php' );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request ) && '' !== $_bizcity_twinchat_bootstrap ) {
+    require_once $_bizcity_twinchat_bootstrap;
 }
+unset( $_bizcity_twinchat_bootstrap );
 // [2026-06-17 Johnny Chu] PHASE-TWINWEB Wave 1 — Public user frontend (ChatGPT-like SPA).
 // Always-load: serves /twin/ public page + bizcity-twinweb/v1 REST (needed for guests + WP REST).
 // [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — the CORE half of TwinWeb (REST controller + the classes it calls, Ask Brain tools,

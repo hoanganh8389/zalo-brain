@@ -581,6 +581,7 @@ class BizCity_Zalobot_Notebook_Bridge_Listener {
 	 * reply is sent later, asynchronously, by
 	 * `BizCity_KG_Channel_Progress_Notifier` once KG extraction finishes for
 	 * every item in the batch.
+	 * c9-guarded-by: handle() — the only caller returns early when BizCity_KG_Channel_Notebook_Bridge is absent (PHASE-0.148 S148-C9).
 	 */
 	private static function finalize_capture_session( object $bot, string $provider_chat_id, array $session ): void {
 		$bridge = 'BizCity_KG_Channel_Notebook_Bridge';

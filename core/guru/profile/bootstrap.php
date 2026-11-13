@@ -162,15 +162,30 @@ require_once BIZCITY_KNOWLEDGE_LIB . 'class-knowledge-fabric.php'; // Knowledge 
 // [2026-09-24 Claude Opus 5.5] CORE-REDUCTION WP-11 Part A — KG-Hub now lives at core/kg-hub/ (a peer of
 // core/knowledge). Same gate as before: it still loads here, only the path changed. The legacy location is
 // tried second so a partially deployed tree keeps working; a missing KG-Hub is logged, never silent.
-$_bizcity_kg_hub_bootstrap = '';
-foreach ( array( dirname( BIZCITY_KNOWLEDGE_DIR, 2 ) . '/kg-hub/bootstrap.php', BIZCITY_KNOWLEDGE_DIR . 'kg-hub/bootstrap.php' ) as $_bizcity_kg_hub_candidate ) {
-    if ( is_file( $_bizcity_kg_hub_candidate ) ) {
-        $_bizcity_kg_hub_bootstrap = $_bizcity_kg_hub_candidate;
-        break;
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 (D148-8) — the three core knowledge modules load HERE first
+// (core/journal ⇒ core/sheet ⇒ core/vault server, same Safe Loader labels they had inside kg-hub), then the KG from the notebook add-on
+// (BizCity_Addon_Locator 'notebook/kg/bootstrap.php', BIZCITY_NOTEBOOK_LOAD). The KG needs the journal + BizCity_Notebook_Port already
+// declared; without the add-on Vault + Journal stand alone. No core/kg-hub fallback: a stale copy next to the add-on = redeclared classes.
+foreach ( array(
+    'journal/bootstrap.php'              => array( 'BIZCITY_JOURNAL_LOADED', 'core.journal.bootstrap' ),
+    'sheet/bootstrap.php'                => array( 'BIZCITY_SHEET_LOADED', 'core.sheet.bootstrap' ),
+    'vault/includes/vault/bootstrap.php' => array( 'BIZCITY_VAULT_SERVER_LOADED', 'core.vault.server_bootstrap' ),
+) as $_bizcity_core_rel => $_bizcity_core_meta ) {
+    $_bizcity_core_path = dirname( BIZCITY_KNOWLEDGE_DIR, 2 ) . '/' . $_bizcity_core_rel;
+    if ( defined( $_bizcity_core_meta[0] ) ) {
+        continue;
+    }
+    if ( class_exists( 'BizCity_Safe_Loader', false ) ) {
+        BizCity_Safe_Loader::require_file( $_bizcity_core_path, $_bizcity_core_meta[1] );
+    } elseif ( is_file( $_bizcity_core_path ) ) {
+        require_once $_bizcity_core_path;
     }
 }
+unset( $_bizcity_core_rel, $_bizcity_core_meta, $_bizcity_core_path );
+
+$_bizcity_kg_hub_bootstrap = class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'notebook/kg/bootstrap.php' ) : '';
 if ( '' === $_bizcity_kg_hub_bootstrap ) {
-    error_log( '[bizcity] kg_hub_bootstrap_missing: core/kg-hub/bootstrap.php not found — KG-Hub routes will 404' );
+    // Normal without the notebook add-on (or BIZCITY_NOTEBOOK_LOAD = off): Vault + Journal answer, the KG routes are absent.
 } elseif ( class_exists( 'BizCity_Safe_Loader', false ) ) {
     // R-SAFE-LOADER: no unguarded fallback — the Safe Loader is loaded by core/helper before any module bootstrap.
     BizCity_Safe_Loader::require_file( $_bizcity_kg_hub_bootstrap, 'knowledge.kg_hub.bootstrap' );

@@ -96,6 +96,8 @@ final class BizCity_Skill_Admin_Page {
 			// [2026-10-18 02:45 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-W2 — "Hỏi Zalo Second Brain" lands in TwinChat: the canonical link (R-ROUTE), never a hand-built page=…&plugin=… string
 			'twinchatUrl'  => class_exists( 'BizCity_Twin_Route' ) ? (string) BizCity_Twin_Route::url( 'twinchat' ) : '',
 			'composioBase' => (string) wp_parse_url( rest_url( 'bizcity-channel/v1/connect/composio' ), PHP_URL_PATH ),
+			// [2026-11-13 09:03 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-U1 — Sổ tài liệu greys "Học kỹ" / L2 when the notebook add-on cannot load (BIZCITY_NOTEBOOK_LOAD)
+			'notebook'     => function_exists( 'bizcity_notebook_available' ) ? bizcity_notebook_available() : true,
 		);
 		wp_add_inline_script( 'bizcity-skill-app', 'window.skillAppConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 		wp_dequeue_script( 'wc-settings' );

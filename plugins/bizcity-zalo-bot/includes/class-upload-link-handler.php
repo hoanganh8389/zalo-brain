@@ -134,10 +134,18 @@ class BizCity_Zalobot_Upload_Link_Handler {
 	}
 
 	private static function ensure_runtime_dependencies(): void {
-		$root = dirname( __DIR__, 3 );
+		// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N2 — the KG left core/kg-hub for the notebook add-on (kg/includes/).
+		$kg    = defined( 'BIZCITY_KG_HUB_INCLUDES' ) ? BIZCITY_KG_HUB_INCLUDES : '';
+		if ( '' === $kg && class_exists( 'BizCity_Addon_Locator', false ) ) {
+			$boot = BizCity_Addon_Locator::file( 'notebook/kg/bootstrap.php' );
+			$kg   = '' !== $boot ? dirname( $boot ) . '/includes/' : '';
+		}
+		if ( '' === $kg ) {
+			return; // no notebook: the handler answers "link expired / unavailable" through its own class_exists guards
+		}
 		$files = array(
-			'BizCity_KG_Channel_Notebook_Bridge' => $root . '/core/kg-hub/includes/class-kg-channel-notebook-bridge.php',
-			'BizCity_KG_Channel_Upload_Link_Service' => $root . '/core/kg-hub/includes/class-kg-channel-upload-link-service.php',
+			'BizCity_KG_Channel_Notebook_Bridge'     => $kg . 'class-kg-channel-notebook-bridge.php',
+			'BizCity_KG_Channel_Upload_Link_Service' => $kg . 'class-kg-channel-upload-link-service.php',
 		);
 		foreach ( $files as $class => $file ) {
 			if ( ! class_exists( $class, false ) && is_readable( $file ) ) {
@@ -148,6 +156,7 @@ class BizCity_Zalobot_Upload_Link_Handler {
 
 	/* ─────────────────────────────── GET ─────────────────────────────── */
 
+	// c9-guarded-by: maybe_handle() — exits with a message page when the KG upload-link service / bridge classes are absent (PHASE-0.148 S148-C9).
 	private static function handle_get( string $token ): void {
 		$record = BizCity_KG_Channel_Upload_Link_Service::resolve_and_consume_open( $token );
 		if ( is_wp_error( $record ) ) {
@@ -159,6 +168,7 @@ class BizCity_Zalobot_Upload_Link_Handler {
 
 	/* ─────────────────────────────── POST ────────────────────────────── */
 
+	// c9-guarded-by: maybe_handle() — same guard as handle_get().
 	private static function handle_post( string $token ): void {
 		if ( ! isset( $_POST['bizcity_zalo_upload_nonce'] )
 			|| ! wp_verify_nonce( (string) $_POST['bizcity_zalo_upload_nonce'], self::NONCE_ACTION_PREFIX . $token )

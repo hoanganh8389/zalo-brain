@@ -30,6 +30,7 @@
  *   define( 'BIZCITY_AUTOMATION_LOAD',  'auto' | 'active' | 'off' );  // bizcity-automation (Automation only)
  *   define( 'BIZCITY_TWINWEB_LOAD',     'auto' | 'active' | 'off' );  // bizcity-twinweb-addon (/gpt/) — default 'active'
  *   define( 'BIZCITY_BILLING_LOAD',     'auto' | 'active' | 'off' );  // bizcity-billing-addon (usage / plans / revenue) — default 'auto'
+ *   define( 'BIZCITY_NOTEBOOK_LOAD',    'auto' | 'active' | 'off' );  // bizcity-twin-notebook (KG + TwinChat, PHASE-0.148 W3) — default 'auto'
  *   auto   — load from the plugin folder when it is present, activated or not, so a deploy that uploads
  *            the folder changes nothing for users (default for brain-addon and Automation);
  *   active — load only when that plugin is activated (site or network) (default for twinweb: users install it themselves);
@@ -69,6 +70,12 @@ final class BizCity_Addon_Locator {
 	/** Parts resolved against BILLING_SLUG. */
 	const BILLING_PARTS = array( 'billing' );
 
+	/** [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 (D148-8) — bizcity-twin-notebook (KG part of the old core/kg-hub + TwinChat). */
+	const NOTEBOOK_SLUG = 'bizcity-twin-notebook';
+
+	/** Parts resolved against NOTEBOOK_SLUG ('notebook/kg/bootstrap.php' ⇒ <plugin>/kg/bootstrap.php). */
+	const NOTEBOOK_PARTS = array( 'notebook' );
+
 	/** Option that remembers where a renamed add-on folder was found (and, briefly, that none was). */
 	const PATHS_OPTION = 'bizcity_addon_paths';
 
@@ -94,6 +101,8 @@ final class BizCity_Addon_Locator {
 			'twinweb'    => array( 'slug' => self::TWINWEB_SLUG,    'const' => 'BIZCITY_TWINWEB_LOAD',     'default' => 'active' ),
 			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-BILL — 'auto': billing ran on every site before the split, so an uploaded folder must keep it running.
 			'billing'    => array( 'slug' => self::BILLING_SLUG,    'const' => 'BIZCITY_BILLING_LOAD',     'default' => 'auto' ),
+			// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 — 'auto': the notebook ran on every site before the split, so an uploaded folder keeps it running; 'off' = T148-1 (no notebook).
+			'notebook'   => array( 'slug' => self::NOTEBOOK_SLUG,   'const' => 'BIZCITY_NOTEBOOK_LOAD',    'default' => 'auto' ),
 		);
 	}
 
@@ -306,6 +315,18 @@ final class BizCity_Addon_Locator {
 			return self::$cache[ $relative ] = $path;
 		}
 
+		if ( in_array( $part, self::NOTEBOOK_PARTS, true ) ) {
+			// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 — no fallback to core/kg-hub or modules/twinchat: a stale copy left on a
+			// server by an upload (uploads never delete) must never load next to the add-on (same class names = fatal). The notebook is the add-on or nothing.
+			$path   = '';
+			$inside = ltrim( substr( ltrim( $relative, '/' ), strlen( $part ) ), '/' );
+			if ( '' !== $inside && self::addon_available( 'notebook' ) ) {
+				$candidate = self::addon_dir( 'notebook' ) . $inside;
+				$path      = is_file( $candidate ) ? $candidate : '';
+			}
+			return self::$cache[ $relative ] = $path;
+		}
+
 		$path = '';
 		if ( self::available() ) {
 			$candidate = self::dir() . ltrim( $relative, '/' );
@@ -327,6 +348,14 @@ if ( ! function_exists( 'bizcity_billing_available' ) ) {
 	/** True when the billing part (the add-on bizcity-billing-addon, found and allowed by its load mode) can load. */
 	function bizcity_billing_available(): bool {
 		return '' !== BizCity_Addon_Locator::file( 'billing/bootstrap.php' );
+	}
+}
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 — same idea for the notebook add-on (file presence + load mode), for menus /
+// surfaces that must know "is there a notebook" on a request that does not load it. Runtime callers keep using BizCity_Notebook_Port::available().
+if ( ! function_exists( 'bizcity_notebook_available' ) ) {
+	/** True when the notebook part (the add-on bizcity-twin-notebook, found and allowed by BIZCITY_NOTEBOOK_LOAD) can load. */
+	function bizcity_notebook_available(): bool {
+		return '' !== BizCity_Addon_Locator::file( 'notebook/kg/bootstrap.php' );
 	}
 }
 if ( ! function_exists( 'bizcity_twinweb_url' ) ) {

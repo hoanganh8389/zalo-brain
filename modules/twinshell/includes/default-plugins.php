@@ -93,6 +93,17 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			// twin-shell forward param này khi rebuild iframe URL + sync address
 			// bar (admin.php?page=bizcity-twinchat&plugin=twinchat&session_id=…),
 			// y như cách `notebook_id` đang hoạt động cho notebook deep-link.
+			// [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N6 — TwinChat is the notebook add-on's: no add-on (or BIZCITY_NOTEBOOK_LOAD = off) ⇒ no icon (T148-5).
+			'requires'    => [ 'class' => 'BizCity_TwinChat_Public_Page', 'addon' => 'notebook/twinchat/bootstrap.php' ],
+			// [2026-11-13 10:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 (owner, screenshot 13/11: "có badge pro giống crm và automation") — same pattern as `crm`: the brain icon
+			// always shows with a PRO badge; without the notebook add-on (or BIZCITY_NOTEBOOK_LOAD = off) a click opens the in-shell notice (activate / download from
+			// GitHub) instead of hiding the icon (was N6). No `license` gate: the notebook's tier is the owner's call (zalo-brain.json licence.tier).
+			'upsell'       => true,
+			'badge'        => 'PRO',
+			'pro_package'  => 'Zalo Brain Notebook',
+			'addon_name'   => 'Zalo Brain Notebook',
+			'addon_file'   => 'bizcity-twin-notebook/bizcity-twin-notebook.php',
+			'addon_github' => 'https://github.com/hoanganh8389/zalo-brain-notebook',
 			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread', 'ledger' ], // [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE, owner approved) — `ledger` = the whole query of the Sổ cái / Sổ screen (mode=sheets&sheet=…&period=…) in ONE key, so the shell carries it to the TwinChat iframe and back to the address bar without opening a prefix allowlist
 			'desc'        => __( 'Central business brain for chat, knowledge and work.', $td ),
 		],
@@ -394,7 +405,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	$access = [
 		'gateway'        => [ 'mode' => 'admin_only', 'owner' => 'core/channel-gateway' ],
 		'crm'            => [ 'mode' => 'delegated', 'owner' => 'plugins/bizcity-twin-crm', 'manage' => [ 'plugin' => 'crm', 'r' => '/staff' ] ],
-		'twinchat'       => [ 'mode' => 'grantable', 'owner' => 'modules/twinchat' ],
+		'twinchat'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-twin-notebook' ], // [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 — was modules/twinchat
 		// [2026-10-05 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-0 — Automation is the plugin bizcity-automation, not core/.
 		'workflow'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-automation' ],
 		'scheduler'      => [ 'mode' => 'grantable', 'owner' => 'core/scheduler' ],

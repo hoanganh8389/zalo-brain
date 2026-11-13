@@ -214,6 +214,7 @@ final class BizCity_TwinBrain_Graph_Ask {
 	}
 
 	/** passage_id ⇒ entity_id[] in ONE query (port of resolve_cited_entity_ids, computed up front). */
+	// c9-guarded-by: run() — the only caller returns not_available when BizCity_KG_Retriever / BizCity_KG_Database are absent (PHASE-0.148 S148-C9).
 	private static function entity_ids_for_passages( array $pids ): array {
 		global $wpdb;
 		$pids = array_values( array_unique( array_filter( array_map( 'intval', $pids ) ) ) );
@@ -229,6 +230,7 @@ final class BizCity_TwinBrain_Graph_Ask {
 		return $out;
 	}
 
+	// c9-guarded-by: run() — same guard as entity_ids_for_passages().
 	private static function source_titles( array $sids ): array {
 		global $wpdb;
 		$sids = array_values( array_filter( array_map( 'intval', $sids ) ) );
@@ -244,6 +246,7 @@ final class BizCity_TwinBrain_Graph_Ask {
 	/**
 	 * The graph AROUND the answer passages: the entities they mention (one query, those cited first by weight) and the approved relations between those
 	 * entities (one query, heaviest first). @return array{0: array<int,array>, 1: array} [entities keyed by id, triples]
+	 * c9-guarded-by: run() — same guard as entity_ids_for_passages().
 	 */
 	private static function graph_around( array $source_map ): array {
 		global $wpdb;

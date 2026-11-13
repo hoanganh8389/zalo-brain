@@ -190,3 +190,6 @@ vendor/
 /core/channel-gateway/includes/class-cg-debug-logger-admin.php
 /core/twin-core/event-stream/class-twin-event-inspector-page.php
 /core/helper/class-bizcity-log-explorer.php
+
+# [2026-11-14 12:28 AM Johnny Chu - Chu Hoàng Anh] owner: VPS deployment notes of the Zalo bridge stay on the dev machine (private, like *.local.instructions.md) — never pushed.
+/plugins/bizcity-zalo-personal/.github/instructions/vps-deployment.instructions.md

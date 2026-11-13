@@ -14,8 +14,8 @@
         }
     ],
     "support": {
-        "issues": "https://github.com/bizcity/bizcity-twin-ai/issues",
-        "source": "https://github.com/bizcity/bizcity-twin-ai"
+        "issues": "https://github.com/hoanganh8389/zalo-brain/issues",
+        "source": "https://github.com/hoanganh8389/zalo-brain"
     },
     "require": {
         "php": ">=7.4",

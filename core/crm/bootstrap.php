@@ -48,14 +48,8 @@ if ( ! class_exists( 'BizCity_Channel_Conversation_Archive', false ) && is_reada
 if ( class_exists( 'BizCity_Channel_Conversation_Archive' ) && method_exists( 'BizCity_Channel_Conversation_Archive', 'register' ) ) {
 	BizCity_Channel_Conversation_Archive::register();
 }
-$bizcity_crm_cb_adapter = dirname( __DIR__ ) . '/context-bank/includes/class-context-bank-channel-archive-adapter.php';
-if ( class_exists( 'BizCity_Safe_Loader', false ) && is_file( $bizcity_crm_cb_adapter ) && is_readable( $bizcity_crm_cb_adapter ) ) {
-	BizCity_Safe_Loader::require_file( $bizcity_crm_cb_adapter, 'context_bank.channel_archive_adapter' );
-}
-if ( class_exists( 'BizCity_Context_Bank_Channel_Archive_Adapter' ) ) {
-	BizCity_Context_Bank_Channel_Archive_Adapter::boot();
-}
-unset( $bizcity_crm_cg, $bizcity_crm_cb_adapter );
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — Context Bank channel-archive capture adapter is no longer booted from CRM (module OFF; capture entries are gated in core/context-bank/bootstrap.php).
+unset( $bizcity_crm_cg );
 
 // ── Registry + data layer ─────────────────────────────────────────────────────────────────────────────────────
 require_once $bizcity_crm_inc . 'class-crm-spine.php';

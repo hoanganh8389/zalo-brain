@@ -259,7 +259,7 @@ if ( class_exists( 'BizCity_File_Contract_Registry' ) ) {
 	) );
 	// [2026-09-02 11:29 AM Johnny Chu - Chu Hoàng Anh] PHASE-CB4.5 — register Skill version references separately from the canonical Skill content owner.
 	BizCity_File_Contract_Registry::register( 'core.skills.rule_reference', array(
-		'owner_module'       => 'core/skills',
+		'owner_module'       => 'core/vault', // [2026-11-12 11:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a — was core/skills (D148-15); contract id unchanged
 		'label'              => 'Skill version reference records',
 		'folder'             => 'bizcity-context-bank',
 		'module'             => 'skill-reference',
@@ -383,7 +383,7 @@ if ( class_exists( 'BizCity_Log_Contract_Registry' ) ) {
 	) );
 	// [2026-08-28 Johnny Chu] PHASE-1.30-LIFECYCLE — register skill usage audit contract for active-quarantine dual-write/read parity.
 	BizCity_Log_Contract_Registry::register( 'core.skills.usage_audit', array(
-		'owner_module'       => 'core/skills',
+		'owner_module'       => 'core/vault', // [2026-11-12 11:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a — was core/skills (D148-15); contract id unchanged
 		'label'              => 'Skill usage audit',
 		'jsonl_folder'       => 'bizcity-skill-logs',
 		'jsonl_module'       => 'usage',
@@ -628,5 +628,8 @@ if ( ! function_exists( 'bizcity_context_bank_load_memory_runtime' ) ) {
 		return class_exists( 'BizCity_Context_Bank_Memory_Adapter' );
 	}
 }
+
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — Context Bank kill switch (bizcity_context_bank_enabled, default false) lives in its own tiny file so it can be tested without this whole bootstrap.
+require_once __DIR__ . '/includes/context-bank-switch.php';
 
 unset( $_helper_includes );

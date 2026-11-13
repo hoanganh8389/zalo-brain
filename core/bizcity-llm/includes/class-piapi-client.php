@@ -57,6 +57,17 @@ class BizCity_PiAPI_Client {
      * @return array
      */
     public function submit_image_task( string $operation, array $input, array $options = array() ): array {
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C: hosted ⇒ Hub (below, unchanged); key ⇒ BYOK
+        // (extension provider via bizcity_byok_provider, else 'byok_unsupported' — no documented provider API); else byok_missing.
+        $route = $this->group_c_route();
+        if ( 'hub' !== $route ) {
+            return $this->byok_task( $route, array(
+                'action'    => 'submit',
+                'operation' => sanitize_key( $operation ),
+                'input'     => $input,
+                'options'   => $options,
+            ) );
+        }
         if ( ! $this->is_ready() ) {
             return $this->degraded( 'gateway_degraded' );
         }
@@ -106,6 +117,14 @@ class BizCity_PiAPI_Client {
      * @return array
      */
     public function get_task( string $task_id ): array {
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — same route as submit_image_task().
+        $route = $this->group_c_route();
+        if ( 'hub' !== $route ) {
+            return $this->byok_task( $route, array(
+                'action'  => 'poll',
+                'task_id' => sanitize_text_field( $task_id ),
+            ) );
+        }
         if ( ! $this->is_ready() ) {
             return $this->degraded( 'gateway_degraded' );
         }
@@ -157,6 +176,39 @@ class BizCity_PiAPI_Client {
             array()
         );
         return $this->decode_response( $response, '' );
+    }
+
+    /** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — the one group C decision lives in BizCity_LLM_Client. */
+    private function group_c_route(): string {
+        return class_exists( 'BizCity_LLM_Client' ) && method_exists( 'BizCity_LLM_Client', 'group_c_route' )
+            ? BizCity_LLM_Client::group_c_route( 'image_task' )
+            : 'hub';
+    }
+
+    /**
+     * Non-Hub route → this client's array shape ({ success, code, message, hint, help_code } on failure).
+     *
+     * @param string $route   'byok' | 'none'
+     * @param array  $payload { action: submit|poll, … }
+     */
+    private function byok_task( string $route, array $payload ): array {
+        if ( 'byok' === $route && class_exists( 'BizCity_BYOK', false ) ) {
+            $r = BizCity_BYOK::image_task( $payload );
+            if ( is_array( $r ) ) {
+                return $r;
+            }
+        } else {
+            $r = BizCity_LLM_Client::group_c_missing_error();
+        }
+        $data = $r->get_error_data();
+        return array(
+            'success'   => false,
+            'code'      => (string) $r->get_error_code(),
+            'message'   => $r->get_error_message(),
+            'hint'      => is_array( $data ) ? (string) ( $data['hint'] ?? '' ) : '',
+            'help_code' => (string) $r->get_error_code(),
+            'status'    => is_array( $data ) && ! empty( $data['status'] ) ? (int) $data['status'] : 502,
+        );
     }
 
     private function request( string $name, string $url, array $args, array $context = array() ) {

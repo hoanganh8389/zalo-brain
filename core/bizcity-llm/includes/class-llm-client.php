@@ -468,6 +468,7 @@ class BizCity_LLM_Client {
             update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
         }
         self::sync_services_catalog( $decoded ); // [2026-10-05 11:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC CL-LIC-3
+        self::sync_storage_quota( $decoded, false ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 — entitlement: only when present
         if ( isset( $decoded['master_level'] ) ) {
             // [2026-07-15 Johnny Chu] PHASE-MASTER-PLANS — keep both raw master level
             // and normalized tier bucket so cron/settings consume pro/premium safely.
@@ -541,7 +542,7 @@ class BizCity_LLM_Client {
         $seat_limit = null;
         foreach ( $seat_limit_candidates as $candidate ) {
             if ( is_numeric( $candidate ) ) {
-                $seat_limit = max( 0, (int) $candidate );
+                $seat_limit = self::seat_limit_value( $candidate ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-HB12 — -1 (∞) stays -1, was max( 0, … ) ⇒ 0
                 break;
             }
         }
@@ -835,7 +836,7 @@ class BizCity_LLM_Client {
         $seat_limit = null;
         foreach ( $seat_limit_candidates as $candidate ) {
             if ( is_numeric( $candidate ) ) {
-                $seat_limit = max( 0, (int) $candidate );
+                $seat_limit = self::seat_limit_value( $candidate ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-HB12 — -1 (∞) stays -1, was max( 0, … ) ⇒ 0
                 break;
             }
         }
@@ -850,6 +851,8 @@ class BizCity_LLM_Client {
             update_option( 'bizcity_hub_plugins_enabled', json_encode( $plugins_src ) );
         }
         self::sync_services_catalog( $decoded ); // [2026-10-05 11:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC CL-LIC-3
+        self::sync_storage_quota( $decoded, true ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 — /master/config: absent ⇒ 0
+        self::sync_subscription( $decoded ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 — subscription@1: absent ⇒ option deleted
 
         return $decoded;
     }
@@ -876,6 +879,228 @@ class BizCity_LLM_Client {
             }
         }
         update_option( 'bizcity_hub_services_catalog', wp_json_encode( array_values( array_unique( $catalog ) ) ) );
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 storage quota mirror — the Hub's `storage_quota_bytes` (top level, or
+     * under `plan`) into option `bizcity_hub_storage_quota_bytes` (autoload false), same pattern as the other bizcity_hub_*
+     * mirrors. Display only (CSB-4 / Q-CSB-3): nothing blocks uploads on it. No new table (R-TABLE-FREEZE).
+     *
+     * @param array $decoded           Hub payload.
+     * @param bool  $absent_means_zero true for /master/config (the full plan: absent ⇒ 0); false for the per-user
+     *                                 entitlement payload, which may simply not carry the key (leave the option as it is).
+     */
+    public static function sync_storage_quota( array $decoded, bool $absent_means_zero = true ): void {
+        $raw = $decoded['storage_quota_bytes'] ?? ( ( isset( $decoded['plan'] ) && is_array( $decoded['plan'] ) ) ? ( $decoded['plan']['storage_quota_bytes'] ?? null ) : null );
+        if ( null === $raw && ! $absent_means_zero ) {
+            return;
+        }
+        $bytes = is_numeric( $raw ) ? max( 0, (int) $raw ) : 0;
+        update_option( 'bizcity_hub_storage_quota_bytes', $bytes, false );
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-HB12 (client part) — one member-seat number from the Hub: a negative value
+     * means "no limit" and is kept as -1 (it used to be clamped to 0, which closed every seat on an unlimited plan).
+     *
+     * @param mixed $raw numeric candidate from the payload
+     */
+    public static function seat_limit_value( $raw ): int {
+        $n = (int) $raw;
+        return $n < 0 ? -1 : $n;
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 (doc 20 SB-6, §4) — mirror the Hub's `subscription@1` block of
+     * /master/config into option `bizcity_hub_subscription` (autoload false). The block is rebuilt from a whitelist (no prices ever,
+     * SB-10). A payload without the block (an older Hub) deletes the option, so the client hides its "còn N ngày" card.
+     * No new table (R-TABLE-FREEZE).
+     *
+     * @param array $decoded /master/config payload
+     */
+    public static function sync_subscription( array $decoded ): void {
+        $raw = $decoded['subscription'] ?? null;
+        if ( ! is_array( $raw ) || 'subscription@1' !== (string) ( $raw['contract'] ?? '' ) ) {
+            delete_option( 'bizcity_hub_subscription' );
+            return;
+        }
+        $block              = self::subscription_whitelist( $raw );
+        $block['synced_at'] = time();
+        update_option( 'bizcity_hub_subscription', $block, false );
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 — the stored subscription@1 block, ready to show:
+     * `days_left` counts down from `period_end_at` between two syncs (floor of whole days, never below 0; -1 when the plan has no end
+     * date) and the state follows the clock (active ⇒ grace within `grace_days` after the end ⇒ expired). Never moves a state back to
+     * active — only the Hub does that. No stored block (older Hub, never synced) ⇒ state 'none' (the UI hides the card).
+     *
+     * @param int $now unix time (0 = time()); a seam for tests
+     * @return array<string,mixed>
+     */
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 — where "Gia hạn / nâng gói" goes. With the billing add-on: the "Mua thêm" tab of the
+     * Channel Gateway SPA (plan-order proxy, QR, auto "Đã kích hoạt"). Without it (the add-on is optional, R126-BILL): the account page "Gói dịch vụ" on
+     * the Hub, where the key owner buys the same plan — so a site without the add-on can still renew. Filter `bizcity_llm_renew_url`.
+     */
+    public static function renew_url(): string {
+        $addon = class_exists( 'BizCity_Usage_View_REST' ); // PHASE-0.139: the module is core again
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI6 — without the add-on: the Hub plans/shop page the Hub itself sent (first pack's shop_url), else the old account page.
+        $shop = '';
+        if ( ! $addon ) {
+            $stored = function_exists( 'get_option' ) ? get_option( 'bizcity_hub_subscription', array() ) : array();
+            $first  = is_array( $stored ) && ! empty( $stored['renew_packs'][0] ) && is_array( $stored['renew_packs'][0] ) ? $stored['renew_packs'][0] : array();
+            $shop   = (string) ( $first['shop_url'] ?? '' );
+        }
+        $url   = $addon
+            ? admin_url( 'admin.php?page=bizchat-gateway-spa#/usage/topup' )
+            : ( '' !== $shop ? $shop : trailingslashit( self::instance()->get_gateway_url() ) . 'my-account/plans/' );
+        return (string) apply_filters( 'bizcity_llm_renew_url', $url, $addon );
+    }
+
+    public static function subscription( int $now = 0 ): array {
+        $now   = $now > 0 ? $now : time();
+        $raw   = function_exists( 'get_option' ) ? get_option( 'bizcity_hub_subscription', array() ) : array();
+        if ( ! is_array( $raw ) || 'subscription@1' !== (string) ( $raw['contract'] ?? '' ) ) {
+            return array(
+                'contract'        => 'subscription@1',
+                'plan_code'       => '',
+                'plan_label'      => '',
+                'state'           => 'none',
+                'period_start_at' => null,
+                'period_end_at'   => null,
+                'days_left'       => -1,
+                'grace_days'      => 0,
+                'next_plan_code'  => null,
+                'renew_packs'     => array(),
+                // [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-UI2 — C-BM1 defaults (nothing stored ⇒ Brain Starter, no next tier).
+                'days_purchased_total' => 0,
+                'tier'                 => 'starter',
+                'tier_label'           => 'Brain Starter',
+                'next_tier'            => null,
+                'synced_at'       => 0,
+            );
+        }
+        $s         = self::subscription_whitelist( $raw );
+        $s['synced_at'] = (int) ( $raw['synced_at'] ?? 0 );
+        $end       = null !== $s['period_end_at'] ? strtotime( (string) $s['period_end_at'] ) : false;
+        if ( false === $end || null === $s['period_end_at'] ) {
+            $s['days_left'] = -1; // no end date (or unreadable): nothing to count down
+            return $s;
+        }
+        $left           = $end - $now;
+        $s['days_left'] = $left > 0 ? (int) floor( $left / DAY_IN_SECONDS ) : 0;
+        if ( $left < 0 && in_array( $s['state'], array( 'active', 'grace' ), true ) ) {
+            $s['state'] = ( $now - $end ) <= $s['grace_days'] * DAY_IN_SECONDS ? 'grace' : 'expired';
+        }
+        return $s;
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 — whitelist rebuild of one subscription@1 block (pure). Unknown keys vanish.
+     *
+     * @param array $raw
+     * @return array<string,mixed>
+     */
+    private static function subscription_whitelist( array $raw ): array {
+        $state = sanitize_key( (string) ( $raw['state'] ?? '' ) );
+        $iso   = static function ( $v ): ?string {
+            $v = is_scalar( $v ) ? trim( (string) $v ) : '';
+            return ( '' !== $v && 1 === preg_match( '/^\d{4}-\d{2}-\d{2}([T ][0-9:.]+)?(Z|[+-]\d{2}:?\d{2})?$/', $v ) ) ? $v : null;
+        };
+        $packs = array();
+        foreach ( array_slice( (array) ( $raw['renew_packs'] ?? array() ), 0, 8 ) as $p ) {
+            if ( ! is_array( $p ) ) {
+                continue;
+            }
+            $code = sanitize_key( (string) ( $p['plan_code'] ?? '' ) );
+            if ( '' === $code ) {
+                continue;
+            }
+            $months = array();
+            foreach ( (array) ( $p['months'] ?? array() ) as $m ) {
+                $m = (int) $m;
+                if ( $m >= 1 && $m <= 36 && ! in_array( $m, $months, true ) ) {
+                    $months[] = $m;
+                }
+            }
+            sort( $months );
+            // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI6 — SB-10 relaxed: price of ONE month + the signed Hub buy/cart links may show on the buy cards (only there).
+            $url = static function ( $v ): string {
+                $v = is_scalar( $v ) ? trim( (string) $v ) : '';
+                return ( '' !== $v && 1 === preg_match( '#^https?://#i', $v ) ) ? esc_url_raw( $v ) : '';
+            };
+            $packs[] = array(
+                'plan_code'   => $code,
+                'label'       => sanitize_text_field( (string) ( $p['label'] ?? $code ) ),
+                'months'      => $months ? $months : array( 1 ),
+                // [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 — days of ONE unit (older Hub: absent ⇒ 30).
+                'days'        => isset( $p['days'] ) && is_numeric( $p['days'] ) && (int) $p['days'] > 0 ? min( 1830, (int) $p['days'] ) : 30,
+                'product_id'  => isset( $p['product_id'] ) && is_numeric( $p['product_id'] ) ? (int) $p['product_id'] : 0,
+                'price_vnd'   => isset( $p['price_vnd'] ) && is_numeric( $p['price_vnd'] ) ? max( 0, (int) $p['price_vnd'] ) : 0,
+                'regular_vnd' => isset( $p['regular_vnd'] ) && is_numeric( $p['regular_vnd'] ) ? max( 0, (int) $p['regular_vnd'] ) : null,
+                'buy_url'     => $url( $p['buy_url'] ?? '' ),
+                'shop_url'    => $url( $p['shop_url'] ?? '' ),
+                'cart_url'    => $url( $p['cart_url'] ?? '' ),
+            );
+        }
+        $next = sanitize_key( (string) ( $raw['next_plan_code'] ?? '' ) );
+        return array(
+            'contract'        => 'subscription@1',
+            'plan_code'       => sanitize_key( (string) ( $raw['plan_code'] ?? '' ) ),
+            'plan_label'      => sanitize_text_field( (string) ( $raw['plan_label'] ?? '' ) ),
+            'state'           => in_array( $state, array( 'active', 'grace', 'expired', 'none' ), true ) ? $state : 'none',
+            'period_start_at' => $iso( $raw['period_start_at'] ?? null ),
+            'period_end_at'   => $iso( $raw['period_end_at'] ?? null ),
+            'days_left'       => isset( $raw['days_left'] ) && is_numeric( $raw['days_left'] ) ? (int) $raw['days_left'] : -1,
+            'grace_days'      => max( 0, (int) ( $raw['grace_days'] ?? 0 ) ),
+            'next_plan_code'  => '' !== $next ? $next : null,
+            'trial'           => ! empty( $raw['trial'] ), // PHASE-0.144 N144-1
+            'renew_packs'     => $packs,
+        ) + self::brain_master_tier( $raw ); // [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-UI2 — C-BM1 fields
+    }
+
+    /**
+     * [2026-10-27 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-UI2 (C-BM1, doc 30 BM-3) — the Brain Master tier fields of subscription@1,
+     * whitelisted (pure). The Hub computes them from PAID days only; the client never recomputes the tier from the days — it only
+     * defaults a missing / unknown code (older Hub ⇒ days 0, `starter`, next tier null) and fills the label of a known code.
+     *
+     * @param array $raw subscription@1 block as received
+     * @return array{days_purchased_total:int,tier:string,tier_label:string,next_tier:?array}
+     */
+    public static function brain_master_tier( array $raw ): array {
+        $labels = array(
+            'starter' => 'Brain Starter',
+            'm30'     => 'Brain Master 30',
+            'm90'     => 'Brain Master 90',
+            'm180'    => 'Brain Master 180',
+            'm365'    => 'Brain Master 365',
+            'm1000'   => 'Brain Master 1000',
+        );
+        $days  = isset( $raw['days_purchased_total'] ) && is_numeric( $raw['days_purchased_total'] ) ? max( 0, (int) $raw['days_purchased_total'] ) : 0;
+        $code  = sanitize_key( (string) ( $raw['tier'] ?? '' ) );
+        $code  = isset( $labels[ $code ] ) ? $code : 'starter';
+        $label = sanitize_text_field( (string) ( $raw['tier_label'] ?? '' ) );
+        $next  = null;
+        $n     = $raw['next_tier'] ?? null;
+        if ( 'm1000' !== $code && is_array( $n ) ) {
+            $ncode = sanitize_key( (string) ( $n['code'] ?? '' ) );
+            if ( isset( $labels[ $ncode ] ) && 'starter' !== $ncode ) {
+                $nlabel = sanitize_text_field( (string) ( $n['label'] ?? '' ) );
+                $next   = array(
+                    'code'       => $ncode,
+                    'label'      => '' !== $nlabel ? $nlabel : $labels[ $ncode ],
+                    'at_days'    => isset( $n['at_days'] ) && is_numeric( $n['at_days'] ) ? max( 0, (int) $n['at_days'] ) : 0,
+                    'days_to_go' => isset( $n['days_to_go'] ) && is_numeric( $n['days_to_go'] ) ? max( 0, (int) $n['days_to_go'] ) : 0,
+                );
+            }
+        }
+        return array(
+            'days_purchased_total' => $days,
+            'tier'                 => $code,
+            'tier_label'           => '' !== $label ? $label : $labels[ $code ],
+            'next_tier'            => $next,
+        );
     }
 
     /**
@@ -1122,6 +1347,27 @@ class BizCity_LLM_Client {
         if ( empty( $clean_media ) ) {
             $base['reason_bucket'] = 'media_url_missing';
             return $base;
+        }
+
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — vision is group A and `tools/vision-analyze` only takes
+        // fetchable URLs (the Hub esc_url_raw()s each media url, so a data: URI never survives — no base64 route to reuse).
+        // On a dev site drop the items the Hub cannot fetch (own host / localhost / dev TLD); public URLs (CDN, R2) still go.
+        // Nothing left ⇒ the guided dev-site error in this method's own array shape (CSB-5: never fail silently).
+        $skipped_local = 0;
+        foreach ( $clean_media as $i => $item ) {
+            if ( self::is_unreachable_media_url( (string) $item['url'] ) ) {
+                unset( $clean_media[ $i ] );
+                $skipped_local++;
+            }
+        }
+        $clean_media = array_values( $clean_media );
+        if ( $skipped_local > 0 ) {
+            $base['skipped_local_media'] = $skipped_local; // carried by every return below (partial analysis is visible)
+        }
+        if ( $skipped_local > 0 && empty( $clean_media ) && class_exists( 'BizCity_Site_Environment', false ) ) {
+            return array_merge( $base, self::error_fields( BizCity_Site_Environment::dev_site_error( 'media_url' ) ), [
+                'reason_bucket' => 'dev_site_unreachable',
+            ] );
         }
 
         $endpoint = $this->get_gateway_url() . '/wp-json/bizcity/v1/tools/vision-analyze';
@@ -2153,6 +2399,15 @@ class BizCity_LLM_Client {
                 return $raw_len;
             },
         ] );
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL3 — XAMPP / LocalWP / Windows PHP often ship cURL without a CA
+        // bundle (curl.cainfo empty) ⇒ "SSL certificate problem" on the Hub stream. Use the bundle WordPress itself ships.
+        // Verification stays ON — CURLOPT_SSL_VERIFYPEER is never touched.
+        if ( '' === (string) ini_get( 'curl.cainfo' ) ) {
+            $wp_ca_bundle = ABSPATH . WPINC . '/certificates/ca-bundle.crt';
+            if ( is_readable( $wp_ca_bundle ) ) {
+                curl_setopt( $ch, CURLOPT_CAINFO, $wp_ca_bundle );
+            }
+        }
 
         // ── curl_multi polling loop ──
         $mh = curl_multi_init();
@@ -2741,6 +2996,98 @@ class BizCity_LLM_Client {
     }
 
     /* ================================================================
+     *  Group C routing (R-CELL-SERVICE-BOUNDARY CSB-3)
+     * ================================================================
+     *
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — the ONE decision every group C entry point asks
+     * (image, tts, music here; BizCity_Video_Client; BizCity_PiAPI_Client):
+     *   BizCity multisite network (bizcity_is_hosted_site())  ⇒ 'hub'  — Hub + wallet, byte-for-byte the old path (D138-7)
+     *   other site with an owner key (BizCity_BYOK::has_key()) ⇒ 'byok' — core/byok/ adapter, server-side, never the Hub
+     *   otherwise                                               ⇒ 'none' — 'byok_missing', never a silent fall back to the Hub
+     * Filter `bizcity_group_c_route` ( $route, $capability ) is the way back (e.g. a self-host site that bought Hub credit).
+     * Environment helper absent (BizCity_LLM loaded without the main plugin) ⇒ treated as hosted = the old behaviour.
+     */
+
+    /** Pure decision table (unit-tested without WordPress). */
+    public static function decide_group_c_route( bool $hosted, bool $has_key ): string {
+        if ( $hosted ) {
+            return 'hub';
+        }
+        return $has_key ? 'byok' : 'none';
+    }
+
+    /**
+     * @param string $capability image | tts | music | video | image_task
+     * @return string 'hub' | 'byok' | 'none'
+     */
+    public static function group_c_route( string $capability ): string {
+        $hosted  = function_exists( 'bizcity_is_hosted_site' ) ? (bool) bizcity_is_hosted_site() : true;
+        $has_key = ! $hosted && class_exists( 'BizCity_BYOK', false ) && BizCity_BYOK::has_key();
+        $default = self::decide_group_c_route( $hosted, $has_key );
+        $route   = apply_filters( 'bizcity_group_c_route', $default, $capability );
+        return in_array( $route, array( 'hub', 'byok', 'none' ), true ) ? $route : $default;
+    }
+
+    /** 'byok_missing' (402) — the guided error a group C tool returns when the site has no route. */
+    public static function group_c_missing_error(): WP_Error {
+        if ( class_exists( 'BizCity_BYOK', false ) ) {
+            return BizCity_BYOK::missing_error();
+        }
+        return new WP_Error(
+            'byok_missing',
+            'Chưa cài khoá OpenRouter — vào ⚡ LLM Settings để thêm khoá của bạn.',
+            [ 'status' => 402, 'hint' => 'Dán khoá OpenRouter (sk-or-…) của bạn vào ⚡ LLM Settings rồi bấm Test.' ]
+        );
+    }
+
+    /**
+     * Fields an array-shaped result carries for a WP_Error (keeps each method's own shape; adds code/hint/status).
+     *
+     * @return array{error:string,code:string,hint:string,status:int}
+     */
+    public static function error_fields( WP_Error $err ): array {
+        $data = $err->get_error_data();
+        return [
+            'error'  => $err->get_error_message(),
+            'code'   => (string) $err->get_error_code(),
+            'hint'   => is_array( $data ) ? (string) ( $data['hint'] ?? '' ) : '',
+            'status' => is_array( $data ) && ! empty( $data['status'] ) ? (int) $data['status'] : 502,
+        ];
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — on a dev site (CSB-5) a media URL on the site's own
+     * host (or any localhost / IP / dev-TLD host, or a relative URL) cannot be fetched by the Hub. Public URLs (CDN, R2,
+     * any real domain) are never blocked. Off a dev site this is always false.
+     */
+    public static function is_unreachable_media_url( string $url ): bool {
+        if ( ! function_exists( 'bizcity_is_dev_site' ) || ! bizcity_is_dev_site() || ! class_exists( 'BizCity_Site_Environment', false ) ) {
+            return false;
+        }
+        return self::media_host_unreachable( $url, BizCity_Site_Environment::host() );
+    }
+
+    /** Pure part of is_unreachable_media_url() for a dev site: $site_host = BizCity_Site_Environment::host(). */
+    public static function media_host_unreachable( string $url, string $site_host ): bool {
+        $url = trim( $url );
+        if ( '' === $url || 0 === strpos( $url, 'data:' ) ) {
+            return false; // nothing to fetch / inline bytes travel with the call
+        }
+        $host = function_exists( 'wp_parse_url' ) ? wp_parse_url( $url, PHP_URL_HOST ) : parse_url( $url, PHP_URL_HOST );
+        if ( ! is_string( $host ) || '' === $host ) {
+            return true; // relative URL — resolves to this machine
+        }
+        $host = strtolower( trim( $host, '[]' ) );
+        if ( 0 === strpos( $host, 'www.' ) ) {
+            $host = substr( $host, 4 );
+        }
+        if ( $site_host !== '' && $host === strtolower( $site_host ) ) {
+            return true;
+        }
+        return class_exists( 'BizCity_Site_Environment', false ) && BizCity_Site_Environment::is_dev_host( $host );
+    }
+
+    /* ================================================================
      *  Image Generation (via gateway)
      * ================================================================ */
 
@@ -2752,6 +3099,12 @@ class BizCity_LLM_Client {
      * @return array { success, image_url, b64_json, model, error }
      */
     public function generate_image( string $prompt, array $options = [] ): array {
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C: hosted ⇒ Hub (below, unchanged); else BYOK / byok_missing.
+        $group_c_route = self::group_c_route( 'image' );
+        if ( 'hub' !== $group_c_route ) {
+            return $this->generate_image_byok( $prompt, $options, $group_c_route );
+        }
+
         $start = microtime( true );
 
         $this->debug_log( 'generate_image() START', [
@@ -2887,6 +3240,37 @@ class BizCity_LLM_Client {
         return $base;
     }
 
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C image on a community site. Same shape as
+     * generate_image_gateway(): { success, image_url, b64_json, model, error } (+ code/hint/status on failure, media_type
+     * on success). The adapter returns raw base64 like the Hub's `b64_json`, so callers that already persist `b64_json`
+     * (Automation generate-image, TwinWeb image tool) keep working; image_url stays '' as on a Hub b64 answer.
+     */
+    private function generate_image_byok( string $prompt, array $options, string $route ): array {
+        $base = [
+            'success'   => false,
+            'image_url' => '',
+            'b64_json'  => '',
+            'model'     => (string) ( $options['model'] ?? '' ),
+            'error'     => '',
+        ];
+        if ( 'byok' !== $route || ! class_exists( 'BizCity_BYOK', false ) ) {
+            return array_merge( $base, self::error_fields( self::group_c_missing_error() ) );
+        }
+        $r = BizCity_BYOK::generate_image( $prompt, $options );
+        if ( is_wp_error( $r ) ) {
+            return array_merge( $base, self::error_fields( $r ) );
+        }
+        return array_merge( $base, [
+            'success'    => true,
+            'image_url'  => (string) ( $r['image_url'] ?? '' ),
+            'b64_json'   => (string) ( $r['b64_json'] ?? '' ),
+            'media_type' => (string) ( $r['media_type'] ?? 'image/png' ),
+            'model'      => (string) ( $r['model'] ?? $base['model'] ),
+            'provider'   => 'openrouter_byok',
+        ] );
+    }
+
     // [2026-10-14 12:28 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X2 R-ONE-VERTICAL-CELL — TTS / music / STT go through the Hub gateway
     // (core → Hub → cell → provider). No per-bot provider key, no direct provider URL.
 
@@ -2955,6 +3339,14 @@ class BizCity_LLM_Client {
         if ( $text === '' ) {
             return new WP_Error( 'invalid_param', 'Không có nội dung để đọc.', [ 'status' => 422 ] );
         }
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C: hosted ⇒ Hub (unchanged); key ⇒ BYOK (same result shape); else byok_missing.
+        $group_c_route = self::group_c_route( 'tts' );
+        if ( 'byok' === $group_c_route && class_exists( 'BizCity_BYOK', false ) ) {
+            return BizCity_BYOK::text_to_speech( $text, $opts );
+        }
+        if ( 'hub' !== $group_c_route ) {
+            return self::group_c_missing_error();
+        }
         $body = [ 'text' => $text ];
         foreach ( [ 'voice', 'format', 'model' ] as $k ) {
             if ( isset( $opts[ $k ] ) && trim( (string) $opts[ $k ] ) !== '' ) {
@@ -2975,6 +3367,15 @@ class BizCity_LLM_Client {
         $prompt = trim( $prompt );
         if ( $prompt === '' ) {
             return new WP_Error( 'invalid_param', 'Thiếu mô tả bản nhạc.', [ 'status' => 422 ] );
+        }
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL6 — group C: hosted ⇒ Hub (unchanged); key ⇒ BYOK (extension
+        // provider via filter bizcity_byok_provider, else 'byok_unsupported' — no documented music API); else byok_missing.
+        $group_c_route = self::group_c_route( 'music' );
+        if ( 'byok' === $group_c_route && class_exists( 'BizCity_BYOK', false ) ) {
+            return BizCity_BYOK::generate_music( $prompt, $opts );
+        }
+        if ( 'hub' !== $group_c_route ) {
+            return self::group_c_missing_error();
         }
         $body = [ 'prompt' => $prompt ];
         foreach ( [ 'model', 'format' ] as $k ) {
@@ -3000,6 +3401,11 @@ class BizCity_LLM_Client {
         $media_url = trim( $media_url );
         if ( $media_url === '' ) {
             return new WP_Error( 'invalid_param', 'Thiếu địa chỉ tệp âm thanh.', [ 'status' => 422 ] );
+        }
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — STT is group A (Hub fetches media_url; the route takes
+        // no base64 field). On a dev site a self-hosted URL cannot be fetched ⇒ say so before calling the Hub (CSB-5).
+        if ( self::is_unreachable_media_url( $media_url ) && class_exists( 'BizCity_Site_Environment', false ) ) {
+            return BizCity_Site_Environment::dev_site_error( 'media_url' );
         }
         $body = [ 'media_url' => $media_url, 'kind' => 'audio' ];
         foreach ( [ 'mime', 'lang', 'model' ] as $k ) {

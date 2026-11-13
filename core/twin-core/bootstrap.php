@@ -104,21 +104,7 @@ if ( class_exists( 'BizCity_Twin_Event_Bus' ) ) {
     BizCity_Twin_Event_Bus::boot();
 }
 
-// [2026-09-01 Johnny Chu] PHASE-CB4.1 — register the gated Event Stream projection after the canonical bus is booted.
-$_context_bank_event_adapter = dirname( __DIR__ ) . '/context-bank/includes/class-context-bank-event-stream-adapter.php';
-if ( class_exists( 'BizCity_Safe_Loader', false )
-    && is_file( $_context_bank_event_adapter )
-    && is_readable( $_context_bank_event_adapter ) ) {
-    try {
-        BizCity_Safe_Loader::require_file( $_context_bank_event_adapter, 'context_bank.event_stream_adapter' );
-    } catch ( \Throwable $e ) {
-        error_log( '[BizCity Twin Core] Context Bank event adapter unavailable.' );
-    }
-}
-if ( class_exists( 'BizCity_Context_Bank_Event_Stream_Adapter', false ) ) {
-    BizCity_Context_Bank_Event_Stream_Adapter::boot();
-}
-unset( $_context_bank_event_adapter );
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — Context Bank Event Stream projection is no longer booted from Twin Core (module OFF; owner decision). Adapter file kept.
 
 // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — BizCity_Twin_Event_Trace_Projector (a registered NO-OP waiting for a Wave B+3 flip that never came; its target
 // tables lost their only writer with BizCity_Trace_Store) archived at core/_archived/runtime-trace-r126rt-20261025/.

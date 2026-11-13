@@ -135,6 +135,15 @@ if ( ! class_exists( 'BizCity_Network_Admin_Capability', false ) ) {
 // self-bootstrap call in that file never actually execute. See the bootstrap()
 // docblock there for the full diagnosis.
 BizCity_Network_Admin_Capability::bootstrap();
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL1 — R-CSB: is_dev_site() / is_hosted_site(), one owner for every lane.
+if ( ! class_exists( 'BizCity_Site_Environment', false ) ) {
+    require_once __DIR__ . '/core/runtime/class-site-environment.php';
+}
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL11 — R-CSB CSB-8: same-origin '/wp-json/' ⇒ rest_url() for subfolder installs / Plain permalinks (prints only when needed).
+if ( ! class_exists( 'BizCity_REST_Root_Shim', false ) ) {
+    require_once __DIR__ . '/core/runtime/class-rest-root-shim.php';
+}
+BizCity_REST_Root_Shim::init();
 
 // Infrastructure
 require_once __DIR__ . '/includes/helpers-table-cache.php';
@@ -424,6 +433,17 @@ if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_shell_request ) {
     if ( class_exists( 'BizCity_Loader_Ownership_Registry', false ) ) {
         BizCity_Loader_Ownership_Registry::transition( 'knowledge', BizCity_Loader_Ownership_Registry::STATE_CONTRACT_READY, 'main_plugin', 'pre_plugins_loaded' );
     }
+    // [2026-11-12 11:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1 (doc 60 D148-16/19) — the three core knowledge modules
+    // core/journal ⇒ core/sheet ⇒ core/vault (server). core/kg-hub loads them at their old point (above, via core/guru/profile);
+    // this is the same gate, so it is a no-op while kg-hub is there and keeps Vault + Journal alive without the notebook (W3).
+    // [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N1 — core/guru/profile loads them itself now (before the notebook add-on's KG);
+    // this stays for the one path where that bootstrap returns early (legacy mu-plugin already loaded the knowledge DB class).
+    foreach ( array( 'core/journal/bootstrap.php' => 'BIZCITY_JOURNAL_LOADED', 'core/sheet/bootstrap.php' => 'BIZCITY_SHEET_LOADED', 'core/vault/includes/vault/bootstrap.php' => 'BIZCITY_VAULT_SERVER_LOADED' ) as $_bizcity_core_rel => $_bizcity_core_flag ) {
+        if ( ! defined( $_bizcity_core_flag ) && is_file( __DIR__ . '/' . $_bizcity_core_rel ) ) {
+            require_once __DIR__ . '/' . $_bizcity_core_rel;
+        }
+    }
+    unset( $_bizcity_core_rel, $_bizcity_core_flag );
 }
 
 // [2026-08-13 Johnny Chu] PHASE-1.26-MENU — load only the Knowledge admin-menu renderer on the TwinChat shell so the Characters link remains visible without preloading the full Knowledge runtime.
@@ -437,9 +457,12 @@ if ( $_bizcity_twinchat_admin_shell_request ) {
 
 // [2026-07-14 Johnny Chu] PHASE-0.43 — shared local-document search for TwinChat, TwinWeb and future surfaces.
 // [2026-09-27 Claude Opus 5.5] CORE-REDUCTION WP-12 R13b — the shared document-search engine now lives in core/kg-hub (same gate).
-if ( ! $_bizcity_twinchat_admin_shell_request && file_exists( __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php' ) ) {
-    require_once __DIR__ . '/core/kg-hub/includes/class-twinsearch-core.php';
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N2 — it went with the KG to the notebook add-on (same gate; absent without it).
+$_bizcity_twinsearch_core = BizCity_Addon_Locator::file( 'notebook/kg/includes/class-twinsearch-core.php' );
+if ( ! $_bizcity_twinchat_admin_shell_request && '' !== $_bizcity_twinsearch_core ) {
+    require_once $_bizcity_twinsearch_core;
 }
+unset( $_bizcity_twinsearch_core );
 
 // [2026-06-11 Johnny Chu] PERF-CRON-FIX — Register ALL custom cron schedule NAMES
 // unconditionally (every request, BEFORE the $_bizcity_admin_ctx gate below).
@@ -618,11 +641,13 @@ $_bizcity_context_bank_uri = isset( $_SERVER['REQUEST_URI'] ) ? (string) $_SERVE
 $_bizcity_context_bank_admin_page = is_admin()
     && isset( $_GET['page'] )
     && 'bizcity-context-bank' === sanitize_key( (string) $_GET['page'] );
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — REST namespace + own admin page only load when the kill switch is on; the diagnostics paths are unchanged.
+$_bizcity_context_bank_on = function_exists( 'bizcity_context_bank_enabled' ) && bizcity_context_bank_enabled();
 $_bizcity_context_bank_runtime_request =
-    $_bizcity_context_bank_admin_page
+    ( $_bizcity_context_bank_on && $_bizcity_context_bank_admin_page )
     || ( defined( 'BIZCITY_DIAGNOSTICS_CLI' ) && BIZCITY_DIAGNOSTICS_CLI )
     || ( is_admin() && isset( $_GET['page'] ) && 'bizcity-diagnostics' === sanitize_key( (string) $_GET['page'] ) )
-    || false !== strpos( $_bizcity_context_bank_uri, '/wp-json/bizcity-context/' );
+    || ( $_bizcity_context_bank_on && false !== strpos( $_bizcity_context_bank_uri, '/wp-json/bizcity-context/' ) );
 if ( $_bizcity_context_bank_runtime_request
     && ! $_bizcity_twinchat_admin_shell_request
     && class_exists( 'BizCity_Safe_Loader', false ) ) {
@@ -632,19 +657,10 @@ if ( $_bizcity_context_bank_runtime_request
     }
     unset( $_bizcity_context_bank_bootstrap );
 }
-unset( $_bizcity_context_bank_uri, $_bizcity_context_bank_admin_page, $_bizcity_context_bank_runtime_request );
+unset( $_bizcity_context_bank_uri, $_bizcity_context_bank_admin_page, $_bizcity_context_bank_runtime_request, $_bizcity_context_bank_on );
 
-// [2026-09-02 Johnny Chu] PHASE-CB4.3 — load the Context Bank Woo adapter only when WooCommerce owns the lifecycle hook.
+// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — the Commerce adapter lazy-load on woocommerce_init is removed (Context Bank OFF).
 if ( function_exists( 'add_action' ) ) {
-    add_action( 'woocommerce_init', function () {
-        $bootstrap = __DIR__ . '/core/context-bank/bootstrap.php';
-        if ( ! class_exists( 'BizCity_Context_Bank_Commerce_Adapter', false )
-            && class_exists( 'BizCity_Safe_Loader', false )
-            && is_file( $bootstrap )
-            && is_readable( $bootstrap ) ) {
-            BizCity_Safe_Loader::require_file( $bootstrap, 'context_bank.commerce_bootstrap' );
-        }
-    }, 1 );
     // [2026-10-11 11:08 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-4 — same pattern for the Woo hooks of gated owners
     // (core/mcp Woo pack cache, Channel Gateway ZNS): a classic ?wc-ajax=checkout / IPN is not $_bizcity_admin_ctx, so they never fired.
     // The listener only subscribes; it requires the owner when one of its hooks fires (no-op when the owner is already loaded).
@@ -797,8 +813,10 @@ unset( $_bizcity_automation_uri, $_bizcity_automation_page, $_bizcity_automation
 // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L6 (D101-16 v2) — core/skills is back in its LEAN form only: the SKILL.md
 // file library + editor SPA + BizCity_Skills_Service + five MCP tools skills.* + pack `skills`. The PHP prompt router, slash matcher,
 // pipeline bridge, tool map, SQL registry and journal stay archived (R-BCB-1/2). Admin/REST/cron context only, like core/mcp.
-if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/skills/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/skills/bootstrap.php';
+// [2026-11-12 11:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a (D148-15) — core/skills is renamed core/vault (📚 Kho tri thức);
+// same gate, same constants BIZCITY_SKILLS_*, slug bizcity-skills, REST bizcity/skill/v1 (D148-18).
+if ( $_bizcity_admin_ctx && ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/vault/bootstrap.php' ) ) {
+    require_once __DIR__ . '/core/vault/bootstrap.php';
 }
 // [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L3 — brain profiles (profile.json packages ⇒ Guru +
 // knowledge + skills + schedule + policy). Same load profile as core/skills/core/mcp: admin/REST/cron context only.
@@ -907,10 +925,12 @@ if ( defined( 'WP_CLI' ) && WP_CLI
 // [2026-08-09 Johnny Chu] R-PERF — TwinChat has a public /twinchat/ route; do not load its full DB/studio/learning graph elsewhere.
 $_bizcity_twinchat_public_request = ! empty( $_SERVER['REQUEST_URI'] )
     && preg_match( '#/twinchat(?:/|\?|$)#', (string) $_SERVER['REQUEST_URI'] );
-if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request )
-    && file_exists( __DIR__ . '/modules/twinchat/bootstrap.php' ) ) {
-    require_once __DIR__ . '/modules/twinchat/bootstrap.php';
+// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N3 — TwinChat is the notebook add-on's (twinchat/); same gate, same point.
+$_bizcity_twinchat_bootstrap = BizCity_Addon_Locator::file( 'notebook/twinchat/bootstrap.php' );
+if ( ( $_bizcity_admin_ctx || $_bizcity_twinchat_public_request ) && '' !== $_bizcity_twinchat_bootstrap ) {
+    require_once $_bizcity_twinchat_bootstrap;
 }
+unset( $_bizcity_twinchat_bootstrap );
 // [2026-06-17 Johnny Chu] PHASE-TWINWEB Wave 1 — Public user frontend (ChatGPT-like SPA).
 // Always-load: serves /twin/ public page + bizcity-twinweb/v1 REST (needed for guests + WP REST).
 // [2026-10-12 11:36 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L24 — the CORE half of TwinWeb (REST controller + the classes it calls, Ask Brain tools,
@@ -1129,6 +1149,13 @@ unset( $_bizcity_google_auth_request );
 // Translations — load Vietnamese (and other) .po files from /languages/
 add_action( 'init', function() {
     load_plugin_textdomain( 'bizcity-twin-ai', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+    // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-OPS7 — WordPress's Vietnamese locale is `vi`, so only
+    // bizcity-twin-ai-vi.mo (44 TwinChat strings) loaded; the main 634-string catalogue lives in -vi_VN.mo. Load both.
+    $bizcity_locale = function_exists( 'determine_locale' ) ? determine_locale() : get_locale();
+    $bizcity_mo     = __DIR__ . '/languages/bizcity-twin-ai-' . ( 'vi' === $bizcity_locale ? 'vi_VN' : 'vi' ) . '.mo';
+    if ( in_array( $bizcity_locale, array( 'vi', 'vi_VN' ), true ) && is_readable( $bizcity_mo ) ) {
+        load_textdomain( 'bizcity-twin-ai', $bizcity_mo );
+    }
 } );
 
 BizCity_Admin_Support_Link::init();

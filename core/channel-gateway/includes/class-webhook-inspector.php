@@ -641,6 +641,10 @@ class BizCity_Webhook_Inspector {
 					'message' => sprintf( 'Guru #%d không tồn tại.', $args['character_id'] ),
 				), 404 );
 			}
+			// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 S142-L2 — Global Memory / Quản gia / old project Gurus never answer a channel.
+			if ( class_exists( 'BizCity_Guru_Studio', false ) && 'guru' !== BizCity_Guru_Studio::kind_of( $char ) ) {
+				return new WP_REST_Response( array( 'ok' => false, 'code' => 'guru_not_assignable', 'message' => 'Guru này không dùng để trả lời kênh.' ), 422 );
+			}
 			$status = isset( $char->status ) ? strtolower( (string) $char->status ) : '';
 			$allowed_status = array( 'active', 'published' );
 			if ( ! in_array( $status, $allowed_status, true ) ) {
@@ -720,6 +724,8 @@ class BizCity_Webhook_Inspector {
 					'status'        => isset( $r->status ) ? (string) $r->status : '',
 					'is_default'    => $default_id > 0 && (int) $r->id === $default_id,
 					'is_owner_guru' => $owner_guru > 0 && (int) $r->id === $owner_guru,
+					// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 S142-L2 (D142-12) — guru | owner | system | legacy_project: only `guru` may answer a channel.
+					'kind'          => class_exists( 'BizCity_Guru_Studio', false ) ? BizCity_Guru_Studio::kind_of( $r, $owner_guru ) : 'guru',
 				);
 			}
 		}

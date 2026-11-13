@@ -1132,8 +1132,9 @@ class BizCity_Twin_Shell_Page {
 			// [2026-10-05 11:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-LIC — concrete steps + plugins.php link even when the
 			// viewer cannot one-click activate (no button was shown when the viewer lacked activate_plugins), and the twin-ai GitHub prerequisite.
 			$plugins_url = admin_url( 'plugins.php' );
-			$twin_url    = 'https://github.com/hoanganh8389/bizcity-twin-ai';
-			$lines[]     = 'Lưu ý: ' . $addon['name'] . ' chỉ kích hoạt được khi website đã cài plugin BizCity Twin AI (bản tải từ GitHub: hoanganh8389/bizcity-twin-ai). Hãy tải và cài bản này trước.';
+			// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-OPS6 — public repo is hoanganh8389/zalo-brain (F35).
+			$twin_url    = 'https://github.com/hoanganh8389/zalo-brain';
+			$lines[]     = 'Lưu ý: ' . $addon['name'] . ' chỉ kích hoạt được khi website đã cài plugin BizCity Twin AI (bản tải từ GitHub: hoanganh8389/zalo-brain). Hãy tải và cài bản này trước.';
 			if ( 'download' === $act['kind'] ) {
 				$lines[] = 'Các bước: (1) tải BizCity Twin AI và ' . $addon['name'] . ' từ GitHub, (2) vào Plugins → Add New → Upload Plugin để cài, (3) bấm Kích hoạt ' . $addon['name'] . ' rồi tải lại trang này.';
 			} else {

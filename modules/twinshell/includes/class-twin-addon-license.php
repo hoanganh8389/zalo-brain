@@ -175,6 +175,41 @@ final class BizCity_Twin_Addon_License {
 	}
 
 	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-HB13 — licence of ONE add-on by its own Hub service slug (e.g. 'bizcoach-pro'),
+	 * so unticking Automation on a Premium plan no longer locks another add-on that only reused is_premium() (doc 10 §1).
+	 *   - the plan's slug list (bizcity_hub_plugins_enabled) names the slug ⇒ licensed;
+	 *   - the list is absent / empty (not synced, older Hub) ⇒ Premium tier decides (as before);
+	 *   - the list lacks the slug: the Hub catalog names the slug ⇒ off on this plan; the catalog does not know it ⇒ Premium tier decides.
+	 * Automation keeps its own gate (is_premium()). Filter `bizcity_addon_license_service` (bool, slug, tier) for ops overrides.
+	 * Test seams: $readers['services'](): array (plan slugs) · $readers['catalog'](): array.
+	 */
+	public static function service_allowed( string $slug ): bool {
+		$slug    = sanitize_key( $slug );
+		$tier    = self::hub_tier();
+		$premium = in_array( $tier, self::PREMIUM_BUCKETS, true );
+		$plan    = array_values( array_filter( self::hub_services(), 'is_string' ) ); // drops the '__catalog_has_automation' marker
+		if ( ! $plan ) {
+			$ok = $premium;
+		} elseif ( in_array( $slug, $plan, true ) ) {
+			$ok = true;
+		} else {
+			$catalog = self::hub_catalog();
+			$ok      = ( $catalog && in_array( $slug, $catalog, true ) ) ? false : $premium;
+		}
+		return function_exists( 'apply_filters' ) ? (bool) apply_filters( 'bizcity_addon_license_service', $ok, $slug, $tier ) : $ok;
+	}
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-HB13 — the Hub service catalog (option bizcity_hub_services_catalog), [] when not synced. */
+	private static function hub_catalog(): array {
+		if ( isset( self::$readers['catalog'] ) ) {
+			return array_values( array_filter( (array) call_user_func( self::$readers['catalog'] ), 'is_string' ) );
+		}
+		$raw = function_exists( 'get_option' ) ? get_option( 'bizcity_hub_services_catalog', '' ) : '';
+		$arr = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
+		return is_array( $arr ) ? array_values( array_filter( $arr, 'is_string' ) ) : array();
+	}
+
+	/**
 	 * CL-LIC-4 — may the site expose / run Automation outside the shell (MCP `automation.*`, the Automation admin page, `/flow/`)?
 	 * Gate 1 only: the callers already know whether the plugin is there. Filter `bizcity_addon_license_automation` (bool) for ops.
 	 * Running workflows (cron, channels) are NOT stopped by this — Q-LIC-2, owner's call (doc 120 §7).

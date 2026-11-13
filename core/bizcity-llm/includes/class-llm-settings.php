@@ -59,7 +59,12 @@ class BizCity_LLM_Settings {
         add_action( 'wp_ajax_bizcity_llm_purge_log',       [ $this, 'ajax_purge_log' ] );
         // [2026-06-10 Johnny Chu] R-GW-API-CATALOG — inline key save from SetupApiKeyDialog
         add_action( 'wp_ajax_bizcity_llm_save_key',        [ $this, 'ajax_save_key' ] );
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 / N138-11 — the plan sync asked for by opening this page runs here (WP-cron), never in the page request.
+        add_action( self::SYNC_EVENT,                       [ __CLASS__, 'run_plan_sync' ], 10, 1 );
     }
+
+    /** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 N138-11 — single WP-cron event that refreshes master/config + entitlement off the page request. */
+    const SYNC_EVENT = 'bizcity_llm_sync_plan_now';
 
     /* ── Menus ── */
     public function add_menu(): void {
@@ -158,6 +163,10 @@ class BizCity_LLM_Settings {
             wp_die( esc_html__( 'You do not have permission to access this page.', 'bizcity-twin-ai' ) );
         }
 
+        // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL4 — the plan / entitlement sync used to run only under WP-cron or WP-CLI:
+        // a site with DISABLE_WP_CRON and no real cron stayed on Free forever. Opening this page (admin only, never a front-end request) refreshes it, still ≤ 1 per 300 s.
+        $this->maybe_sync_plan_on_open();
+
         $mode        = 'gateway';
         // [2026-06-10 Johnny Chu] HOTFIX — per-site option (not network-wide sitemeta)
         $api_key     = get_option( 'bizcity_llm_api_key', '' );
@@ -177,6 +186,8 @@ class BizCity_LLM_Settings {
             </p>
 
             <?php // [2026-10-14 12:13 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.107 S107-X1 R-ONE-VERTICAL-CELL — removed the 'use your own OpenRouter/OpenAI key' upsell; every AI call goes via the gateway. ?>
+
+            <?php $this->render_dev_site_card(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL1 — R-CSB CSB-5: one card, dev sites only ?>
 
             <?php if ( ! empty( $api_key ) ) : ?>
                 <div class="bizcity-llm-status bizcity-llm-status--ok">
@@ -366,6 +377,333 @@ class BizCity_LLM_Settings {
                     <?php submit_button( __( 'Save Settings', 'bizcity-twin-ai' ), 'primary', 'bizcity_llm_submit' ); ?>
                 </div>
             </form>
+
+            <?php $this->render_subscription_card(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI4 — "Gói & thời hạn" (subscription@1), hidden on an older Hub ?>
+            <?php $this->render_services_card(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 T138-1 — R-CSB §1: who provides what (A · B · C) ?>
+            <?php $this->render_byok_card(); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL5 — R-CSB CSB-3: outside the settings <form> (own AJAX, the key never rides the page POST) ?>
+        </div>
+        <?php
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL4 — refresh master/config + entitlement when an admin opens this page
+     * and the last sync is older than 300 s. Same methods the cron uses (BizCity_LLM_Client::maybe_sync_master_plan) — no new Hub call shape.
+     * A failure only leaves the stored plan as it was; the page always renders.
+     *
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 / N138-11 — no longer blocking (the page could wait ~11 s on a slow Hub):
+     * opening the page schedules ONE single WP-cron event (SYNC_EVENT) and pokes wp-cron.php with spawn_cron() (a non-blocking loopback, works
+     * with DISABLE_WP_CRON too). If an earlier event is still waiting after 120 s (loopback blocked), the sync runs on `shutdown`, after the
+     * response is flushed (fastcgi_finish_request when available). The ≤ 1 per 300 s throttle is unchanged.
+     */
+    private function maybe_sync_plan_on_open(): void {
+        if ( ! is_admin() || wp_doing_ajax() || ! class_exists( 'BizCity_LLM_Client' ) ) {
+            return;
+        }
+        $last = (int) get_option( 'bizcity_hub_master_sync_ts', 0 );
+        if ( $last > 0 && ( time() - $last ) < 300 ) {
+            return;
+        }
+        $uid  = (int) get_current_user_id();
+        $args = array( $uid );
+        try {
+            $next = wp_next_scheduled( self::SYNC_EVENT, $args );
+            if ( false === $next ) {
+                wp_schedule_single_event( time(), self::SYNC_EVENT, $args );
+            } elseif ( ( time() - (int) $next ) > 120 ) {
+                // the cron loopback never ran it: do it after the page is sent, then drop the stale event
+                wp_unschedule_event( (int) $next, self::SYNC_EVENT, $args );
+                add_action( 'shutdown', static function () use ( $uid ) {
+                    if ( function_exists( 'fastcgi_finish_request' ) ) {
+                        fastcgi_finish_request();
+                    }
+                    self::run_plan_sync( $uid );
+                }, 99 );
+                return;
+            }
+            if ( function_exists( 'spawn_cron' ) ) {
+                spawn_cron();
+            }
+        } catch ( \Throwable $e ) {
+            error_log( '[BizCity_LLM_Settings] plan sync scheduling failed: ' . substr( $e->getMessage(), 0, 200 ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+        }
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-CL1 / N138-11 — the work maybe_sync_plan_on_open() used to do inline
+     * (PHASE-0.138 S138-CL4): master/config (plan, seats, services, storage quota, subscription@1) + entitlement of the admin who opened the page.
+     *
+     * @param int $uid admin who opened ⚡ LLM Settings (0 ⇒ master/config only)
+     */
+    public static function run_plan_sync( $uid = 0 ): void {
+        if ( ! class_exists( 'BizCity_LLM_Client' ) ) {
+            return;
+        }
+        try {
+            $client = BizCity_LLM_Client::instance();
+            if ( ! $client->is_ready() ) {
+                return;
+            }
+            $client->maybe_sync_master_plan( array( 'sync_interval' => 300, 'timeout' => 6 ) );
+            // entitlement mirrors kg quota, plugins_enabled, services catalog and master level into the bizcity_hub_* options
+            $uid = (int) $uid;
+            if ( $uid > 0 ) {
+                $client->get_entitlement( $uid, array( 'timeout' => 5 ) );
+            }
+        } catch ( \Throwable $e ) {
+            error_log( '[BizCity_LLM_Settings] plan sync failed: ' . substr( $e->getMessage(), 0, 200 ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+        }
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI4 (mockup ①) — "Gói & thời hạn" from BizCity_LLM_Client::subscription():
+     * plan, "còn N ngày", "hết dd/mm/yyyy"; yellow when ≤ 7 days (active), amber in grace, red when expired ("Đang dùng gói Free — gia hạn
+     * để mở lại"); button "Gia hạn / nâng gói" ⇒ Channel Gateway SPA #/usage/topup. No block (older Hub / not synced yet) ⇒ nothing printed.
+     * No prices (SB-10).
+     */
+    private function render_subscription_card(): void {
+        if ( ! class_exists( 'BizCity_LLM_Client' ) || ! method_exists( 'BizCity_LLM_Client', 'subscription' ) ) {
+            return;
+        }
+        $s = BizCity_LLM_Client::subscription();
+        if ( 'none' === $s['state'] ) {
+            return;
+        }
+        $view = self::subscription_view( $s );
+        $url  = BizCity_LLM_Client::renew_url(); // PHASE-0.139: SPA tab with the billing add-on, else the Hub account page
+        $tone = array(
+            'ok'   => array( '#15803d', '#ffffff', 'background:#dcfce7;color:#15803d' ),
+            'warn' => array( '#b45309', '#fffbeb', 'background:#fef3c7;color:#b45309' ),
+            'bad'  => array( '#b91c1c', '#fef2f2', 'background:#fee2e2;color:#b91c1c' ),
+        );
+        $t = $tone[ $view['tone'] ];
+        ?>
+        <div class="bizcity-llm-card" id="bizcity-subscription-card" data-state="<?php echo esc_attr( $s['state'] ); ?>" style="border-left:4px solid <?php echo esc_attr( $t[0] ); ?>;background:<?php echo esc_attr( $t[1] ); ?>;max-width:520px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+                <strong style="font-size:15px"><?php echo esc_html( $view['plan'] ); ?></strong>
+                <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;<?php echo esc_attr( $t[2] ); ?>"><?php echo esc_html( $view['pill'] ); ?></span>
+            </div>
+            <div style="font-size:22px;font-weight:700;margin:6px 0 2px"><?php echo esc_html( $view['big'] ); ?></div>
+            <div class="description"><?php echo esc_html( $view['small'] ); ?></div>
+            <p style="margin:10px 0 0">
+                <a class="button <?php echo 'ok' === $view['tone'] ? '' : 'button-primary'; ?>" href="<?php echo esc_url( $url ); ?>" target="_top"><?php echo esc_html( $view['button'] ); ?></a>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.139 S139-UI4 — the words of the card for one subscription@1 block (pure; same rules as
+     * frontend/src/routes/zalobrain/subscriptionCore.js subscriptionView()).
+     *
+     * @param array $s BizCity_LLM_Client::subscription()
+     * @return array{tone:string,plan:string,pill:string,big:string,small:string,button:string}
+     */
+    public static function subscription_view( array $s ): array {
+        $state = (string) ( $s['state'] ?? 'none' );
+        $label = '' !== (string) ( $s['plan_label'] ?? '' ) ? (string) $s['plan_label'] : ucfirst( str_replace( 'master_', '', (string) ( $s['plan_code'] ?? '' ) ) );
+        $days  = (int) ( $s['days_left'] ?? -1 );
+        $end   = '';
+        if ( ! empty( $s['period_end_at'] ) ) {
+            $ts  = strtotime( (string) $s['period_end_at'] );
+            $end = false !== $ts ? wp_date( 'd/m/Y', $ts ) : '';
+        }
+        if ( 'expired' === $state ) {
+            return array(
+                'tone'   => 'bad',
+                'plan'   => 'Free',
+                'pill'   => '' !== $label && 'Free' !== $label ? 'Gói ' . $label . ' đã hết hạn' : 'Đã hết hạn',
+                'big'    => 'Đang dùng gói Free',
+                'small'  => ( '' !== $end ? 'hết hạn ' . $end . ' · ' : '' ) . 'gia hạn để mở lại',
+                'button' => 'Gia hạn để mở lại',
+            );
+        }
+        if ( 'grace' === $state ) {
+            return array(
+                'tone'   => 'warn',
+                'plan'   => $label,
+                'pill'   => 'Đang ân hạn',
+                'big'    => 'Đã hết hạn' . ( '' !== $end ? ' ' . $end : '' ),
+                'small'  => 'vẫn dùng gói ' . $label . ' trong ' . (int) ( $s['grace_days'] ?? 0 ) . ' ngày ân hạn — gia hạn để không bị chuyển về Free',
+                'button' => 'Gia hạn ngay',
+            );
+        }
+        $warn = $days >= 0 && $days <= 7;
+        return array(
+            'tone'   => $warn ? 'warn' : 'ok',
+            'plan'   => $label,
+            'pill'   => $warn ? 'Sắp hết' : 'Đang dùng',
+            'big'    => $days < 0 ? 'Không giới hạn thời gian' : 'còn ' . $days . ' ngày',
+            'small'  => '' !== $end ? 'hết ' . $end : 'không có ngày hết hạn',
+            'button' => $warn ? 'Gia hạn ngay' : 'Gia hạn / nâng gói',
+        );
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL1 — R-CSB CSB-5 "Đang chạy thử trên máy": printed only when
+     * bizcity_is_dev_site(). The rows come from BizCity_Site_Environment::dev_limits() (the ONE table; docs copy it).
+     */
+    private function render_dev_site_card(): void {
+        if ( ! function_exists( 'bizcity_is_dev_site' ) || ! class_exists( 'BizCity_Site_Environment' ) || ! bizcity_is_dev_site() ) {
+            return;
+        }
+        $rows = BizCity_Site_Environment::dev_limits();
+        ?>
+        <div class="bizcity-llm-card bizcity-llm-dev-card" style="border-left:4px solid #d97706">
+            <h2>🧪 <?php echo esc_html( 'Đang chạy thử trên máy' ); ?> <code style="font-size:12px"><?php echo esc_html( BizCity_Site_Environment::host() ); ?></code></h2>
+            <table class="widefat striped" style="max-width:820px">
+                <tbody>
+                <?php foreach ( $rows as $row ) :
+                    $ok   = $row['ok'] ?? false;
+                    $mark = true === $ok ? '✓' : ( 'partial' === $ok ? '⚠' : '✗' );
+                    $tone = true === $ok ? '#15803d' : ( 'partial' === $ok ? '#b45309' : '#b91c1c' );
+                ?>
+                    <tr>
+                        <td style="width:28px;text-align:center;font-weight:700;color:<?php echo esc_attr( $tone ); ?>"><?php echo esc_html( $mark ); ?></td>
+                        <td><?php echo esc_html( (string) ( $row['label'] ?? '' ) ); ?></td>
+                        <td class="description"><?php echo esc_html( (string) ( $row['note'] ?? '' ) ); ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p style="margin-top:10px">
+                <?php echo esc_html( 'Vì sao: BizCity phải gọi ngược về site qua https để giao kết quả; máy cá nhân không nhận được kết nối từ bên ngoài. Nhanh nhất: tạo site qua trang đăng ký BizCity (có sẵn tên miền, tặng 1 TB).' ); ?>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 T138-1 — R-CSB §1 "Cell cung cấp gì, bạn tự lo gì": group A (cell, paid through the
+     * biz- key), group B (storage, the customer's choice), group C (creative tools: the wallet on the BizCity network, the owner's own
+     * OpenRouter key elsewhere). Same words as docs/developer/CELL-SERVICES.md §1 and the Hub's services_catalog_groups.
+     */
+    private function render_services_card(): void {
+        $hosted = function_exists( 'bizcity_is_hosted_site' ) && bizcity_is_hosted_site();
+        $byok   = class_exists( 'BizCity_BYOK' ) && BizCity_BYOK::has_key();
+        $c_tag  = $hosted ? 'Qua ví khoá biz-' : ( $byok ? 'Khoá OpenRouter của bạn' : 'Chưa cài khoá OpenRouter' );
+        $cards  = array(
+            array( 'icon' => '🗄', 'title' => 'Storage', 'tag' => 'Khách tự chọn', 'tone' => 'neutral', 'text' => 'Tệp đi qua thư viện Media của WordPress; muốn đưa lên S3, R2, NAS hay Google Drive thì cài plugin offload.' . ( $hosted ? ' Site trên mạng BizCity: tặng 1 TB.' : '' ) ),
+            array( 'icon' => '🔎', 'title' => 'OCR / Vision', 'tag' => 'Cell thu phí', 'tone' => 'cell', 'text' => 'Đọc tài liệu, ảnh, ghi âm; trích xuất, phân loại, cấu trúc nội dung.' ),
+            array( 'icon' => '🧬', 'title' => 'Embedding / RAG', 'tag' => 'Cell thu phí', 'tone' => 'cell', 'text' => 'Vector hoá, lập chỉ mục và truy xuất ngữ cảnh thông minh.' ),
+            array( 'icon' => '🧠', 'title' => 'Second Brain Assistant', 'tag' => 'Cell thu phí', 'tone' => 'cell', 'text' => 'Hỏi đáp, trí nhớ, tìm kiếm (cả tìm kiếm web), hiểu ngữ cảnh, điều phối công việc; kênh Zalo, Facebook.' ),
+            array( 'icon' => '🎨', 'title' => 'Tool sáng tạo', 'tag' => $c_tag, 'tone' => ( $hosted || $byok ) ? 'own' : 'off', 'text' => 'Tạo ảnh, giọng nói, video, tài liệu.' ),
+        );
+        $tones = array(
+            'neutral' => 'background:#f1f5f9;color:#334155',
+            'cell'    => 'background:#dcfce7;color:#166534',
+            'own'     => 'background:#dbeafe;color:#1e40af',
+            'off'     => 'background:#fee2e2;color:#991b1b',
+        );
+        ?>
+        <div class="bizcity-llm-card" id="bizcity-services-card">
+            <h2>🧩 <?php echo esc_html( 'Dịch vụ: BizCity cung cấp gì, bạn tự lo gì' ); ?></h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;max-width:1100px">
+                <?php foreach ( $cards as $c ) : ?>
+                    <div style="border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;background:#fff">
+                        <div style="font-size:18px"><?php echo esc_html( $c['icon'] ); ?></div>
+                        <strong style="display:block;margin:4px 0"><?php echo esc_html( $c['title'] ); ?></strong>
+                        <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;<?php echo esc_attr( $tones[ $c['tone'] ] ); ?>"><?php echo esc_html( $c['tag'] ); ?></span>
+                        <p class="description" style="margin:8px 0 0"><?php echo esc_html( $c['text'] ); ?></p>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL5 — R-CSB CSB-3 BYOK OpenRouter key for group C tools (image, voice, documents).
+     * Backend contract (core/byok, another lane): BizCity_BYOK::has_key() / masked() / available(); AJAX bizcity_byok_save (POST `key`),
+     * bizcity_byok_test, bizcity_byok_delete; nonce action 'bizcity_byok' in `_ajax_nonce`; JSON {success, data:{message, masked}}.
+     * The stored key is NEVER printed — only masked(). Hosted sites (BizCity multisite) keep the Hub + wallet (D138-7): no form.
+     */
+    private function render_byok_card(): void {
+        $hosted = function_exists( 'bizcity_is_hosted_site' ) && bizcity_is_hosted_site();
+        if ( ! $hosted && ! class_exists( 'BizCity_BYOK' ) ) {
+            return;
+        }
+        ?>
+        <div class="bizcity-llm-card" id="bizcity-byok-card">
+            <h2>🔑 <?php echo esc_html( 'Khoá OpenRouter của bạn (tool sáng tạo: ảnh, giọng nói, tài liệu)' ); ?></h2>
+            <?php if ( $hosted ) : ?>
+                <p class="description"><?php echo esc_html( 'Site trên mạng BizCity: tool sáng tạo chạy qua ví của khoá biz-, không cần khoá riêng.' ); ?></p>
+            <?php else :
+                $has_key   = (bool) BizCity_BYOK::has_key();
+                $masked    = $has_key ? (string) BizCity_BYOK::masked() : '';
+                $available = method_exists( 'BizCity_BYOK', 'available' ) ? (bool) BizCity_BYOK::available() : $has_key;
+            ?>
+                <p class="description">
+                    <?php echo esc_html( 'Khoá chỉ lưu trên site này và chỉ dùng cho tool sáng tạo; trí nhớ, kho tri thức và trợ lý vẫn chạy qua khoá biz-.' ); ?>
+                </p>
+                <table class="form-table">
+                    <tr>
+                        <th><?php echo esc_html( 'Khoá đang lưu' ); ?></th>
+                        <td>
+                            <code id="bizcity-byok-masked"><?php echo esc_html( '' !== $masked ? $masked : '—' ); ?></code>
+                            <span id="bizcity-byok-state" class="description" style="margin-left:8px"><?php echo esc_html( $available ? 'Đang dùng cho tool sáng tạo.' : ( $has_key ? 'Đã lưu, chưa dùng được.' : 'Chưa có khoá.' ) ); ?></span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="bizcity-byok-key"><?php echo esc_html( 'Khoá mới' ); ?></label></th>
+                        <td>
+                            <input type="password" id="bizcity-byok-key" class="regular-text" autocomplete="new-password" placeholder="sk-or-…" value="" />
+                            <p style="margin-top:8px">
+                                <button type="button" class="button button-primary" id="bizcity-byok-save"><?php echo esc_html( 'Lưu khoá' ); ?></button>
+                                <button type="button" class="button" id="bizcity-byok-test"><?php echo esc_html( 'Kiểm tra khoá' ); ?></button>
+                                <button type="button" class="button" id="bizcity-byok-delete" style="color:#b91c1c"><?php echo esc_html( 'Xoá khoá' ); ?></button>
+                                <span id="bizcity-byok-result" style="margin-left:8px" role="status" aria-live="polite"></span>
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+                <script>
+                ( function () {
+                    var ajaxUrl = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
+                    var nonce   = <?php echo wp_json_encode( wp_create_nonce( 'bizcity_byok' ) ); ?>;
+                    var el = function ( id ) { return document.getElementById( id ); };
+                    var out = el( 'bizcity-byok-result' );
+                    function show( ok, msg ) {
+                        out.textContent = ( ok ? '✅ ' : '❌ ' ) + ( msg || '' );
+                        out.style.color = ok ? '#15803d' : '#b91c1c';
+                    }
+                    function call( action, extra, btn ) {
+                        var fd = new FormData();
+                        fd.append( 'action', action );
+                        fd.append( '_ajax_nonce', nonce );
+                        Object.keys( extra || {} ).forEach( function ( k ) { fd.append( k, extra[ k ] ); } );
+                        btn.disabled = true;
+                        out.textContent = '…';
+                        out.style.color = '';
+                        return fetch( ajaxUrl, { method: 'POST', credentials: 'same-origin', body: fd } )
+                            .then( function ( r ) { return r.json(); } )
+                            .then( function ( j ) {
+                                var d = ( j && j.data ) || {};
+                                var msg = typeof d === 'string' ? d : ( d.message || '' );
+                                show( !! ( j && j.success ), msg );
+                                if ( j && j.success && typeof d === 'object' && 'masked' in d ) {
+                                    el( 'bizcity-byok-masked' ).textContent = d.masked ? String( d.masked ) : '—';
+                                }
+                                return j;
+                            } )
+                            .catch( function () { show( false, 'Không gọi được máy chủ, thử lại.' ); } )
+                            .then( function ( j ) { btn.disabled = false; return j; } );
+                    }
+                    el( 'bizcity-byok-save' ).addEventListener( 'click', function () {
+                        var input = el( 'bizcity-byok-key' );
+                        var key = ( input.value || '' ).trim();
+                        if ( ! key ) { show( false, 'Dán khoá OpenRouter vào ô rồi bấm Lưu.' ); return; }
+                        call( 'bizcity_byok_save', { key: key }, this ).then( function ( j ) {
+                            if ( j && j.success ) { input.value = ''; }
+                        } );
+                    } );
+                    el( 'bizcity-byok-test' ).addEventListener( 'click', function () { call( 'bizcity_byok_test', {}, this ); } );
+                    el( 'bizcity-byok-delete' ).addEventListener( 'click', function () {
+                        if ( ! window.confirm( 'Xoá khoá OpenRouter khỏi site này?' ) ) { return; }
+                        call( 'bizcity_byok_delete', {}, this );
+                    } );
+                } )();
+                </script>
+            <?php endif; ?>
         </div>
         <?php
     }

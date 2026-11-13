@@ -11,7 +11,7 @@ Khách nhắn Zalo ─► CELL (hiểu · chọn việc) ─► HUB (xác thực
 ```
 
 **Mẫu chạy được:** [`starter/bizcity-booking-starter/`](starter/bizcity-booking-starter/) — plugin lịch hẹn (xem giờ trống · đặt lịch · đổi lịch · hỏi trạng thái). Đọc nó trước, rồi sao chép.
-**Cùng thư mục này:** [`STANDARD.md`](STANDARD.md) (chuẩn khung v1) · [`AGENTS.md`](AGENTS.md) (cho trợ lý AI lập trình của bạn) · [`contracts/`](contracts/) (hợp đồng máy đọc được) · [`tools/validate-extension.mjs`](tools/validate-extension.mjs) (trình kiểm, Node không cần cài gì thêm) · `starter/` (plugin mẫu).
+**Cùng thư mục này:** [`CELL-SERVICES.md`](CELL-SERVICES.md) (Zalo Brain cung cấp gì, bạn tự lo gì; chạy thử trên localhost) · [`STANDARD.md`](STANDARD.md) (chuẩn khung v1) · [`AGENTS.md`](AGENTS.md) (cho trợ lý AI lập trình của bạn) · [`contracts/`](contracts/) (hợp đồng máy đọc được) · [`tools/validate-extension.mjs`](tools/validate-extension.mjs) (trình kiểm, Node không cần cài gì thêm) · `starter/` (plugin mẫu).
 
 | Bạn viết | Zalo Brain lo |
 |---|---|

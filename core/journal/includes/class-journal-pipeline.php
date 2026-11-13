@@ -1,0 +1,866 @@
+<?php
+/**
+ * BizCity_Journal_Pipeline — `journal-pipeline@1`: the four steps a person sees a file go through
+ * (Ghi sổ ⇒ Đọc ⇒ Vào kho ⇒ Học sâu-optional), DERIVED from one journal row — nothing stored, no queue table.
+ *
+ *   indexed  "Ghi sổ"  the row exists (find_text / pack membership are what "indexed" means)
+ *   read     "Đọc"     metadata.meta.status (entry-meta@1): done · pending ⇒ doing · failed · skipped · none (never read) · na (no file)
+ *   vaulted  "Vào kho" metadata.resource.representations[] has a vault:// ref (brain-resource-link@1); knowledge.status stale ⇒ stale
+ *   studied  "Học sâu" kg source + metadata.learning{level, embedded_at, graph_state, status} ⇒ optional · doing (sub: chunks|embed|graph) · done · failed
+ *
+ * `level` stays the knowledge-ladder@1 L0–L4 of BizCity_Journal_Brain_Map::doc_level() — one ladder (PHASE-0.129); the pipeline only
+ * retells it in four words. Read by: entry-card (?view=card), brain-map doc nodes (owner panel), Twin Vault list / tree rows, and
+ * GET bizcity-knowledge/v2/journal/pipeline (the "Sổ cái" of Kho tri thức 00 Home). POST journal/rebuild-read asks the cell to
+ * read ≤ 20 old files again per call (same door as "Đọc lại": BizCity_Journal_Index::request_reread), never a request that walks the table.
+ *
+ * Biz Central Brain — Johnny Chu (Chu Hoàng Anh).
+ *
+ * // [2026-10-25 12:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B1/B2/B4 (doc 00 §3, D137-1/6) — new file.
+ *
+ * @package    Bizcity_Twin_AI
+ * @subpackage Core\KG_Hub
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+class BizCity_Journal_Pipeline {
+	const CONTRACT     = 'journal-pipeline@1.0.0';
+	const NS           = 'bizcity-knowledge/v2';
+	const STEPS        = array( 'indexed', 'read', 'vaulted', 'studied' );
+	const LABELS       = array( 'indexed' => 'Ghi sổ', 'read' => 'Đọc', 'vaulted' => 'Vào kho', 'studied' => 'Học sâu' );
+	const DOING_WINDOW = 120;   // seconds after a finished read during which "no Markdown yet" still reads as doing (the cell materializes right after meta.set)
+	const SCAN         = 200;   // rows one list call derives (same window brain-map scans in pages)
+	const REBUILD_MAX  = 20;    // files one rebuild call re-queues (R-PERF: no bulk work in a web request)
+	const RANGES       = array( 'today' => 1, '7d' => 7, '30d' => 30, 'all' => 0 );
+
+	private static $hooked = false;
+
+	public static function register(): void {
+		if ( self::$hooked || ! function_exists( 'add_action' ) ) {
+			return;
+		}
+		self::$hooked = true;
+		add_action( 'rest_api_init', array( __CLASS__, 'routes' ) );
+		// [2026-10-25 01:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B6 — the assistant reaches the same study door (Zalo "3 = học sâu luôn", "học kỹ 3 tệp này")
+		add_action( 'bizcity_mcp_register_tools', array( __CLASS__, 'register_tools' ) );
+		if ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) {
+			self::register_tools();
+		}
+	}
+
+	public static function register_tools(): void {
+		if ( ! class_exists( 'BizCity_MCP_Tool_Registry' ) ) {
+			return;
+		}
+		$R = 'BizCity_MCP_Tool_Registry';
+		// @mcp bizcity-mcp-standard@1 tool notebook.study — only when the notebook answers bizcity_journal_study (PHASE-0.148 W2)
+		if ( ! function_exists( 'has_filter' ) || has_filter( 'bizcity_journal_study' ) ) {
+		$R::register( 'notebook.study', array(
+			'title'          => 'Nghiên cứu sâu tệp trong Kho tri thức',
+			'description'    => 'Học sâu 1–20 tệp ĐÃ VÀO KHO (có bản đọc Markdown) theo mã TL-…: nạp bản đọc vào một notebook (mới, hoặc notebook_id có sẵn của chủ) ⇒ cắt đoạn, nhúng, và dựng đồ thị tri thức khi kg=true; sau đó hỏi được nội dung có trích dẫn. Dùng khi chủ nói "học sâu / nghiên cứu kỹ / học kỹ các tệp này", hoặc trả lời "3" ở tin "Vào kho xong". Tệp chưa có bản đọc ⇒ mục đó báo read_first (bảo chủ chờ hoặc nhắn "đọc lại TL-…"); đã học ⇒ already. KHÔNG dùng để đọc hay tóm tắt một tệp (dùng vault.get / document.text.read), KHÔNG tự học sâu khi chủ không yêu cầu (tốn token của chủ), không dùng cho kỹ năng.',
+			'input_schema'   => array( 'type' => 'object', 'required' => array( 'refs' ), 'properties' => array(
+				'refs'        => array( 'type' => 'array', 'maxItems' => self::STUDY_MAX, 'items' => array( 'type' => 'string', 'maxLength' => 24 ), 'description' => 'Mã các tệp cần học sâu, vd ["TL-7255","TL-7253"] (lấy từ biên nhận, vault.list hoặc vault.search).' ),
+				'notebook_id' => array( 'type' => 'integer', 'minimum' => 1, 'description' => 'Notebook có sẵn của chủ để học vào; bỏ trống = tạo notebook mới.' ),
+				'title'       => array( 'type' => 'string', 'maxLength' => 120, 'description' => 'Tên notebook mới; bỏ trống = tên thư mục của tệp đầu hoặc "Nghiên cứu dd/mm".' ),
+				'kg'          => array( 'type' => 'boolean', 'description' => 'true (mặc định) = dựng cả đồ thị tri thức; false = chỉ cắt đoạn + nhúng.' ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array(
+				'notebook' => array( 'type' => array( 'object', 'null' ) ),
+				'items'    => array( 'type' => 'array' ),
+				'learned'  => array( 'type' => 'integer' ),
+				'skipped'  => array( 'type' => 'integer' ),
+			), array( 'learned' ) ),
+			'read_only'      => false,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'memory.write',
+			'required_cap'   => 'edit_posts',
+			'scopes'         => array( 'memory.write' ),
+			'handler'        => array( __CLASS__, 'mcp_study' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'confirm'        => 'never',
+			'fallback_pack'  => null,
+			'since'          => '0.137.0',
+			'llm_alias'      => 'study_documents',
+			'brain'          => array( 'layer' => 'notebook', 'permission' => 'write', 'crud' => 'write' ),
+		) );
+		}
+		// @mcp bizcity-mcp-standard@1 tool vault.status
+		$R::register( 'vault.status', array(
+			'title'          => 'Tình trạng tệp trong Kho tri thức',
+			'description'    => 'Cho biết tệp nào của chủ ĐANG tải / đang đọc / đang học / lỗi / đã xong, lấy từ SỔ CÁI (journal): mỗi tệp có mã TL-…, thư mục và các bước Ghi sổ → Đọc → Vào kho → Học sâu kèm trạng thái (done · doing · failed · none). Dùng khi chủ nói "kiểm tra tình trạng kho tri thức", "file nào đang học / đang tải", "có file nào lỗi không", "tệp vừa gửi đã vào kho chưa". state = doing (đang chạy) hoặc failed để lọc; range today · 7d · 30d · all (mặc định 7d); folder = tên / số thư mục. KHÔNG dùng để tìm theo nội dung (journal_find / vault.search).',
+			'input_schema'   => array( 'type' => 'object', 'properties' => array(
+				'range'  => array( 'type' => 'string', 'enum' => array( 'today', '7d', '30d', 'all' ), 'description' => 'Khoảng thời gian tệp được ghi sổ; mặc định 7d.' ),
+				'state'  => array( 'type' => 'string', 'enum' => array( 'doing', 'failed', 'stale' ), 'description' => 'Chỉ tệp đang chạy / lỗi / treo; bỏ trống = tất cả.' ),
+				'folder' => array( 'type' => 'string', 'maxLength' => 60, 'description' => 'Thư mục: số hoặc tên.' ),
+				'limit'  => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50 ),
+			) ),
+			'output_schema'  => $R::envelope_schema( array( 'say' => array( 'type' => 'string' ), 'items' => array( 'type' => 'array' ), 'summary' => array( 'type' => 'object' ) ), array( 'items' ) ),
+			'read_only'      => true,
+			'destructive'    => false,
+			'idempotent'     => true,
+			'required_scope' => 'brain.read',
+			'scopes'         => array( 'brain.read' ),
+			'required_cap'   => 'edit_posts',
+			'handler'        => array( __CLASS__, 'mcp_status' ),
+			'mode'           => 'notebook',
+			'roles'          => array( 'owner', 'staff' ),
+			'confirm'        => 'never',
+			'fallback_pack'  => null,
+			'since'          => '0.137.0',
+			'llm_alias'      => 'vault_status',
+			'brain'          => array( 'tier' => 'L1', 'permission' => 'meta.read', 'crud' => 'read', 'answer_hint' => 'instant' ),
+		) );
+	}
+
+	/**
+	 * [2026-10-26 12:11 AM Johnny Chu - Chu Hoàng Anh] owner "Kiểm tra tình trạng kho tri thức cho anh": the STATUS of the files is read from the LEDGER (the journal rows — R-JOURNAL: the register is the spine), the same
+	 * journal-pipeline@1 the "Sổ cái" screen shows. No second store, no model call. @return array {range, say, summary, items[], total, unread_files}
+	 */
+	public static function mcp_status( array $args, array $ctx ) {
+		$ctx['owner_user_id'] = (int) ( $ctx['owner_user_id'] ?? $ctx['user_id'] ?? 0 );
+		$args['range']        = isset( self::RANGES[ (string) ( $args['range'] ?? '' ) ] ) ? (string) $args['range'] : '7d';
+		$res = self::list_for( $ctx, $args );
+		$o   = (array) ( $res['summary']['overall'] ?? array() );
+		$items = array();
+		foreach ( (array) $res['items'] as $p ) {
+			$items[] = array(
+				'ref'     => (string) ( $p['ref'] ?? '' ),
+				'title'   => (string) ( $p['title'] ?? '' ),
+				'folder'  => (string) ( $p['folder'] ?? '' ),
+				'overall' => (string) ( $p['overall'] ?? '' ), // done · doing · failed · stale
+				'steps'   => array_map( static function ( $s ) { return array( 'id' => (string) $s['id'], 'label' => (string) $s['label'], 'state' => (string) $s['state'] ); }, (array) ( $p['steps'] ?? array() ) ),
+				'next'    => is_array( $p['next'] ?? null ) ? (string) ( $p['next']['label'] ?? '' ) : '',
+			);
+		}
+		return array(
+			'contract'     => self::CONTRACT,
+			'range'        => (string) $res['range'],
+			'say'          => sprintf( 'Trong %s: %d tệp — %d đang xử lý, %d lỗi, %d xong; %d tệp cũ chưa có bản đọc.', array( 'today' => 'hôm nay', '7d' => '7 ngày', '30d' => '30 ngày', 'all' => 'toàn bộ sổ' )[ $res['range'] ], (int) ( $res['summary']['total'] ?? 0 ), (int) ( $o['doing'] ?? 0 ) + (int) ( $o['stale'] ?? 0 ), (int) ( $o['failed'] ?? 0 ), (int) ( $o['done'] ?? 0 ), (int) $res['unread_files'] ),
+			'summary'      => $res['summary'],
+			'items'        => $items,
+			'total'        => (int) $res['total'],
+			'unread_files' => (int) $res['unread_files'],
+		);
+	}
+
+	/** MCP door of study: the principal from the MCP context; service errors ⇒ the MCP catalog error with the reason kept. */
+	public static function mcp_study( array $args, array $ctx ) {
+		$res = self::study( array( 'owner_user_id' => (int) ( $ctx['owner_user_id'] ?? $ctx['user_id'] ?? 0 ), 'role' => 'owner' === (string) ( $ctx['role'] ?? '' ) ? 'owner' : 'staff' ), $args );
+		if ( ! is_wp_error( $res ) ) {
+			return $res;
+		}
+		$d = (array) $res->get_error_data();
+		return new WP_Error( class_exists( 'BizCity_MCP_Error' ) ? BizCity_MCP_Error::QUERY_INVALID : 'query_invalid', $res->get_error_message(), array( 'status' => (int) ( $d['status'] ?? 400 ), 'reason' => $res->get_error_code(), 'hint' => (string) ( $d['hint'] ?? '' ) ) );
+	}
+
+	public static function routes(): void {
+		register_rest_route( self::NS, '/journal/pipeline', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'rest_list' ),
+			'permission_callback' => static function () { return is_user_logged_in(); },
+		) );
+		register_rest_route( self::NS, '/journal/build-trace', array(
+			'methods'             => 'GET',
+			'callback'            => array( __CLASS__, 'rest_trace' ),
+			'permission_callback' => static function () { return is_user_logged_in(); },
+		) );
+		register_rest_route( self::NS, '/journal/rebuild-read', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'rest_rebuild' ),
+			'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+		) );
+		// [2026-10-25 01:18 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B6 (D137-7) — the ONE door from Kho tri thức to a notebook ("Nghiên cứu sâu")
+		register_rest_route( self::NS, '/notebooks/from-refs', array(
+			'methods'             => 'POST',
+			'callback'            => array( __CLASS__, 'rest_study' ),
+			'permission_callback' => static function () { return current_user_can( 'edit_posts' ); },
+		) );
+	}
+
+	// ── study: Kho tri thức ⇒ notebook (D137-7/8) ───────────────────────
+
+	const STUDY_MAX = 20;
+
+	/**
+	 * Learn ≤ 20 journal rows deeply in a notebook ("Học sâu"). The work belongs to the notebook (KG + TwinChat): it answers filter
+	 * `bizcity_journal_study` (BizCity_KG_Journal_Study). Without it ⇒ study_unavailable (503).
+	 *
+	 * // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C4 / S148-C14 (D148-19) — body moved to core/kg-hub/includes/class-kg-journal-study.php.
+	 *
+	 * @param array $ctx  {owner_user_id, role}
+	 * @param array $args {refs: string[] (TL-… | JE-… | entry ids), notebook_id?: int, title?: string, kg?: bool (default true), force?: bool}
+	 * @return array|WP_Error
+	 */
+	public static function study( array $ctx, array $args ) {
+		$res = function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_journal_study', null, $ctx, $args ) : null;
+		if ( null === $res ) {
+			return new WP_Error( 'study_unavailable', 'Chưa có nơi học sâu trên site này (Notebook chưa bật).', array( 'status' => 503, 'hint' => 'Bật Notebook để nghiên cứu sâu; Kho tri thức vẫn đọc và trả lời bình thường.', 'help_code' => 'journal_pipeline' ) );
+		}
+		return $res;
+	}
+
+	public static function rest_study( WP_REST_Request $request ): WP_REST_Response {
+		$body = $request->get_json_params();
+		$args = is_array( $body ) ? $body : (array) $request->get_body_params();
+		$res  = self::study( self::ctx(), $args );
+		if ( is_wp_error( $res ) ) {
+			$d = (array) $res->get_error_data();
+			return new WP_REST_Response( array( 'code' => $res->get_error_code(), 'message' => $res->get_error_message(), 'hint' => (string) ( $d['hint'] ?? '' ), 'help_code' => (string) ( $d['help_code'] ?? 'journal_pipeline' ) ), (int) ( $d['status'] ?? 400 ) );
+		}
+		return new WP_REST_Response( $res, 200 );
+	}
+
+	// ── pure ─────────────────────────────────────────────────────────────
+
+	/**
+	 * The four steps of one journal-entry@1 row. Pure: no DB, no clock unless `$now` is null (then gmdate).
+	 *
+	 * @param array       $e     journal-entry@1 (as BizCity_Journal_Index::to_journal_entry returns it)
+	 * @param string|null $level knowledge-ladder level already decided by brain-map (L0…L4) or null = unknown
+	 * @param string|null $now   ISO-8601 UTC for the doing window; null = now
+	 */
+	public static function of( array $e, ?string $level = null, ?string $now = null ): array {
+		$now_ts   = null !== $now ? (int) strtotime( $now ) : time();
+		$meta     = is_array( $e['meta'] ?? null ) ? $e['meta'] : array();
+		$res      = is_array( $e['resource'] ?? null ) ? $e['resource'] : array();
+		$learn    = is_array( $e['learning'] ?? null ) ? $e['learning'] : array();
+		$has_file = (int) ( $e['original']['attachment_id'] ?? 0 ) > 0;
+		$ref      = (string) ( $e['ref_code'] ?? '' );
+		$steps    = array();
+
+		// ① indexed — the row IS the index (R-JOURNAL): created_at is the moment the file was booked
+		$steps[] = array( 'id' => 'indexed', 'label' => self::LABELS['indexed'], 'state' => 'done', 'at' => (string) ( $e['created_at'] ?? '' ), 'why' => '' !== $ref ? $ref : 'row' );
+
+		// ② read — entry-meta@1 status
+		$ms      = (string) ( $meta['status'] ?? '' );
+		$read_at = (string) ( $meta['by']['at'] ?? '' );
+		$read    = array( 'id' => 'read', 'label' => self::LABELS['read'], 'state' => 'none', 'at' => $read_at );
+		if ( ! $has_file && '' === $ms ) {
+			$read['state'] = 'na'; // a note / sheet row has nothing to OCR
+		} elseif ( 'done' === $ms || ( '' === $ms && ( '' !== (string) ( $meta['about'] ?? '' ) || '' !== (string) ( $meta['ocr']['text'] ?? '' ) ) ) ) {
+			$read['state'] = 'done';
+			$read['why']   = self::read_why( $meta );
+		} elseif ( 'pending' === $ms ) {
+			$read['state'] = 'doing';
+			$read['op']    = substr( (string) ( $meta['by']['op'] ?? '' ), 0, 24 );
+		} elseif ( 'failed' === $ms ) {
+			$read['state'] = 'failed';
+			$read['error'] = self::error_of( is_array( $meta['error'] ?? null ) ? $meta['error'] : array() );
+		} elseif ( 'skipped' === $ms ) {
+			$read['state'] = 'skipped';
+			$read['error'] = self::error_of( is_array( $meta['error'] ?? null ) ? $meta['error'] : array() );
+		}
+		$steps[] = $read;
+
+		// ③ vaulted — a vault:// representation of this row (brain-resource-link@1)
+		$rep = null;
+		foreach ( (array) ( $res['representations'] ?? array() ) as $r ) {
+			if ( is_array( $r ) && 0 === strpos( (string) ( $r['ref'] ?? '' ), 'vault://' ) ) {
+				$rep = $r; // list is oldest ⇒ newest; keep the last
+			}
+		}
+		$folder  = (string) ( $meta['folder'] ?? '' );
+		$vaulted = array( 'id' => 'vaulted', 'label' => self::LABELS['vaulted'], 'state' => 'none', 'at' => '', 'folder' => $folder );
+		if ( $rep ) {
+			$vaulted['state'] = 'stale' === (string) ( $res['knowledge']['status'] ?? '' ) ? 'stale' : 'done';
+			$vaulted['ref']   = (string) $rep['ref'];
+			$vaulted['rev']   = max( 1, (int) ( $rep['rev'] ?? 1 ) );
+			$vaulted['at']    = '' !== $read_at ? $read_at : (string) ( $e['updated_at'] ?? '' );
+		} elseif ( 'done' === $read['state'] && '' !== $read_at && $now_ts - (int) strtotime( $read_at ) < self::DOING_WINDOW ) {
+			$vaulted['state'] = 'doing';
+		} elseif ( 'na' === $read['state'] ) {
+			$vaulted['state'] = 'na';
+		}
+		$steps[] = $vaulted;
+
+		// ④ studied — OPTIONAL deep learning (FP-7). [2026-10-25 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A1 fix (owner screenshot: two Zalo files showed "học sâu: cắt đoạn" nobody asked for) —
+		// a file the system embedded on its own when it was captured (kg_source_id + passages, level L1, graph none) is NOT "Học sâu": the step stays optional and only says it is already embedded (`auto`).
+		// Học sâu starts when a person asked: level L2/L3 (document.learn.set / "Nghiên cứu sâu") or a graph_state other than none (pending · done · skipped = studied on purpose without the graph).
+		$kg       = (int) ( $e['kg']['source_id'] ?? 0 ) > 0 || (int) ( $res['knowledge']['kg_source_id'] ?? 0 ) > 0;
+		$lstatus  = (string) ( $learn['status'] ?? '' );
+		$graph    = (string) ( $learn['graph_state'] ?? 'none' );
+		$embedded = ! empty( $learn['embedded_at'] ) || (int) ( $learn['passages'] ?? 0 ) > 0 || ! empty( $learn['text_ready'] );
+		$asked    = in_array( $graph, array( 'pending', 'done', 'skipped' ), true ) || in_array( (string) ( $learn['level'] ?? '' ), array( 'L2', 'L3' ), true );
+		$studied  = array( 'id' => 'studied', 'label' => self::LABELS['studied'], 'state' => 'optional', 'at' => '' );
+		if ( 'failed' === $lstatus && $asked ) {
+			$studied['state'] = 'failed';
+			$studied['error'] = self::error_of( array( 'code' => 'learning_failed', 'message' => (string) ( $learn['error'] ?? 'Học sâu không xong.' ), 'hint' => 'Bấm "Học lại" để thử lại.' ) );
+		} elseif ( $asked ) {
+			if ( 'done' === $graph ) {
+				$studied['state'] = 'done';
+				$studied['sub']   = 'graph';
+			} elseif ( 'pending' === $graph ) {
+				$studied['state'] = 'doing';
+				$studied['sub']   = 'graph';
+			} elseif ( $embedded ) {
+				$studied['state'] = 'done'; // studied on purpose without (or before) the graph: skipped, or L2 with the vectors in place
+				$studied['sub']   = 'embed';
+			} else {
+				$studied['state'] = 'doing';
+				$studied['sub']   = 'chunks';
+			}
+		}
+		if ( $kg || $asked ) {
+			$studied['at']        = (string) ( $learn['embedded_at'] ?? '' );
+			$studied['passages']  = (int) ( $learn['passages'] ?? 0 );
+			$studied['notebooks'] = array_values( array_map( 'intval', (array) ( $e['kg']['notebook_ids'] ?? array() ) ) );
+			$studied['auto']      = 'optional' === $studied['state'] && $embedded; // already embedded by the capture itself: searchable by content, not "learned deeply"
+		}
+		$steps[] = $studied;
+
+		$out = array(
+			'contract' => self::CONTRACT,
+			'ref'      => $ref,
+			'entry_id' => (int) ( $e['entry_id'] ?? 0 ),
+			'level'    => $level,
+			'overall'  => self::overall( $steps ),
+			'steps'    => $steps,
+			'next'     => self::next_of( $read, $vaulted, $studied, $has_file ),
+		);
+		return $out;
+	}
+
+	/** Pure: counts a list of pipelines by step state + overall; what the five tiles of "Sổ cái" show. */
+	public static function summary( array $pipelines ): array {
+		$by = array();
+		foreach ( self::STEPS as $s ) {
+			$by[ $s ] = array();
+		}
+		$overall = array( 'done' => 0, 'doing' => 0, 'failed' => 0, 'stale' => 0 );
+		$levels  = array();
+		foreach ( $pipelines as $p ) {
+			foreach ( (array) ( $p['steps'] ?? array() ) as $st ) {
+				$by[ $st['id'] ][ $st['state'] ] = ( $by[ $st['id'] ][ $st['state'] ] ?? 0 ) + 1;
+			}
+			$o = (string) ( $p['overall'] ?? 'done' );
+			$overall[ $o ] = ( $overall[ $o ] ?? 0 ) + 1;
+			$lv = (string) ( $p['level'] ?? '' );
+			if ( '' !== $lv ) {
+				$levels[ $lv ] = ( $levels[ $lv ] ?? 0 ) + 1;
+			}
+		}
+		ksort( $levels );
+		return array( 'total' => count( $pipelines ), 'by_step' => $by, 'overall' => $overall, 'levels' => $levels );
+	}
+
+	// ── used_in: who used this file (D137-3/4, S137-B8) ──────────────────
+
+	const USES_MAX = 20;
+
+	/**
+	 * Pure: one raw journal row (id, kind, title, source_ref, metadata JSON, created_at) ⇒ one "use" of the source `$entry_id` / `$ref`, or null
+	 * when the text match was a false hit. Kinds: `evidence` (sent / posted, with status) · `job` (an input of a job, JB-…) · `derived` (a new file
+	 * made from it). The Journal stays the source of truth; this is a reading of it.
+	 */
+	public static function use_of_row( array $raw, int $entry_id, string $ref ): ?array {
+		$m    = is_array( $raw['metadata'] ?? null ) ? $raw['metadata'] : json_decode( (string) ( $raw['metadata'] ?? '' ), true );
+		$m    = is_array( $m ) ? $m : array();
+		$pin  = '/^' . preg_quote( $ref, '/' ) . '@[vVsS]\d+$/';
+		$kind = (string) ( $raw['kind'] ?? '' );
+		$base = array( 'entry_id' => (int) ( $raw['id'] ?? 0 ), 'ref' => (string) ( $m['original']['doc_code'] ?? '' ), 'title' => mb_substr( (string) ( $raw['title'] ?? '' ), 0, 120 ), 'at' => (string) ( $raw['created_at'] ?? '' ) );
+		$ev   = is_array( $m['evidence'] ?? null ) ? $m['evidence'] : array();
+		if ( $ev ) {
+			$refs = array_merge( (array) ( $ev['source_refs'] ?? array() ), array( (string) ( $ev['document_version_ref'] ?? '' ), (string) ( $ev['content_version_ref'] ?? '' ) ) );
+			foreach ( $refs as $r ) {
+				if ( 1 === preg_match( $pin, (string) $r ) ) {
+					return $base + array( 'use' => 'evidence', 'what' => (string) ( $ev['provider'] ?? $ev['channel'] ?? 'gửi / đăng' ), 'status' => (string) ( $ev['status'] ?? 'unknown' ), 'version' => (string) $r );
+				}
+			}
+		}
+		$job = is_array( $m['job'] ?? null ) ? $m['job'] : array();
+		if ( 1 === preg_match( $pin, (string) ( $job['version_ref'] ?? '' ) ) ) {
+			return $base + array( 'use' => 'job', 'job_ref' => (string) ( $job['job_ref'] ?? '' ), 'role' => (string) ( $job['role'] ?? 'input' ), 'version' => (string) $job['version_ref'] );
+		}
+		if ( in_array( $entry_id, array_map( 'intval', (array) ( $m['derived_from'] ?? array() ) ), true ) ) {
+			return $base + array( 'use' => 'derived', 'job_ref' => (string) ( $job['job_ref'] ?? '' ), 'kind' => $kind );
+		}
+		return null;
+	}
+
+	/** The uses of one row (≤ USES_MAX, newest first) — a view over the person's Journal; [] when the database class is absent. */
+	public static function uses_of( array $entry, int $owner ): array {
+		$id  = (int) ( $entry['entry_id'] ?? 0 );
+		$ref = (string) ( $entry['ref_code'] ?? '' );
+		if ( $id <= 0 || '' === $ref || ! class_exists( 'BizCity_Journal_Database' ) || ! method_exists( 'BizCity_Journal_Database', 'find_uses' ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( BizCity_Journal_Database::instance()->find_uses( $owner, $id, $ref ) as $raw ) {
+			$u = self::use_of_row( (array) $raw, $id, $ref );
+			if ( $u ) {
+				$out[] = $u;
+			}
+			if ( count( $out ) >= self::USES_MAX ) {
+				break;
+			}
+		}
+		// [2026-10-25 06:28 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-B8 — + the chat turns that opened / read / sent this file (BizCity_Journal_Turn_Uses ring); Journal uses first,
+		// then the turns, the whole list still ≤ USES_MAX, newest first inside each group
+		return self::with_turn_uses( $out, $ref, class_exists( 'BizCity_Journal_Turn_Uses', false ) ? BizCity_Journal_Turn_Uses::ring() : array() );
+	}
+
+	/** Pure: Journal uses + the chat-turn uses of `$ref` from a ring, capped at USES_MAX. */
+	public static function with_turn_uses( array $uses, string $ref, array $ring ): array {
+		if ( ! $ring || ! class_exists( 'BizCity_Journal_Turn_Uses', false ) ) {
+			return array_slice( $uses, 0, self::USES_MAX );
+		}
+		return array_slice( array_merge( $uses, BizCity_Journal_Turn_Uses::uses_for( $ring, $ref ) ), 0, self::USES_MAX );
+	}
+
+	/** Pure: one word for the row. failed > doing > stale > done. */
+	public static function overall( array $steps ): string {
+		$states = array_column( $steps, 'state' );
+		foreach ( array( 'failed', 'doing', 'stale' ) as $s ) {
+			if ( in_array( $s, $states, true ) ) {
+				return $s;
+			}
+		}
+		return 'done';
+	}
+
+	private static function next_of( array $read, array $vaulted, array $studied, bool $has_file ): array {
+		if ( 'failed' === $read['state'] ) {
+			return array( 'action' => 'reread', 'label' => 'Đọc lại' );
+		}
+		if ( 'none' === $read['state'] && $has_file ) {
+			return array( 'action' => 'rebuild', 'label' => 'Build lại bản đọc' );
+		}
+		if ( 'stale' === $vaulted['state'] ) {
+			return array( 'action' => 'restudy', 'label' => 'Học lại bản mới' );
+		}
+		if ( 'done' === $vaulted['state'] && '' === (string) $vaulted['folder'] ) {
+			return array( 'action' => 'assign_folder', 'label' => 'Xếp thư mục' );
+		}
+		if ( 'optional' === $studied['state'] && 'done' === $vaulted['state'] ) {
+			return array( 'action' => 'study', 'label' => 'Nghiên cứu sâu' );
+		}
+		return array( 'action' => 'none', 'label' => '' );
+	}
+
+	private static function read_why( array $meta ): string {
+		$bits = array();
+		if ( '' !== (string) ( $meta['about'] ?? '' ) ) {
+			$bits[] = 'tóm tắt';
+		}
+		$n = mb_strlen( (string) ( $meta['ocr']['text'] ?? '' ) );
+		if ( $n > 0 ) {
+			$bits[] = $n . ' ký tự';
+		}
+		$k = count( (array) ( $meta['keywords'] ?? array() ) );
+		if ( $k > 0 ) {
+			$bits[] = $k . ' từ khoá';
+		}
+		return implode( ' · ', $bits );
+	}
+
+	/** R-ERROR-UX: always the four fields, never a bare string; nothing from the message that looks like a path. */
+	public static function error_of( array $err ): array { // public since PHASE-0.148 W2 (BizCity_KG_Journal_Study)
+		return array(
+			'code'      => substr( (string) preg_replace( '/[^a-z0-9_]/', '', strtolower( (string) ( $err['code'] ?? 'read_failed' ) ) ), 0, 40 ) ?: 'read_failed',
+			'message'   => mb_substr( (string) ( $err['message'] ?? 'Không đọc được tệp này.' ), 0, 120 ),
+			'hint'      => mb_substr( (string) ( $err['hint'] ?? 'Bấm Đọc lại; vẫn lỗi thì gửi lại tệp nhỏ hơn.' ), 0, 160 ),
+			'help_code' => (string) ( $err['help_code'] ?? 'entry_meta' ),
+		);
+	}
+
+	// ── site: list + rebuild ─────────────────────────────────────────────
+
+	/** Declared kinds of the document / output layers (journal-kinds@1); the rows a file journey is about. */
+	public static function doc_kinds(): array {
+		if ( ! class_exists( 'BizCity_Journal_Kinds' ) || ! method_exists( 'BizCity_Journal_Kinds', 'layer_of' ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( array_keys( (array) ( BizCity_Journal_Kinds::all()['kinds'] ?? array() ) ) as $k ) {
+			if ( in_array( BizCity_Journal_Kinds::layer_of( (string) $k ), array( 'document', 'output' ), true ) ) {
+				$out[] = (string) $k;
+			}
+		}
+		return $out;
+	}
+
+	/** entry ids in the person's doc_index@3 pack; null = pack unavailable (the tier alone decides the level) — same rule as brain-map. */
+	private static function pack_ids( int $owner ): ?array {
+		if ( ! class_exists( 'BizCity_Journal_Doc_Index_Pack_Exporter' ) || ! BizCity_Journal_Doc_Index_Pack_Exporter::available() ) {
+			return null;
+		}
+		$ids = array();
+		foreach ( (array) ( BizCity_Journal_Doc_Index_Pack_Exporter::build( $owner, 'owner' )['items'] ?? array() ) as $it ) {
+			if ( is_array( $it ) && 'doc' === (string) ( $it['row'] ?? '' ) && (int) ( $it['entry_id'] ?? 0 ) > 0 ) {
+				$ids[] = (int) $it['entry_id'];
+			}
+		}
+		return $ids;
+	}
+
+	/** Level of one row the way brain-map decides it (one ladder). */
+	public static function level_of( array $e, ?array $pack_ids ): ?string {
+		if ( ! class_exists( 'BizCity_Journal_Brain_Map' ) ) {
+			return null;
+		}
+		$in_pack = null === $pack_ids ? null : in_array( (int) ( $e['entry_id'] ?? 0 ), $pack_ids, true );
+		return BizCity_Journal_Brain_Map::doc_level( $e, $in_pack );
+	}
+
+	/**
+	 * The person's file rows of a range with their pipelines + the summary (one page, ≤ SCAN derived).
+	 *
+	 * @param array $ctx  {owner_user_id, role}
+	 * @param array $args {range: today|7d|30d|all, step?, state?, folder?, limit≤50, offset}
+	 */
+	public static function list_for( array $ctx, array $args ): array {
+		$owner = (int) ( $ctx['owner_user_id'] ?? 0 );
+		$kinds = self::doc_kinds();
+		if ( $owner <= 0 || ! $kinds || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return array( 'contract' => self::CONTRACT, 'items' => array(), 'total' => 0, 'summary' => self::summary( array() ) );
+		}
+		$range  = (string) ( $args['range'] ?? 'today' );
+		$days   = self::RANGES[ $range ] ?? 1;
+		$filter = array( 'owner_user_id' => $owner, 'kinds' => $kinds, 'limit' => 50 );
+		if ( $days > 0 ) {
+			$filter['created_days'] = $days; // S137-A4 fix: booked-at (created_at), not the paper's doc_date — see BizCity_Journal_Database::find_indexed
+		}
+		if ( ! empty( $args['folder'] ) ) {
+			$filter['folder'] = (string) $args['folder'];
+		}
+		$rows  = array();
+		$total = 0;
+		for ( $off = 0; $off < self::SCAN; $off += 50 ) {
+			$page  = BizCity_Journal_Index::find( array_merge( $filter, array( 'offset' => $off ) ) );
+			$total = max( $total, (int) ( $page['total'] ?? 0 ) );
+			$rows  = array_merge( $rows, (array) ( $page['items'] ?? array() ) );
+			if ( count( (array) ( $page['items'] ?? array() ) ) < 50 ) {
+				break;
+			}
+		}
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			$rows = BizCity_Brain_Access::filter( $rows, BizCity_Brain_Access::principal( $ctx ), 'meta.read' );
+		}
+		$pack  = self::pack_ids( $owner );
+		$now   = gmdate( 'c' );
+		$items = array();
+		foreach ( $rows as $e ) {
+			$p = self::of( $e, self::level_of( $e, $pack ), $now );
+			$p['title']      = mb_substr( '' !== (string) ( $e['meta']['title'] ?? '' ) ? (string) $e['meta']['title'] : (string) ( $e['title'] ?? '' ), 0, 120 );
+			$p['kind']       = (string) ( $e['kind'] ?? '' );
+			$p['file_name']  = mb_substr( (string) ( $e['original']['file_name'] ?? '' ), 0, 120 );
+			$p['origin']     = array( 'surface' => (string) ( $e['origin']['surface'] ?? '' ) );
+			$p['created_at'] = (string) ( $e['created_at'] ?? '' );
+			$p['folder']     = substr( (string) ( $e['meta']['folder'] ?? '' ), 0, 2 ); // [2026-10-26 12:11 AM Johnny Chu - Chu Hoàng Anh] vault.status says which folder a file sits in
+			$items[]         = $p;
+		}
+		$summary = self::summary( $items );
+		$step    = (string) ( $args['step'] ?? '' );
+		$state   = (string) ( $args['state'] ?? '' );
+		if ( in_array( $step, self::STEPS, true ) && '' !== $state ) {
+			$items = array_values( array_filter( $items, static function ( $p ) use ( $step, $state ) {
+				foreach ( $p['steps'] as $st ) {
+					if ( $st['id'] === $step ) {
+						return $st['state'] === $state;
+					}
+				}
+				return false;
+			} ) );
+		} elseif ( in_array( $state, array( 'doing', 'failed', 'stale' ), true ) ) {
+			$items = array_values( array_filter( $items, static function ( $p ) use ( $state ) { return $p['overall'] === $state; } ) );
+		}
+		$limit  = min( 50, max( 1, (int) ( $args['limit'] ?? 20 ) ) );
+		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
+		return array(
+			'contract'      => self::CONTRACT,
+			'range'         => isset( self::RANGES[ $range ] ) ? $range : 'today',
+			'items'         => array_slice( $items, $offset, $limit ),
+			'total'         => count( $items ),
+			'scanned'       => count( $rows ),
+			'range_total'   => $total,
+			'truncated'     => $total > count( $rows ),
+			'summary'       => $summary,
+			'unread_files'  => self::count_unread( $owner, $kinds ),
+			'rebuild_max'   => self::REBUILD_MAX,
+		);
+	}
+
+	/** Files of the person that were never read (no entry-meta block) — the "N tệp cũ chưa có bản đọc" tile; SQL count only. */
+	public static function count_unread( int $owner, array $kinds ): int {
+		$r = BizCity_Journal_Index::find( array( 'owner_user_id' => $owner, 'kinds' => $kinds, 'has_file' => 1, 'meta_status' => 'none', 'limit' => 1 ) );
+		return (int) ( $r['total'] ?? 0 );
+	}
+
+	/**
+	 * Re-queue ≤ REBUILD_MAX never-read (or, with `failed:true`, failed) files of the owner: each goes through request_reread (meta.status ⇒ pending,
+	 * by.op = reread) and the cell's sweep reads it within its next tick. Returns how many were queued and whether more remain. Never walks the table.
+	 */
+	public static function rebuild( int $owner, int $limit, bool $failed_too ): array {
+		$kinds = self::doc_kinds();
+		$limit = min( self::REBUILD_MAX, max( 1, $limit ) );
+		$out   = array( 'contract' => self::CONTRACT, 'queued' => 0, 'skipped' => 0, 'refs' => array() );
+		$traced = array();
+		if ( $owner <= 0 || ! $kinds || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return $out;
+		}
+		$statuses = $failed_too ? array( 'none', 'failed' ) : array( 'none' );
+		foreach ( $statuses as $ms ) {
+			if ( $out['queued'] >= $limit ) {
+				break;
+			}
+			$page = BizCity_Journal_Index::find( array( 'owner_user_id' => $owner, 'kinds' => $kinds, 'has_file' => 1, 'meta_status' => $ms, 'limit' => $limit ) );
+			foreach ( (array) ( $page['items'] ?? array() ) as $e ) {
+				if ( $out['queued'] >= $limit ) {
+					break;
+				}
+				$r = BizCity_Journal_Index::request_reread( (int) $e['entry_id'], $owner );
+				if ( is_wp_error( $r ) ) {
+					$out['skipped']++;
+					continue;
+				}
+				$out['queued']++;
+				if ( count( $out['refs'] ) < 20 ) {
+					$out['refs'][] = (string) ( $e['ref_code'] ?? '' );
+					$traced[]      = array( 'ref' => (string) ( $e['ref_code'] ?? '' ), 'entry_id' => (int) ( $e['entry_id'] ?? 0 ), 'title' => mb_substr( (string) ( $e['title'] ?? '' ), 0, 80 ), 'from' => $ms );
+				}
+			}
+		}
+		$out['remaining'] = self::count_unread( $owner, $kinds );
+		// [2026-10-25 02:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A13 (owner: "chưa thấy build scope trace") — every build leaves a trace the screen can replay: scope · files · live state per file
+		if ( $traced ) {
+			$out['trace_id'] = self::trace_push( $owner, 'rebuild', array( 'mode' => $failed_too ? 'unread+failed' : 'unread', 'limit' => $limit, 'unread_before' => $out['remaining'] + $out['queued'], 'remaining_after' => $out['remaining'] ), $traced );
+		}
+		return $out;
+	}
+
+	// ── trace: "lượt build" — what was asked, for which files, and where each file is NOW (S137-A13) ──
+
+	const TRACE_KEEP = 10;      // batches kept per person
+	const TRACE_TTL  = 259200;  // 3 days
+	const TRACE_OPT  = 'bizcity_journal_pipeline_trace';
+
+	/**
+	 * Remember one batch (≤ 20 refs, titles ≤ 80 chars, ~3 KB) in the person's own per-blog user option (ring of TRACE_KEEP, 3 days) — the same precedent as the brain-map lookups option.
+	 * The state of each file is NEVER stored: it is read live from the Journal row (FP-2). Returns the batch id, '' when nothing was stored.
+	 */
+	public static function trace_push( int $owner, string $op, array $scope, array $rows ): string {
+		if ( $owner <= 0 || ! $rows || ! function_exists( 'get_user_option' ) || ! function_exists( 'update_user_option' ) ) {
+			return '';
+		}
+		$id    = 'bd_' . substr( hash( 'sha256', $owner . '|' . microtime( true ) . '|' . ( function_exists( 'wp_rand' ) ? wp_rand() : mt_rand() ) ), 0, 10 );
+		$now   = time();
+		$batch = array( 'id' => $id, 'at' => gmdate( 'Y-m-d\TH:i:s\Z', $now ), 'op' => 'study' === $op ? 'study' : 'rebuild', 'scope' => $scope, 'rows' => array_slice( $rows, 0, 20 ) );
+		$list  = get_user_option( self::TRACE_OPT, $owner );
+		$list  = array_values( array_filter( is_array( $list ) ? $list : array(), static function ( $b ) use ( $now ) { return is_array( $b ) && isset( $b['at'] ) && $now - (int) strtotime( (string) $b['at'] ) < self::TRACE_TTL; } ) );
+		array_unshift( $list, $batch );
+		update_user_option( $owner, self::TRACE_OPT, array_slice( $list, 0, self::TRACE_KEEP ), false );
+		return $id;
+	}
+
+	/**
+	 * Pure: the state of ONE traced file for an operation, from its pipeline. rebuild looks at the read step, study at the studied step.
+	 * waiting = asked but the assistant has not taken it yet (read none / studied optional); doing = taken; done · failed · skipped.
+	 */
+	public static function trace_row_state( string $op, array $pipeline ): string {
+		$want = 'study' === $op ? 'studied' : 'read';
+		foreach ( (array) ( $pipeline['steps'] ?? array() ) as $s ) {
+			if ( $want !== ( $s['id'] ?? '' ) ) {
+				continue;
+			}
+			$st = (string) ( $s['state'] ?? '' );
+			if ( 'optional' === $st || 'none' === $st ) {
+				return 'waiting';
+			}
+			return in_array( $st, array( 'done', 'doing', 'failed', 'skipped' ), true ) ? $st : 'waiting';
+		}
+		return 'waiting';
+	}
+
+	/** Pure: counts of a traced batch's row states + whether it is finished. */
+	public static function trace_counts( array $states ): array {
+		$c = array( 'total' => count( $states ), 'waiting' => 0, 'doing' => 0, 'done' => 0, 'failed' => 0, 'skipped' => 0 );
+		foreach ( $states as $s ) {
+			if ( isset( $c[ $s ] ) ) {
+				$c[ $s ]++;
+			}
+		}
+		$c['finished'] = $c['total'] > 0 && 0 === $c['waiting'] + $c['doing'];
+		return $c;
+	}
+
+	/** The person's recent batches, each file with its live pipeline. ≤ $limit batches. @return array{contract:string,batches:array} */
+	public static function trace_view( int $owner, int $limit = 3 ): array {
+		$out  = array( 'contract' => self::CONTRACT, 'batches' => array() );
+		$list = function_exists( 'get_user_option' ) ? get_user_option( self::TRACE_OPT, $owner ) : array();
+		if ( $owner <= 0 || ! is_array( $list ) || ! class_exists( 'BizCity_Journal_Index' ) ) {
+			return $out;
+		}
+		$now = time();
+		foreach ( array_slice( $list, 0, max( 1, min( 5, $limit ) ) ) as $b ) {
+			if ( ! is_array( $b ) ) {
+				continue;
+			}
+			$rows   = array();
+			$states = array();
+			foreach ( (array) ( $b['rows'] ?? array() ) as $r ) {
+				$e = BizCity_Journal_Index::find_by_ref( (string) ( $r['ref'] ?? '' ), $owner );
+				if ( ! $e ) {
+					continue;
+				}
+				$p        = self::of( $e, self::level_of( $e, null ) );
+				$st       = self::trace_row_state( (string) $b['op'], $p );
+				$states[] = $st;
+				$rows[]   = array( 'ref' => (string) $r['ref'], 'entry_id' => (int) ( $r['entry_id'] ?? 0 ), 'title' => (string) ( $r['title'] ?? '' ), 'state' => $st, 'pipeline' => $p );
+			}
+			$out['batches'][] = array( 'id' => (string) ( $b['id'] ?? '' ), 'at' => (string) ( $b['at'] ?? '' ), 'op' => (string) ( $b['op'] ?? 'rebuild' ), 'scope' => (array) ( $b['scope'] ?? array() ), 'elapsed_s' => max( 0, $now - (int) strtotime( (string) ( $b['at'] ?? '' ) ) ), 'counts' => self::trace_counts( $states ), 'rows' => $rows );
+		}
+		return $out;
+	}
+
+	public static function rest_trace( WP_REST_Request $request ): WP_REST_Response {
+		return new WP_REST_Response( self::trace_view( (int) self::ctx()['owner_user_id'], (int) ( $request->get_param( 'limit' ) ?: 3 ) ), 200 );
+	}
+
+	// ── REST ─────────────────────────────────────────────────────────────
+
+	// ── PHASE-0.145 S145-L8: one capture batch (doc 90 §1) ───────────────
+
+	const CAPTURE_CODES  = array( 'too_large', 'unsupported_type', 'type_mismatch', 'empty_file' );
+	const EXTRACT_WINDOW = 600; // seconds: a pending row whose cell stamped by.op=extract within this window is "extracting", older ⇒ back to "queued"
+
+	/**
+	 * [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L8 — the rows of one batch (metadata.belongs.batch_ref, any sender of this blog), kept by brain-access meta.read
+	 * for the viewer, then batch_view(). Nothing visible ⇒ WP_Error batch_forbidden (403, no counts). No new column: the stage is derived from what the row already says.
+	 *
+	 * @param array $ctx {owner_user_id, role} @return array|WP_Error
+	 */
+	public static function batch_for( array $ctx, string $batch_ref ) {
+		$forbidden = new WP_Error( 'batch_forbidden', 'Không xem được lô này.', array( 'status' => 403 ) );
+		if ( (int) ( $ctx['owner_user_id'] ?? 0 ) <= 0 || ! class_exists( 'BizCity_Journal_Database' ) || ! class_exists( 'BizCity_Journal_Index' ) || 1 !== preg_match( '/^CB-[0-9a-f]{6,64}$/i', $batch_ref ) ) {
+			return $forbidden;
+		}
+		$raw  = BizCity_Journal_Database::instance()->find_indexed( array( 'all' => true, 'batch_ref' => $batch_ref, 'cap' => true, 'limit' => 200 ) );
+		$rows = array();
+		foreach ( (array) ( $raw['items'] ?? array() ) as $r ) {
+			$e = BizCity_Journal_Index::to_journal_entry( $r );
+			if ( (string) ( $e['belongs']['batch_ref'] ?? '' ) !== $batch_ref ) {
+				continue; // the LIKE only narrowed
+			}
+			$e['find_text'] = (string) ( $r['find_text'] ?? '' );
+			$rows[]         = $e;
+		}
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			$rows = BizCity_Brain_Access::filter( $rows, BizCity_Brain_Access::principal( $ctx ), 'meta.read' );
+		}
+		if ( ! $rows ) {
+			return $forbidden;
+		}
+		return self::batch_view( $rows, $batch_ref, gmdate( 'c' ), function_exists( 'wp_timezone' ) ? wp_timezone() : null );
+	}
+
+	/**
+	 * PHASE-0.145 S145-L8 — the stage of one batch row (doc 90 §1 table). Pure.
+	 * rejected = row state failed with a capture code · failed = other failed row or meta failed · skipped · searchable = meta done + find_text not empty ·
+	 * extracting = meta pending + by.op=extract within 10 min · queued = meta pending otherwise · stored = kept, not (yet) read.
+	 */
+	public static function batch_stage( array $e, int $now_ts ): string {
+		$code = (string) ( $e['error']['code'] ?? '' );
+		if ( 'failed' === (string) ( $e['state'] ?? '' ) ) {
+			return in_array( $code, self::CAPTURE_CODES, true ) ? 'rejected' : 'failed';
+		}
+		$meta = is_array( $e['meta'] ?? null ) ? $e['meta'] : array();
+		$ms   = (string) ( $meta['status'] ?? '' );
+		if ( 'failed' === $ms || 'skipped' === $ms ) {
+			return $ms;
+		}
+		if ( 'done' === $ms ) {
+			return '' !== trim( (string) ( $e['find_text'] ?? '' ) ) ? 'searchable' : 'stored';
+		}
+		if ( 'pending' === $ms ) {
+			$at = strtotime( (string) ( $meta['by']['at'] ?? '' ) );
+			return 'extract' === (string) ( $meta['by']['op'] ?? '' ) && false !== $at && $now_ts - $at <= self::EXTRACT_WINDOW ? 'extracting' : 'queued';
+		}
+		return 'stored';
+	}
+
+	/**
+	 * PHASE-0.145 S145-L8 — journal-pipeline@1.145 batch shape: {batch_ref, updated_at, counts{total, stored (rows that keep a file), queued, extracting, searchable, failed,
+	 * rejected, skipped, duplicate}, rows[{entry_id, ref (TL code, null without a file), title, mime, stage, keywords, error{code}|null}]}. Rows in capture order (id). Pure.
+	 */
+	public static function batch_view( array $entries, string $batch_ref, string $now, ?DateTimeZone $tz = null ): array {
+		$now_ts = (int) strtotime( $now );
+		$counts = array( 'total' => 0, 'stored' => 0, 'queued' => 0, 'extracting' => 0, 'searchable' => 0, 'failed' => 0, 'rejected' => 0, 'skipped' => 0, 'duplicate' => 0 );
+		usort( $entries, static function ( $a, $b ) { return (int) ( $a['entry_id'] ?? 0 ) <=> (int) ( $b['entry_id'] ?? 0 ); } );
+		$rows   = array();
+		$latest = '';
+		foreach ( $entries as $e ) {
+			$stage    = self::batch_stage( $e, $now_ts );
+			$has_file = (int) ( $e['original']['attachment_id'] ?? 0 ) > 0;
+			$counts['total']++;
+			$counts['stored']    += $has_file ? 1 : 0;
+			$counts['duplicate'] += ! empty( $e['flags']['duplicate'] ) ? 1 : 0;
+			if ( 'stored' !== $stage ) {
+				$counts[ $stage ]++;
+			}
+			$err = null;
+			if ( in_array( $stage, array( 'rejected', 'failed', 'skipped' ), true ) ) {
+				$c   = (string) ( 'rejected' === $stage || 'failed' === (string) ( $e['state'] ?? '' ) ? ( $e['error']['code'] ?? '' ) : ( $e['meta']['error']['code'] ?? '' ) );
+				$err = '' !== $c ? array( 'code' => substr( $c, 0, 40 ) ) : null;
+			}
+			$rows[] = array(
+				'entry_id' => (int) ( $e['entry_id'] ?? 0 ),
+				'ref'      => $has_file && '' !== (string) ( $e['ref_code'] ?? '' ) ? (string) $e['ref_code'] : null,
+				'title'    => mb_substr( (string) ( $e['title'] ?? '' ), 0, 120 ),
+				'mime'     => (string) ( $e['original']['mime'] ?? '' ),
+				'stage'    => $stage,
+				'keywords' => array_values( array_map( 'strval', (array) ( $e['meta']['keywords'] ?? array() ) ) ),
+				'error'    => $err,
+			);
+			$latest = max( $latest, (string) ( $e['updated_at'] ?? '' ) );
+		}
+		return array( 'batch_ref' => $batch_ref, 'updated_at' => self::iso_time( '' !== $latest ? $latest : $now, $tz ), 'counts' => $counts, 'rows' => $rows );
+	}
+
+	/** PHASE-0.145 S145-L8 — a DB DATETIME (site clock) or an ISO string ⇒ ISO-8601 with offset ("2026-10-27T20:14:00+07:00"). Pure. */
+	public static function iso_time( string $at, ?DateTimeZone $tz = null ): string {
+		try {
+			$d = new DateTimeImmutable( $at, $tz ?? new DateTimeZone( 'UTC' ) );
+		} catch ( \Exception $ex ) {
+			return '';
+		}
+		return ( null !== $tz ? $d->setTimezone( $tz ) : $d )->format( 'c' );
+	}
+
+	public static function rest_list( WP_REST_Request $request ): WP_REST_Response {
+		// [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L8 (journal-pipeline@1.145, doc 90 §1) — ?batch_ref=CB-… ⇒ the batch panel of ONE capture batch (stage per row + counts);
+		// a batch the viewer reads nothing of ⇒ 403 batch_forbidden with no counts (same answer as an unknown batch: no existence oracle).
+		$batch = $request->get_param( 'batch_ref' );
+		if ( null !== $batch && '' !== (string) $batch ) {
+			if ( ! is_scalar( $batch ) || 1 !== preg_match( '/^CB-[0-9a-f]{6,64}$/i', (string) $batch ) ) {
+				return new WP_REST_Response( array( 'code' => 'batch_ref_invalid', 'message' => 'Mã lô không đúng dạng.', 'hint' => 'Mã lô có dạng CB-7f3a91 (trong biên nhận).', 'help_code' => 'journal_pipeline' ), 400 );
+			}
+			$res = self::batch_for( self::ctx(), (string) $batch );
+			return is_wp_error( $res ) ? new WP_REST_Response( array( 'code' => $res->get_error_code() ), 403 ) : new WP_REST_Response( $res, 200 );
+		}
+		$args = array();
+		foreach ( array( 'range', 'step', 'state', 'folder', 'limit', 'offset' ) as $k ) {
+			$v = $request->get_param( $k );
+			if ( null !== $v ) {
+				$args[ $k ] = is_scalar( $v ) ? (string) $v : '';
+			}
+		}
+		if ( ! empty( $args['folder'] ) && 1 !== preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', (string) $args['folder'] ) ) {
+			return new WP_REST_Response( array( 'code' => 'folder_invalid', 'message' => 'Thư mục không đúng dạng.', 'hint' => 'Dùng số thư mục, ví dụ 20 hoặc 20/cong-viec.', 'help_code' => 'twin_vault' ), 400 );
+		}
+		return new WP_REST_Response( self::list_for( self::ctx(), $args ), 200 );
+	}
+
+	public static function rest_rebuild( WP_REST_Request $request ): WP_REST_Response {
+		$ctx = self::ctx();
+		$res = self::rebuild( (int) $ctx['owner_user_id'], (int) ( $request->get_param( 'limit' ) ?? self::REBUILD_MAX ), ! empty( $request->get_param( 'failed' ) ) );
+		return new WP_REST_Response( $res, 200 );
+	}
+
+	private static function ctx(): array {
+		return array( 'owner_user_id' => get_current_user_id(), 'role' => current_user_can( 'manage_options' ) ? 'owner' : 'staff' );
+	}
+}

@@ -123,6 +123,8 @@ final class BizCity_Legacy_Table_Policy {
 		// usage_daily (→ derived from bizcity_usage_ledger at read time: one token ledger cell → hub → client).
 		'global_inbox_admin', 'bizcity_guru_skills', 'bizcity_context_bank_rollup_state', 'bizcity_cron_runs', 'bizcity_cron_retries',
 		'bizcity_knowledge_chunks', 'bizcity_mcp_context_packs', 'bizcity_usage_daily',
+		// [2026-10-25 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.139 R126-TB (owner "gộp 3 bảng làm 1 sổ cái") — activity_day rows are ledger rows kind='day'; the old table is read once by BizCity_Usage_Schema::merge_legacy_activity(), never written.
+		'bizcity_activity_day',
 		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RT — the PHP turn trace tables (BizCity_Trace_Store + its NO-OP projector archived): no reader or writer left; rows stay.
 		'bizcity_traces',
 		'bizcity_trace_tasks',
@@ -214,6 +216,8 @@ final class BizCity_Legacy_Table_Policy {
 		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-TB — refuse SQL writes, keep reads (see the quarantine list).
 		'global_inbox_admin', 'bizcity_guru_skills', 'bizcity_context_bank_rollup_state', 'bizcity_cron_runs', 'bizcity_cron_retries',
 		'bizcity_knowledge_chunks', 'bizcity_mcp_context_packs', 'bizcity_usage_daily',
+		// [2026-10-25 09:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.139 R126-TB (owner "gộp 3 bảng làm 1 sổ cái") — activity_day rows are ledger rows kind='day'; the old table is read once by BizCity_Usage_Schema::merge_legacy_activity(), never written.
+		'bizcity_activity_day',
 		// [2026-08-29 Johnny Chu] PHASE-1.30-MEMORY-WRITER-STOP — filestore-first memory owners now refuse legacy SQL writes while retaining bounded read fallback.
 		// [2026-09-25 Claude Opus 5.5] CORE-REDUCTION WP-11 C3b — their writers (Engine, One_Shot, pipeline evidence, todos) are
 		// retired and no reader outside core/intent remains (D-26): refuse install/writes, keep reads until the drop gates.

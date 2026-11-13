@@ -101,6 +101,20 @@ final class BizCity_Connect_REST {
 		return new WP_Error( $code, $message, array( 'status' => $status, 'hint' => $hint, 'help_code' => 'S93-' . strtoupper( str_replace( '_', '-', $code ) ) ) );
 	}
 
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (F24, R-CSB CSB-5) — a channel (Facebook page, Zalo OA) needs the Hub / provider to call
+	 * this site back over https: on a dev site (localhost, IP, *.local …) say so BEFORE the Hub is called, in this file's R-ERROR-UX shape (err()).
+	 * Google (mail / calendar tools) is not a channel and is not gated.
+	 */
+	public static function dev_site_gate( string $provider ): ?WP_Error {
+		if ( ! in_array( $provider, array( 'facebook', 'zalo_oa' ), true ) || ! function_exists( 'bizcity_is_dev_site' ) || ! class_exists( 'BizCity_Site_Environment' ) || ! bizcity_is_dev_site() ) {
+			return null;
+		}
+		$e = BizCity_Site_Environment::dev_site_error( 'channels' );
+		$d = (array) $e->get_error_data();
+		return new WP_Error( 'dev_site_unreachable', $e->get_error_message(), array( 'status' => (int) ( $d['status'] ?? 409 ), 'hint' => (string) ( $d['hint'] ?? '' ), 'help_code' => 'S138-DEV-CHANNELS', 'feature' => 'channels' ) );
+	}
+
 	private static function provider( $request ): string {
 		$p = (string) $request->get_param( 'provider' );
 		return in_array( $p, self::PROVIDERS, true ) ? $p : 'facebook';
@@ -405,6 +419,10 @@ final class BizCity_Connect_REST {
 
 	public static function post_start( $request ) {
 		$provider = self::provider( $request );
+		$dev      = self::dev_site_gate( $provider ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2
+		if ( $dev ) {
+			return $dev;
+		}
 		$scopes   = array_values( array_filter( array_map( 'sanitize_key', (array) $request->get_param( 'scopes' ) ) ) );
 		if ( 'own' === self::mode( $provider ) ) {
 			$r = BizCity_Connect_Own_App::authorize_url( $provider, $scopes );
@@ -646,6 +664,10 @@ final class BizCity_Connect_REST {
 
 	public static function post_assets( $request ) {
 		$provider = self::provider( $request );
+		$dev      = self::dev_site_gate( $provider ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 — registering a page / OA with the Hub needs the webhook to reach this site
+		if ( $dev ) {
+			return $dev;
+		}
 		$ids      = array_values( array_unique( array_filter( array_map( static function ( $v ) { return preg_replace( '/[^0-9A-Za-z_@.\-]/', '', (string) $v ); }, (array) $request->get_param( 'asset_ids' ) ) ) ) );
 		// [2026-10-17 03:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-A14 (owner 2026-10-17, R-UW-1 / R-S4-23): the asset belongs to the person connecting it — the server's own current user id.
 		// An `owner_user_id` sent by the client is IGNORED: there is no "pick another account" in the connect four steps; moving it later is the takeover flow.
@@ -789,6 +811,13 @@ final class BizCity_Connect_REST {
 		$auto     = null === $request->get_param( 'auto_reply' ) ? true : (bool) $request->get_param( 'auto_reply' );
 		if ( $cid <= 0 ) {
 			return self::err( 'invalid_param', 'Chọn một Agent Guru.', 'Truyền character_id.' );
+		}
+		// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 S142-L2 — Global Memory / Quản gia / old project Gurus are not answering Gurus.
+		if ( class_exists( 'BizCity_Guru_Studio', false ) && class_exists( 'BizCity_Knowledge_Database' ) ) {
+			$ch = BizCity_Knowledge_Database::instance()->get_character( $cid );
+			if ( $ch && 'guru' !== BizCity_Guru_Studio::kind_of( $ch ) ) {
+				return self::err( 'invalid_param', 'Guru này không dùng để trả lời kênh.', 'Chọn một Agent Guru khác.', 422 );
+			}
 		}
 		if ( 'facebook' === $provider && ! self::fb_module_loaded() ) {
 			return self::fb_module_missing();

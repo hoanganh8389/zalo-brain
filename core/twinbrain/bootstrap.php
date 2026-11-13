@@ -101,6 +101,8 @@ $_bizcity_tb_require( 'includes/class-twinbrain-rest.php' );
 $_bizcity_tb_require( 'includes/class-twinbrain-schema.php' );
 // [2026-09-16 Johnny Chu - Chu Hoàng Anh] PHASE-0.41D-D4 — one Brain retrieval facade shared by Twin GPT and MCP (Context Bank pack, not MPR).
 $_bizcity_tb_require( 'includes/class-brain-retrieval-facade.php' );
+// [2026-10-27 06:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L1 (D143-1) — notebook-graph-ask@1: the GraphRAG evidence of one notebook as data (no LLM); MCP tool brain.graph_ask.
+$_bizcity_tb_require( 'includes/class-twinbrain-graph-ask.php' );
 
 // [2026-06-03 Johnny Chu] BRAIN-SESSIONS BS-2 — Conversation thread manager
 // + REST surface (/sessions CRUD). Spec:

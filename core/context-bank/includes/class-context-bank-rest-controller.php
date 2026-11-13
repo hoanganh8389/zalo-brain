@@ -17,6 +17,10 @@ final class BizCity_Context_Bank_REST_Controller {
 	const NS = 'bizcity-context/v1';
 
 	public static function init() {
+		// [2026-10-28 Johnny Chu - Chu Hoàng Anh] PHASE-0.144 S144-CB0 — no routes (404) while the Context Bank kill switch is off.
+		if ( function_exists( 'bizcity_context_bank_enabled' ) && ! bizcity_context_bank_enabled() ) {
+			return;
+		}
 		// [2026-09-01 Johnny Chu] PHASE-CB-MVP — register only the bounded metadata read surface when the Context Bank REST namespace is requested.
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ), 20 );
 	}

@@ -9,6 +9,8 @@
 !/.gitattributes
 !/bizcity-twin-ai.php
 !/uninstall.php
+# [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-OPS2 — readme.txt của WordPress.org (tên "Twin Brain", mục "Dịch vụ bên ngoài").
+!/readme.txt
 !/README.md
 !/LICENSE
 !/CHANGELOG.md
@@ -137,6 +139,8 @@ vendor/
 
 # Skill library — user-generated content, must NOT be in git
 /core/skills/library/
+# [2026-11-12 11:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a — core/skills renamed core/vault (D148-15).
+/core/vault/library/
 
 # Reference / research libraries (3rd-party source for inspiration only)
 /modules/twinclaw/_library/

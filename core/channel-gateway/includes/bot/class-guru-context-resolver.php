@@ -546,6 +546,13 @@ final class BizCity_Guru_Context_Resolver {
 				$s['role'] = $role;
 			}
 		}
+		// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — role-scope@1.1: the Guru's domain list (empty / not sent ⇒ not stored ⇒ the role table of tool-scope@1 decides; etag unchanged)
+		if ( array_key_exists( 'domains', $raw ) ) {
+			$domains = self::clean_domains( $raw['domains'] );
+			if ( $domains ) {
+				$s['domains'] = $domains;
+			}
+		}
 		if ( isset( $raw['providers'] ) && is_array( $raw['providers'] ) ) {
 			// [2026-09-28 11:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-A1 — project Guru context only to registered transports that support it.
 			$providers = self::registered_guru_providers();
@@ -562,6 +569,24 @@ final class BizCity_Guru_Context_Resolver {
 	public static function clean_role( $v ): string {
 		$v = strtolower( trim( (string) $v ) );
 		return in_array( $v, self::ROLES, true ) ? $v : 'none';
+	}
+
+	// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — pure: domain ids of role-scope@1.1 — /^[a-z_]{2,20}$/, unique, max 20, stable order
+	public static function clean_domains( $v ): array {
+		if ( ! is_array( $v ) ) {
+			return array();
+		}
+		$out = array();
+		foreach ( $v as $d ) {
+			$d = strtolower( trim( (string) $d ) );
+			if ( 1 === preg_match( '/^[a-z_]{2,20}$/', $d ) && ! in_array( $d, $out, true ) ) {
+				$out[] = $d;
+			}
+			if ( count( $out ) >= 20 ) {
+				break;
+			}
+		}
+		return $out;
 	}
 
 	/** Return registered transports that expose the Guru projection surface. */
@@ -652,6 +677,8 @@ final class BizCity_Guru_Context_Resolver {
 				'vault_folders'     => $vault_folders,
 				// PHASE-0.136 S136-L3 — optional: the role this Guru plays (cell: Scope Resolver role input; absent = none)
 				'role'              => (string) ( $scope['role'] ?? 'none' ),
+				// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — optional (a cell that does not know it ignores it): the Guru's own domain list; absent = the role table decides
+				'domains'           => self::clean_domains( $scope['domains'] ?? array() ),
 			),
 			// [2026-10-09 03:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.95-S95-G4 — doctor-style consult rule: on/off + suggestion threshold (40–90).
 			'consult'     => array(
@@ -720,6 +747,11 @@ final class BizCity_Guru_Context_Resolver {
 			if ( is_array( $v ) && isset( $v['need'] ) && is_array( $v['need'] ) ) {
 				$out['packs'][ $pack_id ] = array( 'need' => $v['need'] );
 			}
+		}
+		// [2026-10-27 12:10 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.141 S141-L1 — role-scope@1.1 — the Guru's domain list next to guru_tools_off (cell: flow-frame role_cut); omitted when empty to keep the wire small
+		$gd = $character_id > 0 ? self::clean_domains( self::scope( $character_id )['domains'] ?? array() ) : array();
+		if ( $gd ) {
+			$out['guru_domains'] = $gd;
 		}
 		// ≤ 1 KB wire cap (I-1): drop packs from the end until it fits, never reject the bundle.
 		$keys = array_keys( $out['packs'] );

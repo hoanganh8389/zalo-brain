@@ -46,7 +46,7 @@ final class BizCity_Zalo_Brain {
 		'gpt'       => array( 'slug' => '/gpt/',       'label' => 'Trợ lý',           'owner' => 'bizcity-twinweb-addon',  'position' => 10, 'requires' => 'twinweb' ), // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L10 — available only when the /gpt/ part is (see surfaces())
 		'gateway'   => array( 'slug' => '/gateway/',   'label' => 'Cấu hình Zalo',    'owner' => 'core/channel-gateway',   'position' => 20 ),
 		'crm'       => array( 'slug' => '/crm/',       'label' => 'Đội Zalo',         'owner' => 'core/crm',               'position' => 30 ),
-		'twinchat'  => array( 'slug' => '/twinchat/',  'label' => 'Sổ tay',           'owner' => 'modules/twinchat',       'position' => 40 ),
+		'twinchat'  => array( 'slug' => '/twinchat/',  'label' => 'Sổ tay',           'owner' => 'bizcity-twin-notebook',  'position' => 40, 'requires' => 'notebook' ), // [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N6 — the notebook add-on's (feature from its zalo-brain.json, locator-resolved)
 		'scheduler' => array( 'slug' => '/scheduler/', 'label' => 'Lịch & nhiệm vụ',  'owner' => 'core/scheduler',         'position' => 50 ),
 		'flow'      => array( 'slug' => '/flow/',      'label' => 'Kịch bản',         'owner' => 'bizcity-automation',     'position' => 60, 'requires' => 'automation' ),
 		'setting'   => array( 'slug' => '/setting/',   'label' => 'Cài đặt',          'owner' => 'modules/twinshell',      'position' => 70 ),
@@ -463,7 +463,8 @@ final class BizCity_Zalo_Brain {
 			$requires  = isset( $def['requires'] ) ? (string) $def['requires'] : '';
 			$available = '' === $requires || self::has( $requires )
 				|| ( 'automation' === $requires && class_exists( 'BizCity_Addon_Locator' ) && '' !== BizCity_Addon_Locator::file( 'automation/bootstrap.php' ) )
-				|| ( 'twinweb' === $requires && function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available() ); // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L10 — file presence, not class_exists
+				|| ( 'twinweb' === $requires && function_exists( 'bizcity_twinweb_available' ) && bizcity_twinweb_available() ) // [2026-10-12 11:47 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.102 ST102-L10 — file presence, not class_exists
+				|| ( 'notebook' === $requires && function_exists( 'bizcity_notebook_available' ) && bizcity_notebook_available() ); // [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N6 — same rule, works before the manifest is shipped
 			$pages     = self::$pages[ $key ] ?? array();
 			uasort( $pages, static function ( $a, $b ) { return (int) $a['position'] <=> (int) $b['position']; } );
 			$out[ $key ] = array_merge( $def, array( 'id' => $key, 'available' => $available, 'pages' => array_values( $pages ) ) );

@@ -352,7 +352,13 @@ class BizCity_Universal_Channel_Listener {
 		$picked         = null;
 		$binding_row    = null;
 		if ( class_exists( 'BizCity_Channel_Binding' ) ) {
-			$binding_row = BizCity_Channel_Binding::resolve( $platform, $account_id );
+			// [2026-10-26 11:05 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 D142-4 — a Fanpage has ONE Guru for Messenger and comments: binding FB_PAGE (what Guru Studio
+			// and the cell use) wins; the old FB_MESS / FB_FEED row is read only when the page has no FB_PAGE row yet.
+			$fb_kind     = in_array( strtoupper( (string) $platform ), array( 'FB_MESS', 'FB_FEED' ), true );
+			$binding_row = $fb_kind ? BizCity_Channel_Binding::resolve( 'FB_PAGE', $account_id ) : null;
+			if ( ! $binding_row || empty( $binding_row['character_id'] ) || ( isset( $binding_row['account_id'] ) && '*' === (string) $binding_row['account_id'] ) ) {
+				$binding_row = BizCity_Channel_Binding::resolve( $platform, $account_id ) ?: $binding_row;
+			}
 			if ( $binding_row && ! empty( $binding_row['character_id'] ) ) {
 				$character_id = (int) $binding_row['character_id'];
 				$binding_mode = isset( $binding_row['mode'] ) ? (string) $binding_row['mode'] : 'auto';

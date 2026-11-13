@@ -106,13 +106,10 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool journal.find
 		$R::register( 'journal.find', array(
 			'title'          => 'Tìm trong sổ ghi chép',
-			// [2026-10-21 11:58 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 ACI (doc 96 F-1/F-2/F-3) — written like API docs for the model: purpose, when NOT to use it, every
-			// parameter with an example, the edge cases; `ref` reads one row by the code a person says; `q` is word by word over title + summary.
-			'description'    => 'Tìm các DÒNG trong sổ của chủ (tài liệu đã lưu, hợp đồng, thu chi, công nợ, việc JB-, notebook NB-, kỹ năng KN-, sản phẩm đã làm…). '
-				. 'Trả danh sách dòng: mã (ref_code như TL-47, JB-31), loại, tiêu đề, ngày, trạng thái, thẻ tóm tắt. '
-				. 'Dùng khi: hỏi "có gì về…", "hợp đồng thuê tới đâu", "đã gửi gì cho…", hoặc khi có một mã (dùng `ref`). '
-				. 'KHÔNG dùng để đọc NỘI DUNG bên trong tài liệu (dùng notebook_search / knowledge.search) và không tính tổng tiền (dùng journal.aggregate). '
-				. 'Mẹo: bắt đầu rộng (chỉ q hoặc layer), rồi thu hẹp; không biết loại chính xác thì bỏ trống `kind`. Không có kết quả ⇒ total=0, thử bỏ bớt bộ lọc trước khi kết luận "không có".',
+			// [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 (C-7) — the cell keeps the first 900 characters: purpose, paging (has_more / next_offset), folder and mime tips come first, the rest after.
+			'description'    => 'CỬA VÀO bộ nhớ: liệt kê / tổng quan / theo thời gian những gì đã lưu ("tháng này lưu gì", "tài liệu mới nhất", "có gì về…", "ảnh cây") ⇒ gọi TRƯỚC. from/to (YYYY-MM-DD) = khoảng ngày (dòng không có ngày tài liệu so ngày lưu); created_days = N ngày gần đây; layer/kind = loại; q hoặc terms CHỈ khi có chủ đề; mime ["image/*"] = chỉ ảnh, "application/pdf" = PDF. '
+				. 'Trang: has_more=true ⇒ gọi lại y nguyên với offset = next_offset; total_visible = số dòng được xem (total_exact=false ⇒ nói "ít nhất N", thu hẹp thêm). Thư mục Kho tri thức ("kho sản phẩm có gì") ⇒ folder = tên thư mục, KHÔNG dùng q; total=0 ⇒ thư mục chưa có gì. Có mã (TL-47, JB-31) ⇒ ref. Mỗi dòng có why (khớp ở đâu) + score 0..100 (thứ hạng, không phải độ chính xác). '
+				. 'Trả: mã, loại, tiêu đề, ngày, trạng thái, thẻ tóm tắt. KHÔNG dùng để đọc NỘI DUNG tài liệu (notebook_search / knowledge.search), không tính tổng tiền (journal.aggregate). Không có kết quả ⇒ bỏ bớt bộ lọc trước khi kết luận "không có".',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'ref'          => array( 'type' => 'string', 'maxLength' => 16, 'pattern' => '^\\s*[A-Za-z]{2}-[0-9]{1,12}\\s*$', 'description' => 'Một mã người dùng nói, vd "TL-47" (file), "JB-31" (việc), "NB-12" (notebook), "TC-8" (thu chi). Có ref thì các bộ lọc khác bị bỏ qua; trả 0 hoặc 1 dòng.' ),
 				'q'            => array( 'type' => 'string', 'maxLength' => 120, 'description' => 'Chữ tìm, từng từ phải có trong tiêu đề hoặc tóm tắt (không phân biệt thứ tự). Vd "hợp đồng thuê Cty A". Không phải tìm theo nghĩa.' ),
@@ -132,13 +129,16 @@ final class BizCity_Journal_MCP_Tools {
 				// [2026-10-24 05:47 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Ma (journal.find v2, doc 81 §4) — phrases + person + has; results then carry `why` and come by score
 				'terms'        => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 60 ), 'maxItems' => 12, 'description' => 'Các cụm cần tìm (đã mở rộng đồng nghĩa), vd ["nha truong","truong hoc","thong bao"]. Tìm cả trong chữ đọc được trên ảnh, mô tả, từ khoá, người. Có dấu hay không dấu đều được. Kết quả xếp theo điểm, mỗi dòng có `why` (khớp ở đâu).' ),
 				'match'        => array( 'type' => 'string', 'enum' => array( 'all', 'any' ), 'description' => 'all (mặc định) = dòng phải khớp mọi cụm; any = khớp một cụm là đủ (dùng khi đã liệt kê đồng nghĩa).' ),
+				'split'        => array( 'type' => 'string', 'enum' => array( 'phrase', 'words' ), 'description' => 'words = mỗi cụm tách theo khoảng trắng, mọi từ phải có (không cần đúng thứ tự), vd "hợp đồng châu âu" khớp "Châu Âu - hợp đồng tour". Mặc định phrase = nguyên cụm.' ), // [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 — split · mime · created_days
+				'mime'         => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'maxLength' => 100 ), 'maxItems' => 10, 'description' => 'Loại tệp gốc: ["image/*"] = ảnh; ["application/pdf"]; Word = ["application/vnd.openxmlformats-officedocument.wordprocessingml.document","application/msword"].' ),
+				'created_days' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 3650, 'description' => 'Chỉ dòng được LƯU trong N ngày gần đây (theo ngày ghi sổ, không phải ngày trên giấy), vd 7.' ),
 				'person'       => array( 'type' => 'object', 'properties' => array( 'name' => array( 'type' => 'string', 'maxLength' => 80 ), 'contact_ref' => array( 'type' => 'string', 'maxLength' => 40 ) ), 'description' => 'Dòng có nhắc tới người này, vd {"name":"anh Minh"} (bỏ anh/chị/cô… khi so).' ),
 				'has'          => array( 'type' => 'array', 'items' => array( 'type' => 'string', 'enum' => array( 'ocr', 'about', 'people', 'keywords' ) ), 'maxItems' => 4, 'description' => 'Chỉ dòng đã có phần này, vd ["ocr"] = ảnh đã đọc được chữ.' ),
 				'source_uuid'  => array( 'type' => 'string', 'pattern' => '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', 'description' => 'Hệ thống: mọi dòng (mọi bản) của MỘT nguồn (resource.source_uuid). Mô hình không cần dùng.' ),
 				// [2026-10-24 09:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.133 S133-Mb — the cell's re-read sweep
 				'meta_status'  => array( 'type' => 'string', 'enum' => array( 'pending', 'failed', 'none', 'done' ), 'description' => 'Hệ thống: dòng theo trạng thái phần đọc được (pending = chờ đọc / đọc lại, none = chưa từng đọc). Mô hình không cần dùng.' ),
 				'has_file'     => array( 'type' => 'boolean', 'description' => 'Hệ thống: chỉ dòng có tệp gốc.' ),
-				'folder'       => array( 'type' => 'string', 'maxLength' => 40, 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$', 'description' => 'Thư mục Kho tri thức (vd "30" hoặc "30/lop-tieng-trung"); chỉ thu hẹp.' ),
+				'folder'       => array( 'type' => 'string', 'maxLength' => 60, 'description' => 'Thư mục Kho tri thức: TÊN ("Sản phẩm", "Pháp lý", "chăm sóc khách hàng") hoặc số ("30", "30/lop-tieng-trung"). Câu "kho sản phẩm có gì", "trong mục Pháp lý có gì" ⇒ folder = tên đó, KHÔNG dùng q. Tên không có ⇒ folder_unknown + danh sách folders.' ), // [2026-10-27 12:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-FOLDER-NAME — was numbers only (pattern) ⇒ the model searched q="sản phẩm" instead
 				'fuse'         => array( 'type' => 'boolean', 'description' => 'Hệ thống: kèm `terms` ⇒ gộp thêm ghi chú thư viện của Kho tri thức (vault) vào một danh sách xếp hạng chung (`fused`, `coverage`); `items` giữ nguyên.' ), // [2026-10-25 12:39 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.135 S-3
 				// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 — context-scope@1: layers / scope job / scope group narrow the page; absent ⇒ unchanged
 				'context_scope' => self::context_scope_schema(),
@@ -521,7 +521,8 @@ final class BizCity_Journal_MCP_Tools {
 				'version'   => array( 'type' => 'string', 'maxLength' => 32, 'pattern' => '^(current|[A-Za-z]{2}-[0-9]{1,12}@[0-9]{1,6})$', 'description' => '"current" (mặc định) hoặc "<root_ref>@<n>" (vd "TL-47@2") — chỉ journal.get.' ),
 				'folder'    => array( 'type' => 'string', 'maxLength' => 40, 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$', 'description' => 'Thư mục Kho tri thức đang đứng (D134-13); chỉ thu hẹp.' ),
 				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 L6 (0.135 SR-8) — vai · nhiều thư mục · xem như khách: đầu vào THU HẸP, không thêm nguồn
-				'folders'   => array( 'type' => 'array', 'maxItems' => 4, 'items' => array( 'type' => 'string', 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$' ), 'description' => 'Các thư mục của vai (vd ["50","60"]); chỉ thu hẹp.' ),
+				'folders'   => array( 'type' => 'array', 'maxItems' => 12, // PHASE-0.142 SF-3: every folder of a Guru (≤ 11 roots), was 4
+					 'items' => array( 'type' => 'string', 'pattern' => '^[0-9]{2}(/[a-z0-9-]{1,40})?$' ), 'description' => 'Các thư mục của vai (vd ["50","60"]); chỉ thu hẹp.' ),
 				'role'      => array( 'type' => 'string', 'enum' => array( 'personal', 'care', 'sales', 'teach', 'legal', 'content', 'none' ), 'description' => 'Vai đang đứng; không kèm thư mục ⇒ thư mục mặc định của vai (personal = Quản gia: không thu hẹp).' ),
 				'view'      => array( 'type' => 'string', 'enum' => array( 'owner', 'as_customer' ), 'description' => 'as_customer = chỉ thư mục Công khai (điều khách sẽ thấy).' ),
 				'scope'     => array( 'type' => 'string', 'maxLength' => 48, 'pattern' => '^(own|job|group:[0-9]{3,30})$', 'description' => 'own (mặc định) · job (chỉ dòng của job_ref) · group:<gid> (sổ nhóm Zalo).' ),
@@ -557,7 +558,7 @@ final class BizCity_Journal_MCP_Tools {
 			return null;
 		}
 		$ok   = static function ( $f ): string { $f = trim( (string) $f ); return 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', $f ) ? $f : ''; };
-		$list = '' !== $one ? array( $one ) : array_values( array_unique( array_filter( array_map( $ok, array_slice( (array) ( $cs['folders'] ?? array() ), 0, 4 ) ) ) ) );
+		$list = '' !== $one ? array( $one ) : array_values( array_unique( array_filter( array_map( $ok, array_slice( (array) ( $cs['folders'] ?? array() ), 0, 12 ) /* [2026-10-26 11:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.142 SF-3: was 4 — a Guru's 5th folder was dropped silently */ ) ) ) );
 		$role = (string) ( $cs['role'] ?? '' );
 		if ( ! $list && isset( self::ROLE_FOLDERS[ $role ] ) ) {
 			$list = self::ROLE_FOLDERS[ $role ];
@@ -663,7 +664,65 @@ final class BizCity_Journal_MCP_Tools {
 
 	/* ── journal.* handlers ──────────────────────────────────────────── */
 
+	/**
+	 * [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 (journal-find@2.145, doc 20 §3) — every answer carries the page fields (total_visible · total_exact · has_more ·
+	 * next_offset; `total` = total_visible) and every item ref · version_ref · mime · meta_status · keywords · why[] · score · has_original · has_markdown. Additive: old keys unchanged.
+	 */
 	public static function find( array $args, array $ctx ) {
+		$res = self::find_page( $args, $ctx );
+		if ( ! is_array( $res ) ) {
+			return $res;
+		}
+		$res['items'] = array_map( array( __CLASS__, 'find_item_fields' ), array_values( (array) ( $res['items'] ?? array() ) ) );
+		if ( ! isset( $res['total_visible'] ) ) {
+			$res += self::page_of( (int) ( $res['total'] ?? 0 ), $args, count( $res['items'] ) );
+		}
+		$res['total'] = (int) $res['total_visible'];
+		return $res;
+	}
+
+	/** PHASE-0.145 S145-L1 — the page fields when the index gave none (an early empty answer, a ref / output lookup, an older index file). Pure. */
+	public static function page_of( int $total, array $args, int $shown ): array {
+		$offset = max( 0, (int) ( $args['offset'] ?? 0 ) );
+		$left   = $offset + $shown < $total;
+		return array( 'total_visible' => $total, 'total_exact' => true, 'offset' => $offset, 'limit' => max( 1, min( 50, (int) ( $args['limit'] ?? 20 ) ) ), 'has_more' => $left, 'next_offset' => $left ? $offset + $shown : null );
+	}
+
+	/** PHASE-0.145 S145-L1 — the journal-find@2.145 item fields over a journal-entry row (keys the row already has win). Pure. */
+	public static function find_item_fields( $e ) {
+		if ( ! is_array( $e ) ) {
+			return $e;
+		}
+		$ref = (string) ( $e['ref_code'] ?? '' );
+		$vn  = max( 1, (int) ( $e['version']['n'] ?? 1 ) );
+		$vr  = (string) ( $e['version']['root_ref'] ?? '' );
+		$out = $e + array(
+			'ref'          => $ref,
+			'version_ref'  => '' !== $ref ? ( '' !== $vr ? $vr : $ref ) . '@v' . $vn : '',
+			'mime'         => (string) ( $e['original']['mime'] ?? '' ),
+			'meta_status'  => (string) ( $e['meta']['status'] ?? 'none' ),
+			'keywords'     => array_values( array_map( 'strval', (array) ( $e['meta']['keywords'] ?? array() ) ) ),
+			'why'          => array(),
+			'has_original' => (int) ( $e['original']['attachment_id'] ?? 0 ) > 0,
+			'has_markdown' => ! empty( $e['resource']['representations'] ),
+		);
+		// the index keeps its raw weight sum in `score` (vault.search merges on that scale) and the 0..100 rank in `score100`; this door answers 0..100
+		$out['score'] = isset( $e['score100'] ) ? (int) $e['score100'] : max( 0, min( 100, (int) ( $e['score'] ?? 0 ) ) );
+		unset( $out['score100'] );
+		return $out;
+	}
+
+	/** PHASE-0.145 S145-L1 — the principal reads every row of this book (owner of it, or system): no PHP access filter is needed, the SQL count is the visible count. Pure. */
+	public static function whole_book( array $principal, int $owner ): bool {
+		$type = (string) ( $principal['type'] ?? '' );
+		return 'system' === $type || ( 'owner' === $type && $owner > 0 && (int) ( $principal['user_id'] ?? 0 ) === $owner );
+	}
+
+	private static function find_page( array $args, array $ctx ) {
+		// [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 — internal filter keys never come from the caller (`all` would drop the owner, `keep` is the access Closure set below)
+		foreach ( array( 'keep', 'all', 'cap', 'terms_sql', 'words_sql', 'words_match', 'date_fallback', 'batch_ref' ) as $k ) {
+			unset( $args[ $k ] );
+		}
 		// [2026-10-24 12:33 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.131 S131-L3 (context-scope@1, doc 20 §2) — the scope only NARROWS; decide() below runs exactly as before.
 		$cs    = self::context_scope( $args );
 		$scope = (string) ( $cs['scope'] ?? '' );
@@ -685,6 +744,10 @@ final class BizCity_Journal_MCP_Tools {
 			if ( $row && ! self::scope_keeps( $row, $cs ) ) {
 				$row = null; // S131-L3: outside the requested layers / group ⇒ not in this scope
 			}
+			if ( $row ) {
+				$row['why']   = array( 'match:ref' ); // [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 (ADR-145-3) — the exact code is above the scale
+				$row['score'] = 100;
+			}
 			return $row ? array( 'items' => array( $row ), 'total' => 1 ) : array( 'items' => array(), 'total' => 0 );
 		}
 		$oid = (string) ( $args['output_id'] ?? '' );
@@ -697,6 +760,15 @@ final class BizCity_Journal_MCP_Tools {
 				$row = null;
 			}
 			return $row ? array( 'items' => array( $row ), 'total' => 1 ) : array( 'items' => array(), 'total' => 0 );
+		}
+		// [2026-10-27 12:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-FOLDER-NAME (owner on Zalo: "kho tri thức sản phẩm của em thế nào rồi, có gì rồi" ⇒ the model could only pass a number,
+		// so it searched q="sản phẩm" and answered "chưa xác nhận được thư mục") — a folder NAME / alias resolves like vault.list / vault.move do; an unknown name answers with the folder list
+		$folder_used = self::named_folder( (string) ( $args['folder'] ?? '' ) );
+		if ( false === $folder_used ) {
+			return array( 'items' => array(), 'total' => 0, 'folder_unknown' => mb_substr( trim( (string) $args['folder'] ), 0, 60 ), 'folders' => self::folder_names() );
+		}
+		if ( null !== $folder_used ) {
+			$args['folder'] = $folder_used['n'];
 		}
 		$filter = $args;
 		$filter['owner_user_id'] = self::owner( $ctx );
@@ -762,8 +834,20 @@ final class BizCity_Journal_MCP_Tools {
 			$filter['kinds'] = $kinds ?: array( '__none__' );
 			unset( $filter['kind_prefix'], $filter['layer'] );
 		}
+		// [2026-10-27 09:58 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-L1 (C-2 P0, ADR-145-4) — the access decision moves BEFORE counting: a principal who does not read the whole book
+		// hands the index a `keep` Closure (decide meta.read per row), so `total` never counts a row they cannot see. from/to ⇒ an undated row is compared by its booking day (C-5).
+		if ( class_exists( 'BizCity_Brain_Access' ) ) {
+			$p = BizCity_Brain_Access::principal( $ctx );
+			if ( ! self::whole_book( $p, (int) $filter['owner_user_id'] ) ) {
+				$filter['keep'] = static function ( array $e ) use ( $p ): bool { return (bool) BizCity_Brain_Access::decide( $p, $e, 'meta.read' )['allow']; };
+			}
+		}
+		if ( ! empty( $filter['from'] ) || ! empty( $filter['to'] ) ) {
+			$filter['date_fallback'] = 'created';
+		}
 		$res = BizCity_Journal_Index::find( $filter );
 		// [2026-10-20 10:53 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-P2 (brain-access@1) — rows leave only through decide(): the principal of the turn, meta.read.
+		// PHASE-0.145: kept as the last guard (an index file without `keep` support still never shows a hidden row; its count is then the old one).
 		if ( class_exists( 'BizCity_Brain_Access' ) ) {
 			$p   = BizCity_Brain_Access::principal( $ctx );
 			$res['items'] = BizCity_Brain_Access::filter( $res['items'], $p, 'meta.read' );
@@ -787,7 +871,47 @@ final class BizCity_Journal_MCP_Tools {
 			}
 			$res = array_merge( $res, self::fuse_ranked( (array) $res['items'], array_values( $lib ) ) );
 		}
+		if ( null !== $folder_used ) {
+			$res['folder_used'] = $folder_used; // HOTFIX-FOLDER-NAME: the model can say "Thư mục 30 · Sản phẩm: …" (or "chưa có gì")
+		}
 		return $res;
+	}
+
+	/**
+	 * [2026-10-27 12:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.140 HOTFIX-FOLDER-NAME — the folder a find names: {n, label} (number or name / alias, the owner's own list),
+	 * null = no folder asked (or the vault is not loaded: the number path below still works), false = a name no folder has.
+	 *
+	 * @return array{n:string,label:string}|null|false
+	 */
+	public static function named_folder( string $ref ) {
+		$ref = trim( $ref );
+		if ( '' === $ref ) {
+			return null;
+		}
+		if ( ! class_exists( 'BizCity_Twin_Vault' ) || ! method_exists( 'BizCity_Twin_Vault', 'resolve_folder' ) ) {
+			return 1 === preg_match( '#^[0-9]{2}(/[a-z0-9-]{1,40})?$#', $ref ) ? array( 'n' => $ref, 'label' => '' ) : false;
+		}
+		$list = BizCity_Twin_Vault::folders();
+		$n    = BizCity_Twin_Vault::resolve_folder( $ref, $list );
+		if ( '' === $n ) {
+			return false;
+		}
+		$label = '';
+		foreach ( $list as $f ) {
+			if ( (string) ( $f['n'] ?? '' ) === substr( $n, 0, 2 ) ) {
+				$label = (string) ( $f['label'] ?? '' );
+				break;
+			}
+		}
+		return array( 'n' => $n, 'label' => $label );
+	}
+
+	/** "30 · Sản phẩm" for each folder of the owner's list (an unknown folder name answers with them). */
+	private static function folder_names(): array {
+		if ( ! class_exists( 'BizCity_Twin_Vault' ) ) {
+			return array();
+		}
+		return array_map( static function ( $f ) { return (string) ( $f['n'] ?? '' ) . ' · ' . (string) ( $f['label'] ?? '' ); }, BizCity_Twin_Vault::folders() );
 	}
 
 	/**

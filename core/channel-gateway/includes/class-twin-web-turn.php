@@ -59,6 +59,8 @@ final class BizCity_Twin_Web_Turn {
 	const CONTRACT_MIRROR   = 'twin-agent-turn@1.5.0';
 	// [2026-10-22 09:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 Q126-19 (owner: "đóng cả 4, để qua cell hết") — a /gpt/ guest (no WP user) goes to the cell as principal web_guest + contact web_guest; cells older than 1.6 refuse it (an error, never MPR)
 	const CONTRACT_GUEST    = 'twin-agent-turn@1.6.0';
+	// [2026-10-27 06:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L3 (D143-2) — a notebook turn: focus = {notebook_id, source_ids[], use_kg, target_guru?}; the cell calls brain.graph_ask unless use_kg is false. Older cells ignore the extra keys.
+	const CONTRACT_FOCUS     = 'twin-agent-turn@1.7.0';
 	const CELL_CHAT_PATH    = '/zalo-hub/cell-chat';
 	const CELL_CHAT_CAPS_KEY = 'bizcity_cell_chat_caps';
 	const CELL_CHAT_CAPS_TTL = 60;
@@ -523,6 +525,12 @@ final class BizCity_Twin_Web_Turn {
 		if ( null === $principal ) {
 			return self::stream_error( 'not_owner' );
 		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (F25, R-CSB CSB-5) — an image on this dev site's own host cannot be fetched by the cell
+		// (Hub SSRF shield refuses 127.0.0.1 / no public address): say why + how to fix instead of sending a URL that silently fails.
+		if ( self::dev_media_blocked( (array) ( $turn['images'] ?? array() ) ) ) {
+			$e = self::dev_media_error_parts();
+			return self::stream_error( 'dev_site_unreachable', $e['message'], $e['hint'], $e['help_code'] );
+		}
 		$turn['mirror'] = true;
 		unset( $turn['history'] );
 		$env = self::envelope( 'twinchat', $turn, $principal, $key_id );
@@ -530,7 +538,17 @@ final class BizCity_Twin_Web_Turn {
 		// the question is written into its TwinChat session first, then sent to the cell in this same request (SSE unchanged, never a queue).
 		// The answer comes back as the cell's turn-complete (`assistant_message`, same session + trace). One writer per event type.
 		self::record_cell_chat_question( $env, $user_id, (string) $turn['text'] );
-		$res = self::pipe( $env, 'node', null, array(
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL12 (F33, R-CSB CSB-5) — a dev site never receives `turn-complete` (the cell cannot call
+		// back over https), so its history kept only the question. There — and ONLY there — the answer is recorded from the stream's `final_done` frame
+		// (record_cell_chat_answer, same writer + envelope as the turn-complete route). Still one writer per event: a real site keeps the callback as the
+		// only writer, and a late callback for a turn already recorded here is answered `duplicate` (turn_complete_guard), never written twice.
+		$persist = self::dev_records_answer()
+			? static function ( array $done, string $trace_id ) use ( $env, $user_id ): int {
+				self::record_cell_chat_answer( $env, $user_id, $done );
+				return 0; // not a TwinChat transcript row: no `assistant_persisted` frame
+			}
+			: null;
+		$res = self::pipe( $env, 'node', $persist, array(
 			'on_error' => static function ( array $d ) use ( $env, $user_id ): void {
 				self::record_cell_chat_failure( $env, $user_id, (string) ( $d['code'] ?? 'turn_failed' ), (string) ( $d['message'] ?? '' ) );
 			},
@@ -609,6 +627,163 @@ final class BizCity_Twin_Web_Turn {
 				'via'      => 'cell_chat',
 			),
 		) );
+	}
+
+	/** Test seam for bizcity_is_dev_site() (PHASE-0.138 S138-CL2/CL12). @var callable|null */
+	public static $dev_site_seam = null;
+
+	/** [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 — R-CSB CSB-5: is this a dev site (no public https address the Hub / cell can call back)? */
+	public static function is_dev_site(): bool {
+		if ( null !== self::$dev_site_seam ) {
+			return (bool) call_user_func( self::$dev_site_seam );
+		}
+		return function_exists( 'bizcity_is_dev_site' ) && bizcity_is_dev_site();
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL12 — the site records the Cell Chat answer from the stream only on a dev site.
+	 * Filter `bizcity_cell_chat_record_answer_from_stream` (bool) exists for a tunnel setup that DOES receive callbacks; default = is_dev_site().
+	 */
+	public static function dev_records_answer(): bool {
+		$dev = self::is_dev_site();
+		return function_exists( 'apply_filters' ) ? (bool) apply_filters( 'bizcity_cell_chat_record_answer_from_stream', $dev ) : $dev;
+	}
+
+	/** uuid of the answer recorded from the stream on a dev site — derived from the trace id only, so the late-callback guard finds it. */
+	public static function dev_answer_uuid( string $trace ): string {
+		return self::record_uuid( $trace . ':a' );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL12 (F33) — the `assistant_message` of a Cell Chat turn from its `final_done` frame, dev
+	 * sites only. Same envelope as BizCity_Twin_Agent_Turn_Complete_REST::handle() writes and the SAME writer (its ingest(), which honours that
+	 * route's test seam), so readers (Ask Brain list_turns, Sessions) cannot tell the two apart. Idempotent by trace id: a retried / replayed
+	 * frame or a second call is a no-op. A storage failure never touches the stream.
+	 */
+	public static function record_cell_chat_answer( array $env, int $user_id, array $done ): void {
+		if ( ! self::dev_records_answer() ) {
+			return; // one writer per event type: on a real site the cell's turn-complete callback is the only writer
+		}
+		$session = (string) ( $env['session']['session_id'] ?? '' );
+		$trace   = substr( (string) ( $env['trace_id'] ?? '' ), 0, 128 );
+		$answer  = (string) ( $done['answer_md'] ?? '' );
+		if ( '' === $session || '' === $trace || $user_id <= 0 || '' === trim( $answer ) ) {
+			return;
+		}
+		$tc   = class_exists( 'BizCity_Twin_Agent_Turn_Complete_REST' );
+		$uuid = self::dev_answer_uuid( $trace );
+		try {
+			if ( $tc && BizCity_Twin_Agent_Turn_Complete_REST::exists( $uuid ) ) {
+				return;
+			}
+			$max     = $tc ? BizCity_Twin_Agent_Turn_Complete_REST::ANSWER_MAX : 20000;
+			$answer  = function_exists( 'mb_substr' ) ? mb_substr( $answer, 0, $max ) : substr( $answer, 0, $max );
+			$account = (string) ( $env['account_id'] ?? '' );
+			$role    = (string) ( $env['role'] ?? '' );
+			$effort  = (string) ( $done['reasoning_effort'] ?? '' );
+			$envelope = array(
+				'event_uuid'       => $uuid,
+				'event_type'       => 'assistant_message',
+				'event_source'     => 'server',
+				'trace_id'         => $trace,
+				'user_id'          => $user_id,
+				'blog_id'          => function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : null,
+				'session_id'       => $session,
+				'created_epoch_ms' => (int) ( microtime( true ) * 1000 ),
+				'account_id'       => $account,
+				'actor_role'       => $role,
+				'payload'          => array(
+					'content'          => $answer,
+					'text'             => $answer,
+					'via'              => 'cell_chat',
+					'thread_kind'      => '', // the cell's own label only arrives with the callback
+					'files'            => array(), // cell outputs need the callback (dev_limits `callback`): not listed from the stream
+					'axis'             => self::AXIS,
+					'surface'          => (string) ( $env['surface'] ?? 'twinchat' ),
+					'account_id'       => $account,
+					'wp_user_id'       => $user_id,
+					'role'             => $role,
+					'model'            => substr( sanitize_text_field( (string) ( $done['model'] ?? '' ) ), 0, 120 ),
+					'finish_reason'    => sanitize_key( (string) ( $done['finish_reason'] ?? '' ) ),
+					'reasoning_effort' => in_array( $effort, array( 'off', 'low', 'medium', 'high', 'xhigh' ), true ) ? $effort : '',
+					'tokens'           => array( 'prompt' => (int) ( $done['tokens']['prompt'] ?? 0 ), 'completion' => (int) ( $done['tokens']['completion'] ?? 0 ) ),
+					'recorded_by'      => 'dev_site_stream', // PHASE-0.138 S138-CL12: not a turn-complete callback
+				),
+			);
+			if ( $tc ) {
+				BizCity_Twin_Agent_Turn_Complete_REST::ingest( $envelope );
+			} else {
+				self::record_event( $envelope );
+			}
+		} catch ( \Throwable $e ) {
+			if ( function_exists( 'error_log' ) ) {
+				error_log( '[CellChat] dev-site answer record failed: ' . substr( $e->getMessage(), 0, 200 ) ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions
+			}
+		}
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL12 — `rest_request_before_callbacks` on `POST bizcity-twin/v1/turn-complete`: when the
+	 * answer of that trace was already recorded from the stream (dev site, record_cell_chat_answer), an AUTHENTICATED late callback is answered like
+	 * the route's own replay (`duplicate:true`) and writes nothing. Anything else passes through untouched (the route checks its Bearer itself).
+	 *
+	 * @param mixed $response
+	 * @param mixed $handler
+	 * @param mixed $request WP_REST_Request
+	 * @return mixed
+	 */
+	public static function turn_complete_guard( $response, $handler, $request ) {
+		if ( null !== $response || ! is_object( $request ) || ! method_exists( $request, 'get_route' ) || ! class_exists( 'BizCity_Twin_Agent_Turn_Complete_REST' ) ) {
+			return $response;
+		}
+		if ( '/' . BizCity_Twin_Agent_Turn_Complete_REST::NS . '/turn-complete' !== (string) $request->get_route() || 'POST' !== strtoupper( (string) $request->get_method() ) ) {
+			return $response;
+		}
+		$body  = $request->get_json_params();
+		$body  = is_array( $body ) ? $body : array();
+		$trace = substr( sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ), 0, 128 );
+		if ( '' === $trace || ! BizCity_Twin_Agent_Turn_Complete_REST::exists( self::dev_answer_uuid( $trace ) ) ) {
+			return $response;
+		}
+		$account = sanitize_text_field( (string) ( $body['account_id'] ?? '' ) );
+		$token   = '' !== $account ? BizCity_Twin_Agent_Turn_Complete_REST::token( $account ) : '';
+		$header  = (string) $request->get_header( 'authorization' );
+		$bearer  = 0 === stripos( $header, 'Bearer ' ) ? trim( substr( $header, 7 ) ) : '';
+		if ( '' === $token || '' === $bearer || ! hash_equals( $token, $bearer ) ) {
+			return $response; // let the route answer 401 itself
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'duplicate' => true, 'stored' => 0, 'recorded_by' => 'dev_site_stream' ), 200 );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (F25) — on a dev site, true when an image URL points at this site's own host (or any
+	 * dev host: localhost, an IP, *.local …): the Hub refuses to fetch it (SSRF shield) and the cell has no route to it. Real sites: always false.
+	 */
+	public static function dev_media_blocked( array $images ): bool {
+		if ( ! $images || ! self::is_dev_site() || ! class_exists( 'BizCity_Site_Environment' ) ) {
+			return false;
+		}
+		$own = BizCity_Site_Environment::host();
+		foreach ( $images as $url ) {
+			$host = strtolower( (string) wp_parse_url( trim( (string) $url ), PHP_URL_HOST ) );
+			$host = 0 === strpos( $host, 'www.' ) ? substr( $host, 4 ) : $host;
+			if ( '' !== $host && ( $host === $own || BizCity_Site_Environment::is_dev_host( $host ) ) ) { // a relative URL is skipped by parts() anyway
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** R-ERROR-UX parts of the guided dev-site error for media URLs (BizCity_Site_Environment::dev_site_error('media_url')). */
+	public static function dev_media_error_parts(): array {
+		$e = BizCity_Site_Environment::dev_site_error( 'media_url' );
+		$d = (array) $e->get_error_data();
+		return array(
+			'status'    => (int) ( $d['status'] ?? 409 ),
+			'message'   => $e->get_error_message(),
+			'hint'      => (string) ( $d['hint'] ?? '' ),
+			'help_code' => 'S138-DEV-MEDIA-URL',
+		);
 	}
 
 	/** Version-5-shaped uuid of a Cell Chat record (same shape the turn-complete route uses). */
@@ -839,9 +1014,10 @@ final class BizCity_Twin_Web_Turn {
 		foreach ( (array) ( $target['headers'] ?? array() ) as $k => $v ) {
 			$headers[] = $k . ': ' . $v;
 		}
-		$status = 0;
-		$bytes  = 0;
-		$ch     = curl_init( (string) $target['url'] );
+		$status  = 0;
+		$bytes   = 0;
+		$on_tick = null; // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 — a download has no abort hook; the options below were copied from transport() without it (undefined variable)
+		$ch      = curl_init( (string) $target['url'] );
 		curl_setopt_array( $ch, array(
 			CURLOPT_HTTPHEADER     => $headers,
 			CURLOPT_TIMEOUT        => 110,
@@ -867,7 +1043,7 @@ final class BizCity_Twin_Web_Turn {
 				}
 				return (int) fwrite( $fh, $chunk ); // phpcs:ignore WordPress.WP.AlternativeFunctions
 			},
-		) );
+		) + self::curl_ca_opts() ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL3 — CA bundle when php.ini has no curl.cainfo
 		curl_exec( $ch );
 		curl_close( $ch );
 		fclose( $fh ); // phpcs:ignore WordPress.WP.AlternativeFunctions
@@ -948,7 +1124,7 @@ final class BizCity_Twin_Web_Turn {
 				flush();
 				return connection_aborted() ? 0 : strlen( $chunk );
 			},
-		) );
+		) + self::curl_ca_opts() ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL3 — CA bundle when php.ini has no curl.cainfo
 		curl_exec( $ch );
 		curl_close( $ch );
 		if ( ! $started ) {
@@ -1010,6 +1186,19 @@ final class BizCity_Twin_Web_Turn {
 		);
 		if ( (int) ( $turn['notebook_id'] ?? 0 ) > 0 ) {
 			$env['focus'] = array( 'notebook_id' => (int) $turn['notebook_id'] );
+			// [2026-10-27 06:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.143 S143-L3 (D143-2) — what the notebook screen sends (source picks, KG switch, @Guru) used to be dropped here.
+			if ( array_key_exists( 'source_ids', $turn ) || array_key_exists( 'use_kg', $turn ) || ! empty( $turn['target_guru'] ) ) { // only a surface that sends them (TwinChat notebook); older turns stay byte-identical
+				$src = array_values( array_unique( array_filter( array_map( 'intval', (array) ( $turn['source_ids'] ?? array() ) ), static function ( $v ) { return $v > 0; } ) ) );
+				$env['focus']['source_ids'] = array_slice( $src, 0, 50 );
+				$env['focus']['use_kg']     = ! array_key_exists( 'use_kg', $turn ) || (bool) $turn['use_kg'];
+				$tg = isset( $turn['target_guru'] ) && is_array( $turn['target_guru'] ) ? $turn['target_guru'] : array();
+				if ( (int) ( $tg['character_id'] ?? 0 ) > 0 ) {
+					$env['focus']['target_guru'] = array( 'character_id' => (int) $tg['character_id'] );
+				}
+				if ( empty( $turn['mirror'] ) && ! $guest ) {
+					$env['contract'] = self::CONTRACT_FOCUS;
+				}
+			}
 		}
 		// PHASE-0.89 S89-B1: the vertical brain mode asked for (registry id of brain-vertical@1; the cell resolves it and gates it by role)
 		if ( ! empty( $turn['vertical'] ) && 1 === preg_match( '/^[a-z_]{2,24}$/', (string) $turn['vertical'] ) ) {
@@ -1157,6 +1346,11 @@ final class BizCity_Twin_Web_Turn {
 		}
 		if ( '' === trim( (string) ( $turn['text'] ?? '' ) ) ) {
 			return self::error( 'empty_message' );
+		}
+		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL2 (F25, R-CSB CSB-5) — dev site + an image on its own host: the guided error, before any byte (same path as the other pre-stream errors)
+		if ( self::dev_media_blocked( (array) ( $turn['images'] ?? array() ) ) ) {
+			$e = self::dev_media_error_parts();
+			return self::response( $e['status'], 'dev_site_unreachable', $e['message'], $e['hint'], $e['help_code'] );
 		}
 		$env = self::envelope( $surface, $turn, $d['principal'], (int) $d['key_id'] );
 		$shape = array();
@@ -1659,11 +1853,26 @@ final class BizCity_Twin_Web_Turn {
 			CURLOPT_WRITEFUNCTION  => static function ( $ch, $chunk ) use ( &$status, &$ctype, $on_bytes ) {
 				return $on_bytes( (string) $chunk, (int) $status, (string) $ctype ) ? strlen( $chunk ) : 0;
 			},
-		) );
+		) + self::curl_ca_opts() ); // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL3 — CA bundle when php.ini has no curl.cainfo
 		$ok    = curl_exec( $ch );
 		$errno = (int) curl_errno( $ch );
 		curl_close( $ch );
 		return array( 'ok' => false !== $ok, 'status' => (int) $status, 'errno' => $errno, 'ctype' => (string) $ctype );
+	}
+
+	/**
+	 * [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL3 (F26, R-CSB CSB-5) — the raw cURL calls of this class set no CA bundle, so on
+	 * XAMPP / WAMP (Windows, no `curl.cainfo` in php.ini) TLS to bizcity.vn failed while wp_remote_* (which ships its own bundle) worked.
+	 * Point cURL at WordPress's bundle only when php.ini names none. Peer verification stays ON (never CURLOPT_SSL_VERIFYPEER false).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function curl_ca_opts(): array {
+		if ( '' !== (string) ini_get( 'curl.cainfo' ) || ! defined( 'ABSPATH' ) || ! defined( 'WPINC' ) || ! defined( 'CURLOPT_CAINFO' ) ) {
+			return array();
+		}
+		$bundle = ABSPATH . WPINC . '/certificates/ca-bundle.crt';
+		return is_readable( $bundle ) ? array( CURLOPT_CAINFO => $bundle ) : array();
 	}
 
 	private static function open(): void {
@@ -1698,4 +1907,9 @@ final class BizCity_Twin_Web_Turn {
 		echo $bytes; // phpcs:ignore WordPress.Security.EscapeOutput -- SSE bytes from the cell (unchanged) or site frames built above
 		flush();
 	}
+}
+
+// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.138 S138-CL12 — a late `turn-complete` for a Cell Chat answer the dev site already recorded from the stream is a replay, never a second row.
+if ( function_exists( 'add_filter' ) ) {
+	add_filter( 'rest_request_before_callbacks', array( 'BizCity_Twin_Web_Turn', 'turn_complete_guard' ), 10, 3 );
 }

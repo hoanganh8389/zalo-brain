@@ -181,6 +181,7 @@ final class BizCity_Document_MCP_Service {
 	 *
 	 * @return array|WP_Error
 	 */
+	// c9-guarded-by: load_citation_validator() below — function_exists( 'bizcity_kg_validate_citations_in_json' ), else 503 (PHASE-0.148 S148-C9).
 	public function validate_draft( array $args, array $ctx ) {
 		// [2026-07-28 Johnny Chu] PHASE-0.53-MCP REFLECT — support v2 draft_content while preserving canonical citation validation.
 		$pack_uuid = isset( $args['context_pack_id'] ) ? (string) $args['context_pack_id'] : '';
@@ -546,8 +547,10 @@ final class BizCity_Document_MCP_Service {
 		if ( function_exists( 'bizcity_kg_validate_citations_in_json' ) ) {
 			return true;
 		}
-		$helper = dirname( __DIR__, 2 ) . '/kg-hub/includes/kg-helpers.php';
-		if ( is_readable( $helper ) ) {
+		// [2026-11-13 07:32 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N2 — kg-helpers.php is the notebook add-on's; absent ⇒ no citation check (as before without kg-hub).
+		$helper = defined( 'BIZCITY_KG_HUB_INCLUDES' ) ? BIZCITY_KG_HUB_INCLUDES . 'kg-helpers.php'
+			: ( class_exists( 'BizCity_Addon_Locator', false ) ? BizCity_Addon_Locator::file( 'notebook/kg/includes/kg-helpers.php' ) : '' );
+		if ( '' !== $helper && is_readable( $helper ) ) {
 			require_once $helper;
 		}
 		return function_exists( 'bizcity_kg_validate_citations_in_json' );

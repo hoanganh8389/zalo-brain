@@ -93,6 +93,17 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			// twin-shell forward param này khi rebuild iframe URL + sync address
 			// bar (admin.php?page=bizcity-twinchat&plugin=twinchat&session_id=…),
 			// y như cách `notebook_id` đang hoạt động cho notebook deep-link.
+			// [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-N6 — TwinChat is the notebook add-on's: no add-on (or BIZCITY_NOTEBOOK_LOAD = off) ⇒ no icon (T148-5).
+			'requires'    => [ 'class' => 'BizCity_TwinChat_Public_Page', 'addon' => 'notebook/twinchat/bootstrap.php' ],
+			// [2026-11-13 10:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 (owner, screenshot 13/11: "có badge pro giống crm và automation") — same pattern as `crm`: the brain icon
+			// always shows with a PRO badge; without the notebook add-on (or BIZCITY_NOTEBOOK_LOAD = off) a click opens the in-shell notice (activate / download from
+			// GitHub) instead of hiding the icon (was N6). No `license` gate: the notebook's tier is the owner's call (zalo-brain.json licence.tier).
+			'upsell'       => true,
+			'badge'        => 'PRO',
+			'pro_package'  => 'Zalo Brain Notebook',
+			'addon_name'   => 'Zalo Brain Notebook',
+			'addon_file'   => 'bizcity-twin-notebook/bizcity-twin-notebook.php',
+			'addon_github' => 'https://github.com/hoanganh8389/zalo-brain-notebook',
 			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread', 'ledger' ], // [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE, owner approved) — `ledger` = the whole query of the Sổ cái / Sổ screen (mode=sheets&sheet=…&period=…) in ONE key, so the shell carries it to the TwinChat iframe and back to the address bar without opening a prefix allowlist
 			'desc'        => __( 'Central business brain for chat, knowledge and work.', $td ),
 		],
@@ -367,7 +378,8 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	// [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 (doc 102) — "📘 Skill" back on the ActivityBar, right after
 	// Scenarios: link to the lean core/skills editor (admin.php?page=bizcity-skills, D101-16 v2). core/skills loads in admin/REST/cron
 	// context only, so a `requires` class/const gate would always fail on /twin/ — gate on the module file instead.
-	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/skills/bootstrap.php' ) ) {
+	// [2026-11-12 11:30 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W1a — core/skills is core/vault now (D148-15).
+	if ( defined( 'BIZCITY_TWIN_AI_DIR' ) && file_exists( BIZCITY_TWIN_AI_DIR . 'core/vault/bootstrap.php' ) ) {
 		$defaults[] = [
 			'id'          => 'skills',
 			'label'       => __( 'Kho tri thức',                  $td ), // [2026-10-24 09:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.134 S134-U1 — Twin Vault rebrand (D134-1, Q134-3): was 'Skills'
@@ -393,11 +405,11 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 	$access = [
 		'gateway'        => [ 'mode' => 'admin_only', 'owner' => 'core/channel-gateway' ],
 		'crm'            => [ 'mode' => 'delegated', 'owner' => 'plugins/bizcity-twin-crm', 'manage' => [ 'plugin' => 'crm', 'r' => '/staff' ] ],
-		'twinchat'       => [ 'mode' => 'grantable', 'owner' => 'modules/twinchat' ],
+		'twinchat'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-twin-notebook' ], // [2026-11-13 08:33 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 — was modules/twinchat
 		// [2026-10-05 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.91-AX-0 — Automation is the plugin bizcity-automation, not core/.
 		'workflow'       => [ 'mode' => 'grantable', 'owner' => 'bizcity-automation' ],
 		'scheduler'      => [ 'mode' => 'grantable', 'owner' => 'core/scheduler' ],
-		'skills'         => [ 'mode' => 'admin_only', 'owner' => 'core/skills' ], // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S101-L14 — skills are machine instructions; owner/admin edit (doc 90 §3)
+		'skills'         => [ 'mode' => 'grantable', 'owner' => 'core/skills' ], // [2026-11-03 Claude Sonnet 5] Vault - Kho tri thức is content (docs/notes/skills), not an admin-only config surface like Zalo Setup; owner can grant per role like Notebook/Scheduler
 		'settings'      => [ 'mode' => 'admin_only', 'owner' => 'modules/twinshell' ],
 		'marketplace'    => [ 'mode' => 'grantable', 'owner' => 'marketplace' ],
 		'web'            => [ 'mode' => 'grantable', 'owner' => 'plugins/bizcity-pagebuilder' ],

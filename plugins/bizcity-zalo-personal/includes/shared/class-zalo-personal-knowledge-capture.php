@@ -505,7 +505,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 	// ── internals ────────────────────────────────────────────────────────
 
 	private static function capture( array $job, string $bridge_id ): void {
-		if ( ! class_exists( 'BizCity_KG_Channel_Notebook_Bridge' ) ) {
+		// [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C10 (D148-6) — without the notebook (no KG bridge) the files still go into the Vault
+		// (BizCity_Vault_Upload::keep_batch); only a site with neither is skipped.
+		$via_vault = ! class_exists( 'BizCity_KG_Channel_Notebook_Bridge' );
+		if ( $via_vault && ! ( class_exists( 'BizCity_Vault_Upload' ) && method_exists( 'BizCity_Vault_Upload', 'keep_batch' ) ) ) {
 			self::done( 'knowledge_capture_skipped', array( 'account_id' => $bridge_id, 'reason' => 'kg_hub_not_loaded' ), 'invalid_metadata' );
 			return;
 		}
@@ -564,6 +567,10 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 		// A fixed "Zalo <number> dd/mm" title: no LLM naming call per file.
 		add_filter( 'bizcity_kg_notebook_bridge_use_llm_title', '__return_false', 99 );
 		try {
+			if ( $via_vault ) { // PHASE-0.148 W2 S148-C10 — same items, same result shape; the bridge's actor is the uploader of the original
+				$actor = (int) ( $job['actor_user_id'] ?? 0 );
+				$res   = BizCity_Vault_Upload::keep_batch( $actor > 0 ? $actor : $owner, self::SCOPE_PREFIX . $bridge_id, $items );
+			} else {
 			$res = BizCity_KG_Channel_Notebook_Bridge::instance()->capture_batch( array(
 				'user_id'    => $owner,
 				'channel'    => self::CHANNEL,
@@ -584,6 +591,7 @@ final class BizCity_Zalo_Personal_Knowledge_Capture {
 					'notify'         => false,
 				),
 			), $items );
+			}
 		} finally {
 			remove_filter( 'bizcity_kg_notebook_bridge_use_llm_title', '__return_false', 99 );
 		}

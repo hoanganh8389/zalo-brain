@@ -126,6 +126,59 @@ final class BizCity_Vault_Upload {
 		), 200 );
 	}
 
+	/**
+	 * [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C10 (doc 20 §6, D148-6) — the channel door into the Vault WITHOUT the notebook.
+	 * A channel capture (Zalo cá nhân / bot) hands its items here when the KG bridge is absent; the result has the bridge's shape
+	 * (items[] · failed[] · succeeded · queued · total, notebook_id 0) so the caller's journal rows, filing and receipt run unchanged.
+	 *   file / image / audio {attachment:{url, file_name}} ⇒ BizCity_KG_Private_File_Store::capture_remote (private original, sha256 dedupe per workspace)
+	 *   text {content}                                      ⇒ a Kho tri thức note (BizCity_Twin_Vault::write, its own journal row ⇒ reported duplicate:true
+	 *                                                         so the caller does not open a second row); path from the message id ⇒ a retry rewrites, never doubles
+	 * No model call; the cell reads the files on its sweep, as for "Tải tệp lên".
+	 *
+	 * @param array $items capture items [{kind, title_hint?, message_id, attachment?:{url, file_name}, content?}]
+	 * @return array{notebook_id:int,total:int,succeeded:int,queued:int,queued_jobs:array,items:array,failed:array}
+	 */
+	public static function keep_batch( int $user_id, string $scope_id, array $items ): array {
+		$ok     = array();
+		$failed = array();
+		foreach ( array_values( $items ) as $idx => $it ) {
+			$kind = (string) ( $it['kind'] ?? 'file' );
+			$mid  = (string) ( $it['message_id'] ?? '' );
+			$att  = is_array( $it['attachment'] ?? null ) ? $it['attachment'] : null;
+			if ( null !== $att ) {
+				$url  = (string) ( $att['url'] ?? $att['source_url'] ?? '' );
+				$name = (string) ( $att['file_name'] ?? $att['name'] ?? '' );
+				if ( '' === $name && '' !== $url ) {
+					$name = basename( (string) ( function_exists( 'wp_parse_url' ) ? wp_parse_url( $url, PHP_URL_PATH ) : parse_url( $url, PHP_URL_PATH ) ) );
+				}
+				$kept = class_exists( 'BizCity_KG_Private_File_Store' ) ? BizCity_KG_Private_File_Store::capture_remote( $url, $name, array( 'user_id' => $user_id, 'scope_id' => $scope_id ) ) : new WP_Error( 'upload_unavailable', 'Kho tài liệu chưa sẵn sàng trên site này.' );
+				if ( is_wp_error( $kept ) ) {
+					$failed[] = array( 'index' => $idx, 'kind' => $kind, 'code' => $kept->get_error_code(), 'error' => $kept->get_error_message(), 'file_name' => $name );
+					continue;
+				}
+				$ok[] = array( 'index' => $idx, 'kind' => $kind, 'message_id' => $mid, 'file_name' => $name, 'attachment_id' => (int) $kept['attachment_id'], 'duplicate' => ! empty( $kept['duplicate'] ), 'source_id' => 0, 'kg_source_id' => 0 );
+				continue;
+			}
+			$text = trim( (string) ( $it['content'] ?? '' ) );
+			if ( '' === $text ) {
+				continue;
+			}
+			$title = trim( (string) ( $it['title_hint'] ?? '' ) );
+			$first = trim( (string) strtok( $text, "\n" ) );
+			$note  = class_exists( 'BizCity_Twin_Vault' ) ? BizCity_Twin_Vault::write( array(
+				'title'    => mb_substr( '' !== $first ? $first : ( '' !== $title ? $title : 'Ghi chú từ Zalo' ), 0, 120 ),
+				'markdown' => $text,
+				'path'     => '/note/zalo-' . substr( md5( '' !== $mid ? $mid : $scope_id . ':' . $idx . ':' . $text ), 0, 12 ) . '.md',
+			), array( 'owner_user_id' => $user_id, 'role' => 'owner', 'vrole' => 'owner' ) ) : new WP_Error( 'vault_unavailable', 'Kho tri thức chưa sẵn sàng trên site này.' );
+			if ( is_wp_error( $note ) ) {
+				$failed[] = array( 'index' => $idx, 'kind' => $kind, 'code' => $note->get_error_code(), 'error' => $note->get_error_message(), 'file_name' => '' );
+				continue;
+			}
+			$ok[] = array( 'index' => $idx, 'kind' => $kind, 'message_id' => $mid, 'file_name' => '', 'attachment_id' => 0, 'duplicate' => true, 'vault_note' => (string) ( $note['id'] ?? '' ), 'entry_id' => (int) ( $note['entry_id'] ?? 0 ), 'source_id' => 0, 'kg_source_id' => 0 );
+		}
+		return array( 'notebook_id' => 0, 'notebook_created' => false, 'total' => count( $items ), 'succeeded' => count( $ok ), 'queued' => 0, 'queued_jobs' => array(), 'items' => $ok, 'failed' => $failed, 'via' => 'vault' );
+	}
+
 	private static function fail( string $code, string $message, int $status, string $hint = '' ): WP_REST_Response {
 		return new WP_REST_Response( array( 'code' => $code, 'message' => $message, 'hint' => $hint, 'help_code' => 'vault_upload' ), $status );
 	}

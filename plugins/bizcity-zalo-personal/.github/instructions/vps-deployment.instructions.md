@@ -11,7 +11,6 @@ Use the canonical deployment rules from the parent workspace instruction:
 
 The non-negotiable invariants are:
 
-- Deploy from `/home/vibeyeuc/zca-bridge`.
 - Runtime is `node dist/main.js`; source changes must be compiled into a new Docker image.
 - Rebuild/recreate only `zca-bridge`; preserve `bridge-db`, database `zca`, and named volume `bridge_pg`.
 - Never use `docker compose down -v`, `docker system prune -a --volumes`, `docker volume rm bridge_pg`, or manual `/var/lib/docker/overlay2` deletion.

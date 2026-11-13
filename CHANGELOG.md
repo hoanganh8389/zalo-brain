@@ -480,7 +480,7 @@ migration was packaged.
 
 **VPS deploy — 2026-09-16 (production runtime evidence):**
 
-- Source markers verified on `/home/vibeyeuc/zca-bridge/src/` before build
+- Source markers verified in the bridge source on the VPS before build
   (`BRIDGE_VERSION = "0.39.8"`, `restoreAccountSession`, `isZaloAuthRejection`,
   `012_session_lifecycle.sql`).
 - Image built: `sha256:eb1b058d1afe7afb4c1e15fbbfc044f32cdd02aed14c833474c5510b868e0ede`.

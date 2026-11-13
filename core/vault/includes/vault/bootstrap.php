@@ -33,6 +33,8 @@ foreach ( array(
 	'class-vault-upload.php'          => 'kg_hub.vault_upload', // PHASE-0.140 / 0.137 — "Tải tệp lên"
 	'class-vault-tags.php'            => 'kg_hub.vault_tags', // PHASE-0.145 S145-L6 — vault-tag@1
 	'class-kg-private-file-store.php' => 'vault.private_file_store', // PHASE-0.121 S121-L1 — private originals (was a plain require_once)
+	'class-notebook-port.php'           => 'vault.notebook_port', // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C7 — the one door to the optional notebook
+	'class-vault-knowledge-search.php'  => 'vault.knowledge_search', // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C8 — knowledge.search from the Vault
 ) as $_bizcity_vault_rel => $_bizcity_vault_label ) {
 	$_bizcity_vault_path = __DIR__ . '/' . $_bizcity_vault_rel;
 	if ( class_exists( 'BizCity_Safe_Loader' ) ) {

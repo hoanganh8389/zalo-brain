@@ -101,7 +101,8 @@ final class BizCity_Brain_Access {
 	public static function grants( array $principal, array $entry ): array {
 		$g = self::grants_by_type( $principal, $entry );
 		// [2026-10-25 PHASE-0.134 D134-13] a row filed in a Kho tri thức folder the owner kept to themself: staff / automation / group members hold nothing on it (owner and system unchanged)
-		if ( $g && in_array( (string) ( $principal['type'] ?? '' ), array( 'staff', 'automation', 'group_member' ), true ) && class_exists( 'BizCity_Twin_Vault', false ) && 'owner' === BizCity_Twin_Vault::folder_access_of( $entry ) ) {
+		// [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C14 (D148-19) — the journal asks, the Vault answers (filter registered by BizCity_Twin_Vault).
+		if ( $g && in_array( (string) ( $principal['type'] ?? '' ), array( 'staff', 'automation', 'group_member' ), true ) && function_exists( 'apply_filters' ) && true === apply_filters( 'bizcity_brain_access_owner_only', false, $entry ) ) {
 			return array();
 		}
 		return $g;

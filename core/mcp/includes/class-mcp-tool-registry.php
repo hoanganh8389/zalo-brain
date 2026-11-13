@@ -187,11 +187,26 @@ final class BizCity_MCP_Tool_Registry {
 		}
 		// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.136 S136-L5 (D136-6) — a CUSTOMER turn (guru_public) also gets short passages from the Guru's PUBLIC Kho tri thức folders,
 		// under their own key (the strict notebook citations are untouched); a Guru with public folders but no notebook still answers from them.
-		$vault = array();
-		if ( 'guru_public' === (string) ( $ctx['principal_kind'] ?? '' ) && class_exists( 'BizCity_Twin_Vault', false ) && method_exists( 'BizCity_Twin_Vault', 'public_passages' ) ) {
+		// [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C8/C7 (D148-4/5) — Vault passages for EVERY principal (BizCity_Vault_Knowledge_Search: customer ⇒ public
+		// folders as before; owner / staff ⇒ role-gated folders, TL- kept); the notebook (KG) part only through BizCity_Notebook_Port — no notebook ⇒ the Vault answers alone.
+		$public = 'guru_public' === (string) ( $ctx['principal_kind'] ?? '' );
+		$vault  = array();
+		if ( class_exists( 'BizCity_Vault_Knowledge_Search', false ) ) {
+			$vault = BizCity_Vault_Knowledge_Search::passages( $args, $ctx );
+		} elseif ( $public && class_exists( 'BizCity_Twin_Vault', false ) && method_exists( 'BizCity_Twin_Vault', 'public_passages' ) ) {
 			$vault = BizCity_Twin_Vault::public_passages( (int) ( $ctx['guru_character_id'] ?? 0 ), (string) ( $args['query'] ?? '' ), (int) ( $ctx['acting_user_id'] ?? 0 ) );
 		}
-		$result = empty( $ctx['allowed_notebook_ids'] ) && $vault ? array( 'retrieval_snapshot_id' => '', 'passages' => array(), 'allowed_citations' => array() ) : BizCity_Brain_MCP_Service::instance()->search( $args, $ctx );
+		$empty = array( 'retrieval_snapshot_id' => '', 'passages' => array(), 'allowed_citations' => array() );
+		if ( $public && empty( $ctx['allowed_notebook_ids'] ) && $vault ) {
+			$result = $empty; // PHASE-0.136 rule kept: a Guru with public folders but no notebook answers from them
+		} elseif ( class_exists( 'BizCity_Notebook_Port', false ) ) {
+			$result = BizCity_Notebook_Port::search( $args, $ctx ) ?? $empty;
+		} else {
+			$result = BizCity_Brain_MCP_Service::instance()->search( $args, $ctx ); // core without the port file (partial deploy): as before
+		}
+		if ( $vault && is_wp_error( $result ) ) {
+			$result = $empty; // the notebook failed but the Vault has an answer: answer from the Vault
+		}
 		if ( $vault && is_array( $result ) ) {
 			$result['vault_passages'] = $vault;
 		}

@@ -128,6 +128,8 @@ unset( $_bizcity_core_rel, $_bizcity_core_label, $_bizcity_core_path );
 foreach ( array(
 	'class-journal-learning-sync.php' => 'kg_hub.journal_learning_sync', // PHASE-0.121 B1-1 (S121-A1)
 	'class-kg-learn-gate.php'         => 'kg_hub.learn_gate', // PHASE-0.121 B3-1 (S121-K6)
+	'class-kg-journal-study.php'      => 'kg_hub.journal_study', // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C4 — "Học sâu" answers bizcity_journal_study
+	'class-kg-notebook-port-impl.php' => 'kg_hub.notebook_port_impl', // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C7 — the KG answers BizCity_Notebook_Port
 ) as $_bizcity_journal_rel => $_bizcity_journal_label ) {
 	$_bizcity_journal_path = BIZCITY_KG_HUB_INCLUDES . $_bizcity_journal_rel;
 	if ( class_exists( 'BizCity_Safe_Loader' ) ) {
@@ -173,6 +175,12 @@ add_action( 'rest_api_init', static function () {
 // module bootstraps (loaded above). Only the KG one stays: embed / graph / error progress onto the journal row (R-JN-20/21).
 if ( class_exists( 'BizCity_Journal_Learning_Sync', false ) ) {
 	BizCity_Journal_Learning_Sync::register();
+}
+if ( class_exists( 'BizCity_KG_Journal_Study', false ) ) {
+	BizCity_KG_Journal_Study::register(); // PHASE-0.148 W2 — before bizcity_mcp_register_tools (notebook.study is offered only when this answers)
+}
+if ( class_exists( 'BizCity_KG_Notebook_Port_Impl', false ) ) {
+	BizCity_KG_Notebook_Port_Impl::boot(); // PHASE-0.148 W2 — at load time (deterministic); the port class came with core/vault above
 }
 // [2026-07-24 Johnny Chu] PHASE-0.46 W1 — channel -> notebook capture bridge shared by Zalo/Telegram/Messenger/WebChat/Twin surfaces.
 require_once BIZCITY_KG_HUB_INCLUDES . 'class-kg-channel-notebook-bridge.php';

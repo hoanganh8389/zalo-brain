@@ -273,11 +273,13 @@ final class BizCity_Journal_Doc_Index_Pack_Exporter {
 	 * @return array[]
 	 */
 	public static function sheet_items( int $owner_user_id ): array {
-		if ( ! class_exists( 'BizCity_Twin_Sheet_Registry' ) ) {
-			return array();
-		}
-		$out = array();
-		foreach ( BizCity_Twin_Sheet_Registry::list_for_owner( $owner_user_id ) as $s ) {
+		// [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C14 (D148-19) — the journal asks, core/sheet answers (BizCity_Twin_Sheet_API::init registers it).
+		$sheets = function_exists( 'apply_filters' ) ? apply_filters( 'bizcity_journal_pack_sheets', array(), $owner_user_id ) : array();
+		$out    = array();
+		foreach ( is_array( $sheets ) ? $sheets : array() as $s ) {
+			if ( ! is_array( $s ) ) {
+				continue;
+			}
 			if ( count( $out ) >= self::MAX_SHEETS ) {
 				break;
 			}

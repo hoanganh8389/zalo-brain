@@ -48,6 +48,10 @@ final class BizCity_Twin_Sheet_API {
 		// [2026-10-19 11:45 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — the CPT that holds the person's own sheet definitions + their kinds in the journal catalog.
 		add_action( 'init', array( 'BizCity_Twin_Sheet_Cpt_Defs', 'register_post_type' ) );
 		add_filter( 'bizcity_journal_kinds', array( 'BizCity_Twin_Sheet_Registry', 'filter_kinds' ) );
+		// [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C14 (D148-19) — the doc-index pack's `sheet` shelf asks; the sheet answers (journal never calls this module).
+		add_filter( 'bizcity_journal_pack_sheets', static function ( $sheets, $owner_user_id ) {
+			return array_merge( is_array( $sheets ) ? $sheets : array(), BizCity_Twin_Sheet_Registry::list_for_owner( (int) $owner_user_id ) );
+		}, 10, 2 );
 		// [2026-10-21 11:35 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W3 — "Khóa kỳ" also holds for the assistant / automations that write through the journal index
 		add_filter( 'bizcity_journal_pre_add', array( 'BizCity_Twin_Sheet_Snapshot', 'guard_journal' ), 10, 5 );
 		// [2026-10-22 02:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W7 (B2) — after the period lock: the card of a row the assistant writes into a sheet a person made is checked against that sheet

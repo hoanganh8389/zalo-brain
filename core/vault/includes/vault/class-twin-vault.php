@@ -78,6 +78,26 @@ final class BizCity_Twin_Vault {
 		if ( function_exists( 'did_action' ) && did_action( 'bizcity_mcp_register_tools' ) ) {
 			self::register_tools();
 		}
+		self::access_hooks();
+	}
+
+	private static $access_hooked = false;
+
+	/**
+	 * [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C14 (D148-19) — the journal's access matrix asks the Vault whether a row sits in a
+	 * folder the owner kept to themself (D134-13); the journal never calls this class. Idempotent.
+	 */
+	public static function access_hooks(): void {
+		if ( self::$access_hooked || ! function_exists( 'add_filter' ) ) {
+			return;
+		}
+		self::$access_hooked = true;
+		add_filter( 'bizcity_brain_access_owner_only', static function ( $owner_only, $entry ) {
+			return true === $owner_only || ( is_array( $entry ) && 'owner' === self::folder_access_of( $entry ) );
+		}, 10, 2 );
+		if ( function_exists( 'add_action' ) ) {
+			add_action( 'bizcity_vault_appended', static function () { self::packs_changed(); }, 20, 0 ); // PHASE-0.148 W2 S148-C11 — vault.append (notebook ⇒ pool .md)
+		}
 	}
 
 	// ── pure ─────────────────────────────────────────────────────────────
@@ -368,6 +388,7 @@ final class BizCity_Twin_Vault {
 				$list[ $i ]['aliases'] = self::clean_aliases( $patch['aliases'] );
 			}
 			update_option( self::FOLDER_OPTION, $list, false );
+			self::packs_changed(); // PHASE-0.148 W2 S148-C11 — label / access / Guru mapping changed what the assistant may read
 			return $list[ $i ];
 		}
 		return new WP_Error( 'vault_folder_not_found', 'Không có thư mục này.', array( 'status' => 404, 'hint' => 'Tải lại cây.', 'help_code' => 'twin_vault' ) );
@@ -517,6 +538,53 @@ final class BizCity_Twin_Vault {
 	}
 
 	/**
+	 * [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C8 (D148-4) — the INTERNAL door (owner · staff · the Guru working for them): short
+	 * passages from Kho tri thức notes that match the question, so a site without the notebook still answers from its Vault. The folder gate is
+	 * the principal's role (search() hides owner-only folders from staff, D134-13) and — when a Guru is named and has folders — the Guru's folders
+	 * (R-SCOPE-FOLDER, D142-17). Unlike the customer door the TL- code stays (title "… · TL-47", `ref`) so the answer can cite it.
+	 *
+	 * @param array $ctx {owner_user_id|user_id, role|vrole}
+	 * @return array<int,array{title:string,folder:string,text:string,ref:string}>
+	 */
+	public static function knowledge_passages( int $guru_id, string $q, array $ctx, int $limit = 3 ): array {
+		$owner = (int) ( $ctx['owner_user_id'] ?? $ctx['user_id'] ?? 0 );
+		if ( $owner <= 0 || '' === trim( $q ) ) {
+			return array();
+		}
+		$sctx  = array( 'owner_user_id' => $owner, 'vrole' => self::role_of( $ctx ) );
+		$sargs = array( 'q' => mb_substr( $q, 0, 120 ), 'limit' => 20, 'markdown_only' => true );
+		$gf    = $guru_id > 0 ? self::folders_for_guru( $guru_id ) : array();
+		if ( $gf ) {
+			$sargs['folders'] = $gf;
+		}
+		$hits = (array) ( self::search( $sargs, $sctx )['items'] ?? array() );
+		if ( ! $hits && count( self::query_words( $q ) ) > 1 ) {
+			$hits = (array) ( self::search( $sargs + array( 'relaxed' => 1 ), $sctx )['items'] ?? array() );
+		}
+		$labels = array_column( self::folders(), 'label', 'n' );
+		$out    = array();
+		foreach ( $hits as $h ) {
+			$n = self::note_open( (string) $h['id'], $sctx, 0, 1200 );
+			if ( ! is_array( $n ) || '' === trim( (string) ( $n['markdown'] ?? '' ) ) ) {
+				continue;
+			}
+			$f     = substr( (string) ( $h['vault_folder'] ?? '' ), 0, 2 );
+			$ref   = 0 === strpos( (string) $h['id'], 'src:' ) ? substr( (string) $h['id'], 4 ) : '';
+			$title = (string) $h['title'];
+			$out[] = array(
+				'title'  => '' !== $ref ? $title . ' · ' . $ref : $title,
+				'folder' => (string) ( $labels[ $f ] ?? $f ),
+				'text'   => trim( mb_substr( (string) $n['markdown'], 0, 1200 ) ),
+				'ref'    => $ref,
+			);
+			if ( count( $out ) >= $limit ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * [2026-10-28 02:25 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.145 S145-G4/G6 (D145-19, doc 57) — the ORIGINAL photo of a note found in a PUBLIC folder of the Guru, as a 15-minute signed URL.
 	 * The folder gate is the caller's (public_passages only passes hits of the Guru's public folders); here: a journal row of the owner, not sensitive (R-JN-11), a raster photo (never SVG /
 	 * documents), bytes present. '' otherwise. The URL is minted per call and carries no internal code.
@@ -615,7 +683,20 @@ final class BizCity_Twin_Vault {
 			}
 			$done[ $id ] = $role;
 		}
+		if ( $done ) {
+			self::packs_changed(); // PHASE-0.148 W2 S148-C11
+		}
 		return $done;
+	}
+
+	/**
+	 * [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C11 (doc 20 §5) — tell the existing listeners (MCP resources, zalo pack invalidation, cell)
+	 * that what the assistant reads from the Vault changed: the doc_index pack (folders / rows) and the skills pack (library notes). Their own debounce applies.
+	 */
+	private static function packs_changed(): void {
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_twin_agent_packs_changed', array( 'doc_index', 'skills' ) );
+		}
 	}
 
 	private static function guru_choices(): array {
@@ -1276,6 +1357,7 @@ final class BizCity_Twin_Vault {
 			return new WP_Error( 'vault_write_failed', 'Không ghi được ghi chú.', array( 'status' => 500, 'help_code' => 'twin_vault' ) );
 		}
 		self::$files = null;
+		self::packs_changed(); // PHASE-0.148 W2 S148-C11
 		return array( 'contract' => self::CONTRACT, 'id' => 'lib:' . $path, 'source_ref' => $sref, 'entry_id' => $row ? (int) $row['entry_id'] : 0, 'updated_at' => $now, 'created' => null === $cur, 'vault_folder' => $folder );
 	}
 
@@ -1580,6 +1662,7 @@ final class BizCity_Twin_Vault {
 		if ( is_wp_error( $res ) ) {
 			return $res;
 		}
+		self::packs_changed(); // PHASE-0.148 W2 S148-C11 — the row changed folder
 		return array( 'contract' => self::CONTRACT, 'id' => 'src:' . (string) $row['ref_code'], 'vault_folder' => $folder );
 	}
 

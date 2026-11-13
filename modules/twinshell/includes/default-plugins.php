@@ -103,7 +103,7 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'pro_package'  => 'Zalo Brain Notebook',
 			'addon_name'   => 'Zalo Brain Notebook',
 			'addon_file'   => 'bizcity-twin-notebook/bizcity-twin-notebook.php',
-			'addon_github' => 'https://github.com/hoanganh8389/zalo-brain-notebook',
+			'addon_github' => 'https://github.com/hoanganh8389/bizcity-twin-notebook',
 			'params'      => [ 'session', 'session_id', 'notebook', 'notebook_id', 'thread', 'ledger' ], // [2026-10-22 07:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.123 W5 (R-ROUTE, owner approved) — `ledger` = the whole query of the Sổ cái / Sổ screen (mode=sheets&sheet=…&period=…) in ONE key, so the shell carries it to the TwinChat iframe and back to the address bar without opening a prefix allowlist
 			'desc'        => __( 'Central business brain for chat, knowledge and work.', $td ),
 		],

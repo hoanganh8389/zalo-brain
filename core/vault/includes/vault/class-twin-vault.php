@@ -1132,6 +1132,26 @@ final class BizCity_Twin_Vault {
 		return $out;
 	}
 
+	/**
+	 * [2026-11-17 11:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix (owner 17/11: "lưu ok nhưng bị duplicate", JE-316 twice) — a note written in the Kho is a library
+	 * file AND a Journal row (src:JE-n) that points back at it (the file's source_ref = the row code). The file wins (it opens in the editor), its row is dropped. Pure.
+	 */
+	public static function drop_twins( array $items ): array {
+		$codes = array();
+		foreach ( $items as $i ) {
+			if ( 0 === strpos( (string) ( $i['id'] ?? '' ), 'lib:' ) && '' !== (string) ( $i['source_ref'] ?? '' ) ) {
+				$codes[ strtoupper( (string) strtok( (string) $i['source_ref'], '@' ) ) ] = true;
+			}
+		}
+		if ( ! $codes ) {
+			return $items;
+		}
+		return array_values( array_filter( $items, static function ( $i ) use ( $codes ) {
+			$id = (string) ( $i['id'] ?? '' );
+			return 0 !== strpos( $id, 'src:' ) || ! isset( $codes[ strtoupper( substr( $id, 4 ) ) ] );
+		} ) );
+	}
+
 	/** The six roots with counts and their newest children (≤ 100 rows each + every library file). */
 	public static function tree( array $ctx, string $view = 'folders' ): array {
 		$lib   = array_map( array( __CLASS__, 'lib_item' ), self::lib_files() );
@@ -1141,7 +1161,8 @@ final class BizCity_Twin_Vault {
 			$children = array_map( static function ( $e ) use ( $t ) { return self::row_item( $e, $t ); }, (array) $res['items'] );
 			$files    = array_values( array_filter( $lib, static function ( $i ) use ( $t ) { return $i['type'] === $t; } ) );
 			$all      = array_merge( $files, $children );
-			$shown    = self::gate( $all, $ctx );
+			$deduped  = self::drop_twins( $all ); // [2026-11-17 11:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix — one note = one entry (its .md wins over its Sổ row)
+			$shown    = self::gate( $deduped, $ctx );
 			$roots[]  = array( 'id' => $t, 'label' => self::LABELS[ $t ], 'type' => $t, 'count' => max( 0, (int) $res['total'] + count( $files ) - ( count( $all ) - count( $shown ) ) ), 'children' => $shown );
 		}
 		$out = array( 'contract' => self::CONTRACT, 'roots' => $roots );
@@ -1227,7 +1248,7 @@ final class BizCity_Twin_Vault {
 		}
 		$res   = 'skill' === $type ? array( 'items' => array(), 'total' => 0 ) : self::rows( $type, $ctx, $limit, $off, (string) ( $args['q'] ?? '' ) );
 		$items = array_merge( array_slice( $items, $off, $limit ), array_map( static function ( $e ) use ( $type ) { return self::row_item( $e, $type ); }, (array) $res['items'] ) );
-		$items = self::gate( $items, $ctx );
+		$items = self::gate( self::drop_twins( $items ), $ctx ); // PHASE-0.153 fix — no .md + Sổ row twin
 		$fold  = self::resolve_folder( $args['folder'] ?? '', self::folders() );
 		if ( '' !== $fold ) { // narrows only: a prefix of the note's folder
 			$items = array_values( array_filter( $items, static function ( $i ) use ( $fold ) { return 0 === strpos( (string) ( $i['vault_folder'] ?? '' ), $fold ); } ) );
@@ -1588,7 +1609,9 @@ final class BizCity_Twin_Vault {
 			if ( is_wp_error( $row ) ) {
 				return $row;
 			}
-			if ( null !== $cur && class_exists( 'BizCity_Journal_Entry_Meta' ) ) { // an edit: the row follows the file (title + about through entry-meta; find_text rebuilt)
+			// [2026-11-17 09:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix — a NEW note filed in a folder stamps meta.folder on its row too (was edits only:
+			// a Zalo "nhớ giúp" note sat in 05 as a file but its JE row showed in Home as unfiled)
+			if ( ( null !== $cur || '' !== $folder ) && class_exists( 'BizCity_Journal_Entry_Meta' ) ) { // an edit: the row follows the file (title + about through entry-meta; find_text rebuilt)
 				$meta = BizCity_Journal_Entry_Meta::merge( (array) ( $row['meta'] ?? array() ), BizCity_Journal_Entry_Meta::normalize( array( 'title' => $title, 'about' => mb_substr( $entry['summary'], 0, 600 ) ) + ( '' !== $folder ? array( 'folder' => $folder ) : array() ) )['meta'], 'person' === (string) ( $ctx['role'] ?? '' ) ? 'owner_edit' : 'site_code' );
 				$upd  = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, array( 'summary' => $entry['summary'], 'meta' => $meta ) );
 				$row  = is_wp_error( $upd ) ? $row : $upd;

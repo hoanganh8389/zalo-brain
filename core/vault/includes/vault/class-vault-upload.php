@@ -167,13 +167,23 @@ final class BizCity_Vault_Upload {
 			}
 			$title = trim( (string) ( $it['title_hint'] ?? '' ) );
 			$first = trim( (string) strtok( $text, "\n" ) );
-			$note  = class_exists( 'BizCity_Twin_Vault' ) ? BizCity_Twin_Vault::write( array(
+			$args  = array(
 				'title'    => mb_substr( '' !== $first ? $first : ( '' !== $title ? $title : 'Ghi chú từ Zalo' ), 0, 120 ),
 				'markdown' => $text,
 				'path'     => '/note/zalo-' . substr( md5( '' !== $mid ? $mid : $scope_id . ':' . $idx . ':' . $text ), 0, 12 ) . '.md',
 				// [2026-11-14 12:31 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.149 S149-C7 (Q149-1) — a note from Zalo is filed in 05 Ghi chú (an item may name another folder)
 				'folder'   => '' !== (string) ( $it['folder'] ?? '' ) ? (string) $it['folder'] : self::NOTE_FOLDER,
-			), array( 'owner_user_id' => $user_id, 'role' => 'owner', 'vrole' => 'owner' ) ) : new WP_Error( 'vault_unavailable', 'Kho tri thức chưa sẵn sàng trên site này.' );
+			);
+			$ctx   = array( 'owner_user_id' => $user_id, 'role' => 'owner', 'vrole' => 'owner' );
+			// [2026-11-17 09:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix (owner 17/11: "nhớ giúp" trả lời "đã lưu vào 05 Ghi chú" nhưng 05 trống, dòng JE nằm ở Home) —
+			// the capture runs in a background job (no logged-in user, no owner pushed), so write() put the .md in the LEGACY owner's library while its Sổ row
+			// went to $user_id. Write inside $user_id's Kho: file, folder list and Sổ row all belong to the same user id.
+			$write = static function () use ( $args, $ctx ) {
+				return BizCity_Twin_Vault::write( $args, $ctx );
+			};
+			$note  = class_exists( 'BizCity_Twin_Vault' )
+				? ( class_exists( 'BizCity_Vault_Owner' ) ? BizCity_Vault_Owner::with( $user_id, $write ) : $write() )
+				: new WP_Error( 'vault_unavailable', 'Kho tri thức chưa sẵn sàng trên site này.' );
 			if ( is_wp_error( $note ) ) {
 				$failed[] = array( 'index' => $idx, 'kind' => $kind, 'code' => $note->get_error_code(), 'error' => $note->get_error_message(), 'file_name' => '' );
 				continue;

@@ -102,7 +102,8 @@ class BizCity_CRM_Adapter_ZaloPersonal extends BizCity_CRM_Adapter_Zalo {
 			);
 		}
 		$inbox = BizCity_CRM_Repository::get_inbox( (int) ( $conversation['inbox_id'] ?? 0 ) );
-		if ( ! $inbox || (string) ( $inbox['channel_type'] ?? '' ) !== 'zalo_personal' ) {
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — so theo code() để lớp con facebook_personal dùng lại đúng đường gửi qua Cell (Cell rẽ nhánh theo platform của account).
+		if ( ! $inbox || (string) ( $inbox['channel_type'] ?? '' ) !== $this->code() ) {
 			self::log_send_result( 'personal_inbox_not_found', false, $conversation );
 			return array( 'success' => false, 'external_source_id' => null, 'error' => 'personal_inbox_not_found' );
 		}

@@ -43,6 +43,9 @@ final class BizCity_Zalo_Hub_Config_Sync {
 	// [2026-10-01 Claude Opus 5.5] PHASE-0.87 CL-4b (handoff BC §7) — a bundle carrying `owner_agent` is 1.2: a cell that only knows
 	// 1.0/1.1 answers `400 invalid_bundle` instead of silently dropping the block ⇒ the deploy order (cell first) is enforced.
 	const CONTRACT_V12 = 'zalo-hub-bridge/1.2';
+	// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 Z10 — 1.3 = 1.2 + `accepts_platforms` (site ghi được tin Facebook cá nhân). Chỉ gửi khi Hub
+	// báo gói có Facebook cá nhân (Hub đó phục vụ Cell mới); Cell cũ không biết 1.3 sẽ từ chối CẢ bundle ⇒ không được gửi mù.
+	const CONTRACT_V13 = 'zalo-hub-bridge/1.3';
 	const DEBOUNCE     = 5;
 	const RETRY_AFTER  = 60;
 	const MAX_ATTEMPTS = 10;
@@ -299,13 +302,17 @@ final class BizCity_Zalo_Hub_Config_Sync {
 		foreach ( $accounts as $a ) {
 			if ( array_key_exists( 'owner_agent', $a ) ) { $has_owner_agent = true; break; }
 		}
+		$fb_ok  = self::facebook_accepted();
 		$bundle = array(
-			'contract'     => self::contract( $has_owner_agent ),
+			'contract'     => $fb_ok ? self::CONTRACT_V13 : self::contract( $has_owner_agent ),
 			'version'      => max( 1, $version ),
 			'generated_at' => gmdate( 'c', self::now() ),
 			'accounts'     => $accounts,
 			'agents'       => array_values( $agents ),
 		);
+		if ( $fb_ok ) {
+			$bundle['accepts_platforms'] = array( 'zalo_personal', 'facebook_personal' );
+		}
 		$tuning = self::site_tuning( $warnings );
 		if ( $tuning ) { $bundle['tuning'] = $tuning; }
 		return array( 'bundle' => $bundle, 'warnings' => array_values( array_unique( $warnings ) ) );
@@ -365,6 +372,14 @@ final class BizCity_Zalo_Hub_Config_Sync {
 			return array();
 		}
 		return BizCity_Contact_Identity::bundle_person( $user_id, $account_id, $uid, $verified_at );
+	}
+
+	/** PHASE-017 D017-5 — site này nhận Facebook cá nhân khi Hub báo gói có (provider_choice). Test tiêm qua readers['facebook']. */
+	private static function facebook_accepted(): bool {
+		if ( isset( self::$readers['facebook'] ) ) { return (bool) call_user_func( self::$readers['facebook'] ); }
+		if ( ! class_exists( 'BizCity_Zalo_Bridge_REST' ) || ! method_exists( 'BizCity_Zalo_Bridge_REST', 'provider_choice' ) ) { return false; }
+		$choice = BizCity_Zalo_Bridge_REST::provider_choice();
+		return ! empty( $choice['facebook_personal_allowed'] );
 	}
 
 	private static function contract( bool $with_owner_agent = false ): string {

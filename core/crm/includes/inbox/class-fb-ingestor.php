@@ -159,12 +159,13 @@ class BizCity_CRM_Facebook_Ingestor {
 			'ZALO_BOT'      => 'zalo_bot',
 			'ZALO_PERSONAL' => 'zalo_personal',
 			'ZALO_OA'       => 'zalo_oa',
+			'FACEBOOK_PERSONAL' => 'facebook_personal', // [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — nick Messenger qua Cell, cùng trigger Zalo Personal
 		);
 		if ( $payload_code !== '' && isset( $platform_map[ $platform ] ) && $payload_code !== $platform_map[ $platform ] ) {
 			// [2026-09-01 Johnny Chu] R-CRM-CHANNEL-CONTRACT - refuse conflicting platform/code provenance before adapter lookup.
 			return null;
 		}
-		return isset( $platform_map[ $platform ] ) ? $platform_map[ $platform ] : ( in_array( $payload_code, array( 'zalo_bot', 'zalo_personal', 'zalo_oa' ), true ) ? $payload_code : null );
+		return isset( $platform_map[ $platform ] ) ? $platform_map[ $platform ] : ( in_array( $payload_code, array( 'zalo_bot', 'zalo_personal', 'zalo_oa', 'facebook_personal' ), true ) ? $payload_code : null );
 	}
 
 	/**

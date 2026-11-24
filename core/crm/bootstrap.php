@@ -112,7 +112,8 @@ require_once $bizcity_crm_inc . 'inbox/bridges/class-zalo-bot-bridge.php';
 // [2026-10-16 03:23 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 CS1.4 (doc 87, owner Q-CS-2) — instagram / whatsapp-cloud / email-imap adapters archived to core/_archived/crm-20261016/ (no site uses them).
 // [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — web-widget adapter (public JS-snippet visitor chat) archived at core/_archived/admin-routers-r126rt2-20261025/;
 // existing web_widget inboxes/conversations still read (adapter-less: generic label, sending refused with channel_adapter_unavailable).
-foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'mabel-wheel' ) as $bizcity_crm_adapter ) { // R126-WC — webchat adapter archived
+// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — 'facebook-personal' (nick Facebook cá nhân qua Cell, kế thừa zalo-personal) phải nạp SAU zalo-personal.
+foreach ( array( 'facebook', 'zalo', 'zalo-bot', 'zalo-oa', 'zalo-personal', 'facebook-personal', 'mabel-wheel' ) as $bizcity_crm_adapter ) { // R126-WC — webchat adapter archived
 	require_once $bizcity_crm_inc . 'inbox/adapters/class-adapter-' . $bizcity_crm_adapter . '.php';
 }
 unset( $bizcity_crm_adapter );
@@ -224,6 +225,7 @@ final class BizCity_CRM_Spine_Boot {
 				'zalo_bot'       => 'BizCity_CRM_Adapter_ZaloBot',
 				'zalo_oa'        => 'BizCity_CRM_Adapter_ZaloOA',
 				'zalo_personal'  => 'BizCity_CRM_Adapter_ZaloPersonal',
+				'facebook_personal' => 'BizCity_CRM_Adapter_FacebookPersonal', // [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10
 				// [2026-10-25 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-RTR — 'web_widget' => BizCity_CRM_Adapter_Web_Widget removed (adapter archived).
 				'mabel_wheel'    => 'BizCity_CRM_Adapter_Mabel_Wheel',
 			);

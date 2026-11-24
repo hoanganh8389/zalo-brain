@@ -233,6 +233,25 @@ class BizCity_Zalo_Bridge_Client {
 		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/qr-status' );
 	}
 
+	/**
+	 * [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 Z7 — đăng nhập nick Facebook cá nhân (start / submit / wait / cancel).
+	 * Body có thể chứa mật khẩu / mã: chỉ gửi đi, không log, không lưu. Managed: Hub `/zalo-personal-bridge/accounts/{id}/fb-login`;
+	 * custom bridge: Cell `/wp/accounts/{id}/fb-login`.
+	 */
+	public function fb_login( string $account_id, array $body ): array {
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->fb_login( $account_id, $body ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->post( 'wp/accounts/' . rawurlencode( $account_id ) . '/fb-login', $body );
+	}
+
+	public function fb_login_status( string $account_id ): array {
+		if ( $this->is_managed_mode() ) {
+			return $this->managed_hub_available() ? BizCity_Zalo_Personal_Hub_Client::instance()->fb_login_status( $account_id ) : $this->degraded( 'managed_client_missing' );
+		}
+		return $this->get( 'wp/accounts/' . rawurlencode( $account_id ) . '/fb-login-status' );
+	}
+
 	/** Read hash-only experimental group candidates through the active server boundary. */
 	public function get_group_candidates( string $account_id ): array {
 		// [2026-09-03 03:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.39F-H3-GROUP — keep group discovery behind managed Hub or custom M2M, never from the browser.

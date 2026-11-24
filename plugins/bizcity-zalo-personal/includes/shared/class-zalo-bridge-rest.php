@@ -708,7 +708,13 @@ class BizCity_Zalo_Bridge_REST {
 				), static fn( $v ) => null !== $v && '' !== $v );
 			}, $l['fields'] ) );
 		}
-		return array( 'ok' => true, 'login' => $view );
+		$out = array( 'ok' => true, 'login' => $view );
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 — trạng thái phiên của nick trên Cell (connected | auth_required | checkpoint | degraded…):
+		// Open CRM hiện thẻ "Cần đăng nhập lại" / "Facebook đang kiểm tra" theo đây (hộp thư CRM không biết phiên Facebook).
+		if ( isset( $result['account_status'] ) ) {
+			$out['account_status'] = sanitize_key( (string) $result['account_status'] );
+		}
+		return $out;
 	}
 
 	/**

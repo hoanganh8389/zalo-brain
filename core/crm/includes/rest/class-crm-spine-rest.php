@@ -45,7 +45,10 @@ class BizCity_CRM_Spine_REST {
 				'methods'             => WP_REST_Server::CREATABLE,
 				'callback'            => array( __CLASS__, 'post_inbox_create' ),
 				// [2026-09-17 Johnny Chu - Chu Hoàng Anh] PHASE-0.49-E1 — creating an Inbox is admin-only; employee scope never grants it.
-				'permission_callback' => array( __CLASS__, 'can_read' ),
+				// [2026-11-25 Johnny Chu - Chu Hoàng Anh] HOTFIX OC-016.1 — `can_read` no longer exists on this class: on PHP 8 WordPress' Allow header
+				// (rest_send_allow_header checks every method of the route) threw TypeError ⇒ GET /inboxes 500 ⇒ Open CRM "Tổng quan" in error.
+				// can_manage_inbox_settings() is the documented same admin tier as inbox creation.
+				'permission_callback' => array( __CLASS__, 'can_manage_inbox_settings' ),
 				'args'                => array(
 					'channel_type' => array( 'type' => 'string', 'required' => true ),
 					'config'       => array( 'type' => 'object', 'required' => true ),

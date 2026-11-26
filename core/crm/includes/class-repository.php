@@ -460,7 +460,9 @@ class BizCity_CRM_Repository {
 	public static function purge_managed_personal_inbox( int $inbox_id ): bool {
 		if ( $inbox_id <= 0 ) { return false; }
 		$inbox = self::get_inbox( $inbox_id );
-		if ( ! $inbox || 'zalo_personal' !== strtolower( (string) ( $inbox['channel_type'] ?? '' ) ) ) { return false; }
+		// [2026-11-26 Johnny Chu - Chu Hoàng Anh] PHASE-017: nick Facebook cá nhân cũng là hộp thư "managed personal" (cùng đường Hub/Cell); trước đây chỉ zalo_personal ⇒ xoá nick FB báo purge_failed.
+		$managed = array( 'zalo_personal', 'facebook_personal' );
+		if ( ! $inbox || ! in_array( strtolower( (string) ( $inbox['channel_type'] ?? '' ) ), $managed, true ) ) { return false; }
 		return self::purge_inbox( $inbox_id );
 	}
 

@@ -117,6 +117,13 @@ class BizCity_CRM_Spine_REST {
 			'permission_callback' => array( __CLASS__, 'can_write_inbox_scope' ),
 		) );
 
+		// [2026-11-26 Johnny Chu - Chu Hoàng Anh] mở hội thoại = đã đọc (xoá huy hiệu chưa đọc, không dừng đồng hồ chờ SLA).
+		register_rest_route( $ns, '/conversations/(?P<id>\d+)/read', array(
+			'methods'             => WP_REST_Server::CREATABLE,
+			'callback'            => array( __CLASS__, 'post_mark_read' ),
+			'permission_callback' => array( __CLASS__, 'can_read_inbox_scope' ),
+		) );
+
 		register_rest_route( $ns, '/conversations/(?P<id>\d+)/resolve', array(
 			'methods'             => WP_REST_Server::CREATABLE,
 			'callback'            => array( __CLASS__, 'post_resolve' ),
@@ -1120,6 +1127,17 @@ class BizCity_CRM_Spine_REST {
 			$row = $msg_id ? BizCity_CRM_Repository::get_message( $msg_id ) : null;
 			if ( $row ) { $row['attachments'] = array(); }
 			return $row ? self::shape_message( $row ) : null;
+		} );
+	}
+
+	/**
+	 * POST /conversations/{id}/read — mark as read (unread badge to 0).
+	 */
+	public static function post_mark_read( WP_REST_Request $req ) {
+		return self::wrap( static function () use ( $req ) {
+			$conv_id = (int) $req['id'];
+			if ( ! BizCity_CRM_Repository::mark_conversation_read( $conv_id ) ) { throw new \RuntimeException( 'conversation_not_found' ); }
+			return array( 'read' => true );
 		} );
 	}
 

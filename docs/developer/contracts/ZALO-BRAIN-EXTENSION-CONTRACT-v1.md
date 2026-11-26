@@ -9,7 +9,7 @@
 
 ## 1. What an extension is
 
-A separate WordPress plugin that adds a capability to Zalo Brain (`bizcity-twin-ai`) without editing it. Reference implementations: **Zalo Brain CRM** (`bizcity-twin-crm`) and **Automation** (`bizcity-automation`).
+A separate WordPress plugin that adds a capability to Zalo Brain (`bizcity-twin-ai`) without editing it. Reference implementations: **Open CRM** (`bizcity-twin-crm`) and **Automation** (`bizcity-automation`).
 
 Rules:
 
@@ -28,7 +28,7 @@ Rules:
 {
   "contract": "zalo-brain-extension@1",
   "id": "bizcity-twin-crm",
-  "name": "Zalo Brain CRM",
+  "name": "Open CRM",
   "version": "1.0.0",
   "requires": { "zalo-brain": ">=1.4.0", "spine": { "crm": ">=1.0.0" } },
   "features": [ "pipeline", "tasks", "sla", "reports" ],

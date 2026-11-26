@@ -70,7 +70,8 @@ final class BizCity_Journal_Entry_Meta {
 	 */
 	public static function normalize( array $in, bool $strict = false ): array {
 		$errors = array();
-		$known  = array( 'contract', 'about', 'caption', 'ocr', 'keywords', 'topics', 'entities', 'people', 'amounts', 'file', 'source', 'by', 'status', 'error', 'locked', 'rev', 'title', 'folder', 'questions' );
+		// [2026-11-22 06:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C1 (entry-meta@1.2 additive) — + crawl (the cell's progress of one "học cả website" job) + crawl_want (what the person asked: pause / resume / cancel…)
+		$known  = array( 'contract', 'about', 'caption', 'ocr', 'keywords', 'topics', 'entities', 'people', 'amounts', 'file', 'source', 'by', 'status', 'error', 'locked', 'rev', 'title', 'folder', 'questions', 'crawl', 'crawl_want' );
 		foreach ( array_keys( $in ) as $k ) {
 			if ( ! in_array( (string) $k, $known, true ) ) {
 				$errors[] = 'unknown_field:' . $k;
@@ -230,7 +231,120 @@ final class BizCity_Journal_Entry_Meta {
 		if ( array_key_exists( 'locked', $in ) ) {
 			$out['locked'] = array_values( array_intersect( self::LOCKABLE, array_map( 'strval', (array) $in['locked'] ) ) );
 		}
+		// [2026-11-22 06:55 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C1 — two separate keys so neither writer clobbers the other (merge replaces a whole key):
+		//   crawl = written by the cell after every batch; crawl_want = written by the site when the person presses a button. Never part of find_text.
+		if ( array_key_exists( 'crawl', $in ) ) {
+			if ( ! is_array( $in['crawl'] ) ) {
+				$errors[] = 'bad_value:crawl';
+			} else {
+				$out['crawl'] = self::normalize_crawl( $in['crawl'] );
+			}
+		}
+		if ( array_key_exists( 'crawl_want', $in ) ) {
+			$w = is_array( $in['crawl_want'] ) ? self::normalize_crawl_want( $in['crawl_want'] ) : array();
+			if ( $w ) {
+				$out['crawl_want'] = $w;
+			} elseif ( $strict ) {
+				$errors[] = 'bad_value:crawl_want';
+			}
+		}
 		return array( 'meta' => $out, 'errors' => $strict ? $errors : array() );
+	}
+
+	/** States of a "học cả website" job (site-crawl@1, PHASE-0.153 doc 21 §4.3). */
+	const CRAWL_STATES = array( 'queued', 'mapping', 'mapped', 'reading', 'paused', 'done', 'failed', 'cancelled' );
+	/** What a person may ask of a running job. */
+	const CRAWL_WANTS  = array( 'pause', 'resume', 'cancel', 'start', 'recrawl', 'more' );
+
+	/** The `crawl` block, every key checked, unknown keys dropped. Pure. */
+	public static function normalize_crawl( array $c ): array {
+		$int = static function ( $v, int $max ): int {
+			return max( 0, min( $max, (int) ( is_numeric( $v ) ? $v : 0 ) ) );
+		};
+		$iso = static function ( $v ): string {
+			$v = (string) $v;
+			return 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z$/', $v ) ? $v : '';
+		};
+		$path = static function ( $v ): string {
+			$v = (string) $v;
+			return 1 === preg_match( '#^/[^\s<>"\']{0,199}$#', $v ) ? $v : '';
+		};
+		$st  = (string) ( $c['state'] ?? 'queued' );
+		$out = array( 'state' => in_array( $st, self::CRAWL_STATES, true ) ? $st : 'queued' );
+		if ( is_array( $c['scope'] ?? null ) ) {
+			$s     = $c['scope'];
+			$host  = strtolower( (string) ( $s['host'] ?? '' ) );
+			$scope = array( 'host' => 1 === preg_match( '/^[a-z0-9.-]{1,253}$/', $host ) ? $host : '', 'subdomains' => ! empty( $s['subdomains'] ) );
+			if ( '' !== $path( $s['path'] ?? '' ) ) {
+				$scope['path'] = $path( $s['path'] );
+			}
+			$ex = array();
+			foreach ( array_slice( (array) ( $s['exclude'] ?? array() ), 0, 20 ) as $e ) {
+				if ( '' !== $path( $e ) ) {
+					$ex[] = $path( $e );
+				}
+			}
+			$scope['exclude'] = $ex;
+			$out['scope']     = $scope;
+		}
+		// [2026-11-22 07:51 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C4 — + understood (pages the model has read after code built their card) · changed / unchanged (a "Học lại" run)
+		foreach ( array( 'limit', 'found', 'kept', 'read', 'stored', 'failed', 'queued', 'understood', 'changed', 'unchanged' ) as $k ) {
+			if ( isset( $c[ $k ] ) ) {
+				$out[ $k ] = $int( $c[ $k ], 50000 );
+			}
+		}
+		if ( is_array( $c['dropped'] ?? null ) ) {
+			$d = array();
+			foreach ( array( 'junk', 'dup', 'over_limit', 'robots', 'external' ) as $k ) {
+				$d[ $k ] = $int( $c['dropped'][ $k ] ?? 0, 50000 );
+			}
+			$out['dropped'] = $d;
+		}
+		if ( is_array( $c['sections'] ?? null ) ) {
+			$list = array();
+			foreach ( array_slice( $c['sections'], 0, 30 ) as $s ) {
+				if ( is_array( $s ) && '' !== $path( $s['path'] ?? '' ) ) {
+					$list[] = array( 'path' => $path( $s['path'] ), 'kept' => $int( $s['kept'] ?? 0, 50000 ), 'stored' => $int( $s['stored'] ?? 0, 50000 ) );
+				}
+			}
+			$out['sections'] = $list;
+		}
+		if ( is_array( $c['credits'] ?? null ) ) {
+			$out['credits'] = array( 'est' => $int( $c['credits']['est'] ?? 0, 1000000 ), 'used' => $int( $c['credits']['used'] ?? 0, 1000000 ) );
+		}
+		foreach ( array( 'started_at', 'updated_at', 'finished_at', 'want_seen', 'resume_at' ) as $k ) {
+			if ( '' !== $iso( $c[ $k ] ?? '' ) ) {
+				$out[ $k ] = $iso( $c[ $k ] );
+			}
+		}
+		if ( isset( $c['eta_s'] ) ) {
+			$out['eta_s'] = $int( $c['eta_s'], 7 * 86400 );
+		}
+		if ( is_array( $c['last'] ?? null ) ) {
+			$out['last'] = array_values( array_filter( array_map( 'strval', array_slice( $c['last'], 0, 5 ) ), static function ( $r ) {
+				return 1 === preg_match( '/^LK-\d{1,12}$/', $r );
+			} ) );
+		}
+		if ( is_array( $c['error'] ?? null ) ) {
+			$out['error'] = array( 'code' => substr( preg_replace( '/[^a-z0-9_]/', '', strtolower( (string) ( $c['error']['code'] ?? '' ) ) ), 0, 40 ) );
+		}
+		$out['run']     = max( 1, $int( $c['run'] ?? 1, 1000 ) );
+		$out['preview'] = ! empty( $c['preview'] );
+		return $out;
+	}
+
+	/** The `crawl_want` block: {do, at, by}; [] when `do` is not a known verb. Pure. */
+	public static function normalize_crawl_want( array $w ): array {
+		$do = (string) ( $w['do'] ?? '' );
+		if ( ! in_array( $do, self::CRAWL_WANTS, true ) ) {
+			return array();
+		}
+		$at = (string) ( $w['at'] ?? '' );
+		return array(
+			'do' => $do,
+			'at' => 1 === preg_match( '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z$/', $at ) ? $at : gmdate( 'Y-m-d\TH:i:s\Z' ),
+			'by' => max( 0, (int) ( $w['by'] ?? 0 ) ),
+		);
 	}
 
 	/**

@@ -1,6 +1,6 @@
 {
   "$schema": "https://bizcity.vn/schema/core-routes-v1.json",
-  "contract": "core-routes@1.2.0",
+  "contract": "core-routes@1.3.0",
   "_stamp": "[2026-10-23 02:40 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 R126-S1 scoreboard gate B1 (doc 72 §11) — REST routes the CORE must register by itself, with NO add-on installed (owner Q126-30: a site without /gpt/ is complete). bin/validate-core-routes.mjs fails when one is missing or is registered only by an add-on. The bizcity-twinweb/v1 list is generated from tools/reduction-route-detail.mjs (Q126-31…33 core set, ai-reply excluded: it answers 410). After R126-T3 each of those also lives at target_ns; after R126-T6 the old namespace may go (then edit `accept_ns`).",
   "rule": "R-BRAIN-SKELETON + doc 72 §0: the core is Channel Gateway (configure, administer, connect) + TwinChat + skills + TwinShell + journal / Twin Sheet + the cell forwarder.",
   "addon_dirs": [
@@ -14,15 +14,12 @@
     "crm spine (inbox, conversations, contacts)": {
       "ns": "bizcity-crm/v1",
       "consumers": [
-        "CG SPA",
-        "twin-crm SPA"
+        "CG SPA (inbox, Bot Studio Contacts)",
+        "core/mcp (crm-contacts, contact scope)"
       ],
       "routes": [
         {
           "path": "/inboxes"
-        },
-        {
-          "path": "/inboxes/{id}"
         },
         {
           "path": "/conversations"
@@ -40,13 +37,19 @@
           "path": "/conversations/{id}/resolve"
         },
         {
-          "path": "/conversations/{id}/assignee"
-        },
-        {
-          "path": "/teams"
-        },
-        {
           "path": "/contacts/{id}"
+        },
+        {
+          "path": "/contacts/{id}/bot-context"
+        },
+        {
+          "path": "/contacts/{id}/metadata"
+        },
+        {
+          "path": "/crm-contacts"
+        },
+        {
+          "path": "/crm-contacts/{id}"
         }
       ]
     },
@@ -389,5 +392,6 @@
       ]
     }
   },
-  "note_1_2_0": "[2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — mcp/* removed from the twinweb core copy: bizcity-channel/v1/mcp/* already belongs to core/mcp (admin key screens). The /gpt/ member MCP self-service stays with the add-on."
+  "note_1_2_0": "[2026-10-24 Johnny Chu - Chu Hoàng Anh] PHASE-0.126 — mcp/* removed from the twinweb core copy: bizcity-channel/v1/mcp/* already belongs to core/mcp (admin key screens). The /gpt/ member MCP self-service stays with the add-on.",
+  "note_1_3_0": "[2026-11-20 08:38 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-3.2 — crm spine: core keeps the 11 routes a core caller uses (census bin/crm-route-census.mjs --spine); /inboxes/{id}, /conversations/{id}/assignee, /teams and 26 more moved to bizcity-twin-crm (BizCity_CRM_Spine_REST_Ext). Added /contacts/{id}/bot-context, /contacts/{id}/metadata, /crm-contacts, /crm-contacts/{id}: core callers use them."
 }

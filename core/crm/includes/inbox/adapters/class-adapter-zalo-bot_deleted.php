@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: none — cut (A — Zalo Bot (OA Bot API) was archived in PHASE-0.152; nothing replaces it).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM - Zalo Bot Admin Operations adapter.
  *
  * Zalo Bot shares CRM storage with Customer Care, but remains a Zone 2
@@ -166,4 +174,5 @@ class BizCity_CRM_Adapter_ZaloBot extends BizCity_CRM_Adapter_Zalo {
 		}
 		return null;
 	}
+}
 }

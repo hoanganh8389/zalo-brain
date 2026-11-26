@@ -352,6 +352,8 @@ $_bzc_bot_files = array(
 	$gateway_dir . 'bot/class-bot-config-repo.php'    => 'channel.bot.config_repo',
 	// [2026-09-30 Claude Opus 5.5] PHASE-0.87 CL-13 — agent-mode-access@1 (modes the Owner Agent may use for a user); before the REST that reads it.
 	$gateway_dir . 'class-agent-mode-access.php'      => 'channel.agent_mode_access',
+	// [2026-11-23 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 S83-G1 — SetupGate: one dialog (R-SETUP-4) when an action needs the cell and the four steps are not done; hosts only enqueue it.
+	$gateway_dir . 'class-setup-gate.php'             => 'channel.setup_gate',
 	// [2026-10-16 04:20 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.116 S116-I7 — connector-framework@1: one hook (bizcity_connectors_register), one manifest per connector.
 	$gateway_dir . 'class-connector-registry.php'       => 'channel.connector_registry',
 	$gateway_dir . 'class-connector-rest.php'           => 'channel.connector_rest',
@@ -469,11 +471,7 @@ unset( $_bzc_usage_boot );
 require_once $gateway_dir . 'listener/class-listener-bus.php';
 require_once $gateway_dir . 'listener/class-listener-rest.php';
 require_once $gateway_dir . 'listener/class-listener-automation-bridge.php';
-// [2026-09-10 Johnny Chu - Chu Hoàng Anh] PHASE-0.55-MABEL-WHEEL - bridge Mabel passive intake hooks into canonical CRM/channel owners.
-$mabel_wheel_listener = $gateway_dir . 'adapters/class-mabel-wheel-channel-listener.php';
-if ( is_file( $mabel_wheel_listener ) && is_readable( $mabel_wheel_listener ) && class_exists( 'BizCity_Safe_Loader' ) ) {
-	BizCity_Safe_Loader::require_file( $mabel_wheel_listener, 'channel-gateway.mabel_wheel_listener' );
-}
+// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — the Mabel Wheel listener (PHASE-0.55) moved to bizcity-twin-crm with its adapter; the plugin loads and inits it.
 
 // Schema install + admin-side network OAuth page registration.
 add_action( 'admin_init', array( 'BizCity_Channel_Messages', 'maybe_install' ) );
@@ -565,9 +563,6 @@ if ( class_exists( 'BizCity_Twin_Cell_Output_Go_REST' ) ) { BizCity_Twin_Cell_Ou
 if ( class_exists( 'BizCity_Listener_Bus' ) ) { BizCity_Listener_Bus::init(); }
 if ( class_exists( 'BizCity_Listener_REST' ) ) { BizCity_Listener_REST::init(); }
 if ( class_exists( 'BizCity_Listener_Automation_Bridge' ) ) { BizCity_Listener_Automation_Bridge::init(); }
-if ( class_exists( 'BizCity_Mabel_Wheel_Channel_Listener' ) ) {
-	BizCity_Mabel_Wheel_Channel_Listener::init();
-}
 
 // PHASE 0.37 M3.W3 — Register built-in stub adapters with Gateway Bridge.
 // These provide coverage for legacy platforms until full adapters are built (M5).

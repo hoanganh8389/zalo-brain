@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-19 10:25 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-3.1 — retired from core/crm.
+ * Canonical owner: bizcity-twin-crm/includes/contracts/crm-surfaces.php (bizcity_crm_surface_descriptors).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * CRM framework boundary — canonical surface descriptors (PHASE-0.60 C5).
  *
  * @package BizCity_Twin_CRM
@@ -35,4 +43,5 @@ if ( ! function_exists( 'bizcity_crm_surface_descriptors' ) ) {
 			),
 		);
 	}
+}
 }

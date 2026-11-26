@@ -86,7 +86,7 @@ final class BizCity_Skills_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool skills.get
 		$R::register( 'skills.get', array(
 			'title'          => 'Đọc một skill',
-			'description'    => 'Trả toàn bộ một skill theo tên: mô tả, tools, trạng thái, bản và thân Markdown (≤ 8 KB) để làm theo.',
+			'description'    => 'Trả toàn bộ một skill theo tên: mô tả, tools, trạng thái, bản và thân Markdown đầy đủ để làm theo.', // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — no 8 KB cap
 			'input_schema'   => array( 'type' => 'object', 'required' => array( 'name' ), 'properties' => array( 'name' => array( 'type' => 'string', 'pattern' => '^[a-z0-9][a-z0-9-]{1,62}$' ) ) ),
 			'output_schema'  => $R::envelope_schema( array_merge( $skill_props, array( 'body_md' => array( 'type' => 'string' ), 'has_previous' => array( 'type' => 'boolean' ), 'resources' => array( 'type' => 'array', 'items' => array( 'type' => 'object' ) ) ) ), array( 'name', 'body_md' ) ), // S127-SK7: + resources
 			'read_only'      => true,

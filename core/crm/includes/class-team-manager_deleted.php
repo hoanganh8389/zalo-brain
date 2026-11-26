@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-20 08:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-3.1 (D156-5) — retired from core/crm.
+ * Canonical owner: bizcity-twin-crm/includes/class-team-manager.php (BizCity_CRM_Team_Manager).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM team, inbox membership and assignment policy foundation.
  *
  * WP users remain the identity source. These tables only describe tenant-local
@@ -310,4 +318,5 @@ if ( class_exists( 'BizCity_Cache_Registry' ) ) {
 	BizCity_Cache_Registry::register( 'crm_team', 'modules.twin-crm', array(
 		'teams_active' => array( 'ttl' => 300, 'desc' => 'Active tenant-local CRM teams' ),
 	) );
+}
 }

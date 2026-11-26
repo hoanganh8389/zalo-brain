@@ -1163,6 +1163,11 @@ final class BizCity_MCP_Resource_Service {
 		$cl  = BizCity_CRM_DB_Installer_V2::tbl_conversation_labels();
 		$c   = BizCity_CRM_DB_Installer_V2::tbl_conversations();
 		$ci  = BizCity_CRM_DB_Installer_V2::tbl_contact_inboxes();
+		// [2026-11-19 09:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-2.0 — labels / conversation_labels become CRM-plugin tables (D156-2):
+		// a site without the plugin may not have them, so no tags instead of a SQL error (cached existence check, R-METADATA-CACHE).
+		if ( class_exists( 'BizCity_Table_Metadata' ) && ( ! BizCity_Table_Metadata::table_exists( $l ) || ! BizCity_Table_Metadata::table_exists( $cl ) ) ) {
+			return array();
+		}
 		$out = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT l.title FROM `{$l}` l INNER JOIN `{$cl}` cl ON cl.label_id = l.id INNER JOIN `{$c}` c ON c.id = cl.conversation_id INNER JOIN `{$ci}` ci ON ci.id = c.contact_inbox_id WHERE ci.contact_id = %d LIMIT 20", $contact_id ) );
 		return array_map( 'strval', is_array( $out ) ? $out : array() );
 	}

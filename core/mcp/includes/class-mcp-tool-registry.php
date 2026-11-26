@@ -1523,7 +1523,7 @@ final class BizCity_MCP_Tool_Registry {
 	 * PHASE-0.63A WP-8.4 — read-only pipeline lifecycle metrics bridge.
 	 *
 	 * [2026-10-11 10:57 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-3.2/doc 30 §5 — `BizCity_CRM_Pipeline_MCP_Bridge`
-	 * is a core class, always loaded, so this guard alone did not notice when the Zalo Brain CRM plugin (which owns
+	 * is a core class, always loaded, so this guard alone did not notice when the Open CRM plugin (which owns
 	 * `BizCity_CRM_Reporting_Rollup`, the data the tool reads) is absent: the tool stayed listed in `tools/list` and
 	 * only failed at call time with `crm_feature_unavailable`. Same rule as `registry.proposal.submit`
 	 * (register_proposal_tools() above) and `automation.*` — a tool backed by an optional plugin is omitted from the

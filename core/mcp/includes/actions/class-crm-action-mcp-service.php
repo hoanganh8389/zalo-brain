@@ -11,7 +11,7 @@
  *    hook drives BizCity_CRM_Task_Handoff_Notify), bizcity_channel_send() to the staff member's own Zalo Bot binding (notify).
  *
  * [2026-10-09 10:51 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 (D-W20-1) — reads (crm.customer.lookup) and the core
- * writes (tags, birthday) run without the Zalo Brain CRM plugin; stage/note and assign need it and answer
+ * writes (tags, birthday) run without the Open CRM plugin; stage/note and assign need it and answer
  * BizCity_MCP_Action_Support::crm_unavailable() (crm_feature_unavailable, 4 fields) BEFORE anything is written.
  *
  * @package    Bizcity_Twin_AI

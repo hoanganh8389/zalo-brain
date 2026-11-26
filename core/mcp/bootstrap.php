@@ -137,7 +137,7 @@ if ( class_exists( 'BizCity_Product_Advice' ) ) {
 	}, 10, 1 );
 }
 // [2026-10-09 10:46 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L2 — D-W20-1: the 5 Woo packs (sales, orders, stock,
-// catalog, catalog_map) and the shop money rule live in core, so the cell keeps its product-group map without the Zalo Brain CRM
+// catalog, catalog_map) and the shop money rule live in core, so the cell keeps its product-group map without the Open CRM
 // plugin. WooCommerce loads after this plugin, so the packs register on plugins_loaded (priority 20), only when Woo is active.
 require_once BIZCITY_MCP_DIR . 'verticals/woo/class-woo-reports-bridge.php';
 require_once BIZCITY_MCP_DIR . 'verticals/woo/class-woo-pack-exporter.php';

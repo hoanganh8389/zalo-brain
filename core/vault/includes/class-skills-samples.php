@@ -59,6 +59,8 @@ final class BizCity_Skills_Samples {
 		return array(
 			'categories' => is_array( $j['categories'] ?? null ) ? $j['categories'] : array(),
 			'samples'    => is_array( $j['samples'] ?? null ) ? $j['samples'] : array(),
+			// [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — names of samples no longer shipped: sync() takes back the ones the owner never edited
+			'retired'    => is_array( $j['retired'] ?? null ) ? array_values( array_filter( array_map( 'strval', $j['retired'] ) ) ) : array(),
 		);
 	}
 
@@ -160,6 +162,9 @@ final class BizCity_Skills_Samples {
 				'state'             => self::state_of( $s, (array) $meta, $have, $st ),
 				'version'           => self::version_of( (array) $meta ),
 				'installed_version' => $st ? (int) ( $st['v'] ?? 0 ) : 0,
+				// [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — how the sample applies when installed (the card says "Luôn áp dụng · Mọi người / Dành cho chủ")
+				'apply'             => (string) $s['apply'],
+				'audience'          => (string) $s['audience'],
 			);
 		}
 		return $out;
@@ -203,7 +208,7 @@ final class BizCity_Skills_Samples {
 		self::$ran = true;
 		$report    = self::sync();
 		update_option( self::OPT_REV, $rev, false );
-		update_option( self::OPT_LAST, array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z' ), 'installed' => count( $report['installed'] ), 'updated' => count( $report['updated'] ), 'adopted' => count( $report['adopted'] ), 'customized' => count( $report['customized'] ), 'removed' => count( $report['removed'] ), 'errors' => $report['errors'] ), false );
+		update_option( self::OPT_LAST, array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z' ), 'installed' => count( $report['installed'] ), 'updated' => count( $report['updated'] ), 'adopted' => count( $report['adopted'] ), 'customized' => count( $report['customized'] ), 'removed' => count( $report['removed'] ), 'retired' => count( $report['retired'] ), 'errors' => $report['errors'] ), false ); // [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — + retired
 		return $report;
 	}
 
@@ -213,8 +218,20 @@ final class BizCity_Skills_Samples {
 	 * @return array {installed: string[], updated: string[], adopted: string[], customized: string[], removed: string[], errors: array<string,string>}
 	 */
 	public static function sync(): array {
-		$res   = array( 'installed' => array(), 'updated' => array(), 'adopted' => array(), 'customized' => array(), 'removed' => array(), 'errors' => array() );
+		$res   = array( 'installed' => array(), 'updated' => array(), 'adopted' => array(), 'customized' => array(), 'removed' => array(), 'retired' => array(), 'errors' => array() );
 		$state = self::state();
+		// [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — a retired sample the owner never edited (same text as what we wrote) goes; an edited one stays (it is the owner's now)
+		foreach ( self::index()['retired'] as $old ) {
+			$old  = BizCity_Skills_Service::clean_name( $old );
+			$st   = '' === $old ? null : ( $state[ $old ] ?? null );
+			$have = $st ? BizCity_Skills_Service::get( $old ) : null;
+			if ( $have && self::fingerprint( $have ) === (string) ( $st['h'] ?? '' ) && '' === self::remove_skill( $have ) ) {
+				$res['retired'][] = $old;
+			}
+			if ( $st && ( ! $have || in_array( $old, $res['retired'], true ) ) ) {
+				unset( $state[ $old ] );
+			}
+		}
 		foreach ( self::index()['samples'] as $name => $meta ) {
 			$name = (string) $name;
 			$s    = self::parse( $name );
@@ -297,6 +314,68 @@ final class BizCity_Skills_Samples {
 		return $res;
 	}
 
+	/**
+	 * [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — the owner's "Xoá sạch & gieo bộ mẫu mới" (owner 2026-11-23: clean everything, seed again).
+	 * Every skill of the library is copied to `_history/<name>.reset-<UTC stamp>.md` first, then its folder (SKILL.md, steps, resources) is removed;
+	 * the seed bookkeeping is cleared and sync() installs the shipped set, approved. Never automatic: only the REST route behind a typed confirmation calls it.
+	 *
+	 * @return array {removed: string[], kept: array<string,string>, sync: array}
+	 */
+	public static function reset(): array {
+		$out   = array( 'removed' => array(), 'kept' => array(), 'sync' => array() );
+		$stamp = gmdate( 'Ymd-His' );
+		foreach ( BizCity_Skills_Service::list() as $s ) {
+			$cur  = BizCity_Skill_Manager::instance()->read_file( (string) $s['path'] );
+			$copy = is_wp_error( $cur ) ? $cur : BizCity_Skill_Manager::instance()->write_file( '/' . BizCity_Skills_Service::HISTORY . '/' . $s['name'] . '.reset-' . $stamp . '.md', (string) $cur['raw'] );
+			if ( is_wp_error( $copy ) ) {
+				$out['kept'][ $s['name'] ] = 'history_failed'; // never delete what we could not keep a copy of
+				continue;
+			}
+			$e = self::remove_skill( $s );
+			if ( '' === $e ) {
+				$out['removed'][] = (string) $s['name'];
+			} else {
+				$out['kept'][ $s['name'] ] = $e;
+			}
+		}
+		update_option( self::OPT_STATE, array(), false );
+		$out['sync'] = self::sync();
+		update_option( self::OPT_LAST, array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z' ), 'reset' => count( $out['removed'] ), 'installed' => count( $out['sync']['installed'] ), 'errors' => $out['sync']['errors'] ), false );
+		BizCity_Skills_Service::refresh_cells(); // the deletions alone must reach the cells too (the installs already did)
+		return $out;
+	}
+
+	/**
+	 * Remove one skill from the library: a folder skill (`/skills/<name>/SKILL.md`) loses its whole folder, an old flat one its file.
+	 * Only paths inside `/skills/` are touched. '' on success, else an error code.
+	 */
+	private static function remove_skill( array $skill ): string {
+		$path = '/' . ltrim( (string) ( $skill['path'] ?? '' ), '/' );
+		if ( 0 !== strpos( $path, '/' . BizCity_Skills_Service::FOLDER . '/' ) ) {
+			return 'path_outside';
+		}
+		$mgr = BizCity_Skill_Manager::instance();
+		if ( BizCity_Skills_Service::SKILL_FILE !== basename( $path ) ) {
+			$r = $mgr->delete_file( $path );
+			return is_wp_error( $r ) ? (string) $r->get_error_code() : '';
+		}
+		$folder = dirname( $path );
+		if ( '/' . BizCity_Skills_Service::FOLDER !== dirname( $folder ) ) {
+			return 'path_outside'; // exactly /skills/<one folder>; never /skills itself
+		}
+		$abs = $mgr->resolve_path( $folder );
+		if ( is_wp_error( $abs ) || ! is_dir( $abs ) ) {
+			return is_wp_error( $abs ) ? (string) $abs->get_error_code() : 'not_found';
+		}
+		$it = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $abs, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );
+		foreach ( $it as $f ) {
+			if ( ! ( $f->isDir() ? @rmdir( $f->getPathname() ) : @unlink( $f->getPathname() ) ) ) {
+				return 'delete_error';
+			}
+		}
+		return @rmdir( $abs ) ? '' : 'delete_error';
+	}
+
 	/** create one sample skill; '' on success, else the error code */
 	private static function write_new( string $name, array $s, bool $approve ): string {
 		$saved = BizCity_Skills_Service::save( array(
@@ -306,7 +385,7 @@ final class BizCity_Skills_Samples {
 			'tools'       => $s['tools'],
 			'scope'       => $s['scope'],
 			'source'      => 'template',
-		) );
+		) + array_intersect_key( $s, array_flip( array( 'apply', 'audience', 'channels', 'roles', 'priority' ) ) ) ); // [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — a NEW sample keeps its targeting (an update never touches the owner's targeting)
 		if ( is_wp_error( $saved ) ) {
 			return (string) $saved->get_error_code();
 		}

@@ -1,6 +1,7 @@
 {
     "$schema": "https://bizcity.vn/schema/journal-kinds-v1.json",
-    "contract": "journal-kinds@1.8.0",
+    "contract": "journal-kinds@1.9.0",
+    "_stamp_153": "[2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 (doc 20 §3.4, Q153-L5) — 1.9.0 additive: ref code LK for common.link (a web page learned into the Kho tri thức: a library note /link/<host>/<sha12>.md + this row).",
     "_stamp": "[2026-10-12 10:05 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L16 — new file (doc 92 §3, R-JOURNAL R-JN-6/R-JN-7).",
     "_stamp_d100_25": "[2026-10-12 11:00 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 D100-25 owner-only — education = the owner's own study: no per-subject (per-student) notebook, no child-sensitive stamp. nutrition/nanny keep theirs (the person cared for is a subject, not an audience).",
     "families": {
@@ -1499,6 +1500,7 @@
         "skill.lesson": "KN",
         "skill.state": "KN",
         "skill.resource": "KN",
+        "common.link": "LK",
         "document": "TL",
         "fallback": "JE"
     },

@@ -123,6 +123,10 @@ class BizCity_CRM_Adapter_Zalo extends BizCity_CRM_Adapter_Base {
 			);
 		}
 
+		// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — BizCity_CRM_Bridge_Zalo is cut with Zalo Bot (PHASE-0.152); guard every use.
+		if ( ! class_exists( 'BizCity_CRM_Bridge_Zalo', false ) ) {
+			return array( 'success' => false, 'external_source_id' => null, 'error' => 'channel_adapter_unavailable' );
+		}
 		// Path 2: Bridge handles both OA-id and bot-id refs and applies the
 		// correct (1-arg) constructor + send_text_message / send_image_message.
 		$token = BizCity_CRM_Bridge_Zalo::lookup_access_token( $ref );
@@ -140,6 +144,8 @@ class BizCity_CRM_Adapter_Zalo extends BizCity_CRM_Adapter_Base {
 	public function set_typing( array $conversation, bool $on ): void {}
 
 	public function setup_form_schema(): array {
+		// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — BizCity_CRM_Bridge_Zalo is cut with Zalo Bot (PHASE-0.152); guard every use.
+		$bridge = class_exists( 'BizCity_CRM_Bridge_Zalo', false );
 		return array(
 			'fields'   => array(
 				array(
@@ -159,10 +165,10 @@ class BizCity_CRM_Adapter_Zalo extends BizCity_CRM_Adapter_Base {
 			'webhook'  => array(
 				'method' => 'POST',
 				// bizcity-zalo-bot uses a top-level rewrite rule, NOT a REST namespace.
-				'url'    => BizCity_CRM_Bridge_Zalo::webhook_url( '{bot_id}' ),
+				'url'    => $bridge ? BizCity_CRM_Bridge_Zalo::webhook_url( '{bot_id}' ) : '',
 				'note'   => __( 'Webhook URL của bizcity-zalo-bot dùng rewrite rule /zalohook/{bot_id}. Thay {bot_id} bằng id bot thật.', 'bizcity-twin-crm' ),
 			),
-			'docs_url' => BizCity_CRM_Bridge_Zalo::admin_page_url(),
+			'docs_url' => $bridge ? BizCity_CRM_Bridge_Zalo::admin_page_url() : '',
 		);
 	}
 
@@ -171,7 +177,8 @@ class BizCity_CRM_Adapter_Zalo extends BizCity_CRM_Adapter_Base {
 		if ( $oa === '' ) {
 			return array( 'ok' => false, 'error' => 'OA ID không được trống.' );
 		}
-		if ( ! BizCity_CRM_Bridge_Zalo::is_available() ) {
+		// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — BizCity_CRM_Bridge_Zalo is cut with Zalo Bot (PHASE-0.152); guard every use.
+		if ( ! class_exists( 'BizCity_CRM_Bridge_Zalo', false ) || ! BizCity_CRM_Bridge_Zalo::is_available() ) {
 			return array(
 				'ok'    => false,
 				'error' => 'Plugin bizcity-zalo-bot chưa active. Kích hoạt trước khi tạo inbox.',
@@ -213,6 +220,7 @@ class BizCity_CRM_Adapter_Zalo extends BizCity_CRM_Adapter_Base {
 	 * Delegates to the bridge so signature drift in the bot plugin only breaks ONE file.
 	 */
 	private function lookup_oa_access_token( string $oa_id ): string {
-		return BizCity_CRM_Bridge_Zalo::lookup_access_token( $oa_id );
+		// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — BizCity_CRM_Bridge_Zalo is cut with Zalo Bot (PHASE-0.152); guard every use.
+		return class_exists( 'BizCity_CRM_Bridge_Zalo', false ) ? BizCity_CRM_Bridge_Zalo::lookup_access_token( $oa_id ) : '';
 	}
 }

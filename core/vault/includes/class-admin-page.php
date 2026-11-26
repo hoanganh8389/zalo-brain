@@ -86,7 +86,14 @@ final class BizCity_Skill_Admin_Page {
 		if ( ! is_file( $dist . 'skill-app.js' ) ) {
 			return;
 		}
+		// [2026-11-23 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 S83-G1 — the Kho asks the shared SetupGate before an action that needs the cell (Cả website · Dán link)
+		if ( class_exists( 'BizCity_Setup_Gate' ) ) {
+			BizCity_Setup_Gate::enqueue();
+		}
 		wp_enqueue_script( 'bizcity-skill-app', $url . 'skill-app.js', array(), (string) filemtime( $dist . 'skill-app.js' ), true );
+		// [2026-11-23 09:49 AM Johnny Chu - Chu Hoàng Anh] HOTFIX-VAULT-QM — the Vite bundle is an ES module; loaded as a classic script its minified
+		// top-level names (qm, jg…) became window globals and another script on the page overwrote them ("qm is not a function"). Load it as a module.
+		add_filter( 'script_loader_tag', array( __CLASS__, 'module_tag' ), 10, 2 );
 		$rest_path = wp_parse_url( rest_url( BizCity_Skill_REST_API::API_NAMESPACE ), PHP_URL_PATH );
 		$config    = array(
 			'restBase'     => $rest_path ? $rest_path : '/wp-json/' . BizCity_Skill_REST_API::API_NAMESPACE,
@@ -98,11 +105,21 @@ final class BizCity_Skill_Admin_Page {
 			'composioBase' => (string) wp_parse_url( rest_url( 'bizcity-channel/v1/connect/composio' ), PHP_URL_PATH ),
 			// [2026-11-13 09:03 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W3 S148-U1 — Sổ tài liệu greys "Học kỹ" / L2 when the notebook add-on cannot load (BIZCITY_NOTEBOOK_LOAD)
 			'notebook'     => function_exists( 'bizcity_notebook_available' ) ? bizcity_notebook_available() : true,
+			// [2026-11-23 06:27 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K4 — "95 Kỹ năng" shows only for the site owner / an admin (Q153-K5); the REST route checks the same capability
+			'canManageSkills' => class_exists( 'BizCity_Skill_REST_API' ) && method_exists( 'BizCity_Skill_REST_API', 'can_manage' ) ? BizCity_Skill_REST_API::can_manage() : false,
 		);
 		wp_add_inline_script( 'bizcity-skill-app', 'window.skillAppConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 		wp_dequeue_script( 'wc-settings' );
 		wp_dequeue_script( 'wc-entities' );
 		wp_dequeue_style( 'woocommerce_admin_styles' );
+	}
+
+	/** [2026-11-23 09:49 AM Johnny Chu - Chu Hoàng Anh] HOTFIX-VAULT-QM — add type="module" to the Kho tri thức bundle tag only (the inline config tag before it stays classic). */
+	public static function module_tag( $tag, $handle ) {
+		if ( 'bizcity-skill-app' !== $handle || false !== strpos( (string) $tag, 'type="module"' ) ) {
+			return $tag;
+		}
+		return preg_replace( '/<script(?![^>]*\bid="bizcity-skill-app-js-before")([^>]*\bsrc=)/', '<script type="module"$1', (string) $tag, 1 );
 	}
 
 	/** @return array{totalTools:int,groups:array} the MCP registry grouped by tool prefix, for the `@tool` picker. */

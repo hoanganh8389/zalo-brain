@@ -5,7 +5,7 @@
  * BizCity_Woo_Reports_Bridge — the shop money rules in core (CORE-REDUCTION WP-20 W20-L2, D-W20-1).
  *
  * Moved from bizcity-twin-crm/includes/woo/class-woo-reports-bridge.php (BizCity_CRM_Woo_Reports_Bridge, PHASE 0.35 M-CRM.M8.W5)
- * so `sales.summary` and the `sales` pack keep one money rule when the Zalo Brain CRM plugin is not installed: revenue-bearing
+ * so `sales.summary` and the `sales` pack keep one money rule when the Open CRM plugin is not installed: revenue-bearing
  * statuses processing / completed / on-hold, net = gross − refunds, aov = net / orders. The plugin keeps the old class name as a
  * class_alias of this one (W20-L4). Output is cached 5 minutes (R-CACHE group bzcrw, same keys as before).
  *

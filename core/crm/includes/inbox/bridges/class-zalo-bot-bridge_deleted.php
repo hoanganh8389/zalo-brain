@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: none — cut (A — bridge to the archived bizcity-zalo-bot plugin; nothing replaces it).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM — Zalo Bot Bridge.
  *
  * Wraps `bizcity-zalo-bot` plugin so the CRM Zalo adapter never touches the
@@ -227,4 +235,5 @@ final class BizCity_CRM_Bridge_Zalo {
 		}
 		return array( 'success' => true, 'external_source_id' => '', 'error' => null );
 	}
+}
 }

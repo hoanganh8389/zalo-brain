@@ -3,7 +3,7 @@
  * Zalo Brain — CRM spine registry (crm-spine@1).
  *
  * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-2.2 — core/crm is the conversation ledger + identity + scope
- * layer every channel of Zalo Brain writes into and the cell reads from. Extension plugins (Zalo Brain CRM) register
+ * layer every channel of Zalo Brain writes into and the cell reads from. Extension plugins (Open CRM) register
  * the features they bring; core code asks `BizCity_CRM_Spine::has( 'pipeline' )` before touching anything that only
  * exists in the plugin, and answers `crm_feature_unavailable` (R-ERROR-UX 4 fields) when it is missing.
  * Design: core/channel-gateway/docs/PHASE-0.96-ZALO-BRAIN-CRM-SPLIT/20-CORE-CRM-SPINE.md §4.
@@ -114,12 +114,13 @@ final class BizCity_CRM_Spine {
 			'crm_feature_unavailable',
 			sprintf(
 				/* translators: %s feature id */
-				__( 'Tính năng "%s" cần plugin Zalo Brain CRM. Site này chưa cài hoặc chưa kích hoạt plugin đó.', 'bizcity-twin-ai' ),
+				// [2026-11-21 04:08 PM Johnny Chu - Chu Hoàng Anh] BRAND-OPEN-CRM — brand name Zalo Brain CRM -> Open CRM, repo open-crm (slug bizcity-twin-crm, prefix and owner unchanged).
+				__( 'Tính năng "%s" cần plugin Open CRM. Site này chưa cài hoặc chưa kích hoạt plugin đó.', 'bizcity-twin-ai' ),
 				$feature
 			),
 			array(
 				'status'    => $status,
-				'hint'      => __( 'Cách sửa: vào Cài đặt › Mở rộng, cài và kích hoạt Zalo Brain CRM, rồi thử lại.', 'bizcity-twin-ai' ),
+				'hint'      => __( 'Cách sửa: vào Cài đặt › Mở rộng, cài và kích hoạt Open CRM, rồi thử lại.', 'bizcity-twin-ai' ),
 				'help_code' => 'CRM-SPINE-' . strtoupper( str_replace( '_', '-', $feature ) ) . '-MISSING',
 				'feature'   => $feature,
 			)

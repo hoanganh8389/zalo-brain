@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: bizcity-twin-crm/includes/inbox/channels/class-mabel-wheel-channel-listener.php (BizCity_Mabel_Wheel_Channel_Listener).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * Channel Gateway - Mabel Wheel passive intake listener.
  *
  * @package BizCity_Twin_AI
@@ -137,4 +145,5 @@ class BizCity_Mabel_Wheel_Channel_Listener {
 			'meta'       => array( 'wheel_id' => $wheel_id, 'crm_action' => $action, 'contact_id' => $contact_id, 'message_id' => $message_id ),
 		) );
 	}
+}
 }

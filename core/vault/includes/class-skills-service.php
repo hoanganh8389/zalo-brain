@@ -3,7 +3,7 @@
  * BizCity_Skills_Service — the site's skills as SKILL.md files (PHASE-0.101 S101-L6, doc 90 §3, D101-16 v2).
  *
  * One format for people, the cell and the harness: agentskills SKILL.md — frontmatter `name` + `description`, a
- * Markdown body ≤ 8 KB, and the BizCity block `metadata.bizcity {scope, tools, source, status, version, from_job}`.
+ * Markdown body (no product cap since S153-K12; MAX_BODY is a file-safety ceiling), and the BizCity block `metadata.bizcity {scope, tools, source, status, version, from_job}`.
  * Lifecycle: `draft` (proposed by the harness or being written) → `approved` (enters the `skills` pack, the cell and
  * the harness see it within 60 s) → `disabled` (out of the pack, kept). Every save keeps ONE previous copy under
  * `_history/` so the owner can undo.
@@ -33,8 +33,20 @@ final class BizCity_Skills_Service {
 	const STATUSES    = array( 'draft', 'approved', 'disabled' );
 	const SOURCES     = array( 'manual', 'harness', 'template' );
 	const SCOPES      = array( 'site', 'number' );
-	const MAX_SKILLS  = 60;
-	const MAX_BODY    = 8192;
+	// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 (chủ 23/11: "kỹ năng không giới hạn") — 1000 is only a technical guard for one directory scan, not a product limit (was 60)
+	const MAX_SKILLS  = 1000;
+	/** [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — doc 22 K2/K3: how a skill applies (always = every turn that matches its channels + roles; on_match = only when the sentence needs it),
+	 * who it is for (owner = owner / staff turns only, shown as "Dành cho chủ"; all = customers too), the channels and roles it targets (empty = all), its priority (low first) */
+	const APPLY      = array( 'on_match', 'always' );
+	const AUDIENCES  = array( 'owner', 'all' );
+	const CHANNELS   = array( 'zalo', 'zalo_oa', 'facebook', 'web' );
+	const ROLES      = array( 'owner', 'staff', 'customer' );
+	/** the standing block sent with every Guru profile: approved · always · for everyone (bytes guard, the cell cuts per turn by its own budget) */
+	// [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — owner 23/11: "ko nên giới hạn 8kb, kệ user". What stays is a file-safety ceiling, not a product limit.
+	const STANDING_MAX_BYTES = 1048576;
+	const MAX_BODY    = 262144;
+	const MAX_SOURCES = 20;
+	const SOURCE_RE   = '/^(TL|LK)-\d{1,10}$/';
 	const MAX_TOOLS   = 12;
 	/** [2026-10-22 04:35 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.128 S127-SK10 (owner 16:31: Q-SK-1 client owns skills · Q-SK-4 standard structure like Claude Code / Obsidian):
 	 * description ≤ 1024 (Agent Skills standard, was 300) — it says WHAT the skill does and WHEN to use it */
@@ -142,7 +154,7 @@ final class BizCity_Skills_Service {
 			'from_job' => self::clean_job( (string) ( $in['from_job'] ?? '' ) ),
 			'license'  => $existing ? (string) ( $existing['license'] ?? '' ) : '',
 			'compatibility' => $existing ? (string) ( $existing['compatibility'] ?? '' ) : '',
-		);
+		) + ( $existing ? self::targeting_of( $existing ) : array() ); // [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — a proposal never resets how the owner targeted the skill
 		$desc = self::clean_desc( (string) ( $in['description'] ?? '' ) );
 		if ( '' === $desc ) {
 			return new WP_Error( 'skill_invalid', 'Thiếu mô tả (description) một câu.' );
@@ -222,7 +234,7 @@ final class BizCity_Skills_Service {
 			return $plan;
 		}
 		$s    = $plan['existing'];
-		$meta = array( 'scope' => $s['scope'], 'tools' => $s['tools'], 'source' => $s['source'], 'status' => $plan['status'], 'version' => $s['version'], 'from_job' => $s['from_job'] );
+		$meta = array( 'scope' => $s['scope'], 'tools' => $s['tools'], 'source' => $s['source'], 'status' => $plan['status'], 'version' => $s['version'], 'from_job' => $s['from_job'], 'sources' => (array) ( $s['sources'] ?? array() ) ) + self::targeting_of( $s ); // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — sources carried // [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — carried
 		$w    = self::mgr()->write_file( $s['path'], self::build( $s['name'], $s['description'], $meta, $s['body_md'] ) );
 		if ( is_wp_error( $w ) ) {
 			return $w;
@@ -364,7 +376,13 @@ final class BizCity_Skills_Service {
 		}
 		$tools = array_key_exists( 'tools', $in ) ? self::clean_tools( $in['tools'] ) : ( $existing ? $existing['tools'] : array() );
 		$scope = array_key_exists( 'scope', $in ) ? self::clean_enum( (string) $in['scope'], self::SCOPES, 'number' ) : ( $existing ? $existing['scope'] : 'number' );
+		// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — targeting: each key from the body when sent, else the existing skill's value
+		$base   = $existing ? self::targeting_of( $existing ) : self::targeting_of( array() );
+		$target = self::targeting_of( array_merge( $base, array_intersect_key( $in, array_flip( array( 'apply', 'audience', 'channels', 'roles', 'priority' ) ) ) ) );
+		$sources = array_key_exists( 'sources', $in ) ? self::sources_of( $in['sources'] ) : ( $existing ? (array) ( $existing['sources'] ?? array() ) : array() ); // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12
 		if ( $existing ) {
+			if ( $sources !== (array) ( $existing['sources'] ?? array() ) ) { $changed[] = 'tài liệu kèm'; }
+			if ( $target !== $base ) { $changed[] = 'cách áp dụng'; }
 			if ( $desc !== $existing['description'] ) { $changed[] = 'mô tả'; }
 			if ( $body !== $existing['body_md'] ) { $changed[] = 'nội dung'; }
 			if ( $tools !== $existing['tools'] ) { $changed[] = 'tools'; }
@@ -396,7 +414,8 @@ final class BizCity_Skills_Service {
 			'from_job' => $existing ? $existing['from_job'] : '',
 			'license'  => $existing ? (string) ( $existing['license'] ?? '' ) : '',
 			'compatibility' => $existing ? (string) ( $existing['compatibility'] ?? '' ) : '',
-		);
+			'sources'  => $sources, // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12
+		) + $target; // [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2
 		return array(
 			'name'     => $name,
 			'existing' => $existing,
@@ -462,8 +481,53 @@ final class BizCity_Skills_Service {
 			'updated_at'  => '' !== $updated ? $updated : ( $mtime > 0 ? gmdate( 'Y-m-d\TH:i:s\Z', $mtime ) : '' ),
 			'bytes'       => strlen( trim( $p['content'] ) ),
 			'body_md'     => trim( $p['content'] ), // normalised like clean_body(): a re-save of the same text is "no change"
+			'sources'     => self::sources_of( $bz['sources'] ?? '' ), // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — attached documents (Kho TL- / LK- codes)
 			'hash'        => self::body_hash( $p['content'] ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 — khớp `skill_plans.body_hash` của cell (kế hoạch đã dịch còn đúng thân)
+		) + self::targeting_of( $bz ); // [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — apply · audience · channels · roles · priority (defaults when absent)
+	}
+
+	/** [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — the targeting fields of a skill from its `bizcity.*` metadata (or from a REST body): cleaned, defaults when absent. Pure. */
+	public static function targeting_of( array $src ): array {
+		$list = static function ( $v, array $allowed ): array {
+			$v = is_array( $v ) ? $v : preg_split( '/[\s,]+/', (string) $v, -1, PREG_SPLIT_NO_EMPTY );
+			return array_values( array_intersect( $allowed, array_map( 'strval', (array) $v ) ) ); // the allowed order, no duplicates, junk dropped
+		};
+		return array(
+			'apply'    => self::clean_enum( (string) ( $src['apply'] ?? '' ), self::APPLY, 'on_match' ),
+			'audience' => self::clean_enum( (string) ( $src['audience'] ?? '' ), self::AUDIENCES, 'owner' ),
+			'channels' => $list( $src['channels'] ?? array(), self::CHANNELS ),
+			'roles'    => $list( $src['roles'] ?? array(), self::ROLES ),
+			'priority' => max( 0, min( 9999, (int) ( $src['priority'] ?? 100 ) ) ),
 		);
+	}
+
+	/** [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — attached documents: TL-n / LK-n codes (space / comma separated or a list), upper-cased, unique, ≤ MAX_SOURCES. Pure. */
+	public static function sources_of( $v ): array {
+		$v   = is_array( $v ) ? $v : preg_split( '/[\s,]+/', (string) $v, -1, PREG_SPLIT_NO_EMPTY );
+		$out = array();
+		foreach ( (array) $v as $x ) {
+			$x = strtoupper( trim( (string) $x ) );
+			if ( preg_match( self::SOURCE_RE, $x ) && ! in_array( $x, $out, true ) ) {
+				$out[] = $x;
+			}
+		}
+		return array_slice( $out, 0, self::MAX_SOURCES );
+	}
+
+	/** [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — the form view of a body: the first "# heading" is the title, the rest is the instruction text. Pure. */
+	public static function split_title( string $body ): array {
+		$body = ltrim( str_replace( "\r\n", "\n", $body ) );
+		if ( preg_match( '/^#\s+(.+?)\s*(?:\n|$)/u', $body, $m ) ) {
+			return array( 'title' => trim( $m[1] ), 'text' => ltrim( (string) substr( $body, strlen( $m[0] ) ), "\n" ) );
+		}
+		return array( 'title' => '', 'text' => $body );
+	}
+
+	/** [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — title + instruction text ⇒ the stored body ("# title" first when there is one). Pure. */
+	public static function join_title( string $title, string $text ): string {
+		$title = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $title ) ) );
+		$text  = trim( str_replace( "\r\n", "\n", $text ) );
+		return '' === $title ? $text : '# ' . $title . ( '' === $text ? '' : "\n\n" . $text );
 	}
 
 	/**
@@ -507,6 +571,19 @@ final class BizCity_Skills_Service {
 		$lines[] = '  bizcity.updated_at: ' . $q( gmdate( 'Y-m-d\TH:i:s\Z' ) );
 		if ( '' !== (string) ( $meta['from_job'] ?? '' ) ) {
 			$lines[] = '  bizcity.from_job: ' . $q( (string) $meta['from_job'] );
+		}
+		// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — the targeting keys survive every rewrite (build() used to drop any key it did not know)
+		if ( isset( $meta['apply'] ) || isset( $meta['audience'] ) ) {
+			$t       = self::targeting_of( $meta );
+			$lines[] = '  bizcity.apply: ' . $q( $t['apply'] );
+			$lines[] = '  bizcity.audience: ' . $q( $t['audience'] );
+			$lines[] = '  bizcity.channels: ' . $q( implode( ',', $t['channels'] ) );
+			$lines[] = '  bizcity.roles: ' . $q( implode( ',', $t['roles'] ) );
+			$lines[] = '  bizcity.priority: ' . $q( (string) $t['priority'] );
+		}
+		$src = self::sources_of( $meta['sources'] ?? array() ); // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12
+		if ( $src ) {
+			$lines[] = '  bizcity.sources: ' . $q( implode( ' ', $src ) );
 		}
 		$lines[] = '---';
 		$lines[] = '';
@@ -695,7 +772,7 @@ final class BizCity_Skills_Service {
 		$body = preg_replace( '/<script\b[^>]*>.*?<\/script>/is', '', $body );
 		$body = trim( (string) $body );
 		if ( strlen( $body ) > self::MAX_BODY ) {
-			return new WP_Error( 'skill_too_long', 'Thân skill tối đa ' . self::MAX_BODY . ' byte (hiện ' . strlen( $body ) . ').' );
+			return new WP_Error( 'skill_too_long', 'Lời dặn quá lớn để lưu thành một tệp (' . (int) ceil( strlen( $body ) / 1024 ) . ' KB); tách bớt thành tài liệu kèm.' ); // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12
 		}
 		return $body;
 	}
@@ -998,6 +1075,11 @@ final class BizCity_Skills_Service {
 		}
 	}
 
+	/** [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — public door to invalidate_pack() for library-wide changes made outside save() (seed reset). */
+	public static function refresh_cells(): void {
+		self::invalidate_pack();
+	}
+
 	/** Tell the cells the `skills` pack moved (debounced by BizCity_Zalo_Pack_Invalidate when the Zalo plugin is present). */
 	private static function invalidate_pack(): void {
 		if ( class_exists( 'BizCity_Skills_Pack_Exporter', false ) ) {
@@ -1006,5 +1088,46 @@ final class BizCity_Skills_Service {
 		if ( class_exists( 'BizCity_Zalo_Pack_Invalidate', false ) && method_exists( 'BizCity_Zalo_Pack_Invalidate', 'on_packs_changed' ) ) {
 			BizCity_Zalo_Pack_Invalidate::on_packs_changed( array( BizCity_Skills_Pack_Exporter::KIND ) );
 		}
+		// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — the "always · for everyone" skills ride on every Guru profile (doc 22 K4): the existing hook makes the cell drop all cached profiles
+		if ( function_exists( 'do_action' ) ) {
+			do_action( 'bizcity_bot_config_changed', 'skills', 0 );
+		}
+		self::$standing_memo = array();
+	}
+
+	/** @var array<string,array> per-request memo of standing() by audience */
+	private static $standing_memo = array();
+
+	/**
+	 * [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 (doc 22 K4/K6) — the approved skills that apply ALWAYS, for one audience ('all' = rides on the Guru profile, reaches customers;
+	 * 'owner' = rides on the owner-only `skills` pack). Ordered by priority then name; the text is the skill body. One directory scan.
+	 * @return array[] [{name, title, text, channels, roles, priority, version, hash}]
+	 */
+	public static function standing( string $audience = 'all' ): array {
+		$audience = in_array( $audience, self::AUDIENCES, true ) ? $audience : 'all';
+		if ( isset( self::$standing_memo[ $audience ] ) ) {
+			return self::$standing_memo[ $audience ];
+		}
+		$out = array();
+		self::ensure_layout();
+		foreach ( self::skill_files() as $file ) {
+			$s = self::from_raw( (string) $file['raw'], (string) $file['path'], (int) $file['lastModified'] );
+			if ( ! $s || 'approved' !== $s['status'] || 'always' !== $s['apply'] || $audience !== $s['audience'] || '' === trim( (string) $s['body_md'] ) ) {
+				continue;
+			}
+			$out[] = array( 'name' => $s['name'], 'title' => $s['description'], 'text' => $s['body_md'], 'channels' => $s['channels'], 'roles' => $s['roles'], 'priority' => $s['priority'], 'version' => $s['version'], 'hash' => $s['hash'] );
+		}
+		usort( $out, static function ( $a, $b ) { return $a['priority'] <=> $b['priority'] ?: strcmp( $a['name'], $b['name'] ); } );
+		$kept  = array();
+		$bytes = 0;
+		foreach ( $out as $it ) { // a guard on what travels, not on how many skills exist: the cell cuts again per turn
+			$len = strlen( (string) wp_json_encode( $it ) );
+			if ( $bytes + $len > self::STANDING_MAX_BYTES ) {
+				break;
+			}
+			$kept[] = $it;
+			$bytes += $len;
+		}
+		return self::$standing_memo[ $audience ] = $kept;
 	}
 }

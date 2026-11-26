@@ -275,6 +275,13 @@ class BizCity_Journal_Pipeline {
 		} elseif ( 'na' === $read['state'] ) {
 			$vaulted['state'] = 'na';
 		}
+		// [2026-11-22 04:21 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L2 (link-import@1) — a web page learned into the Kho IS its library note (card.vault_path): read done ⇒ in the Kho
+		// [2026-11-22 07:44 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C3 (ảnh chủ 22/11: trang vừa đọc hiện "vào kho…" đỏ) — also the "doing" window right after the read: a link note has no representation to wait for
+		if ( 'common.link' === (string) ( $e['kind'] ?? '' ) && 'done' === $read['state'] && in_array( $vaulted['state'], array( 'none', 'doing' ), true ) ) {
+			$vaulted['state'] = 'done';
+			$vaulted['ref']   = 'lib:' . (string) ( $e['card']['vault_path'] ?? '' );
+			$vaulted['at']    = $read_at;
+		}
 		$steps[] = $vaulted;
 
 		// ④ studied — OPTIONAL deep learning (FP-7). [2026-10-25 04:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.137 S137-A1 fix (owner screenshot: two Zalo files showed "học sâu: cắt đoạn" nobody asked for) —

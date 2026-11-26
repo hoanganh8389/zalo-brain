@@ -26,7 +26,7 @@
 !/includes/
 !/languages/
 # [2026-10-12 Johnny Chu - Chu Hoàng Anh] PHASE-0.103 Q103-8 — ONE door: the developer kit is docs/developer/ (exception below); the root developer/ kit of PHASE-0.104 was folded into it.
-# plugins/: chỉ các kênh đi kèm (CRM = repo riêng zalo-brain-crm)
+# plugins/: chỉ các kênh đi kèm (CRM = repo riêng open-crm)
 /plugins/*
 !/plugins/bizcity-zalo-personal/
 # [2026-11-15 08:40 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.152 S152-2.1 — bizcity-zalo-bot archived → plugins/_archived/bizcity-zalo-bot-20261115/ (no longer shipped).
@@ -115,7 +115,7 @@ vendor/
 # These are not framework core, channel owners, or must-load dependencies.
 
 
-# bizcity-twin-crm — moved out of the bundle 2026-10-09 (PHASE-0.96): spine = core/crm, plugin = wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/zalo-brain-crm).
+# bizcity-twin-crm — moved out of the bundle 2026-10-09 (PHASE-0.96): spine = core/crm, plugin = wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/open-crm).
 
 /core/intent/logs/
 

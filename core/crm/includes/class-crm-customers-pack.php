@@ -4,7 +4,7 @@
  *
  * BizCity_CRM_Customers_Pack — the `customers` projection pack in core (CORE-REDUCTION WP-20 W20-L3, D-W20-1).
  *
- * Base version: the cell answers about customers without the Zalo Brain CRM plugin. Same item shape as the old plugin exporter
+ * Base version: the cell answers about customers without the Open CRM plugin. Same item shape as the old plugin exporter
  * (projection-pack@1.1, zalo-hub pack-items.ts CustomerItem): contact_ref, name, phone_masked (last 3 digits), orders,
  * total_spent, last_order_at, crm_stage, last_contact_at. No email, no address. Base `crm_stage` is ''; the plugin decorates
  * every row through the filter `bizcity_crm_pack_customer_row` (pipeline stage label).

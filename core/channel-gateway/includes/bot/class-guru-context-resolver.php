@@ -627,7 +627,9 @@ final class BizCity_Guru_Context_Resolver {
 			$vault_folders = $cid > 0 && class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'folders_for_guru' ) ? BizCity_Twin_Vault::folders_for_guru( $cid ) : array();
 			$vault_public  = $vault_folders && method_exists( 'BizCity_Twin_Vault', 'public_folders_for_guru' ) ? BizCity_Twin_Vault::public_folders_for_guru( $cid ) : array(); // PHASE-0.136 S136-L5
 		}
-		$hash  = md5( (string) wp_json_encode( array_merge( array( $text, $faq, $scope, self::engine_rules_version(), $policy ), $vault_folders ? array( $vault_folders, $vault_public ) : array() ) ) ); // no folders ⇒ the etag every cell already holds; a folder turning public changes it
+		// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 (doc 22 K4) — the site's skills that apply ALWAYS and are for everyone: one list for every Guru (skills belong to the site), above the Guru in the cell's prompt
+		$standing = class_exists( 'BizCity_Skills_Service' ) && method_exists( 'BizCity_Skills_Service', 'standing' ) ? BizCity_Skills_Service::standing( 'all' ) : array();
+		$hash  = md5( (string) wp_json_encode( array_merge( array( $text, $faq, $scope, self::engine_rules_version(), $policy ), $vault_folders ? array( $vault_folders, $vault_public ) : array(), $standing ? array( $standing ) : array() ) ) ); // no folders / no standing ⇒ the etag every cell already holds
 		$ver   = self::version_of( $c, $hash );
 		return array(
 			'contract'    => self::CONTRACT,
@@ -666,6 +668,8 @@ final class BizCity_Guru_Context_Resolver {
 			// [2026-10-12 09:48 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.100 S100-L4 (INTERFACES I-1) — null when this Guru has no
 			// policy.json yet (a turn runs exactly as before: threshold from `consult`, no per-pack ask gate).
 			'policy'      => $policy,
+			// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — optional (an older cell ignores it): [{name, title, text, channels, roles, priority, version, hash}], priority order
+			'standing'    => $standing,
 			// [2026-09-27 Claude Opus 5.5] PHASE-0.81 C2.1 (C-8) — the cell puts these rules before the Guru instruction, the same
 			// order compose_system() uses here, so both engines answer under one rule set.
 			'compose'     => array( 'prefer' => $scope['compose_prefer'], 'engine_rules' => 'always', 'engine_rules_text' => self::ENGINE_RULES, 'engine_rules_version' => self::engine_rules_version() ),

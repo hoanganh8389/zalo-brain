@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: bizcity-twin-crm/includes/inbox/channels/class-adapter-mabel-wheel.php (BizCity_CRM_Adapter_Mabel_Wheel).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM - Mabel Wheel passive intake adapter.
  *
  * @package BizCity_Twin_CRM
@@ -160,4 +168,5 @@ class BizCity_CRM_Adapter_Mabel_Wheel extends BizCity_CRM_Adapter_Base {
 		}
 		return $normalized;
 	}
+}
 }

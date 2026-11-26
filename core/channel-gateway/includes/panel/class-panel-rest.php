@@ -313,7 +313,8 @@ final class BizCity_Panel_REST {
 		}
 		$mode = (string) ( ( (array) $request->get_json_params() )['mode'] ?? '' );
 		if ( ! in_array( $mode, array( 'manual', 'assisted' ), true ) ) {
-			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Bảng nhanh chỉ bật "chỉ xem" hoặc "tự soạn nháp". Chế độ tự gửi bật ở trang Công cụ trên website.' ), 400 );
+			// [2026-11-18 09:23 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 U4 — the page is now called "Kết nối mở rộng" (was "Công cụ").
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Bảng nhanh chỉ bật "chỉ xem" hoặc "tự soạn nháp". Chế độ tự gửi bật ở trang Kết nối mở rộng trên website.' ), 400 );
 		}
 		return BizCity_Connect_Composio_REST::pipe( self::inner( 'PUT', '/pages/' . (string) $request['page'] . '/auto', array( 'mode' => $mode ) ) );
 	}

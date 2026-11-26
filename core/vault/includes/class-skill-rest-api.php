@@ -99,11 +99,352 @@ final class BizCity_Skill_REST_API {
 		register_rest_route( self::API_NAMESPACE, '/samples/(?P<name>[a-z0-9-]{2,63})', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_sample' ), 'permission_callback' => $read ) );
 		// [2026-10-17 04:13 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.117 S117-K6 — Editor ④ Xuất bản / Tắt: through set_status, so the check gate applies
 		register_rest_route( self::API_NAMESPACE, '/status', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_status' ), 'permission_callback' => $write ) );
+		// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 (doc 22) — the "95 Kỹ năng" matrix: every skill with its targeting (GET) · many skills' targeting in one save (POST ≤ 200). Owner / admin only (Q153-K5).
+		register_rest_route( self::API_NAMESPACE, '/targeting', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_targeting' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_targeting' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ),
+		) );
+		// [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9/K10 — clean + reseed (typed confirmation) · did the cell get the latest skills · push now. Owner / admin only.
+		register_rest_route( self::API_NAMESPACE, '/samples/reset', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'reset_samples' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ) );
+		register_rest_route( self::API_NAMESPACE, '/cell-status', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'cell_status' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ) );
+		register_rest_route( self::API_NAMESPACE, '/cell-push', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'cell_push' ), 'permission_callback' => array( __CLASS__, 'can_manage' ) ) );
+		// [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — the form editor (no YAML) and "Kỹ năng mới" from writing / a file / a link / a sample; one save door (BizCity_Skills_Service::save)
+		register_rest_route( self::API_NAMESPACE, '/skill', array(
+			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_skill_form' ), 'permission_callback' => $write ),
+			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_skill_form' ), 'permission_callback' => $write ),
+		) );
+		register_rest_route( self::API_NAMESPACE, '/skill/new', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'post_skill_new' ), 'permission_callback' => $write ) );
+		register_rest_route( self::API_NAMESPACE, '/skill/sources', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_skill_sources' ), 'permission_callback' => $write ) );
+		register_rest_route( self::API_NAMESPACE, '/skill/source-text', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'get_source_text' ), 'permission_callback' => $write ) );
 		register_rest_route( self::API_NAMESPACE, '/import-md',array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'import_md' ), 'permission_callback' => $write ) );
+	}
+
+	/* ── PHASE-0.153 S153-K12: the form editor + new skill ─────────────────────────────────────────── */
+
+	/** @var callable|null test seam: fn(string $ref, int $owner): ?array journal-entry@1 (else BizCity_Journal_Index::find_by_ref) */
+	public static $source_row = null;
+	/** @var callable|null test seam: fn(string $ref, int $owner): string the reading (else BizCity_Twin_Vault::reading_text) */
+	public static $source_text = null;
+
+	/** [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — the form view of one skill: title + instruction text (no frontmatter) + how it applies + attached documents */
+	public static function form_of( array $s ): array {
+		$parts = BizCity_Skills_Service::split_title( (string) ( $s['body_md'] ?? '' ) );
+		return array(
+			'contract'    => 'skill-form@1',
+			'name'        => (string) $s['name'],
+			'title'       => $parts['title'],
+			'description' => (string) $s['description'],
+			'text'        => $parts['text'],
+			'bytes'       => strlen( (string) ( $s['body_md'] ?? '' ) ),
+			'status'      => (string) $s['status'],
+			'version'     => (int) $s['version'],
+			'apply'       => (string) $s['apply'],
+			'audience'    => (string) $s['audience'],
+			'priority'    => (int) $s['priority'],
+			'sources'     => (array) ( $s['sources'] ?? array() ),
+			'path'        => (string) $s['path'],
+			'updated_at'  => (string) $s['updated_at'],
+		);
+	}
+
+	/** GET /skill?name= ⇒ skill-form@1 */
+	public static function get_skill_form( WP_REST_Request $req ): WP_REST_Response {
+		$name = self::resolve_sync_name( (string) $req->get_param( 'name' ) );
+		$s    = '' === $name ? null : BizCity_Skills_Service::get( $name );
+		if ( ! $s ) {
+			return self::error( new WP_Error( 'skill_not_found', 'Không thấy kỹ năng này.' ), 404 );
+		}
+		return new WP_REST_Response( array( 'ok' => true ) + self::form_of( $s ) + array( 'can_target' => self::can_manage() ), 200 );
+	}
+
+	/**
+	 * POST /skill {name, title, description, text, apply?, audience?, priority?, sources?} ⇒ BizCity_Skills_Service::save (new version, history kept, cells told).
+	 * How it applies (apply / audience / priority) is taken only from the site owner / an admin (the 01 matrix rule); anyone else keeps the current values.
+	 */
+	public static function post_skill_form( WP_REST_Request $req ): WP_REST_Response {
+		$p    = (array) $req->get_json_params();
+		$name = BizCity_Skills_Service::clean_name( (string) ( $p['name'] ?? '' ) );
+		if ( '' === $name || ! BizCity_Skills_Service::get( $name ) ) {
+			return self::error( new WP_Error( 'skill_not_found', 'Không thấy kỹ năng này.' ), 404 );
+		}
+		$in = array(
+			'name'        => $name,
+			'description' => (string) ( $p['description'] ?? '' ),
+			'body_md'     => BizCity_Skills_Service::join_title( (string) ( $p['title'] ?? '' ), (string) ( $p['text'] ?? '' ) ),
+		);
+		if ( array_key_exists( 'sources', $p ) ) {
+			$in['sources'] = (array) $p['sources'];
+		}
+		if ( self::can_manage() ) {
+			$in += array_intersect_key( $p, array_flip( array( 'apply', 'audience', 'priority' ) ) );
+		}
+		$r = BizCity_Skills_Service::save( $in );
+		if ( is_wp_error( $r ) ) {
+			return self::error( $r, 400 );
+		}
+		self::changed();
+		return new WP_REST_Response( array( 'ok' => true, 'version' => (int) $r['version'], 'changed' => $r['changed'] ) + self::form_of( (array) BizCity_Skills_Service::get( $name ) ), 200 );
+	}
+
+	/**
+	 * POST /skill/new {title, text?, description?, sources?, apply?, audience?} ⇒ a DRAFT skill. A file / link was already sent through the Kho doors
+	 * (bizcity-vault/v1/upload, /link) by the page; this only records its code. The name is picked from the title (unique).
+	 */
+	public static function post_skill_new( WP_REST_Request $req ): WP_REST_Response {
+		$p     = (array) $req->get_json_params();
+		$title = trim( (string) ( $p['title'] ?? '' ) );
+		if ( '' === $title ) {
+			return self::error( new WP_Error( 'title_required', 'Thiếu tên kỹ năng.' ), 400 );
+		}
+		$name = BizCity_Skills_Service::unique_name( $title ); // one save ⇒ the new skill is version 1 (no template write first)
+		if ( '' === $name ) {
+			return self::error( new WP_Error( 'title_required', 'Tên kỹ năng cần ít nhất một chữ hoặc số.' ), 400 );
+		}
+		$desc = trim( (string) ( $p['description'] ?? '' ) );
+		$in   = array(
+			'name'        => $name,
+			'description' => '' !== $desc ? $desc : 'Dùng khi cần: ' . $title . '.',
+			'body_md'     => BizCity_Skills_Service::join_title( $title, (string) ( $p['text'] ?? '' ) ),
+			'sources'     => (array) ( $p['sources'] ?? array() ),
+		);
+		if ( self::can_manage() ) {
+			$in += array_intersect_key( $p, array_flip( array( 'apply', 'audience', 'priority' ) ) );
+		}
+		$r = BizCity_Skills_Service::save( $in );
+		if ( is_wp_error( $r ) ) {
+			return self::error( $r, 400 );
+		}
+		self::changed();
+		return new WP_REST_Response( array( 'ok' => true ) + self::form_of( (array) BizCity_Skills_Service::get( $name ) ), 201 );
+	}
+
+	/** GET /skill/sources?name= ⇒ each attached document: {ref, kind file|link, title, state done|doing|failed|none|missing} (the journal row decides — R-FILE-PIPELINE) */
+	public static function get_skill_sources( WP_REST_Request $req ): WP_REST_Response {
+		$s = BizCity_Skills_Service::get( self::resolve_sync_name( (string) $req->get_param( 'name' ) ) );
+		if ( ! $s ) {
+			return self::error( new WP_Error( 'skill_not_found', 'Không thấy kỹ năng này.' ), 404 );
+		}
+		$owner = (int) get_current_user_id();
+		$out   = array();
+		foreach ( (array) ( $s['sources'] ?? array() ) as $ref ) {
+			$row   = self::source_row( (string) $ref, $owner );
+			$state = 'missing';
+			if ( $row ) {
+				$state = 'none';
+				if ( class_exists( 'BizCity_Journal_Pipeline' ) ) {
+					foreach ( (array) ( BizCity_Journal_Pipeline::of( $row )['steps'] ?? array() ) as $st ) {
+						if ( 'read' === ( $st['id'] ?? '' ) ) {
+							$state = (string) $st['state'];
+						}
+					}
+				}
+			}
+			$out[] = array(
+				'ref'   => (string) $ref,
+				'kind'  => 0 === strpos( (string) $ref, 'LK-' ) ? 'link' : 'file',
+				'title' => $row ? mb_substr( (string) ( $row['title'] ?? $ref ), 0, 160 ) : (string) $ref,
+				'state' => $state,
+			);
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'name' => (string) $s['name'], 'sources' => $out ), 200 );
+	}
+
+	/** GET /skill/source-text?ref= ⇒ the reading of one of the person's documents, to insert into the instruction text (the person trims it). */
+	public static function get_source_text( WP_REST_Request $req ): WP_REST_Response {
+		$ref = BizCity_Skills_Service::sources_of( (string) $req->get_param( 'ref' ) );
+		if ( ! $ref ) {
+			return self::error( new WP_Error( 'skill_invalid', 'Mã tài liệu phải là TL-… hoặc LK-….' ), 400 );
+		}
+		$owner = (int) get_current_user_id();
+		$text  = is_callable( self::$source_text ) ? (string) call_user_func( self::$source_text, $ref[0], $owner ) : ( class_exists( 'BizCity_Twin_Vault' ) && method_exists( 'BizCity_Twin_Vault', 'reading_text' ) ? BizCity_Twin_Vault::reading_text( $ref[0], $owner ) : '' );
+		if ( '' === trim( $text ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'source_not_read', 'message' => 'Tài liệu này chưa có bản đọc.', 'error' => 'Tài liệu này chưa có bản đọc.', 'hint' => 'Chờ trợ lý đọc xong (vài phút) rồi bấm Chèn lại.', 'help_code' => 'skills_source_not_read' ), 200 );
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'ref' => $ref[0], 'text' => $text, 'chars' => mb_strlen( $text ) ), 200 );
+	}
+
+	private static function source_row( string $ref, int $owner ): ?array {
+		if ( is_callable( self::$source_row ) ) {
+			$r = call_user_func( self::$source_row, $ref, $owner );
+			return is_array( $r ) ? $r : null;
+		}
+		return class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::find_by_ref( $ref, $owner ) : null;
+	}
+
+	/* ── PHASE-0.153 S153-K9/K10: reset · cell status · push ───────────────────────────────────────── */
+
+	const RESET_CONFIRM = 'XOA SACH';
+	const PUSH_OPTION   = 'bizcity_skills_cell_push';
+	/** @var callable|null test seam: fn(): array{pack: array{ok:bool,code:string}, guru: array{ok:bool,code:string}} */
+	public static $push = null;
+
+	/** [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K9 — POST /samples/reset {confirm: "XOA SACH"} ⇒ every skill copied to _history then removed; the shipped set seeded approved. */
+	public static function reset_samples( WP_REST_Request $req ): WP_REST_Response {
+		if ( ! class_exists( 'BizCity_Skills_Samples', false ) ) {
+			return self::error( new WP_Error( 'unavailable', 'Thư viện skill mẫu chưa sẵn sàng.' ), 503 );
+		}
+		$p = (array) $req->get_json_params();
+		if ( self::RESET_CONFIRM !== strtoupper( trim( (string) ( $p['confirm'] ?? '' ) ) ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'skills_reset_unconfirmed', 'message' => 'Chưa xác nhận xoá sạch kỹ năng.', 'error' => 'Chưa xác nhận xoá sạch kỹ năng.', 'hint' => 'Gõ đúng XOA SACH vào ô xác nhận rồi bấm lại.', 'help_code' => 'skills_reset' ), 400 );
+		}
+		$r = BizCity_Skills_Samples::reset();
+		self::changed();
+		return new WP_REST_Response( array(
+			'ok'        => true,
+			'removed'   => count( $r['removed'] ),
+			'kept'      => $r['kept'],
+			'installed' => $r['sync']['installed'],
+			'errors'    => $r['sync']['errors'],
+		), 200 );
+	}
+
+	/**
+	 * [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K10 — GET /cell-status: did every cell of this site get the CURRENT skills?
+	 * Per number (≤ SYNC_MAX_CELLS): the `skills` pack version it holds vs the site's, and the "always · everyone" skills it holds on its cached Guru profile
+	 * vs the site's (name + version). A cell that holds no profile right now pulls a fresh one on the next message (`next_message` counts as received).
+	 */
+	public static function cell_status(): WP_REST_Response {
+		$site_pack = class_exists( 'BizCity_Skills_Pack_Exporter', false ) ? (string) ( BizCity_Skills_Pack_Exporter::stats()['version'] ?? '' ) : '';
+		$want      = array();
+		foreach ( BizCity_Skills_Service::standing( 'all' ) as $it ) {
+			$want[ (string) $it['name'] ] = (int) $it['version'];
+		}
+		$cells = array();
+		foreach ( self::sync_targets() as $account ) {
+			$r = self::hub( 'GET', self::HUB_CC_SKILLS . '?account_id=' . rawurlencode( $account ) );
+			$cells[] = self::cell_row( $account, $r, $site_pack, $want );
+		}
+		$push = get_option( self::PUSH_OPTION, null );
+		return new WP_REST_Response( array(
+			'ok'        => true,
+			'contract'  => 'skills-cell-status@1',
+			'state'     => self::cell_state( $cells ),
+			'site'      => array( 'pack_version' => $site_pack, 'standing' => count( $want ) ),
+			'cells'     => $cells,
+			'pushed'    => is_array( $push ) ? array( 'at' => gmdate( 'Y-m-d\TH:i:s\Z', (int) ( $push['at'] ?? 0 ) ), 'ok' => ! empty( $push['ok'] ), 'code' => sanitize_key( (string) ( $push['code'] ?? '' ) ) ) : null,
+			'checked_at' => gmdate( 'Y-m-d\TH:i:s\Z' ),
+		), 200 );
+	}
+
+	/** one number's row (pure but for the masking). @param array<string,int> $want */
+	public static function cell_row( string $account, array $r, string $site_pack, array $want ): array {
+		$row = array( 'account' => self::mask_account( $account ), 'state' => 'error', 'pack' => 'unknown', 'standing' => 'unknown', 'missing' => array(), 'extra' => array() );
+		if ( empty( $r['ok'] ) ) {
+			$row['code'] = (string) ( $r['code'] ?? 'hub_error' );
+			return $row;
+		}
+		$b    = (array) ( $r['body'] ?? array() );
+		$pack = is_array( $b['pack'] ?? null ) ? (string) ( $b['pack']['version'] ?? '' ) : '';
+		$row['pack'] = '' === $site_pack ? 'none' : ( '' === $pack ? 'missing' : ( $pack === $site_pack ? 'ok' : 'old' ) );
+		if ( ! array_key_exists( 'standing', $b ) ) {
+			$row['standing'] = 'unknown'; // a cell before S153-K10: it cannot say
+		} elseif ( ! is_array( $b['standing'] ) || empty( $b['standing']['held'] ) ) {
+			$row['standing'] = 'next_message';
+		} else {
+			$have = array();
+			foreach ( (array) ( $b['standing']['items'] ?? array() ) as $it ) {
+				if ( is_array( $it ) && '' !== (string) ( $it['name'] ?? '' ) ) {
+					$have[ (string) $it['name'] ] = (int) ( $it['version'] ?? 0 );
+				}
+			}
+			foreach ( $want as $n => $v ) {
+				if ( ( $have[ $n ] ?? 0 ) < $v ) {
+					$row['missing'][] = $n;
+				}
+			}
+			$row['extra']    = array_values( array_diff( array_keys( $have ), array_keys( $want ) ) );
+			$row['standing'] = $row['missing'] || $row['extra'] ? 'old' : 'ok';
+			$row['at']       = (string) ( $b['standing']['at'] ?? '' );
+		}
+		$pack_ok     = in_array( $row['pack'], array( 'ok', 'none' ), true );
+		$standing_ok = in_array( $row['standing'], array( 'ok', 'next_message' ), true );
+		$row['state'] = $pack_ok && $standing_ok ? 'received' : ( 'unknown' === $row['standing'] && $pack_ok ? 'unknown' : 'waiting' );
+		return $row;
+	}
+
+	/** whole site (pure): not_applicable · error · waiting · unknown · received */
+	public static function cell_state( array $cells ): string {
+		if ( ! $cells ) {
+			return 'not_applicable';
+		}
+		$states = array_column( $cells, 'state' );
+		$live   = array_values( array_diff( $states, array( 'error' ) ) );
+		if ( ! $live ) {
+			return 'error';
+		}
+		foreach ( array( 'waiting', 'unknown' ) as $s ) {
+			if ( in_array( $s, $live, true ) ) {
+				return $s;
+			}
+		}
+		return 'received';
+	}
+
+	/**
+	 * [2026-11-23 09:31 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K10 — POST /cell-push: send both notices NOW instead of waiting for WP-Cron (5 s / 30 s debounce
+	 * that only runs on the next page view): the `skills` pack notice and the Guru-profile notice. The cell drops its caches and pulls again; GET /cell-status tells when.
+	 */
+	public static function cell_push(): WP_REST_Response {
+		self::changed();
+		if ( is_callable( self::$push ) ) {
+			$r = (array) call_user_func( self::$push );
+		} else {
+			$r = array( 'pack' => array( 'ok' => false, 'code' => 'zalo_plugin_missing' ), 'guru' => array( 'ok' => false, 'code' => 'zalo_plugin_missing' ) );
+			if ( class_exists( 'BizCity_Zalo_Pack_Invalidate', false ) && method_exists( 'BizCity_Zalo_Pack_Invalidate', 'run' ) ) {
+				$r['pack'] = (array) BizCity_Zalo_Pack_Invalidate::run();
+			}
+			if ( class_exists( 'BizCity_Zalo_Hub_Guru_Invalidate', false ) && method_exists( 'BizCity_Zalo_Hub_Guru_Invalidate', 'run' ) ) {
+				BizCity_Zalo_Hub_Guru_Invalidate::queue( array( 'all' => true, 'reason' => 'binding_changed' ) );
+				$r['guru'] = (array) BizCity_Zalo_Hub_Guru_Invalidate::run();
+			}
+		}
+		$pack = array( 'ok' => ! empty( $r['pack']['ok'] ), 'code' => sanitize_key( (string) ( $r['pack']['code'] ?? '' ) ) );
+		$guru = array( 'ok' => ! empty( $r['guru']['ok'] ), 'code' => sanitize_key( (string) ( $r['guru']['code'] ?? '' ) ) );
+		$ok   = $pack['ok'] || $guru['ok'];
+		update_option( self::PUSH_OPTION, array( 'at' => time(), 'ok' => $ok, 'code' => $ok ? 'sent' : ( $guru['code'] ?: $pack['code'] ) ), false );
+		if ( ! $ok ) {
+			return self::degraded( 'cell_push_failed', 'Chưa gửi được thông báo đổi kỹ năng tới cell.', 'Kiểm tra khoá BizCity và số Zalo đã kết nối, rồi bấm Đẩy lại.' ) ;
+		}
+		return new WP_REST_Response( array( 'ok' => true, 'pack' => $pack, 'guru' => $guru ), 200 );
 	}
 
 	public static function can_write(): bool {
 		return current_user_can( self::WRITE_CAP );
+	}
+
+	/** [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — Q153-K5: the owner of the site / an admin sees and targets skills */
+	public static function can_manage(): bool {
+		return class_exists( 'BizCity_Network_Admin_Capability' ) ? (bool) BizCity_Network_Admin_Capability::can_manage() : current_user_can( 'manage_options' );
+	}
+
+	/** [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — GET targeting ⇒ {contract, skills:[{name, description, status, version, bytes, apply, audience, channels, roles, priority}], channels, roles} */
+	public static function get_targeting(): WP_REST_Response {
+		$rows = array();
+		foreach ( BizCity_Skills_Service::list( array() ) as $s ) {
+			$rows[] = array_intersect_key( $s, array_flip( array( 'name', 'description', 'status', 'version', 'bytes', 'updated_at', 'apply', 'audience', 'channels', 'roles', 'priority' ) ) );
+		}
+		return new WP_REST_Response( array( 'contract' => 'skill-targeting@1', 'skills' => $rows, 'channels' => BizCity_Skills_Service::CHANNELS, 'roles' => BizCity_Skills_Service::ROLES ), 200 );
+	}
+
+	/**
+	 * [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — POST {items:[{name, apply?, audience?, channels?, roles?, priority?}]} (≤ 200): each item goes through save() (version + history kept). One line per item:
+	 * {name, ok, version?|code, message, hint, help_code}. Draft / approved / disabled is NOT changed here.
+	 */
+	public static function post_targeting( WP_REST_Request $req ): WP_REST_Response {
+		$items = (array) $req->get_param( 'items' );
+		if ( ! $items || count( $items ) > 200 ) {
+			return new WP_REST_Response( array( 'code' => 'skill_targeting_invalid', 'message' => 'Cần 1–200 kỹ năng trong một lần lưu.', 'hint' => 'Chọn bớt rồi lưu lại.', 'help_code' => 'vault_skills' ), 400 );
+		}
+		$lines = array();
+		foreach ( array_slice( $items, 0, 200 ) as $it ) {
+			$it   = is_array( $it ) ? $it : array();
+			$name = (string) ( $it['name'] ?? '' );
+			$r    = BizCity_Skills_Service::save( array_merge( array( 'name' => $name ), array_intersect_key( $it, array_flip( array( 'apply', 'audience', 'channels', 'roles', 'priority' ) ) ) ) );
+			$lines[] = is_wp_error( $r )
+				? array( 'name' => $name, 'ok' => false, 'code' => $r->get_error_code(), 'message' => $r->get_error_message(), 'hint' => 'Mở kỹ năng này để xem rồi lưu lại.', 'help_code' => 'vault_skills' )
+				: array( 'name' => $name, 'ok' => true, 'version' => (int) $r['version'], 'changed' => (array) ( $r['changed'] ?? array() ) );
+		}
+		return new WP_REST_Response( array( 'contract' => 'skill-targeting@1', 'lines' => $lines ), 200 );
 	}
 
 	/* ── Handlers ─────────────────────────────────────────────────────── */
@@ -650,6 +991,8 @@ final class BizCity_Skill_REST_API {
 			'skill_not_checked'  => 'Mở Editor, bấm Lưu để trợ lý kiểm các bước, sửa lỗi đỏ rồi xuất bản.',
 			'skill_check_failed' => 'Chuyển skill về nháp, sửa các bước cho xanh rồi xuất bản lại.',
 			'skill_not_owner'    => 'Nhờ người tạo skill hoặc quản trị viên sửa.',
+			// [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12
+			'skill_too_long'     => 'Đưa phần dài thành tài liệu kèm (Tải tệp lên / Thêm link) rồi lưu lại.',
 		);
 		$code = (string) $e->get_error_code();
 		return new WP_REST_Response( array(

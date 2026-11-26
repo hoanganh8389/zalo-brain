@@ -163,10 +163,11 @@ add_filter( 'bizcity_twin_register_plugins', static function ( $plugins ) {
 			'requires'     => [ 'const' => 'BIZCITY_CRM_VERSION' ],
 			'upsell'       => true,
 			'badge'        => 'PRO',
-			'pro_package'  => 'Zalo Brain CRM',
-			'addon_name'   => 'Zalo Brain CRM',
+			// [2026-11-21 04:08 PM Johnny Chu - Chu Hoàng Anh] BRAND-OPEN-CRM — brand name Zalo Brain CRM -> Open CRM, repo open-crm (slug bizcity-twin-crm, prefix and owner unchanged).
+			'pro_package'  => 'Open CRM',
+			'addon_name'   => 'Open CRM',
 			'addon_file'   => 'bizcity-twin-crm/bizcity-twin-crm.php',
-			'addon_github' => 'https://github.com/hoanganh8389/zalo-brain-crm',
+			'addon_github' => 'https://github.com/hoanganh8389/open-crm',
 		],
 		// [2026-08-26 Johnny Chu] PHASE-TWINSHELL-CORE-NAV — PageBuilder is
 		// fourth: turn the brain and CRM context into landing pages and campaigns.

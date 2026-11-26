@@ -41,6 +41,38 @@
     "find": "journal.find {folder} and context_scope.folder narrow only (prefix; disagreeing values ⇒ empty)",
     "rules": "keywords (folded, whole words, ≤ 20) · Zalo group ids (≤ 10) ⇒ folder_suggest {n,label,icon,why[]} on an unfiled note / view=card; site code, no model; a person files it",
     "gurus": "guru ids (≤ 10) ⇒ guru-context@1 scope.vault_folders (optional; etag unchanged when empty)", "stored": "library note: frontmatter folder · Journal row: metadata.meta.folder (entry-meta@1, optional)" },
+  "link_import": {
+    "_stamp": "[2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 (doc 20, link-import@1.0.0) — a web page learned into the Kho. Code: BizCity_Vault_Link (+ BizCity_Twin_Vault::write `link`).",
+    "rest": { "POST /link": "urls (≤ 5, array or one per line) · depth 0|1|2 (default 1) · folder? ⇒ {contract, depth, lines[{url, id, ref, entry_id, duplicate, status, error{code,message,hint,help_code}}]}; edit_posts; ≤ 20 new links / person / day (transient)" },
+    "path": "/link/<host without www>/<sha1(normalized url)[0:12]>.md — the same page is always the same note",
+    "frontmatter": "source: web + web{url, host, from web|zalo, status pending|done|failed, depth 0..2, fetched_at?, parent_ref? LK-n, internal?, authority? 0..100, via? tavily_extract|tavily_map|fetch|jina, content_sha256?, links_found?, links_kept?, title?}; only from vault.write `link` (or kept from the note itself on an edit), never from a caller's frontmatter",
+    "row": "kind common.link (LK-<entry id>), source_type web_upload (dialog) | owner_capture (Zalo), origin.surface web_link | zalo_link, card {vault_path, url, url_host, depth, parent_ref?, authority?, internal?}, derived_from [parent entry id]",
+    "states": "the site writes the waiting note (meta.status pending); the cell reads the page and writes it back (status done / failed) — the site never fetches a page nor calls a model",
+    "errors": ["link_invalid", "link_private", "link_too_many", "link_quota", "vault_unavailable"]
+  },
+  "delete": {
+    "_stamp": "[2026-11-22 08:16 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-D1 — the one delete door of the Kho (one row, many rows, a whole web domain). Code: BizCity_Twin_Vault::rest_delete.",
+    "rest": { "POST /delete": "ids: [\"lib:/…\" | \"src:XX-n\"] ≤ 200 ⇒ {contract, done, failed, lines[{id, ok, code?, message?, hint?, help_code?}]}; edit_posts; the acting owner's Kho only (V1b); 400 vault_delete_empty" },
+    "effect": "library note ⇒ moved to /_trash/<path> (never listed: the scan skips names starting with _) + its Journal row voided; Sổ row ⇒ voided (history and the original file kept) + a web page's note moved to /_trash/; a website job still running ⇒ cancelled first (status skipped) so the cell stops; skills are refused (vault_delete_skill)",
+    "revive": "a note written again at the same path brings its voided row back (state captured)",
+    "errors": ["vault_delete_empty", "vault_delete_invalid", "vault_delete_skill", "vault_not_found", "vault_folder_denied", "vault_delete_failed", "vault_unavailable"]
+  },
+  "site_crawl": {
+    "_stamp": "[2026-11-22 06:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C1 (doc 21, site-crawl@1.0.0) — học cả website. Code: BizCity_Vault_Link (rest_crawl_*), BizCity_Journal_Entry_Meta (crawl, crawl_want).",
+    "rest": {
+      "POST /crawl": "url (tên miền hoặc địa chỉ bất kỳ) · scope site|section · path? · limit 50|200|500|1000 (default 200, cap filter bizcity_vault_crawl_max_pages) · presets[login,cart,tag,search] · exclude[] · subdomains? · folder? · preview? ⇒ {contract, job}; one busy job per person (409 site_busy)",
+      "GET /crawl[?active=1]": "{contract, jobs[view], poll_s} — poll_s 15 while a job runs or a button waits, 0 = stop pulling",
+      "GET /crawl/<entry_id>": "{contract, job, poll_s}; 404 site_not_found when not the person's website job",
+      "POST /crawl/<entry_id>/<pause|resume|cancel|start|recrawl|more>": "writes meta.crawl_want only; exceptions: cancel of a queued job ⇒ cancelled now; recrawl / more of a finished job ⇒ queued again (status pending)"
+    },
+    "path": "/link/<host>/_site.md — one website note per host in a person's Kho; its pages are link notes (link_import.path) with web.parent_ref = this row",
+    "row": "kind common.link, card.web_kind = site, web.kind = site in the frontmatter",
+    "meta": "entry-meta@1.2 additive: crawl {state queued|mapping|mapped|reading|paused|done|failed|cancelled, scope{host, path?, subdomains, exclude[]}, limit, found, kept, read, stored, failed, queued, dropped{junk,dup,over_limit,robots,external}, sections[{path,kept,stored}] ≤ 30, credits{est,used}, started_at, updated_at, finished_at, want_seen, resume_at, eta_s, last[LK-n] ≤ 5, error{code}, run, preview} — written by the cell after every batch; crawl_want {do, at, by} — written by the site; want pending = want.at > crawl.want_seen",
+    "jobs_index": "user meta bizcity_vault_crawl_jobs = entry ids, newest first, ≤ 20 (no table, R-TABLE-FREEZE)",
+    "states": "the site writes the waiting note (status pending, crawl.state queued); the cell (zalo-hub link-learn) maps (robots · sitemap · Tavily /map), reads in batches (Tavily /extract), writes pages and moves crawl.state — the site never fetches nor calls a model",
+    "errors": ["site_invalid", "site_private", "site_busy", "site_not_found", "site_verb_refused", "site_queue_failed", "site_verb_failed", "vault_unavailable", "site_unreachable", "site_robots_blocked", "site_empty", "site_quota", "site_search_not_ready", "site_cancelled"],
+    "help_code": "vault_site_crawl"
+  },
   "journal": "a vault.write opens / updates exactly one Journal row common.note (idempotency vault:<blog>:<md5(path)[0:24]>, source_type vault, card.vault_path); the site writes its source_ref into the frontmatter (TV-2, TV-3)",
   "compat": "REST bizcity/skill/v1 + window.skillAppConfig unchanged; skill files edited by the Steps editor; no file moved"
 }

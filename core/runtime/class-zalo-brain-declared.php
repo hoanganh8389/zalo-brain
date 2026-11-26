@@ -3,7 +3,7 @@
  * Zalo Brain — features declared on disk (contract zalo-brain-extension@1), independent of what a request loaded.
  *
  * [2026-10-11 10:58 AM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 Z-6 P0-3 — BizCity_Zalo_Brain::has() used to answer
- * only from features registered at load time: by core/crm's BizCity_CRM_Spine (mirrors the Zalo Brain CRM plugin, which
+ * only from features registered at load time: by core/crm's BizCity_CRM_Spine (mirrors the Open CRM plugin, which
  * boots only when the spine loaded), by bizcity-automation's bootstrap (loaded only on Automation surfaces) and by
  * bizcoach-pro. Once loading is gated per request, the same site would answer has( 'pipeline' ) or has( 'automation' )
  * differently per URL. This class reads the same manifests statically:

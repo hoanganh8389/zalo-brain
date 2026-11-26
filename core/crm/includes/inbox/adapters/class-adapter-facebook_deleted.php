@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: plugins/bizcity-facebook-bot/includes/crm/class-crm-adapter-facebook.php (BizCity_CRM_Adapter_Facebook).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM — Facebook Channel Adapter.
  *
  * Wraps the existing `bizcity-facebook-bot` plugin (no fork).
@@ -431,4 +439,5 @@ class BizCity_CRM_Adapter_Facebook extends BizCity_CRM_Adapter_Base {
 			'profile_pic' => (string) ( $body['profile_pic'] ?? '' ),
 		);
 	}
+}
 }

@@ -483,17 +483,7 @@ class BizCity_CRM_Facebook_Ingestor {
 				[ , $inbox_ref, $source_id ] = $parts;
 				$adapter_code = 'facebook';
 			}
-		} elseif ( $platform === 'ZALO_BOT' && strpos( $chat_id, 'zalobot_' ) === 0 ) {
-			$chat = class_exists( 'BizCity_CRM_Adapter_ZaloBot' )
-				? BizCity_CRM_Adapter_ZaloBot::parse_chat_id( $chat_id )
-				: null;
-			if ( is_array( $chat ) ) {
-				$inbox_ref    = (string) $chat['bot_id'];
-				$source_id    = (string) $chat['source_id'];
-				$thread_kind  = (string) $chat['thread_kind'];
-				$group_id     = (string) ( $chat['group_id'] ?? '' );
-				$adapter_code = 'zalo_bot';
-			}
+		// [2026-11-21 01:41 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W6 — ZALO_BOT mirror branch removed: it ran only with BizCity_CRM_Adapter_ZaloBot, cut in W5 (Zalo Bot archived, PHASE-0.152).
 		} elseif ( $platform === 'WEBCHAT' && strpos( $chat_id, 'webchat_' ) === 0 ) {
 			// PHASE 0.37 — local widget mirror. inbox_ref = blog_id,
 			// source_id = raw webchat session_id (may contain underscores so

@@ -1199,7 +1199,17 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
         pending_owner: '🔌 Lịch đã lưu nhưng trợ lý chưa biết gửi nhắc cho ai — kết nối trợ lý rồi sửa lại lịch.'
     };
 
+    // [2026-11-23 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 S83-G1 — creating a reminder needs the assistant: ask the shared SetupGate first (the 409 sheet below stays as the server-side backstop)
     function sendEvent() {
+        if (!pendingEvent) { return; }
+        if (window.BizSetupGate) {
+            window.BizSetupGate.ensure({ reason: 'tạo nhắc việc' }).then(function(ok) { if (ok) { sendEventNow(); } });
+            return;
+        }
+        sendEventNow();
+    }
+
+    function sendEventNow() {
         if (!pendingEvent) { return; }
         var resultEl = document.getElementById('sch-evt-result');
         var saveBtn = document.getElementById('sch-setup-save');
@@ -1392,5 +1402,6 @@ textarea.sch-form-input{min-height:60px;resize:vertical}
     }
 })();
 </script>
+<?php if ( class_exists( 'BizCity_Setup_Gate' ) ) { BizCity_Setup_Gate::print_tags(); } // [2026-11-23 05:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.83 S83-G1 ?>
 </body>
 </html>

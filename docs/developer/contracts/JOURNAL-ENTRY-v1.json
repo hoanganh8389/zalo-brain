@@ -182,7 +182,7 @@
     "ref_code": {
       "type": "string",
       "column": "derived (entry_id)",
-      "pattern": "^(TC|CN|TD|VC|KH|TL|JB|EV|NB|SO|CS|KN|JE)-\\d+$",
+      "pattern": "^(TC|CN|TD|VC|KH|TL|JB|EV|NB|SO|CS|KN|LK|JE)-\\d+$",
       "note": "v1.4 (R-JN-25) + 1.2.0: the code a person reads and types back; prefix by kind (journal-kinds@1.3 ref_codes): fin.cash TC · fin.debt CN · task.progress TD · task.todo VC · fin.plan KH · documents TL (file code) · job.run JB · job.evidence EV · brain.notebook NB · sheet.define SO · skill.* KN · otherwise JE-<entry_id>; display / recall only — the key stays entry_id + idempotency_key"
     },
     "derived_from": {

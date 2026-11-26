@@ -35,6 +35,7 @@ foreach ( array(
 	'class-twin-vault.php'            => 'kg_hub.twin_vault', // PHASE-0.134 — REST bizcity-vault/v1, MCP vault.list/search/write
 	'class-scope-meter.php'           => 'kg_hub.scope_meter', // PHASE-0.136 S136-M2
 	'class-vault-upload.php'          => 'kg_hub.vault_upload', // PHASE-0.140 / 0.137 — "Tải tệp lên"
+	'class-vault-link.php'            => 'vault.link', // [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — "🔗 Dán link" (link-import@1)
 	'class-vault-tags.php'            => 'kg_hub.vault_tags', // PHASE-0.145 S145-L6 — vault-tag@1
 	'class-kg-private-file-store.php' => 'vault.private_file_store', // PHASE-0.121 S121-L1 — private originals (was a plain require_once)
 	'class-notebook-port.php'           => 'vault.notebook_port', // [2026-11-13 Johnny Chu - Chu Hoàng Anh] PHASE-0.148 W2 S148-C7 — the one door to the optional notebook
@@ -62,6 +63,9 @@ if ( class_exists( 'BizCity_Twin_Vault', false ) ) {
 }
 if ( class_exists( 'BizCity_Vault_Upload', false ) ) {
 	BizCity_Vault_Upload::register();
+}
+if ( class_exists( 'BizCity_Vault_Link', false ) ) {
+	BizCity_Vault_Link::register(); // [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — POST bizcity-vault/v1/link
 }
 if ( class_exists( 'BizCity_Vault_Tags', false ) ) {
 	BizCity_Vault_Tags::init();

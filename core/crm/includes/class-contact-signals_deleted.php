@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-19 10:25 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-3.1 — retired from core/crm.
+ * Canonical owner: bizcity-twin-crm/includes/class-contact-signals.php (BizCity_CRM_Contact_Signals).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * Contact signals read projection — PHASE-0.95 S95-C9 (CRM chips + "Tín hiệu gần nhất").
  *
  * `action.crm_signal` (S95-C2, plugin bizcity-automation) WRITES the facts:
@@ -120,4 +128,5 @@ final class BizCity_CRM_Contact_Signals {
 		if ( function_exists( 'mb_substr' ) ) { return mb_substr( $s, 0, $max, 'UTF-8' ); }
 		return substr( $s, 0, $max );
 	}
+}
 }

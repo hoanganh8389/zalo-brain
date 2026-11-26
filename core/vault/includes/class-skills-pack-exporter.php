@@ -24,8 +24,9 @@ if ( class_exists( 'BizCity_Skills_Pack_Exporter', false ) ) {
 final class BizCity_Skills_Pack_Exporter {
 
 	const KIND      = 'skills';
-	const MAX_ITEMS = 60;
-	const MAX_BYTES = 24576;
+	// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — skills are not limited any more (doc 22): the pack is labels (+ the text of the owner's always-skills), ordered always-first
+	const MAX_ITEMS = 1000;
+	const MAX_BYTES = 2097152; // [2026-11-23 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K12 — no 8 KB skill cap any more: the pack ceiling grows with it
 	const CACHE_KEY = 'bizcity_skills_pack_v1';
 	const CACHE_TTL = 300;
 
@@ -70,7 +71,19 @@ final class BizCity_Skills_Pack_Exporter {
 		$bytes     = 2;
 		$truncated = false;
 		if ( self::available() ) {
-			foreach ( BizCity_Skills_Service::list( array( 'status' => 'approved' ), self::MAX_ITEMS ) as $s ) {
+			// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — the owner's "always" skills first (their text rides here, never on the Guru profile that reaches customers), then the rest
+			$owner_text = array();
+			if ( method_exists( 'BizCity_Skills_Service', 'standing' ) ) {
+				foreach ( BizCity_Skills_Service::standing( 'owner' ) as $st ) {
+					$owner_text[ $st['name'] ] = (string) $st['text'];
+				}
+			}
+			$approved = BizCity_Skills_Service::list( array( 'status' => 'approved' ), self::MAX_ITEMS );
+			usort( $approved, static function ( $a, $b ) {
+				$x = ( 'always' === ( $a['apply'] ?? '' ) ? 0 : 1 ) <=> ( 'always' === ( $b['apply'] ?? '' ) ? 0 : 1 );
+				return $x ?: ( (int) ( $a['priority'] ?? 100 ) <=> (int) ( $b['priority'] ?? 100 ) ?: strcmp( $a['name'], $b['name'] ) );
+			} );
+			foreach ( $approved as $s ) {
 				$item = array(
 					'name'        => (string) $s['name'],
 					'description' => (string) $s['description'],
@@ -79,7 +92,16 @@ final class BizCity_Skills_Pack_Exporter {
 					'version'     => (int) $s['version'],
 					'updated_at'  => (string) $s['updated_at'],
 					'hash'        => (string) ( $s['hash'] ?? '' ), // [2026-10-11 Johnny Chu - Chu Hoàng Anh] PHASE-0.101 S102-L2/L3 — cell biết kế hoạch đã dịch còn đúng thân không
+					// [2026-11-23 06:17 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-K2 — targeting (an older cell ignores unknown keys)
+					'apply'       => (string) ( $s['apply'] ?? 'on_match' ),
+					'audience'    => (string) ( $s['audience'] ?? 'owner' ),
+					'channels'    => array_values( (array) ( $s['channels'] ?? array() ) ),
+					'roles'       => array_values( (array) ( $s['roles'] ?? array() ) ),
+					'priority'    => (int) ( $s['priority'] ?? 100 ),
 				);
+				if ( isset( $owner_text[ $s['name'] ] ) ) {
+					$item['text'] = $owner_text[ $s['name'] ];
+				}
 				// [2026-10-21 10:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.126 S126-K1 (BS-9) — the KN- code of the skill's definition row in the client's journal (the cell may cite it; it pins `version` from this pack)
 				if ( class_exists( 'BizCity_Journal_Index' ) && class_exists( 'BizCity_Journal_Skill_Link' ) && function_exists( 'get_current_blog_id' ) ) {
 					$def = BizCity_Journal_Database::instance()->get_by_idempotency_key( BizCity_Journal_Skill_Link::define_key( (int) get_current_blog_id(), (string) $s['name'] ) );

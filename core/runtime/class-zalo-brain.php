@@ -4,7 +4,7 @@
  *
  * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-6.2 (D96-16) — one class answers "what does this Zalo Brain
  * site have": the 7 surfaces (/gpt/ /gateway/ /crm/ /twinchat/ /scheduler/ /flow/ /setting/), the extension plugins
- * installed on top (Zalo Brain CRM, Automation, …), the features they bring, and the standard error when a feature
+ * installed on top (Open CRM, Automation, …), the features they bring, and the standard error when a feature
  * is missing. Extension plugins describe themselves with a `zalo-brain.json` manifest and register during
  * plugins_loaded (any priority before `zalo_brain_loaded`, which fires at plugins_loaded@20).
  * Contract: docs/contracts/ZALO-BRAIN-EXTENSION-CONTRACT-v1.md · design: PHASE-0.96 doc 50 §4.
@@ -473,7 +473,8 @@ final class BizCity_Zalo_Brain {
 	}
 
 	/** Standard error for a missing feature (R-ERROR-UX: code/message/hint/help_code). */
-	public static function unavailable_error( string $feature, string $plugin_name = 'Zalo Brain CRM', int $status = 404 ): WP_Error {
+	// [2026-11-21 04:08 PM Johnny Chu - Chu Hoàng Anh] BRAND-OPEN-CRM — brand name Zalo Brain CRM -> Open CRM, repo open-crm (slug bizcity-twin-crm, prefix and owner unchanged).
+	public static function unavailable_error( string $feature, string $plugin_name = 'Open CRM', int $status = 404 ): WP_Error {
 		$feature = sanitize_key( $feature );
 		return new WP_Error(
 			'feature_unavailable',

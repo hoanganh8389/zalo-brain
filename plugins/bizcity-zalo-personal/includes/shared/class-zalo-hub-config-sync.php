@@ -191,6 +191,45 @@ final class BizCity_Zalo_Hub_Config_Sync {
 	public static function has_accounts(): bool { return self::accounts() !== array(); }
 
 	/**
+	 * Can the cell work for this WordPress user? The cell scans only the Kho of a person who owns a zalo-hub number whose bundle row carries an
+	 * owner-agent principal: the number is bound to an Agent Guru, has a "UID chủ tài khoản", and the owner agent is not switched off (same gates as build()).
+	 * @return array{ready:bool,code:string,label:string,numbers:int} code: '' | assistant_no_number | assistant_no_guru | assistant_no_owner_uid | assistant_off
+	 */
+	public static function owner_ready( int $user_id ): array {
+		// [2026-11-23 11:29 AM Johnny Chu - Chu Hoàng Anh] HOTFIX-SITE-CRAWL-RUNNER (PHASE-0.153 S153-C8, chủ 23/11: "cần thông báo cụ thể cho client") — the Kho tells the person WHY a website / link job waits
+		$mine = array_values( array_filter( self::accounts(), static function ( $a ) use ( $user_id ) { return $user_id > 0 && (int) ( $a['owner_user_id'] ?? 0 ) === $user_id; } ) );
+		if ( ! $mine ) {
+			return array( 'ready' => false, 'code' => 'assistant_no_number', 'label' => '', 'numbers' => 0 );
+		}
+		$rank = array( 'assistant_no_guru' => 1, 'assistant_off' => 2, 'assistant_no_owner_uid' => 3 ); // the number closest to ready gives the reason shown
+		$best = array( 'code' => '', 'label' => '' );
+		foreach ( $mine as $acc ) {
+			$bridge  = (string) $acc['bridge_id'];
+			$label   = '' !== (string) $acc['label'] ? (string) $acc['label'] : $bridge;
+			$binding = self::binding( $bridge );
+			$char    = is_array( $binding ) ? (int) ( $binding['character_id'] ?? 0 ) : 0;
+			$mode    = is_array( $binding ) ? (string) ( $binding['mode'] ?? '' ) : '';
+			if ( $char <= 0 && in_array( $mode, array( 'auto', 'hybrid' ), true ) ) {
+				$char = isset( self::$readers['default_guru'] ) ? (int) call_user_func( self::$readers['default_guru'] ) : ( class_exists( 'BizCity_Guru_Context_Resolver' ) ? BizCity_Guru_Context_Resolver::default_character_id( false ) : 0 );
+			}
+			$policy = self::decode( is_array( $binding ) ? ( $binding['policy_json'] ?? '' ) : '' );
+			if ( $char <= 0 ) {
+				$code = 'assistant_no_guru';
+			} elseif ( isset( $policy['owner_agent_enabled'] ) && ! $policy['owner_agent_enabled'] ) {
+				$code = 'assistant_off';
+			} elseif ( '' === trim( (string) ( $policy['owner_uid'] ?? '' ) ) ) {
+				$code = 'assistant_no_owner_uid';
+			} else {
+				return array( 'ready' => true, 'code' => '', 'label' => $label, 'numbers' => count( $mine ) );
+			}
+			if ( '' === $best['code'] || $rank[ $code ] > $rank[ $best['code'] ] ) {
+				$best = array( 'code' => $code, 'label' => $label );
+			}
+		}
+		return array( 'ready' => false, 'code' => $best['code'], 'label' => $best['label'], 'numbers' => count( $mine ) );
+	}
+
+	/**
 	 * @return array{bundle:array,warnings:string[]} `warnings` are WP-side notes (settings the cell cannot honour) shown in the status.
 	 */
 	public static function build( int $version ): array {

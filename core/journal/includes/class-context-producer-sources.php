@@ -1,7 +1,7 @@
 <?php
 /**
  * BizCity_Context_Producer_Sources — the first data sources of `context-producer@1` (PHASE-0.104 S104-C7): WooCommerce, Contact Form 7 and the
- * Zalo Brain CRM spine. Each one registers ONLY when its system is active, listens to that system's own hooks and emits small records:
+ * Open CRM spine. Each one registers ONLY when its system is active, listens to that system's own hooks and emits small records:
  *
  *   woo  woocommerce_payment_complete ⇒ {revenue, orders} · woocommerce_order_refunded ⇒ {revenue: −amount, refunds}
  *   cf7  wpcf7_mail_sent              ⇒ {leads}            (form title only — never the fields people typed)

@@ -5,7 +5,7 @@
  * BizCity_Woo_Pack_Exporter — the five WooCommerce projection packs of the cell, in core (CORE-REDUCTION WP-20 W20-L2, D-W20-1):
  * `sales` · `orders` · `stock` (audience owner_agent, PHASE-0.87 CL-2) · `catalog` (PHASE-0.88 L2-6) · `catalog_map`
  * (PHASE-0.95 S95-F1, projection-pack@1.2). Moved from bizcity-twin-crm/includes/woo/class-business-pack-exporter.php so a site
- * without the Zalo Brain CRM plugin still gives the cell its product-group map and shop numbers (F-Z1). The item builders are
+ * without the Open CRM plugin still gives the cell its product-group map and shop numbers (F-Z1). The item builders are
  * copied unchanged; kind names, constants, the option `bizcity_pack_catalog_map`, the cache prefix `bizcity_pack_biz_` and the
  * test seams keep their old values, so a running site keeps its cache and the cell sees no difference.
  *

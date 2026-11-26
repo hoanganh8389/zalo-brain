@@ -59,8 +59,8 @@
     {
       "path": "contracts/ZALO-BRAIN-HOOKS-v1.json",
       "source": "docs/contracts/ZALO-BRAIN-HOOKS-v1.json",
-      "sha256": "53c0e141d9ffdbc74f9dbea8b42e45bf633018e9547ce42e6754d9674d7a0d3b",
-      "bytes": 105760
+      "sha256": "4c3d27f6fad35ded90bcd6465a9a9010c4f1570793981efd8657eef6cfe2bdc3",
+      "bytes": 105923
     },
     {
       "path": "tools/validate-extension.mjs",

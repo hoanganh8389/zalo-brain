@@ -38,3 +38,26 @@ unset( $_bizcity_facebook_shell_plugin );
 if ( ! defined( 'BIZCITY_FACEBOOK_BOT_VERSION' ) ) {
 	require_once __DIR__ . '/bootstrap.php';
 }
+
+// [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 (C) — the CRM Facebook adapter + bridge moved here from bizcity-twin-ai/core/crm
+// (they only work while this plugin is loaded). Registered lazily: the adapter extends core's BizCity_CRM_Adapter_Base, which exists only
+// once the CRM spine is loaded. An old core that still ships its copies registers them first; ours is skipped (class_exists, false / isset).
+if ( ! function_exists( 'bizcity_facebook_bot_register_crm_adapter' ) ) {
+	function bizcity_facebook_bot_register_crm_adapter( $adapters ) {
+		if ( ! is_array( $adapters ) || isset( $adapters['facebook'] ) || ! class_exists( 'BizCity_CRM_Adapter_Base' ) ) {
+			return $adapters;
+		}
+		foreach ( array( 'class-crm-fb-bot-bridge.php', 'class-crm-adapter-facebook.php' ) as $file ) {
+			$path = __DIR__ . '/includes/crm/' . $file;
+			if ( ! is_readable( $path ) ) {
+				return $adapters;
+			}
+			require_once $path;
+		}
+		if ( class_exists( 'BizCity_CRM_Adapter_Facebook', false ) ) {
+			$adapters['facebook'] = new BizCity_CRM_Adapter_Facebook();
+		}
+		return $adapters;
+	}
+	add_filter( 'bizcity_crm_register_adapters', 'bizcity_facebook_bot_register_crm_adapter', 10 );
+}

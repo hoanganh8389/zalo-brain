@@ -1,120 +1,123 @@
 {
   "contract": "skill-samples@1",
   "categories": {
-    "so-sach": "Sổ sách",
-    "ke-hoach": "Kế hoạch & checklist",
-    "hoc-tap": "Học tập"
+    "ban-hang": "Bán hàng & báo giá",
+    "cham-soc": "Chăm sóc khách",
+    "tro-ly": "Trợ lý của chủ"
   },
+  "retired": [
+    "ghi-so-thu-chi",
+    "bao-cao-thu-chi",
+    "cong-no",
+    "ke-hoach-ngan-sach",
+    "viec-can-lam",
+    "bao-cao-tien-do",
+    "ke-hoach-ngay",
+    "tong-ket-cuoi-ngay",
+    "hoc-tu-vung",
+    "tom-tat-tai-lieu",
+    "on-bai-cach-quang",
+    "ke-hoach-hoc-tap"
+  ],
   "samples": {
-    "ghi-so-thu-chi": {
-      "category": "so-sach",
-      "icon": "🧾",
-      "title": "Ghi sổ thu chi",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "fe8e4c0af876300c",
-      "version": 2
-    },
-    "bao-cao-thu-chi": {
-      "category": "so-sach",
-      "icon": "📊",
-      "title": "Báo cáo thu chi",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "eba10c0a82836f62",
-      "version": 1
-    },
-    "cong-no": {
-      "category": "so-sach",
-      "icon": "🤝",
-      "title": "Công nợ: ghi và nhắc",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "9c83c0396384c4bf",
-      "version": 1
-    },
-    "ke-hoach-ngan-sach": {
-      "category": "so-sach",
-      "icon": "🎯",
-      "title": "Mục tiêu thu chi theo tháng",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "eb35499dc6370972",
-      "version": 1
-    },
-    "viec-can-lam": {
-      "category": "ke-hoach",
-      "icon": "✅",
-      "title": "Việc cần làm (checklist)",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "cce29ba4a02685ad",
-      "version": 1
-    },
-    "bao-cao-tien-do": {
-      "category": "ke-hoach",
-      "icon": "📈",
-      "title": "Báo cáo tiến độ dự án",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "cf20be3315097dc4",
-      "version": 2
-    },
-    "ke-hoach-ngay": {
-      "category": "ke-hoach",
-      "icon": "🗓️",
-      "title": "Kế hoạch trong ngày",
+    "xung-ho-giong-dieu": {
+      "category": "cham-soc",
+      "icon": "🙏",
+      "title": "Xưng hô và giọng điệu",
+      "audience": "all",
       "needs": [],
-      "file_hash": "f717dc3742d4a4a2",
-      "version": 1
+      "version": 1,
+      "file_hash": "78c759651b3b5f3c"
     },
-    "tong-ket-cuoi-ngay": {
-      "category": "ke-hoach",
+    "khong-hua-bua": {
+      "category": "cham-soc",
+      "icon": "🛡️",
+      "title": "Không hứa bừa, chuyển chủ khi vượt quyền",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "e97084fc6af78908"
+    },
+    "bao-gia": {
+      "category": "ban-hang",
+      "icon": "💰",
+      "title": "Báo giá",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "0b7c3920274951cd"
+    },
+    "tu-van-chon-san-pham": {
+      "category": "ban-hang",
+      "icon": "🩺",
+      "title": "Tư vấn chọn sản phẩm",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "1dc0f917db1ba21f"
+    },
+    "chot-don": {
+      "category": "ban-hang",
+      "icon": "🛒",
+      "title": "Chốt đơn",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "c06f77fe89f21aa0"
+    },
+    "xu-ly-khieu-nai": {
+      "category": "cham-soc",
+      "icon": "🧯",
+      "title": "Xử lý khiếu nại",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "05231398f1bd2d77"
+    },
+    "hen-lich": {
+      "category": "cham-soc",
+      "icon": "📅",
+      "title": "Hẹn lịch, giữ chỗ",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "ec73954136fc38aa"
+    },
+    "cham-soc-sau-ban": {
+      "category": "cham-soc",
+      "icon": "💝",
+      "title": "Chăm sóc sau bán",
+      "audience": "all",
+      "needs": [],
+      "version": 1,
+      "file_hash": "70bd596e476345b4"
+    },
+    "tro-ly-tong-ket-ngay": {
+      "category": "tro-ly",
       "icon": "🌙",
-      "title": "Tổng kết cuối ngày",
+      "title": "Tổng kết trong ngày cho chủ",
+      "audience": "owner",
       "needs": [],
-      "file_hash": "9e875cf423ceaa8f",
-      "version": 1
+      "version": 1,
+      "file_hash": "9f21471339de5f10"
     },
-    "hoc-tu-vung": {
-      "category": "hoc-tap",
-      "icon": "📚",
-      "title": "Học từ vựng",
+    "tro-ly-nhac-viec": {
+      "category": "tro-ly",
+      "icon": "⏰",
+      "title": "Nhắc việc cho chủ",
+      "audience": "owner",
       "needs": [],
-      "file_hash": "01bb66405bc1ed67",
-      "version": 1
+      "version": 1,
+      "file_hash": "a41245d873c1badd"
     },
-    "tom-tat-tai-lieu": {
-      "category": "hoc-tap",
-      "icon": "📝",
-      "title": "Tóm tắt tài liệu vừa gửi",
+    "tro-ly-soan-tin-khach": {
+      "category": "tro-ly",
+      "icon": "✍️",
+      "title": "Soạn tin gửi khách cho chủ duyệt",
+      "audience": "owner",
       "needs": [],
-      "file_hash": "aa09b11ba65cad5f",
-      "version": 2
-    },
-    "on-bai-cach-quang": {
-      "category": "hoc-tap",
-      "icon": "🔁",
-      "title": "Ôn bài cách quãng 1 · 3 · 7 ngày",
-      "needs": [],
-      "file_hash": "40734f1bf8e71919",
-      "version": 1
-    },
-    "ke-hoach-hoc-tap": {
-      "category": "hoc-tap",
-      "icon": "🎓",
-      "title": "Kế hoạch học tập theo tuần",
-      "needs": [
-        "sheets"
-      ],
-      "file_hash": "e40fd902b9155910",
-      "version": 2
+      "version": 1,
+      "file_hash": "271c67eebaaa18ba"
     }
   }
 }

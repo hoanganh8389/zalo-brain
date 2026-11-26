@@ -1510,7 +1510,7 @@ class BizCity_CRM_Repository {
 
 	/* ================================================================
 	 * [2026-10-09 10:45 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L3 — customer facts for the core `customers`
-	 * pack and the MCP customer reads (D-W20-1): the cell answers about customers without the Zalo Brain CRM plugin. Same
+	 * pack and the MCP customer reads (D-W20-1): the cell answers about customers without the Open CRM plugin. Same
 	 * reads as the plugin pipeline facts loader (BizCity_CRM_Customer_Pipeline::contact_ids_for_inboxes / load), minus the
 	 * pipeline tables (opportunities, tasks): no stage here — the plugin decorates through `bizcity_crm_pack_customer_row`.
 	 * ================================================================ */

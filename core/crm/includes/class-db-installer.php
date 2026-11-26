@@ -5,7 +5,7 @@
  * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-2.2 — split from plugins/bizcity-twin-crm/includes/class-db-installer.php.
  * Core owns: inboxes, contacts, contact_inboxes, conversations, messages, attachments, labels, conversation_labels,
  * teams, team_members, inbox_members, archive_receipts, chat_magic_links (admin_chat_grants moved to bizcity-twin-crm and gmail_smtp_accounts retired, PHASE-0.126 G-C; the latter was for
- * the Email channel). The extension plugin (Zalo Brain CRM) appends its own CREATE statements through the
+ * the Email channel). The extension plugin (Open CRM) appends its own CREATE statements through the
  * `bizcity_crm_install_tables` filter and runs its migrations on `bizcity_crm_install_migrate`, so there is still
  * exactly one dbDelta pass. Every tbl_*() accessor stays here on purpose: callers compile whether or not the plugin
  * is present (D96-5). DB version option keeps its name so running sites do not reinstall.
@@ -134,8 +134,7 @@ class BizCity_CRM_DB_Installer_V2 {
 			'attachments'         => self::tbl_attachments(),
 			'labels'              => self::tbl_labels(),
 			'conversation_labels' => self::tbl_conversation_labels(),
-			'crm_teams'           => self::tbl_teams(),
-			'crm_team_members'    => self::tbl_team_members(),
+			// [2026-11-20 08:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 D156-5 — crm_teams / crm_team_members left this list: core does not create them, so they must not count as "missing" (self-heal loop).
 			'crm_inbox_members'   => self::tbl_inbox_members(),
 			'archive_receipts'    => self::tbl_archive_receipts(),
 			'chat_magic_links'    => self::tbl_chat_magic_links(),
@@ -250,165 +249,24 @@ class BizCity_CRM_DB_Installer_V2 {
 		global $wpdb;
 		$charset = $wpdb->get_charset_collate();
 
-		$inboxes = self::tbl_inboxes();
-		$contacts = self::tbl_contacts();
-		$contact_inboxes = self::tbl_contact_inboxes();
-		$conversations = self::tbl_conversations();
-		$messages = self::tbl_messages();
-		$attachments = self::tbl_attachments();
 		$labels = self::tbl_labels();
 		$cl = self::tbl_conversation_labels();
 		$chat_magic_links = self::tbl_chat_magic_links();
 
-		$sql = array();
-		$sql[] = "CREATE TABLE `{$inboxes}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			name VARCHAR(190) NOT NULL DEFAULT '',
-			channel_type VARCHAR(32) NOT NULL,
-			channel_ref_id VARCHAR(190) NOT NULL,
-			default_notebook_id BIGINT UNSIGNED NULL,
-			default_assignee_id BIGINT UNSIGNED NULL,
-			settings_json LONGTEXT NULL,
-			is_active TINYINT(1) NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			UNIQUE KEY uniq_channel_ref (channel_type, channel_ref_id),
-			KEY idx_active (is_active)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$contacts}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			name VARCHAR(190) NOT NULL DEFAULT '',
-			first_name VARCHAR(95) NULL,
-			last_name VARCHAR(95) NULL,
-			title VARCHAR(120) NULL,
-			account_id BIGINT UNSIGNED NULL,
-			email VARCHAR(190) NULL,
-			phone VARCHAR(32) NULL,
-			birthday DATE NULL,
-			birthday_md CHAR(5) NULL,
-			avatar_url TEXT NULL,
-			additional_attributes LONGTEXT NULL,
-			wp_user_id BIGINT UNSIGNED NULL,
-			owner_id BIGINT UNSIGNED NULL,
-			tags_json LONGTEXT NULL,
-			acquisition_source VARCHAR(64) NULL,
-			acquisition_meta_json LONGTEXT NULL,
-			points_balance_cache INT NOT NULL DEFAULT 0,
-			platform VARCHAR(32) NULL,
-			platform_uid VARCHAR(190) NULL,
-			source VARCHAR(64) NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			deleted_at DATETIME NULL,
-			PRIMARY KEY  (id),
-			KEY idx_email (email),
-			KEY idx_phone (phone),
-			KEY idx_birthday_md (birthday_md),
-			KEY idx_wp_user (wp_user_id),
-			KEY idx_account (account_id),
-			KEY idx_owner (owner_id),
-			KEY idx_acquisition (acquisition_source),
-			KEY idx_deleted (deleted_at),
-			KEY idx_platform_uid (platform, platform_uid)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$contact_inboxes}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			contact_id BIGINT UNSIGNED NOT NULL,
-			inbox_id BIGINT UNSIGNED NOT NULL,
-			source_id VARCHAR(190) NOT NULL,
-			last_seen_at DATETIME NULL,
-			created_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			UNIQUE KEY uniq_inbox_source (inbox_id, source_id),
-			KEY idx_contact (contact_id)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$conversations}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			inbox_id BIGINT UNSIGNED NOT NULL,
-			contact_inbox_id BIGINT UNSIGNED NOT NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'open',
-			assignee_id BIGINT UNSIGNED NULL,
-			notebook_id BIGINT UNSIGNED NULL,
-			character_id BIGINT UNSIGNED NULL,
-			priority TINYINT NOT NULL DEFAULT 0,
-			snoozed_until BIGINT NULL,
-			waiting_since BIGINT NULL,
-			first_reply_at BIGINT NULL,
-			cached_label_list TEXT NULL,
-			sla_policy_id BIGINT UNSIGNED NULL,
-			team_id BIGINT UNSIGNED NULL,
-			last_message_id BIGINT UNSIGNED NULL,
-			last_activity_at DATETIME NULL,
-			unread_count INT UNSIGNED NOT NULL DEFAULT 0,
-			platform VARCHAR(32) NULL,
-			channel_thread_id VARCHAR(190) NULL,
-			chat_id VARCHAR(190) NULL,
-			contact_id BIGINT UNSIGNED NULL,
-			account_id VARCHAR(190) NULL,
-			blog_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			KEY idx_inbox_status_act (inbox_id, status, last_activity_at),
-			KEY idx_assignee_status (assignee_id, status),
-			KEY idx_contact_inbox (contact_inbox_id),
-			KEY idx_priority_status (priority, status),
-			KEY idx_waiting (waiting_since),
-			KEY idx_snoozed (snoozed_until),
-			KEY idx_platform_thread (platform, channel_thread_id),
-			KEY idx_conv_contact (contact_id),
-			KEY idx_blog (blog_id)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$messages}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			conversation_id BIGINT UNSIGNED NOT NULL,
-			inbox_id BIGINT UNSIGNED NOT NULL,
-			external_source_id VARCHAR(190) NULL,
-			content LONGTEXT NULL,
-			content_type VARCHAR(16) NOT NULL DEFAULT 'text',
-			message_type VARCHAR(16) NOT NULL DEFAULT 'incoming',
-			sender_type VARCHAR(16) NOT NULL DEFAULT 'contact',
-			sender_id BIGINT UNSIGNED NULL,
-			status VARCHAR(16) NOT NULL DEFAULT 'sent',
-			ai_metadata_json LONGTEXT NULL,
-			event_uuid CHAR(36) NULL,
-			responder_kind VARCHAR(10) NULL,
-			responder_user_id BIGINT UNSIGNED NULL,
-			character_id BIGINT UNSIGNED NULL,
-			macro_id BIGINT UNSIGNED NULL,
-			automation_rule_id BIGINT UNSIGNED NULL,
-			platform VARCHAR(32) NULL,
-			platform_msg_id VARCHAR(190) NULL,
-			body LONGTEXT NULL,
-			payload_json LONGTEXT NULL,
-			created_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			UNIQUE KEY uniq_inbox_external (inbox_id, external_source_id),
-			KEY idx_conv_created (conversation_id, created_at),
-			KEY idx_sender (sender_type, message_type),
-			KEY idx_event_uuid (event_uuid),
-			KEY idx_responder_user (responder_user_id),
-			KEY idx_responder_kind (responder_kind),
-			KEY idx_rule (automation_rule_id),
-			KEY idx_macro (macro_id)
-		) {$charset};";
-
-		$sql[] = "CREATE TABLE `{$attachments}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			message_id BIGINT UNSIGNED NOT NULL,
-			file_type VARCHAR(16) NOT NULL DEFAULT 'file',
-			data_url TEXT NULL,
-			thumb_url TEXT NULL,
-			meta_json LONGTEXT NULL,
-			created_at DATETIME NOT NULL,
-			PRIMARY KEY  (id),
-			KEY idx_message (message_id)
-		) {$charset};";
+		// [2026-11-19 09:37 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-2.1 — the seven ledger tables come from the crm-ledger@1 contract (one DDL shared with the CRM plugin,
+		// byte-checked by bin/validate-crm-ledger-contract.mjs). Missing contract file ⇒ stop before any DDL and keep the old version stamp, so the
+		// next request retries instead of stamping a half-installed schema.
+		if ( ! class_exists( 'BizCity_CRM_Ledger_Schema', false ) ) {
+			$bizcity_ledger = dirname( __DIR__ ) . '/contracts/class-crm-ledger-schema.php';
+			if ( is_readable( $bizcity_ledger ) ) {
+				require_once $bizcity_ledger;
+			}
+		}
+		if ( ! class_exists( 'BizCity_CRM_Ledger_Schema', false ) ) {
+			error_log( '[bizcity-crm] crm-ledger@1 contract file missing (core/crm/contracts/class-crm-ledger-schema.php) - install skipped' );
+			return;
+		}
+		$sql = array_values( BizCity_CRM_Ledger_Schema::ddl( $wpdb->prefix, $charset ) );
 
 		$sql[] = "CREATE TABLE `{$labels}` (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -676,35 +534,8 @@ class BizCity_CRM_DB_Installer_V2 {
 			KEY idx_status_created (archive_status, created_at)
 		) {$charset};" );
 
-		$teams = self::tbl_teams();
-		dbDelta( "CREATE TABLE `{$teams}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			name VARCHAR(190) NOT NULL,
-			description TEXT NULL,
-			allow_auto_assign TINYINT(1) NOT NULL DEFAULT 1,
-			is_active TINYINT(1) NOT NULL DEFAULT 1,
-			created_by BIGINT UNSIGNED NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			PRIMARY KEY (id),
-			UNIQUE KEY uniq_name (name),
-			KEY idx_active (is_active, allow_auto_assign)
-		) {$charset};" );
-
-		$team_members = self::tbl_team_members();
-		dbDelta( "CREATE TABLE `{$team_members}` (
-			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			team_id BIGINT UNSIGNED NOT NULL,
-			user_id BIGINT UNSIGNED NOT NULL,
-			member_role VARCHAR(20) NOT NULL DEFAULT 'agent',
-			is_active TINYINT(1) NOT NULL DEFAULT 1,
-			last_assigned_at DATETIME NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL,
-			PRIMARY KEY (id),
-			UNIQUE KEY uniq_team_user (team_id, user_id),
-			KEY idx_user_active (user_id, is_active)
-		) {$charset};" );
+		// [2026-11-20 08:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 D156-5 — teams + team_members are created by the CRM plugin now (BizCity_CRM_DB_Installer_Ext::append_tables), together with
+		// BizCity_CRM_Team_Manager. Core neither creates nor drops them: existing rows stay where they are (R-DCL: no DROP).
 
 		$inbox_members = self::tbl_inbox_members();
 		dbDelta( "CREATE TABLE `{$inbox_members}` (

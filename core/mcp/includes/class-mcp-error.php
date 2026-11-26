@@ -83,7 +83,7 @@ final class BizCity_MCP_Error {
 	// [2026-10-07 10:20 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.93 gap B — the caller has no Google account that may send mail (not connected / no "Gửi email" permission).
 	const GOOGLE_NOT_CONNECTED            = 'MCP_GOOGLE_NOT_CONNECTED';
 	// [2026-10-09 10:49 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — a write/admin CRM tool (stage, note, task) needs the
-	// Zalo Brain CRM plugin (D-W20-1). Same code as BizCity_CRM_Spine::unavailable_error() so the message + hint survive the envelope.
+	// Open CRM plugin (D-W20-1). Same code as BizCity_CRM_Spine::unavailable_error() so the message + hint survive the envelope.
 	const CRM_FEATURE_UNAVAILABLE         = 'crm_feature_unavailable';
 
 	/**
@@ -200,7 +200,8 @@ final class BizCity_MCP_Error {
 			// [2026-10-09 10:49 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — where the owner gets the missing feature.
 			// [2026-10-11 12:55 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.97 S97-L13 — FRAMEWORK-GUIDE-v1 Appendix A.
 			self::PERMISSION_DENIED            => array( 'hint' => 'Nhờ quản trị viên cấp quyền này cho tài khoản đang làm việc, hoặc đổi «Làm việc bằng quyền của» sang tài khoản có quyền.', 'help_code' => 'cap_denied' ),
-			self::CRM_FEATURE_UNAVAILABLE      => array( 'hint' => 'Việc này cần plugin Zalo Brain CRM. Quản trị viên vào Cài đặt › Mở rộng, cài và kích hoạt Zalo Brain CRM rồi thử lại.', 'help_code' => 'crm_feature_unavailable' ),
+			// [2026-11-21 04:08 PM Johnny Chu - Chu Hoàng Anh] BRAND-OPEN-CRM — brand name Zalo Brain CRM -> Open CRM, repo open-crm (slug bizcity-twin-crm, prefix and owner unchanged).
+			self::CRM_FEATURE_UNAVAILABLE      => array( 'hint' => 'Việc này cần plugin Open CRM. Quản trị viên vào Cài đặt › Mở rộng, cài và kích hoạt Open CRM rồi thử lại.', 'help_code' => 'crm_feature_unavailable' ),
 			self::ROLE_GROUP_DENIED            => array( 'hint' => 'Vai trò WordPress của người này chưa được bật nhóm quyền MCP này. Quản trị viên vào Channel Gateway → MCP Access → "Quyền MCP theo vai trò" để bật nhóm Tri thức hoặc Hành động cho vai trò đó.', 'help_code' => 'role_group_denied' ),
 		);
 		if ( isset( $s88[ $code ] ) ) {

@@ -1540,7 +1540,8 @@ final class BizCity_Journal_MCP_Tools {
 		// @mcp bizcity-mcp-standard@1 tool vault.get
 		$R::register( 'vault.get', array(
 			'title'          => 'Đọc bản Markdown của một nguồn',
-			'description'    => 'Đọc MỘT ghi chú của Kho tri thức (Twin Vault): bản đọc Markdown của một tài liệu / ảnh (ref TL-47) hoặc một ghi chú / kỹ năng (id lib:/note/x.md), kèm frontmatter (mã nguồn, bản, cách trích). '
+			// [2026-11-22 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L4 — + a web page learned into the Kho (ref LK-12): its note is the reading
+			'description'    => 'Đọc MỘT ghi chú của Kho tri thức (Twin Vault): bản đọc Markdown của một tài liệu / ảnh (ref TL-47), một trang web đã học (ref LK-12) hoặc một ghi chú / kỹ năng (id lib:/note/x.md), kèm frontmatter (mã nguồn, bản, cách trích). '
 				. 'Dài thì đọc theo trang: offset + limit (≤ 6000 ký tự), next_offset = null là hết. Chưa có bản đọc ⇒ vault_not_found (dùng journal.get view=card để xem mô tả). Không trả link tải.',
 			'input_schema'   => array( 'type' => 'object', 'properties' => array(
 				'ref'    => $ref_any,
@@ -1729,6 +1730,17 @@ final class BizCity_Journal_MCP_Tools {
 		$row = self::row_for( $p['target'], $ctx, 'content.read' );
 		if ( is_wp_error( $row ) ) {
 			return $row;
+		}
+		// [2026-11-22 08:48 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L4 — a web page (LK-n, kind common.link) has no vault:// reading: its Kho note IS the reading,
+		// so vault.get {ref: "LK-n"} answers that note (the model found it with journal.find and must be able to read it to answer and cite it)
+		$vp = (string) ( $row['card']['vault_path'] ?? '' );
+		if ( 'common.link' === (string) ( $row['kind'] ?? '' ) && empty( $row['resource']['representations'] ) && 0 === strpos( $vp, '/link/' ) && class_exists( 'BizCity_Twin_Vault' ) ) {
+			$note = BizCity_Twin_Vault::note( 'lib:' . $vp, $ctx, (int) ( $args['offset'] ?? 0 ), (int) ( $args['limit'] ?? 6000 ) );
+			if ( is_wp_error( $note ) ) {
+				return self::err( new WP_Error( 'journal_not_found', $note->get_error_message() ) );
+			}
+			$note['ref'] = (string) ( $row['ref_code'] ?? '' );
+			return $note;
 		}
 		$rev = isset( $args['rev'] ) ? (int) $args['rev'] : $p['rev'];
 		$out = BizCity_Brain_Vault_Store::read( $row, max( 0, $rev ), (int) ( $args['offset'] ?? 0 ), (int) ( $args['limit'] ?? 6000 ) );

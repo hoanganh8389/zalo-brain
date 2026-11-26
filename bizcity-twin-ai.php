@@ -743,10 +743,10 @@ add_action( 'rest_api_init', array( 'BizCity_Zalo_Brain', 'register_rest' ) );
 // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-2.2 (D96-2) — core/crm = the CRM spine (contacts · inboxes · conversations ·
 // messages · scope · ingest · outbound · magic links · spine REST + installer). Foundation of Zalo Brain: loaded on every
 // request that may write or read the ledger (same contexts as channel-gateway plus the agent/public surfaces), never through
-// a locator and never optional. The extension plugin bizcity-twin-crm (Zalo Brain CRM, its own repository) boots on top at
+// a locator and never optional. The extension plugin bizcity-twin-crm (Open CRM, its own repository) boots on top at
 // plugins_loaded@6. The old bundled copy under plugins/bizcity-twin-crm is gone (D96-10).
 if ( ! $_bizcity_twinchat_admin_page && file_exists( __DIR__ . '/core/crm/bootstrap.php' ) ) {
-    require_once __DIR__ . '/core/crm/bootstrap.php';
+    require_once __DIR__ . '/core/crm/bootstrap.php'; // [2026-11-21 01:59 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W6 HOTFIX — it also loads core/channel-gateway/includes/zalo-groups/
 }
 
 // [2026-07-27 Johnny Chu] PHASE-0.53-MCP Wave A — Twin Client Brain MCP gateway.
@@ -1091,7 +1091,7 @@ $_bizcity_bundled_must_load = [
     // 'bizcity-code'                => 'BZCODE_VERSION',             // Code Builder — AI tạo web & landing page (ARCHIVED)
     // 'bizcity-tool-mindmap'        => 'BZTOOL_MINDMAP_VERSION',     // ARCHIVED 2026-06-01 → plugins/_archived/bizcity-tool-mindmap/. Mindmap functionality moved to bizcity-doc (Phase 6.3 PHASE-0.7-DOCGEN).
     // [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 — bizcity-twin-crm is no longer bundled: its spine is core/crm (loaded above),
-    // the rest is the standalone plugin wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/zalo-brain-crm).
+    // the rest is the standalone plugin wp-content/plugins/bizcity-twin-crm (github.com/hoanganh8389/open-crm).
     // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3a (R-LEAN-4, Q-W16-3) — the bundled copy of bizcity-video-kling (never loaded since 2026-08-19) is archived at
     // plugins/_archived/bizcity-video-kling-20260930/; client tools are cut (media runs in brain-core, R-PF-2).
     // [2026-09-30 Claude Opus 5.5] CORE-REDUCTION WP-16 B-3b (R-LEAN-4, Q-W16-3) — bizcity-pagebuilder archived at plugins/_archived/bizcity-pagebuilder-20260930/ (client tools are cut).

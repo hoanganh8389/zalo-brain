@@ -35,7 +35,8 @@ final class BizCity_Twin_Vault {
 	const SKILL_DIRS = array( 'skills', 'tools' );
 	const KINDS     = array(
 		'image' => array( 'common.photo', 'media.image.output', 'media.audio.output', 'media.video.output' ),
-		'note'  => array( 'common.note', 'common.instruction', 'task.minutes', 'grp.brief' ),
+		// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — + common.link: a web page learned into the Kho is a note (its row is the twin of /link/…md)
+		'note'  => array( 'common.note', 'common.instruction', 'task.minutes', 'grp.brief', 'common.link' ),
 		'sheet' => array( 'sheet.define' ),
 		'job'   => array( 'job.run' ),
 	);
@@ -219,7 +220,14 @@ final class BizCity_Twin_Vault {
 				$sp['section'] = (string) $fm_in['section'];
 			}
 		}
-		$fm     = array( 'schema' => 'twin-vault@1', 'type' => 'note', 'title' => mb_substr( $title, 0, 160 ) ) + $fm + $sp + ( '' !== $folder ? array( 'folder' => $folder ) : array() ) + array( 'source_ref' => $source_ref, 'rev' => max( 1, $rev ), 'created' => $created, 'updated' => $now );
+		// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — a page learned from a link keeps where it came from: `source: web` + `web{url, host, fetched_at, depth, authority…}`,
+		// checked again here (BizCity_Vault_Link::web_fm); write() lets them through only from its `link` argument or the note's own previous frontmatter
+		$web = array();
+		if ( 'web' === (string) ( $fm_in['source'] ?? '' ) && is_array( $fm_in['web'] ?? null ) && class_exists( 'BizCity_Vault_Link' ) ) {
+			$w   = BizCity_Vault_Link::web_fm( $fm_in['web'] );
+			$web = $w ? array( 'source' => 'web', 'web' => $w ) : array();
+		}
+		$fm     = array( 'schema' => 'twin-vault@1', 'type' => 'note', 'title' => mb_substr( $title, 0, 160 ) ) + $fm + $sp + $web + ( '' !== $folder ? array( 'folder' => $folder ) : array() ) + array( 'source_ref' => $source_ref, 'rev' => max( 1, $rev ), 'created' => $created, 'updated' => $now );
 		$body = trim( (string) preg_replace( "/\r\n?/", "\n", BizCity_Brain_Vault_Store::split_frontmatter( $md )['body'] ) );
 		return "---\n" . BizCity_Brain_Vault_Store::emit_yaml( $fm ) . "---\n" . $body . "\n";
 	}
@@ -1073,7 +1081,12 @@ final class BizCity_Twin_Vault {
 		// [2026-11-14 03:16 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.149 S149-C5 — a library note: its own `source` when it says one, a Zalo "ghi nhớ" (note/zalo-*.md, keep_batch) = zalo, any other note = written in the editor
 		if ( 'note' === $item['type'] ) {
 			$own            = strtolower( (string) ( $f['fm']['source'] ?? '' ) );
-			$item['source'] = in_array( $own, array( 'zalo', 'zalo_group', 'facebook', 'web_upload', 'editor', 'assistant', 'other' ), true ) ? $own : ( 0 === strpos( (string) $f['path'], 'note/zalo-' ) ? 'zalo' : 'editor' );
+			// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — + web (a page learned from a link) and its url for the "Nguồn" column
+			$item['source'] = in_array( $own, array( 'zalo', 'zalo_group', 'facebook', 'web_upload', 'editor', 'assistant', 'other', 'web' ), true ) ? $own : ( 0 === strpos( (string) $f['path'], 'note/zalo-' ) ? 'zalo' : 'editor' );
+			if ( 'web' === $own && is_array( $f['fm']['web'] ?? null ) ) {
+				// [2026-11-22 06:57 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-C1 — + kind ("site" = a whole-website job: the folder table groups its pages under it)
+				$item['web'] = array_intersect_key( (array) $f['fm']['web'], array_flip( array( 'url', 'host', 'status', 'depth', 'parent_ref', 'links_found', 'links_kept', 'kind' ) ) );
+			}
 		}
 		// PHASE-0.153 V5 — a space note (/khong-gian/…) carries its space tag + label
 		if ( class_exists( 'BizCity_Vault_Spaces' ) && BizCity_Vault_Spaces::is_space_path( (string) $f['path'] ) ) {
@@ -1132,6 +1145,41 @@ final class BizCity_Twin_Vault {
 		return $out;
 	}
 
+	/**
+	 * [2026-11-17 11:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix (owner 17/11: "lưu ok nhưng bị duplicate", JE-316 twice) — a note written in the Kho is a library
+	 * file AND a Journal row (src:JE-n) that points back at it (the file's source_ref = the row code). The file wins (it opens in the editor), its row is dropped. Pure.
+	 */
+	public static function drop_twins( array $items ): array {
+		$codes = array();
+		foreach ( $items as $i ) {
+			if ( 0 === strpos( (string) ( $i['id'] ?? '' ), 'lib:' ) && '' !== (string) ( $i['source_ref'] ?? '' ) ) {
+				$codes[ strtoupper( (string) strtok( (string) $i['source_ref'], '@' ) ) ] = true;
+			}
+		}
+		if ( ! $codes ) {
+			return $items;
+		}
+		// [2026-11-22 04:21 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L2 (chủ 22/11: "cần tiến trình đang đọc link, đọc xong, ghi sổ xong") — a link note (`web`) keeps the
+		// four steps of its dropped Sổ row (journal-pipeline@1 stays derived from the row, FP-2); entry_id is NOT copied (the "Xoá" door of a note deletes the .md)
+		$twin = array();
+		foreach ( $items as $i ) {
+			if ( 0 === strpos( (string) ( $i['id'] ?? '' ), 'src:' ) && isset( $i['pipeline'] ) ) {
+				$twin[ strtoupper( substr( (string) $i['id'], 4 ) ) ] = $i;
+			}
+		}
+		$items = array_map( static function ( $i ) use ( $twin ) {
+			if ( 0 !== strpos( (string) ( $i['id'] ?? '' ), 'lib:' ) || empty( $i['web'] ) ) {
+				return $i;
+			}
+			$t = $twin[ strtoupper( (string) strtok( (string) ( $i['source_ref'] ?? '' ), '@' ) ) ] ?? null;
+			return $t ? $i + array( 'pipeline' => $t['pipeline'], 'level' => $t['level'] ?? null ) : $i;
+		}, $items );
+		return array_values( array_filter( $items, static function ( $i ) use ( $codes ) {
+			$id = (string) ( $i['id'] ?? '' );
+			return 0 !== strpos( $id, 'src:' ) || ! isset( $codes[ strtoupper( substr( $id, 4 ) ) ] );
+		} ) );
+	}
+
 	/** The six roots with counts and their newest children (≤ 100 rows each + every library file). */
 	public static function tree( array $ctx, string $view = 'folders' ): array {
 		$lib   = array_map( array( __CLASS__, 'lib_item' ), self::lib_files() );
@@ -1141,7 +1189,8 @@ final class BizCity_Twin_Vault {
 			$children = array_map( static function ( $e ) use ( $t ) { return self::row_item( $e, $t ); }, (array) $res['items'] );
 			$files    = array_values( array_filter( $lib, static function ( $i ) use ( $t ) { return $i['type'] === $t; } ) );
 			$all      = array_merge( $files, $children );
-			$shown    = self::gate( $all, $ctx );
+			$deduped  = self::drop_twins( $all ); // [2026-11-17 11:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix — one note = one entry (its .md wins over its Sổ row)
+			$shown    = self::gate( $deduped, $ctx );
 			$roots[]  = array( 'id' => $t, 'label' => self::LABELS[ $t ], 'type' => $t, 'count' => max( 0, (int) $res['total'] + count( $files ) - ( count( $all ) - count( $shown ) ) ), 'children' => $shown );
 		}
 		$out = array( 'contract' => self::CONTRACT, 'roots' => $roots );
@@ -1227,7 +1276,7 @@ final class BizCity_Twin_Vault {
 		}
 		$res   = 'skill' === $type ? array( 'items' => array(), 'total' => 0 ) : self::rows( $type, $ctx, $limit, $off, (string) ( $args['q'] ?? '' ) );
 		$items = array_merge( array_slice( $items, $off, $limit ), array_map( static function ( $e ) use ( $type ) { return self::row_item( $e, $type ); }, (array) $res['items'] ) );
-		$items = self::gate( $items, $ctx );
+		$items = self::gate( self::drop_twins( $items ), $ctx ); // PHASE-0.153 fix — no .md + Sổ row twin
 		$fold  = self::resolve_folder( $args['folder'] ?? '', self::folders() );
 		if ( '' !== $fold ) { // narrows only: a prefix of the note's folder
 			$items = array_values( array_filter( $items, static function ( $i ) use ( $fold ) { return 0 === strpos( (string) ( $i['vault_folder'] ?? '' ), $fold ); } ) );
@@ -1537,6 +1586,15 @@ final class BizCity_Twin_Vault {
 		$owner = self::owner( $ctx );
 		$title = trim( (string) ( $args['title'] ?? '' ) );
 		$md    = (string) ( $args['markdown'] ?? '' );
+		// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 (link-import@1) — `link{url, depth, status, from, …}` ⇒ a web page learned into the Kho:
+		// its own path /link/<host>/<sha12>.md (same URL = same note), kind common.link (LK-n), source + url kept in frontmatter and card
+		$link = class_exists( 'BizCity_Vault_Link' ) && is_array( $args['link'] ?? null ) ? BizCity_Vault_Link::web_fm( $args['link'] ) : array();
+		if ( is_array( $args['link'] ?? null ) && ! $link ) {
+			return new WP_Error( 'link_invalid', 'Link không hợp lệ hoặc là link nội bộ.', array( 'status' => 400, 'hint' => 'Dán link công khai, bắt đầu bằng https://', 'help_code' => 'vault_link' ) );
+		}
+		if ( $link && '' === (string) ( $args['path'] ?? '' ) && '' === (string) ( $args['id'] ?? '' ) ) {
+			$args['path'] = BizCity_Vault_Link::note_path( (string) $link['url'] );
+		}
 		if ( $owner <= 0 || '' === $title || '' === trim( $md ) || strlen( $md ) > self::MAX_MD ) {
 			return new WP_Error( 'vault_note_invalid', 'Ghi chú cần tiêu đề và nội dung (≤ 200 KB).', array( 'status' => 400, 'hint' => 'Điền tiêu đề và nội dung rồi lưu lại.', 'help_code' => 'twin_vault' ) );
 		}
@@ -1561,6 +1619,15 @@ final class BizCity_Twin_Vault {
 		$now  = gmdate( 'Y-m-d\TH:i:s\Z' );
 		$row  = null;
 		$fm_in = is_array( $args['frontmatter'] ?? null ) ? $args['frontmatter'] : array();
+		// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — the web source is never taken from a caller's frontmatter: only from `link`, or kept from the note itself (a person editing it)
+		unset( $fm_in['source'], $fm_in['web'] );
+		if ( ! $link && is_array( $cur['fm']['web'] ?? null ) && class_exists( 'BizCity_Vault_Link' ) ) {
+			$link = BizCity_Vault_Link::web_fm( $cur['fm']['web'] );
+		}
+		if ( $link ) {
+			$fm_in['source'] = 'web';
+			$fm_in['web']    = $link;
+		}
 		// [2026-11-15 10:50 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 V2 — space keys only for a note inside that space's own folder; an edit keeps the space it had
 		$sp_id = class_exists( 'BizCity_Vault_Spaces' ) ? BizCity_Vault_Spaces::id( (string) ( $fm_in['space'] ?? ( $cur['fm']['space'] ?? '' ) ) ) : '';
 		if ( '' === $sp_id || 0 !== strpos( $path, BizCity_Vault_Spaces::base_path( $sp_id ) ) ) {
@@ -1584,11 +1651,29 @@ final class BizCity_Twin_Vault {
 		if ( class_exists( 'BizCity_Journal_Index' ) ) {
 			$blog  = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
 			$entry = array( 'owner_user_id' => $owner, 'kind' => 'common.note', 'title' => mb_substr( $title, 0, 200 ), 'summary' => mb_substr( trim( BizCity_Brain_Vault_Store::split_frontmatter( $md )['body'] ), 0, 600 ), 'doc_date' => gmdate( 'Y-m-d' ), 'source_type' => 'vault', 'source_ref' => mb_substr( 'lib:' . $path, 0, 120 ), 'idempotency_key' => 'vault:' . $blog . ':' . substr( md5( $path ), 0, 24 ), 'origin' => array( 'surface' => 'vault' ), 'card' => array( 'vault_path' => $path ) );
+			// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — a link note: kind common.link (LK-n), source_type of its door (closed set R-JN-19), the url on the card (find_text + entry card)
+			if ( $link ) {
+				$zalo                 = 'zalo' === (string) ( $link['from'] ?? '' );
+				$entry['kind']        = 'common.link';
+				$entry['source_type'] = $zalo ? 'owner_capture' : 'web_upload';
+				$entry['origin']      = array( 'surface' => $zalo ? 'zalo_link' : 'web_link', 'ref' => mb_substr( (string) $link['url'], 0, 190 ) );
+				$entry['card']        = BizCity_Vault_Link::card_of( $link, $path );
+				if ( isset( $link['parent_ref'] ) ) {
+					$entry['derived_from'] = array( (int) substr( (string) $link['parent_ref'], 3 ) ); // LK-<entry id> ⇒ the entry id (job-link@1 derived_from[] holds ids)
+				}
+			}
 			$row   = BizCity_Journal_Index::add( $entry );
 			if ( is_wp_error( $row ) ) {
 				return $row;
 			}
-			if ( null !== $cur && class_exists( 'BizCity_Journal_Entry_Meta' ) ) { // an edit: the row follows the file (title + about through entry-meta; find_text rebuilt)
+			// [2026-11-22 08:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-D1 — a note written again at a path whose row was deleted (voided) brings the row back (same idempotency key)
+			if ( 'void' === (string) ( $row['state'] ?? '' ) && (int) ( $row['entry_id'] ?? 0 ) > 0 ) {
+				$back = BizCity_Journal_Index::set_state( (int) $row['entry_id'], $owner, 'captured' );
+				$row  = is_wp_error( $back ) ? $row : ( BizCity_Journal_Index::get( (int) $row['entry_id'], $owner ) ?: $row );
+			}
+			// [2026-11-17 09:42 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 fix — a NEW note filed in a folder stamps meta.folder on its row too (was edits only:
+			// a Zalo "nhớ giúp" note sat in 05 as a file but its JE row showed in Home as unfiled)
+			if ( ( null !== $cur || '' !== $folder ) && class_exists( 'BizCity_Journal_Entry_Meta' ) ) { // an edit: the row follows the file (title + about through entry-meta; find_text rebuilt)
 				$meta = BizCity_Journal_Entry_Meta::merge( (array) ( $row['meta'] ?? array() ), BizCity_Journal_Entry_Meta::normalize( array( 'title' => $title, 'about' => mb_substr( $entry['summary'], 0, 600 ) ) + ( '' !== $folder ? array( 'folder' => $folder ) : array() ) )['meta'], 'person' === (string) ( $ctx['role'] ?? '' ) ? 'owner_edit' : 'site_code' );
 				$upd  = BizCity_Journal_Index::file( (int) $row['entry_id'], $owner, array( 'summary' => $entry['summary'], 'meta' => $meta ) );
 				$row  = is_wp_error( $upd ) ? $row : $upd;
@@ -2063,6 +2148,8 @@ final class BizCity_Twin_Vault {
 		) );
 		register_rest_route( self::NS, '/policy/space', array( 'methods' => 'PUT', 'callback' => array( __CLASS__, 'rest_policy_space' ), 'permission_callback' => $write ) );
 		register_rest_route( self::NS, '/move', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_move' ), 'permission_callback' => $write ) );
+		// [2026-11-22 08:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-D1 (chủ 22/11: "delete file tri thức theo domain, từng link, chọn nhiều để xoá cùng lúc, cả các files tri thức khác") — one delete door of the Kho
+		register_rest_route( self::NS, '/delete', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_delete' ), 'permission_callback' => $write ) );
 		register_rest_route( self::NS, '/folder', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_folder_add' ), 'permission_callback' => $write ) );
 		register_rest_route( self::NS, '/folder/(?P<n>[0-9]{2})', array( 'methods' => 'PATCH', 'callback' => array( __CLASS__, 'rest_folder_rename' ), 'permission_callback' => $write ) );
 		register_rest_route( self::NS, '/note/append', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_append' ), 'permission_callback' => $write ) ); // PHASE-0.143 S143-L5
@@ -2070,6 +2157,111 @@ final class BizCity_Twin_Vault {
 			array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'rest_note' ), 'permission_callback' => $read ),
 			array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'rest_write' ), 'permission_callback' => $write ),
 		) );
+	}
+
+	const DELETE_MAX = 200;
+
+	/** "lib:/note/a.md" / "src:TL-7" ids of one request: strings, unique, order kept, ≤ 200. Pure. */
+	public static function delete_ids( $raw ): array {
+		$out = array();
+		foreach ( (array) $raw as $v ) {
+			$v = is_scalar( $v ) ? trim( (string) $v ) : '';
+			if ( ( 0 === strpos( $v, 'lib:/' ) || 1 === preg_match( '/^src:[A-Z]{2}-\d{1,12}$/', $v ) ) && ! in_array( $v, $out, true ) ) {
+				$out[] = $v;
+			}
+		}
+		return array_slice( $out, 0, self::DELETE_MAX );
+	}
+
+	/** Where a deleted library note goes: /_trash/<path> (hidden from the tree: names starting with "_" are skipped), a second copy gets a time suffix. Pure. */
+	public static function trash_path( string $path, string $stamp ): string {
+		return '/_trash' . preg_replace( '/\.md$/', '', $path ) . ( '' !== $stamp ? '.' . $stamp : '' ) . '.md';
+	}
+
+	/**
+	 * [2026-11-22 08:12 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-D1 — POST bizcity-vault/v1/delete {ids: ["lib:/link/x/abc.md", "src:TL-7", …] ≤ 200} ⇒ {contract, done, failed, lines[]}.
+	 * In the Kho of the acting owner only (V1b). A library note goes to /_trash/ (kept, never listed) and its Journal row is voided; a Sổ row is voided (history kept,
+	 * the original file kept) and the note it points to (a web page) goes to /_trash/ too; a website job that is still running is cancelled first, so the cell stops.
+	 * Skills are not deleted here (their editor). Every refusal is a line with the four fields (R-ERROR-UX).
+	 */
+	public static function rest_delete( WP_REST_Request $r ): WP_REST_Response {
+		$b   = $r->get_json_params();
+		$ids = self::delete_ids( is_array( $b ) ? ( $b['ids'] ?? array() ) : array() );
+		if ( ! $ids ) {
+			return new WP_REST_Response( array( 'code' => 'vault_delete_empty', 'message' => 'Chưa chọn mục nào để xoá.', 'hint' => 'Tick ô ở đầu dòng rồi bấm Xoá.', 'help_code' => 'twin_vault' ), 400 );
+		}
+		$ctx   = self::person_ctx();
+		$owner = self::owner( $ctx );
+		$lines = array();
+		foreach ( $ids as $id ) {
+			$lines[] = array( 'id' => $id ) + self::delete_one( $id, $ctx, $owner );
+		}
+		self::$files = null;
+		self::packs_changed();
+		$done = count( array_filter( $lines, static function ( $l ) { return ! empty( $l['ok'] ); } ) );
+		return new WP_REST_Response( array( 'contract' => self::CONTRACT, 'done' => $done, 'failed' => count( $lines ) - $done, 'lines' => $lines ), 200 );
+	}
+
+	/** @return array{ok:bool,code?:string,message?:string,hint?:string,help_code?:string} */
+	private static function delete_one( string $id, array $ctx, int $owner ): array {
+		$fail = static function ( string $code, string $message, string $hint ): array {
+			return array( 'ok' => false, 'code' => $code, 'message' => $message, 'hint' => $hint, 'help_code' => 'twin_vault' );
+		};
+		if ( $owner <= 0 ) {
+			return $fail( 'vault_unavailable', 'Kho tri thức chưa sẵn sàng.', 'Tải lại trang rồi thử lại.' );
+		}
+		$row  = null;
+		$path = '';
+		if ( 0 === strpos( $id, 'lib:' ) ) {
+			$path = self::clean_path( substr( $id, 4 ) );
+			if ( '' === $path ) {
+				return $fail( 'vault_delete_invalid', 'Mục này không xoá được ở đây.', 'Mở mục rồi dùng nút trong trang.' );
+			}
+			if ( 'note' !== self::lib_type( $path ) ) {
+				return $fail( 'vault_delete_skill', 'Kỹ năng không xoá ở bảng này.', 'Mở kỹ năng rồi xoá trong trình sửa kỹ năng.' );
+			}
+			$cur = is_file( self::lib_dir() . $path ) ? self::lib_read( $path ) : null;
+			if ( null === $cur ) {
+				return $fail( 'vault_not_found', 'Không còn ghi chú này trong Kho.', 'Tải lại Kho.' );
+			}
+			if ( ! self::folder_visible( self::clean_folder( $cur['fm']['folder'] ?? '' ), self::role_of( $ctx ), self::access_map() ) ) {
+				return $fail( 'vault_folder_denied', 'Thư mục này chỉ dành cho chủ.', 'Nhờ chủ xoá giúp.' );
+			}
+			$ref = strtoupper( (string) strtok( (string) ( $cur['fm']['source_ref'] ?? '' ), '@' ) );
+			$row = '' !== $ref && class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::find_by_ref( $ref, $owner ) : null;
+		} else {
+			$row = class_exists( 'BizCity_Journal_Index' ) ? BizCity_Journal_Index::find_by_ref( substr( $id, 4 ), $owner ) : null;
+			if ( ! $row ) {
+				return $fail( 'vault_not_found', 'Không còn mục này trong Kho của bạn.', 'Tải lại Kho.' );
+			}
+			if ( ! self::folder_visible( self::clean_folder( $row['meta']['folder'] ?? '' ), self::role_of( $ctx ), self::access_map() ) ) {
+				return $fail( 'vault_folder_denied', 'Thư mục này chỉ dành cho chủ.', 'Nhờ chủ xoá giúp.' );
+			}
+			$vp   = (string) ( $row['card']['vault_path'] ?? '' );
+			$path = 'common.link' === (string) ( $row['kind'] ?? '' ) && '' !== $vp ? self::clean_path( $vp ) : ''; // a web page's Sổ row takes its note along
+		}
+		if ( is_array( $row ) && 'void' !== (string) ( $row['state'] ?? '' ) ) {
+			$c = is_array( $row['meta']['crawl'] ?? null ) ? $row['meta']['crawl'] : array();
+			if ( 'site' === (string) ( $row['card']['web_kind'] ?? '' ) && in_array( (string) ( $c['state'] ?? '' ), array( 'queued', 'mapping', 'mapped', 'reading', 'paused' ), true ) && class_exists( 'BizCity_Journal_Entry_Meta' ) ) {
+				$now = gmdate( 'Y-m-d\TH:i:s\Z' );
+				BizCity_Journal_Entry_Meta::set( $owner, array( 'entry_id' => (int) $row['entry_id'] ), array( 'status' => 'skipped', 'crawl' => array( 'state' => 'cancelled', 'finished_at' => $now, 'updated_at' => $now, 'want_seen' => $now ) + $c ), array( 'merge' => true, 'source' => 'site_code' ) );
+			}
+			$v = BizCity_Journal_Index::set_state( (int) $row['entry_id'], $owner, 'void' );
+			if ( is_wp_error( $v ) ) {
+				return $fail( $v->get_error_code(), $v->get_error_message(), 'Thử lại; nếu vẫn lỗi, mở mục trong Sổ cái.' );
+			}
+		}
+		if ( '' !== $path ) {
+			$base = self::lib_dir();
+			$abs  = $base . $path;
+			if ( '' !== $base && is_file( $abs ) && BizCity_Brain_Vault_Store::inside( $base, $abs ) ) {
+				$dest = $base . self::trash_path( $path, is_file( $base . self::trash_path( $path, '' ) ) ? gmdate( 'YmdHis' ) : '' );
+				if ( ( ! is_dir( dirname( $dest ) ) && ! ( function_exists( 'wp_mkdir_p' ) ? wp_mkdir_p( dirname( $dest ) ) : @mkdir( dirname( $dest ), 0755, true ) ) ) || ! @rename( $abs, $dest ) ) { // phpcs:ignore
+					return $fail( 'vault_delete_failed', 'Đã bỏ khỏi Sổ nhưng chưa chuyển được tệp ghi chú.', 'Thử xoá lại mục này.' );
+				}
+			}
+		}
+		return array( 'ok' => true );
 	}
 
 	/**
@@ -2178,6 +2370,11 @@ final class BizCity_Twin_Vault {
 			return self::respond( new WP_Error( 'space_invalid', 'Không gian không hợp lệ.', array( 'status' => 400, 'help_code' => 'twin_vault' ) ) );
 		}
 		return self::respond( array( 'contract' => BizCity_Vault_Spaces::CONTRACT, 'space' => $space, 'tag' => BizCity_Vault_Spaces::tag( $space ), 'notes' => BizCity_Vault_Spaces::notes( $space ), 'usage' => BizCity_Vault_Spaces::usage( $space ) ) );
+	}
+
+	/** [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — the context of a person writing through another bizcity-vault/v1 route (POST /link): the same as rest_write. */
+	public static function person_ctx(): array {
+		return array( 'role' => 'person' ) + self::rest_ctx();
 	}
 
 	private static function rest_ctx(): array {
@@ -2353,6 +2550,8 @@ final class BizCity_Twin_Vault {
 				'title' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 160, 'description' => 'Tiêu đề ghi chú.' ), 'markdown' => array( 'type' => 'string', 'minLength' => 1, 'maxLength' => 200000, 'description' => 'Nội dung Markdown; nối tài liệu bằng [[TL-47]].' ),
 				'id' => array( 'type' => 'string', 'maxLength' => 200, 'description' => 'Chỉ khi sửa: id ghi chú lib:/note/….' ), 'path' => array( 'type' => 'string', 'maxLength' => 200, 'description' => 'Tuỳ chọn: đường dẫn /note/…/ten.md; bỏ trống ⇒ site đặt theo tiêu đề.' ), 'folder' => array( 'type' => 'string', 'maxLength' => 60, 'description' => 'Thư mục để lưu: số (vd 55) hoặc tên ("Pháp lý", "chăm sóc khách hàng").' ),
 				'frontmatter' => array( 'type' => 'object', 'description' => 'Chỉ tags · links · aliases; các khoá khác do site điền.' ), 'expected_updated' => array( 'type' => 'string', 'maxLength' => 30, 'description' => 'Khi sửa: giá trị updated đã đọc; khác ⇒ vault_conflict.' ),
+				// [2026-11-22 03:15 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.153 S153-L1 — link-import@1: the cell's door for a page it read (path /link/<host>/<sha12>.md, kind common.link, LK-n)
+				'link' => array( 'type' => 'object', 'description' => 'Hệ thống: trang web cell vừa đọc (url, depth, status, from, fetched_at, parent_ref, internal, authority, via, content_sha256, links_found, links_kept). Mô hình không cần dùng.' ),
 			) ),
 			'output_schema'  => $R::envelope_schema( array( 'id' => array( 'type' => 'string' ), 'source_ref' => array( 'type' => 'string' ) ), array( 'id' ) ),
 			'read_only'      => false, 'destructive' => false, 'idempotent' => true, 'required_scope' => 'memory.write', 'required_cap' => 'edit_posts', 'scopes' => array( 'memory.write' ),

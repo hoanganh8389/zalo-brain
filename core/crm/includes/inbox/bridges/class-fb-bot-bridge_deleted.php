@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-21 12:43 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 W5 — retired from bizcity-twin-ai core.
+ * Canonical owner: plugins/bizcity-facebook-bot/includes/crm/class-crm-fb-bot-bridge.php (BizCity_CRM_Bridge_FB).
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * BizCity CRM — Facebook Bot Bridge.
  *
  * Single point of contact between the CRM Facebook adapter and the
@@ -265,4 +273,5 @@ final class BizCity_CRM_Bridge_FB {
 		}
 		return array( 'success' => $success, 'external_source_id' => $mid, 'error' => $error );
 	}
+}
 }

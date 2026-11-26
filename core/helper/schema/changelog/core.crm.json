@@ -3,7 +3,7 @@
   "module_id": "core.crm",
   "owner": "core/crm",
   "installer_id": "crm-spine",
-  "current_version": "2.0.0",
+  "current_version": "2.2.0",
   "version_option": "bizcity_crm_db_ver",
   "tables": {
     "bizcity_crm_contacts": {
@@ -713,123 +713,6 @@
         }
       }
     },
-    "bizcity_crm_teams": {
-      "since": "1.31.0",
-      "purpose": "Tenant-local CRM operational teams; WP users remain identity source.",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id": {
-          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
-          "since": "1.31.0",
-          "pk": true
-        },
-        "name": {
-          "type": "VARCHAR(190) NOT NULL",
-          "since": "1.31.0"
-        },
-        "description": {
-          "type": "TEXT NULL",
-          "since": "1.31.0"
-        },
-        "allow_auto_assign": {
-          "type": "TINYINT(1) NOT NULL DEFAULT 1",
-          "since": "1.31.0"
-        },
-        "is_active": {
-          "type": "TINYINT(1) NOT NULL DEFAULT 1",
-          "since": "1.31.0"
-        },
-        "created_by": {
-          "type": "BIGINT UNSIGNED NULL",
-          "since": "1.31.0"
-        },
-        "created_at": {
-          "type": "DATETIME NOT NULL",
-          "since": "1.31.0"
-        },
-        "updated_at": {
-          "type": "DATETIME NOT NULL",
-          "since": "1.31.0"
-        }
-      },
-      "indexes": {
-        "uniq_name": {
-          "cols": [
-            "name"
-          ],
-          "since": "1.31.0",
-          "unique": true
-        },
-        "idx_active": {
-          "cols": [
-            "is_active",
-            "allow_auto_assign"
-          ],
-          "since": "1.31.0"
-        }
-      }
-    },
-    "bizcity_crm_team_members": {
-      "since": "1.31.0",
-      "purpose": "Tenant-local N:N team to current-blog WP user membership.",
-      "engine": "InnoDB",
-      "charset": "utf8mb4",
-      "collate": "utf8mb4_unicode_ci",
-      "columns": {
-        "id": {
-          "type": "BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
-          "since": "1.31.0",
-          "pk": true
-        },
-        "team_id": {
-          "type": "BIGINT UNSIGNED NOT NULL",
-          "since": "1.31.0"
-        },
-        "user_id": {
-          "type": "BIGINT UNSIGNED NOT NULL",
-          "since": "1.31.0"
-        },
-        "member_role": {
-          "type": "VARCHAR(20) NOT NULL DEFAULT 'agent'",
-          "since": "1.31.0"
-        },
-        "is_active": {
-          "type": "TINYINT(1) NOT NULL DEFAULT 1",
-          "since": "1.31.0"
-        },
-        "last_assigned_at": {
-          "type": "DATETIME NULL",
-          "since": "1.31.0"
-        },
-        "created_at": {
-          "type": "DATETIME NOT NULL",
-          "since": "1.31.0"
-        },
-        "updated_at": {
-          "type": "DATETIME NOT NULL",
-          "since": "1.31.0"
-        }
-      },
-      "indexes": {
-        "uniq_team_user": {
-          "cols": [
-            "team_id",
-            "user_id"
-          ],
-          "since": "1.31.0",
-          "unique": true
-        },
-        "idx_user_active": {
-          "cols": [
-            "user_id",
-            "is_active"
-          ],
-          "since": "1.31.0"
-        }
-      }
-    },
     "bizcity_crm_inbox_members": {
       "since": "1.31.0",
       "purpose": "Tenant-local inbox work membership and assignment permission.",
@@ -1121,6 +1004,11 @@
       "version": "2.1.0",
       "date": "2026-10-10",
       "change": "PHASE-0.95 D95-6 (owner 2026-10-10) — contacts.lead_score_cell TINYINT UNSIGNED NULL (migrate_phase_095): the assistant's score lives apart from the person's lead_score; effective = person when > 0 else cell (BizCity_CRM_Lead_Score). No new table."
+    },
+    {
+      "version": "2.2.0",
+      "date": "2026-11-20",
+      "change": "[2026-11-20 08:06 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 D156-5 — ownership only: bizcity_crm_teams + bizcity_crm_team_members move to modules.twin-crm (created by BizCity_CRM_DB_Installer_Ext with BizCity_CRM_Team_Manager). Core stops creating them; NO DROP, no column change, existing rows stay. The 7 ledger tables now take their DDL from core/crm/contracts/class-crm-ledger-schema.php (crm-ledger@1, same final schema as CREATE + migrations; no schema change). BIZCITY_CRM_DB_VERSION is not bumped: core adds nothing to install."
     }
   ]
 }

@@ -8,7 +8,7 @@
  * BizCity_CRM_Repository / BizCity_CRM_Customers_Pack) and shapes their answer for MCP.
  *
  * [2026-10-09 10:50 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 (D-W20-1) — every customer READ here runs on core only
- * (no Zalo Brain CRM plugin needed); the plugin adds the pipeline stage through `bizcity_crm_pack_customer_row`. Write/admin tools
+ * (no Open CRM plugin needed); the plugin adds the pipeline stage through `bizcity_crm_pack_customer_row`. Write/admin tools
  * that need the plugin answer crm_unavailable() (R-ERROR-UX: code, message, hint, help_code).
  *
  * @package    Bizcity_Twin_AI
@@ -85,15 +85,16 @@ final class BizCity_MCP_Action_Support {
 
 	/**
 	 * [2026-10-09 10:50 PM Johnny Chu - Chu Hoàng Anh] CORE-REDUCTION WP-20 W20-L5 — a write/admin CRM feature (`crm_pipeline` stage +
-	 * note, `tasks` assign) is not installed: 4-field R-ERROR-UX error `crm_feature_unavailable` (message, hint "cài Zalo Brain CRM",
+	 * note, `tasks` assign) is not installed: 4-field R-ERROR-UX error `crm_feature_unavailable` (message, hint "cài Open CRM",
 	 * help_code). The text comes from BizCity_CRM_Spine::unavailable_error() when the spine is loaded (one wording).
 	 *
 	 * @return WP_Error
 	 */
 	public static function crm_unavailable( $feature, $status = 503 ) {
 		$feature = sanitize_key( (string) $feature );
-		$message = 'Việc này cần plugin Zalo Brain CRM. Site này chưa cài hoặc chưa kích hoạt plugin đó.';
-		$hint    = 'Cách sửa: vào Cài đặt › Mở rộng, cài và kích hoạt Zalo Brain CRM, rồi thử lại.';
+		// [2026-11-21 04:08 PM Johnny Chu - Chu Hoàng Anh] BRAND-OPEN-CRM — brand name Zalo Brain CRM -> Open CRM, repo open-crm (slug bizcity-twin-crm, prefix and owner unchanged).
+		$message = 'Việc này cần plugin Open CRM. Site này chưa cài hoặc chưa kích hoạt plugin đó.';
+		$hint    = 'Cách sửa: vào Cài đặt › Mở rộng, cài và kích hoạt Open CRM, rồi thử lại.';
 		if ( class_exists( 'BizCity_CRM_Spine' ) && method_exists( 'BizCity_CRM_Spine', 'unavailable_error' ) ) {
 			$e       = BizCity_CRM_Spine::unavailable_error( $feature, (int) $status );
 			$d       = (array) $e->get_error_data();

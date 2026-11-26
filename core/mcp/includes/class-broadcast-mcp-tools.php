@@ -9,7 +9,7 @@
  *
  * Scope: only a `channel_kind = zalo_group_broadcast` row whose `account_ref` IS the number of the call — another number of the same
  * site, or another site, reads `not_found`. `rev` ≠ the row's rev ⇒ `broadcast_rev_mismatch` (the cell stops before sending).
- * The rows live in the Zalo Brain CRM add-on (BizCity_CRM_Announce_Store); without the add-on the tool is not registered.
+ * The rows live in the Open CRM add-on (BizCity_CRM_Announce_Store); without the add-on the tool is not registered.
  *
  * Biz Central Brain — Johnny Chu (Chu Hoàng Anh). Bizcity Central Brain, Giấy chứng nhận đăng ký quyền tác giả số 8877/2026/QTG.
  *

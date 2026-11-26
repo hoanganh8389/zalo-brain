@@ -1,5 +1,13 @@
 <?php
 /**
+ * ORPHAN FILE — DO NOT USE (R-ORPHAN-FILE).
+ * [2026-11-19 10:25 AM Johnny Chu - Chu Hoàng Anh] PHASE-0.156 S156-3.1 — retired from core/crm.
+ * Canonical owner: none — removed (Q156-2); the CRM plugin serves /crm/.
+ * The historical body below is wrapped in if ( false ) so this file declares no class or function.
+ */
+
+if ( false ) {
+/**
  * Zalo Brain — /crm/ "Đội Zalo" served by core when the Zalo Brain CRM plugin is not active.
  *
  * [2026-10-09 Johnny Chu - Chu Hoàng Anh] PHASE-0.96 S96-7.4 (doc 70 §1, mockup PHASE-0.96-crm-core-mockup view A).
@@ -98,4 +106,5 @@ final class BizCity_CRM_Core_Page {
 		<?php
 		exit;
 	}
+}
 }

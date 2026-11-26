@@ -231,6 +231,22 @@ final class BizCity_Zalo_Personal_Hub_Client {
 		return $this->post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/qr/reset', $this->rebind_context() );
 	}
 
+	/**
+	 * [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 Z7 — đăng nhập nick Facebook qua Hub (017.9 chuyển tiếp tới Cell). Timeout 200 s:
+	 * Cell chờ Facebook trả lời từng bước (duyệt trên điện thoại có thể lâu). Body có mật khẩu: gateway_post không log body.
+	 */
+	public function fb_login( string $account_id, array $body ): array {
+		if ( ! $this->is_ready_fast() ) {
+			return $this->degraded( 'api_key_missing' );
+		}
+		$result = BizCity_LLM_Client::instance()->gateway_post( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/fb-login', $body, 200, false );
+		return is_array( $result ) ? $result : $this->degraded( 'managed_bridge_invalid_response' );
+	}
+
+	public function fb_login_status( string $account_id ): array {
+		return $this->get( '/zalo-personal-bridge/accounts/' . rawurlencode( $account_id ) . '/fb-login-status' );
+	}
+
 	/** Poll QR/session status for an owned managed account. */
 	public function get_qr_status( string $account_id ): array {
 		// [2026-08-22 Johnny Chu] PHASE-0.39B-W7 — status projection contains no bridge credential.

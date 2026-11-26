@@ -582,12 +582,139 @@ class BizCity_Zalo_Bridge_REST {
 		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) && in_array( 'zca', BizCity_Zalo_Account_Flags::new_number_providers(), true ) ) {
 			$options[] = array( 'id' => 'zca', 'label' => 'zca-bridge', 'allowed' => true, 'reason' => '' );
 		}
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — Facebook cá nhân đi qua cùng Zalo cell hub: Hub (017.9) khai
+		// `capability.providers.facebook_personal {allowed, reason}` theo gói. Hub cũ chưa khai ⇒ chưa dùng được (`platform_disabled`), không đoán.
+		$fb = is_array( $capability ) && isset( $capability['capability']['providers']['facebook_personal'] ) && is_array( $capability['capability']['providers']['facebook_personal'] ) ? $capability['capability']['providers']['facebook_personal'] : null;
+		$fb_allowed = $allowed && is_array( $fb ) && ! empty( $fb['allowed'] );
+		$fb_reason  = $fb_allowed ? '' : ( ! $allowed ? $zalo_hub_reason : ( is_array( $fb ) ? sanitize_key( (string) ( $fb['reason'] ?? 'feature_not_enabled' ) ) : 'platform_disabled' ) );
 		return array(
-			'default_provider' => $default,
-			'zalo_hub_allowed' => $allowed,
-			'zalo_hub_reason'  => $zalo_hub_reason,
-			'options'          => $options,
+			'default_provider'           => $default,
+			'zalo_hub_allowed'           => $allowed,
+			'zalo_hub_reason'            => $zalo_hub_reason,
+			'options'                    => $options,
+			'facebook_personal_allowed'  => $fb_allowed,
+			'facebook_personal_reason'   => $fb_reason,
 		);
+	}
+
+	/**
+	 * [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — tạo nick Facebook cá nhân (Open CRM `POST crm-phones {platform}`).
+	 * Chặn trước khi gọi Hub khi khoá / gói chưa có Facebook cá nhân; còn lại đi đúng create_account_for_owner().
+	 */
+	public static function create_facebook_account_for_owner( WP_REST_Request $request, int $owner_user_id, bool $personal_only = true, bool $authorized_for_other = false, int $actor_user_id = 0 ): WP_REST_Response {
+		$choice = self::provider_choice();
+		if ( empty( $choice['facebook_personal_allowed'] ) ) {
+			return new WP_REST_Response( self::with_error_contract( array(
+				'ok'        => false,
+				'code'      => (string) ( $choice['facebook_personal_reason'] ?: 'platform_disabled' ),
+				'message'   => 'Khoá API / gói hiện tại chưa dùng được Facebook cá nhân.',
+				'hint'      => 'Liên hệ BizCity để bật Facebook cá nhân cho gói của website.',
+				'help_code' => 'facebook_not_enabled',
+			) ), 200 );
+		}
+		$body = (array) $request->get_json_params();
+		$body['platform'] = 'facebook_personal';
+		$body['kind']     = 'personal';
+		$request->set_body( wp_json_encode( $body ) );
+		$request->set_header( 'content-type', 'application/json' );
+		return self::create_account_for_owner( $request, $owner_user_id, true, $authorized_for_other, $actor_user_id );
+	}
+
+	/** PHASE-017 — account này là nick Facebook? Đọc từ hộp thư CRM của nó (không tin request). */
+	private static function is_facebook_account( array $account ): bool {
+		$inbox_id = (int) ( $account['crm_inbox_id'] ?? 0 );
+		if ( $inbox_id <= 0 || ! class_exists( 'BizCity_CRM_Repository' ) ) {
+			return false;
+		}
+		$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
+		return is_array( $inbox ) && 'facebook_personal' === (string) ( $inbox['channel_type'] ?? '' );
+	}
+
+	/**
+	 * [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 / Z7 — đăng nhập nick Facebook: chuyển tiếp {action, identifier, password, input}
+	 * qua Hub tới Cell `POST /wp/accounts/{id}/fb-login`. Mật khẩu / mã KHÔNG được ghi log, option, meta, trace ở bất kỳ đâu trong hàm này.
+	 *
+	 * @param bool $authorized_by_caller Như start_qr_for_owner(): Open CRM đã kiểm quyền `phone.qr` phía server.
+	 */
+	public static function fb_login_for_owner( array $account, int $owner_user_id, array $body, bool $authorized_by_caller = false ): WP_REST_Response {
+		$denied = self::fb_account_guard( $account, $owner_user_id, $authorized_by_caller );
+		if ( $denied ) {
+			return $denied;
+		}
+		$action = sanitize_key( (string) ( $body['action'] ?? '' ) );
+		$send   = array( 'action' => $action );
+		if ( 'start' === $action ) {
+			$send['identifier'] = (string) ( $body['identifier'] ?? '' );
+			$send['password']   = (string) ( $body['password'] ?? '' );
+		} elseif ( 'submit' === $action ) {
+			$send['input'] = is_array( $body['input'] ?? null ) ? array_map( 'strval', $body['input'] ) : array();
+		} elseif ( ! in_array( $action, array( 'wait', 'cancel' ), true ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Thiếu bước đăng nhập (start / submit / wait / cancel).', 'hint' => '', 'help_code' => 'invalid_param_generic' ), 400 );
+		}
+		$result = BizCity_Zalo_Bridge_Client::instance()->fb_login( (string) ( $account['bridge_account_id'] ?? '' ), $send );
+		unset( $send, $body );
+		return new WP_REST_Response( self::fb_login_view( $result ), 200 );
+	}
+
+	public static function fb_login_status_for_owner( array $account, int $owner_user_id, bool $authorized_by_caller = false ): WP_REST_Response {
+		$denied = self::fb_account_guard( $account, $owner_user_id, $authorized_by_caller );
+		if ( $denied ) {
+			return $denied;
+		}
+		$result = BizCity_Zalo_Bridge_Client::instance()->fb_login_status( (string) ( $account['bridge_account_id'] ?? '' ) );
+		return new WP_REST_Response( self::fb_login_view( $result ), 200 );
+	}
+
+	private static function fb_account_guard( array $account, int $owner_user_id, bool $authorized_by_caller ): ?WP_REST_Response {
+		if ( 'personal' !== (string) ( $account['kind'] ?? '' )
+			|| ( ! $authorized_by_caller && ( $owner_user_id <= 0 || (int) ( $account['owner_user_id'] ?? 0 ) !== $owner_user_id ) )
+		) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'permission_denied', 'message' => 'Tài khoản này không thuộc tài khoản của bạn.', 'hint' => '', 'help_code' => 'permission_denied' ), 200 );
+		}
+		if ( ! self::is_facebook_account( $account ) ) {
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'platform_mismatch', 'message' => 'Đây là số Zalo — đăng nhập bằng QR.', 'hint' => '', 'help_code' => 'platform_mismatch' ), 200 );
+		}
+		return null;
+	}
+
+	/** Chỉ giữ phần an toàn của trả lời Cell (fixture fb017): status, message, fields, uid. Không bao giờ có cookie. */
+	private static function fb_login_view( array $result ): array {
+		if ( ! empty( $result['_degraded'] ) || ( empty( $result['ok'] ) && empty( $result['login'] ) ) ) {
+			return self::with_error_contract( array(
+				'ok'        => false,
+				'code'      => (string) ( $result['code'] ?? 'bridge_unavailable' ),
+				'message'   => (string) ( $result['message'] ?? 'Chưa gửi được tới máy chủ Zalo cell hub.' ),
+				'hint'      => (string) ( $result['hint'] ?? 'Thử lại sau ít phút.' ),
+				'help_code' => (string) ( $result['help_code'] ?? 'zalo_bridge_unreachable' ),
+			) );
+		}
+		$l     = is_array( $result['login'] ?? null ) ? $result['login'] : array();
+		$view  = array( 'status' => sanitize_key( (string) ( $l['status'] ?? 'error' ) ) );
+		if ( isset( $l['message'] ) ) {
+			$view['message'] = sanitize_text_field( (string) $l['message'] );
+		}
+		if ( isset( $l['uid'] ) ) {
+			$view['uid'] = preg_replace( '/\D/', '', (string) $l['uid'] );
+		}
+		if ( is_array( $l['fields'] ?? null ) ) {
+			$view['fields'] = array_values( array_map( static function ( $f ) {
+				$f = (array) $f;
+				return array_filter( array(
+					'type'        => sanitize_key( (string) ( $f['type'] ?? '' ) ),
+					'id'          => sanitize_text_field( (string) ( $f['id'] ?? '' ) ),
+					'name'        => sanitize_text_field( (string) ( $f['name'] ?? '' ) ),
+					'description' => sanitize_text_field( (string) ( $f['description'] ?? '' ) ),
+					'options'     => is_array( $f['options'] ?? null ) ? array_map( 'sanitize_text_field', array_map( 'strval', $f['options'] ) ) : null,
+				), static fn( $v ) => null !== $v && '' !== $v );
+			}, $l['fields'] ) );
+		}
+		$out = array( 'ok' => true, 'login' => $view );
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 — trạng thái phiên của nick trên Cell (connected | auth_required | checkpoint | degraded…):
+		// Open CRM hiện thẻ "Cần đăng nhập lại" / "Facebook đang kiểm tra" theo đây (hộp thư CRM không biết phiên Facebook).
+		if ( isset( $result['account_status'] ) ) {
+			$out['account_status'] = sanitize_key( (string) $result['account_status'] );
+		}
+		return $out;
 	}
 
 	/**
@@ -757,7 +884,9 @@ class BizCity_Zalo_Bridge_REST {
 		if ( $personal_only ) {
 			$kind = 'personal';
 		}
-		$duplicate = 'personal' === $kind ? self::find_phone_duplicate_row( $label ) : null;
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 — nhãn nick Facebook không phải SĐT: không dò trùng theo số.
+		$is_fb     = 'facebook_personal' === sanitize_key( (string) ( $body['platform'] ?? '' ) );
+		$duplicate = ( 'personal' === $kind && ! $is_fb ) ? self::find_phone_duplicate_row( $label ) : null;
 		if ( $duplicate ) {
 			// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — a duplicate the caller may take over by QR is not a block:
 			// the create reuses that row (no new number, so no quota check either). Only a non-claimable one is refused.
@@ -1016,7 +1145,10 @@ class BizCity_Zalo_Bridge_REST {
 		if ( $personal_only ) {
 			$kind = 'personal';
 		}
-		self::trace_create_step( 'create_start', array( 'owner_user_id' => $owner_user_id, 'kind' => $kind ) );
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — nick Facebook cá nhân đi chung đường tạo account (cùng mapping `kind = personal`),
+		// khác ở: Hub nhận `platform`, hộp thư CRM `facebook_personal`, không dò trùng theo SĐT. Chỉ vào được qua create_facebook_account_for_owner().
+		$platform = ( 'personal' === $kind && 'facebook_personal' === sanitize_key( (string) ( $body['platform'] ?? '' ) ) ) ? 'facebook_personal' : 'zalo_personal';
+		self::trace_create_step( 'create_start', array( 'owner_user_id' => $owner_user_id, 'kind' => $kind, 'platform' => $platform ) );
 		if ( $owner_user_id <= 0 ) {
 			self::trace_create_step( 'auth_failed', array( 'reason' => 'owner_missing' ) );
 			return new WP_REST_Response( array(
@@ -1037,6 +1169,10 @@ class BizCity_Zalo_Bridge_REST {
 		// [2026-10-13 Johnny Chu - Chu Hoàng Anh] R-ZP-DUP v2 — the phone already has a row here: hand back THAT row so the
 		// UI shows its QR (one CRM inbox, no second Hub account); a successful scan moves it to $owner_user_id.
 		$duplicate = 'personal' === $kind ? self::find_phone_duplicate_row( $label ) : null;
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 — nhãn nick Facebook không phải SĐT: không dò trùng theo số.
+		if ( 'facebook_personal' === $platform ) {
+			$duplicate = null;
+		}
 		// Site admins only: a CRM supervisor acting for someone else keeps CRM's own rank-checked claim (D-CRM-CLAIM).
 		if ( $duplicate && BizCity_Zalo_Duplicate_Guard::claim_allowed( $duplicate, $owner_user_id, self::can_manage() ) ) {
 			$actor    = $actor_user_id > 0 ? $actor_user_id : $owner_user_id;
@@ -1061,6 +1197,12 @@ class BizCity_Zalo_Bridge_REST {
 		$create_data = array( 'label' => $label, 'type' => $kind );
 		if ( 'personal' === $kind && isset( $body['provider'] ) && is_string( $body['provider'] ) && '' !== $body['provider'] ) {
 			$create_data['provider'] = sanitize_key( $body['provider'] );
+		}
+		if ( 'facebook_personal' === $platform ) {
+			// PHASE-017 Z10 (zalo-hub-bridge/1.3): Hub chuyển nguyên `platform` tới Cell; Cell tự chặn khi chưa bật / site chưa khai nhận.
+			$create_data['platform'] = 'facebook_personal';
+			$create_data['provider'] = 'zalo_hub';
+			$create_data['contract'] = 'zalo-hub-bridge/1.3';
 		}
 		$result = $client->create_account( $create_data );
 		self::trace_create_step( 'hub_response', array(
@@ -1173,8 +1315,8 @@ class BizCity_Zalo_Bridge_REST {
 			), 200 );
 		}
 
-		$crm_channel_type = 'oa' === $kind ? 'zalo_oa' : 'zalo_personal';
-		$inbox_label = 'oa' === $kind ? 'Zalo OA — ' : 'Zalo Cá nhân — ';
+		$crm_channel_type = 'oa' === $kind ? 'zalo_oa' : $platform; // PHASE-017: zalo_personal | facebook_personal
+		$inbox_label = 'oa' === $kind ? 'Zalo OA — ' : ( 'facebook_personal' === $platform ? 'Facebook cá nhân — ' : 'Zalo Cá nhân — ' );
 		self::trace_create_step( 'inbox_upsert_start', array( 'channel_type' => $crm_channel_type, 'bridge_id_hash' => substr( hash( 'sha256', $bridge_id ), 0, 12 ) ) );
 		$inbox_id = BizCity_CRM_Repository::upsert_inbox( $crm_channel_type, $bridge_id, array(
 			'name' => $label !== '' ? $inbox_label . $label : $inbox_label . $bridge_id,
@@ -1228,6 +1370,9 @@ class BizCity_Zalo_Bridge_REST {
 		self::trace_create_step( 'create_complete', array( 'local_id' => (int) $local_id, 'inbox_id' => (int) $inbox_id ) );
 
 		$created = array( 'ok' => true, 'id' => $bridge_id, 'crm_inbox_id' => $inbox_id, 'owner_user_id' => $owner_user_id );
+		if ( 'facebook_personal' === $platform ) {
+			$created['platform'] = 'facebook_personal'; // PHASE-017: bước tiếp theo là fb-login, không phải QR
+		}
 		// [2026-09-26 Claude Opus 5.5] PHASE-0.80 Lane C 4a-3 — additive: which provider really serves the number, and a fallback note when the site default could not be used.
 		if ( class_exists( 'BizCity_Zalo_Account_Flags' ) ) {
 			$created['provider'] = BizCity_Zalo_Account_Flags::provider( $bridge_id );

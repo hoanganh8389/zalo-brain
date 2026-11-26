@@ -1645,6 +1645,22 @@ class BizCity_CRM_Repository {
 		return $ok;
 	}
 
+	/**
+	 * [2026-11-26 Johnny Chu - Chu Hoàng Anh] Mở hội thoại = đã đọc: chỉ xoá huy hiệu chưa đọc. KHÔNG đụng `waiting_since` / `first_reply_at`
+	 * (đồng hồ chờ SLA chỉ dừng khi nhân viên TRẢ LỜI, xem insert_message). Trước đây huy hiệu chỉ hết khi có tin trả lời.
+	 *
+	 * @return bool true nếu hội thoại tồn tại (kể cả khi vốn đã 0 chưa đọc).
+	 */
+	public static function mark_conversation_read( int $conv_id ): bool {
+		global $wpdb;
+		$tbl = BizCity_CRM_DB_Installer_V2::tbl_conversations();
+		if ( ! self::get_conversation( $conv_id ) ) {
+			return false;
+		}
+		$wpdb->query( $wpdb->prepare( "UPDATE `{$tbl}` SET unread_count = 0, updated_at = %s WHERE id = %d AND unread_count > 0", current_time( "mysql" ), $conv_id ) );
+		return true;
+	}
+
 	public static function set_conversation_status( int $conv_id, string $status, int $by_user_id = 0 ): bool {
 		global $wpdb;
 		$tbl  = BizCity_CRM_DB_Installer_V2::tbl_conversations();

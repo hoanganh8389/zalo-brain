@@ -648,8 +648,17 @@ class BizCity_Zalo_Bridge_REST {
 			$send['password']   = (string) ( $body['password'] ?? '' );
 		} elseif ( 'submit' === $action ) {
 			$send['input'] = is_array( $body['input'] ?? null ) ? array_map( 'strval', $body['input'] ) : array();
+		} elseif ( 'cookies' === $action ) {
+			// [2026-11-26 Johnny Chu - Chu Hoàng Anh] PHASE-017 — cookie phiên Facebook người dùng dán (nick Facebook từ chối mật khẩu: không số điện thoại / xác thực).
+			// Chỉ các khoá cho phép, giá trị chuỗi, KHÔNG sanitize (làm hỏng giá trị) và KHÔNG ghi log / option / meta / trace. Cell tự kiểm lại.
+			$send['cookies'] = array();
+			foreach ( array( 'c_user', 'xs', 'fr', 'datr', 'sb' ) as $ck ) {
+				if ( isset( $body['cookies'][ $ck ] ) && is_string( $body['cookies'][ $ck ] ) ) {
+					$send['cookies'][ $ck ] = $body['cookies'][ $ck ];
+				}
+			}
 		} elseif ( ! in_array( $action, array( 'wait', 'cancel' ), true ) ) {
-			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Thiếu bước đăng nhập (start / submit / wait / cancel).', 'hint' => '', 'help_code' => 'invalid_param_generic' ), 400 );
+			return new WP_REST_Response( array( 'ok' => false, 'code' => 'invalid_param', 'message' => 'Thiếu bước đăng nhập (start / submit / cookies / wait / cancel).', 'hint' => '', 'help_code' => 'invalid_param_generic' ), 400 );
 		}
 		$result = BizCity_Zalo_Bridge_Client::instance()->fb_login( (string) ( $account['bridge_account_id'] ?? '' ), $send );
 		unset( $send, $body );

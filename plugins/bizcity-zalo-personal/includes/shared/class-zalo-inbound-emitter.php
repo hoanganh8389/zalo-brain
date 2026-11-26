@@ -35,6 +35,21 @@ class BizCity_Zalo_Inbound_Emitter {
 	 * PHASE-0.60K K0-7 — true only for a GROUP message that tags this account (`mentions_me` from the sidecar, sent as 1/true).
 	 * A DM is never a "mention", and a self-echo is never the bot being addressed. Pure, so it is unit-testable.
 	 */
+	/**
+	 * [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — kênh CRM của account đọc từ hộp thư CRM của chính nó (không tin `platform` trong body):
+	 * nick Facebook cá nhân ⇒ 'facebook_personal', còn lại 'zalo_personal'.
+	 */
+	public static function channel_of( ?array $db_account ): string {
+		$inbox_id = (int) ( $db_account['crm_inbox_id'] ?? 0 );
+		if ( $inbox_id > 0 && class_exists( 'BizCity_CRM_Repository' ) ) {
+			$inbox = BizCity_CRM_Repository::get_inbox( $inbox_id );
+			if ( is_array( $inbox ) && 'facebook_personal' === (string) ( $inbox['channel_type'] ?? '' ) ) {
+				return 'facebook_personal';
+			}
+		}
+		return 'zalo_personal';
+	}
+
 	public static function mention_detected( array $body, bool $is_group ): bool {
 		return $is_group && empty( $body['is_self'] ) && ! empty( $body['mentions_me'] );
 	}
@@ -104,9 +119,10 @@ class BizCity_Zalo_Inbound_Emitter {
 			$created_at = isset( $body['message_time'] ) && (int) $body['message_time'] > 0
 				? gmdate( 'Y-m-d H:i:s', (int) $body['message_time'] )
 				: current_time( 'mysql' );
-			$msg_id = BizCity_CRM_Facebook_Ingestor::instance()->ingest_outbound( 'zalo_personal', array(
+			$echo_channel = self::channel_of( $db_account ); // PHASE-017: tin tự gửi của nick Facebook vào đúng hộp thư Facebook
+			$msg_id = BizCity_CRM_Facebook_Ingestor::instance()->ingest_outbound( $echo_channel, array(
 				'inbox_ref'          => $account_id,
-				'inbox_name'         => 'Zalo Cá nhân ' . (string) ( $body['account_name'] ?? $account_id ),
+				'inbox_name'         => ( 'facebook_personal' === $echo_channel ? 'Facebook cá nhân ' : 'Zalo Cá nhân ' ) . (string) ( $body['account_name'] ?? $account_id ),
 				'source_id'          => $is_group ? 'group:' . $peer_id : $peer_id, // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep self-echo on the group source key.
 				// [2026-08-23 Johnny Chu] PHASE-0.39D — native self sender name belongs to the agent, never seed the peer contact name.
 				'contact_name'       => '',
@@ -173,6 +189,14 @@ class BizCity_Zalo_Inbound_Emitter {
 		$platform = 'ZALO_PERSONAL';
 		// [2026-06-13 Johnny Chu] PHASE-0.40 G0.3 — add 'code' discriminator so G0.2 guards can bail.
 		$adapter_code = 'zalo_personal';
+		// [2026-11-24 Johnny Chu - Chu Hoàng Anh] PHASE-017 017.10 — nick Facebook: mã riêng ⇒ listener chỉ-Zalo (AI trả lời Zalo, workflow ZALO_PERSONAL) tự bỏ qua (D017-7).
+		if ( 'facebook_personal' === self::channel_of( $db_account ) ) {
+			if ( $is_group ) {
+				return -1; // D017-7: P1 không nhận nhóm Facebook
+			}
+			$platform     = 'FACEBOOK_PERSONAL';
+			$adapter_code = 'facebook_personal';
+		}
 
 		$from_user_id   = (string) ( $body['from_user_id'] ?? '' );
 		$from_user_name = (string) ( $body['from_user_name'] ?? '' );

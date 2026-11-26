@@ -29,7 +29,41 @@ final class BizCity_Remote_Zalo_Normalizer {
 		return self::result( 'ignored_unknown_type', 0 );
 	}
 
-	public static function reset_seams(): void { self::$emitter = self::$outbound = self::$link = self::$binding = null; }
+	/** @var callable|null test seam: (string $url, string $mime) => string transcript ('' = không chuyển được) */
+	public static $transcriber = null;
+
+	const AUDIO_EXTENSIONS = array( 'm4a', 'mp3', 'aac', 'ogg', 'oga', 'opus', 'wav', 'amr', 'webm', 'flac', '3gp' );
+
+	public static function reset_seams(): void { self::$emitter = self::$outbound = self::$link = self::$binding = self::$transcriber = null; }
+
+	private static function attachment_url( array $attachment ): string {
+		foreach ( array( 'url', 'fileUrl', 'href', 'src', 'downloadUrl' ) as $key ) {
+			$url = trim( (string) ( $attachment[ $key ] ?? '' ) );
+			if ( '' !== $url && preg_match( '#^https?://#i', $url ) ) { return $url; }
+		}
+		return '';
+	}
+
+	private static function is_audio( string $kind, string $name, string $mime ): bool {
+		if ( 'voice' === $kind || 0 === stripos( $mime, 'audio/' ) ) { return true; }
+		$ext = strtolower( (string) pathinfo( $name, PATHINFO_EXTENSION ) );
+		return 'file' === $kind && in_array( $ext, self::AUDIO_EXTENSIONS, true );
+	}
+
+	/** Chuyển giọng nói thành chữ qua Hub. Lỗi / thiếu dịch vụ ⇒ '' (tin vẫn được phát, bot báo không nghe được). */
+	private static function transcribe( string $url, string $mime ): string {
+		if ( is_callable( self::$transcriber ) ) { return trim( (string) call_user_func( self::$transcriber, $url, $mime ) ); }
+		if ( ! class_exists( 'BizCity_LLM_Client' ) || ! method_exists( 'BizCity_LLM_Client', 'transcribe_audio' ) ) { return ''; }
+		$opts = array( 'lang' => 'vi', 'caller' => 'zalo_personal_inbound', 'timeout' => 60 );
+		if ( '' !== $mime ) { $opts['mime'] = $mime; }
+		$res = BizCity_LLM_Client::instance()->transcribe_audio( $url, $opts );
+		if ( ! is_array( $res ) ) {
+			if ( function_exists( 'error_log' ) && is_object( $res ) && method_exists( $res, 'get_error_code' ) ) { error_log( '[bizcity-rzh] transcribe_failed code=' . $res->get_error_code() ); }
+			return '';
+		}
+		$text = $res['text'] ?? ( $res['data']['text'] ?? ( $res['transcript'] ?? '' ) );
+		return trim( (string) $text );
+	}
 
 	private static function agent_config_updated( array $event, array $payload ): array {
 		$bridge_id = 'rzh:' . (string) ( $event['account_id'] ?? '' );
@@ -54,12 +88,29 @@ final class BizCity_Remote_Zalo_Normalizer {
 		$is_group = ! empty( $payload['isGroup'] ) || 'group' === (string) ( $payload['threadType'] ?? '' );
 		$text = (string) ( $payload['text'] ?? '' );
 		$message_type = 'text';
+		// [2026-11-21 04:01 PM Johnny Chu - Chu Hoàng Anh] PHASE-0.82-B6 — giữ URL tệp đính kèm (image_url / file_url / file_name)
+		// cho bộ phát tin vào; tệp âm thanh (tin thoại hoặc .m4a/.mp3/…) được chuyển thành chữ qua Hub để bot "nghe" được.
+		$media = array( 'image_url' => '', 'file_url' => '', 'file_name' => '' );
 		foreach ( (array) ( $payload['attachments'] ?? array() ) as $attachment ) {
 			if ( ! is_array( $attachment ) ) { continue; }
 			$kind = (string) ( $attachment['kind'] ?? '' );
-			if ( in_array( $kind, array( 'image', 'file' ), true ) ) { $message_type = $kind; }
-			$label = self::attachment_label( $kind, (string) ( $attachment['name'] ?? '' ) );
+			$name = (string) ( $attachment['name'] ?? $attachment['fileName'] ?? '' );
+			$url  = self::attachment_url( $attachment );
+			if ( 'image' === $kind ) {
+				$message_type = 'image';
+				if ( '' === $media['image_url'] ) { $media['image_url'] = $url; }
+			} elseif ( in_array( $kind, array( 'file', 'voice' ), true ) ) {
+				if ( 'image' !== $message_type ) { $message_type = 'file'; }
+				if ( '' === $media['file_url'] ) { $media['file_url'] = $url; $media['file_name'] = '' !== $name ? $name : ( 'voice' === $kind ? 'tin-nhan-thoai.m4a' : '' ); }
+			}
+			$label = self::attachment_label( $kind, $name );
 			if ( '' !== $label ) { $text .= ( '' !== $text ? ' ' : '' ) . $label; }
+			if ( '' !== $url && self::is_audio( $kind, $name, (string) ( $attachment['mime'] ?? $attachment['mimeType'] ?? '' ) ) ) {
+				$transcript = self::transcribe( $url, (string) ( $attachment['mime'] ?? $attachment['mimeType'] ?? '' ) );
+				$text .= ( '' !== $text ? "\n" : '' ) . ( '' !== $transcript
+					? '[Lời thoại ghi âm] ' . $transcript
+					: '[Ghi âm: chưa chuyển được thành chữ]' );
+			}
 		}
 		$body = array(
 			'kind' => 'personal', 'account_id' => 'rzh:' . (string) ( $event['account_id'] ?? '' ),
@@ -67,6 +118,7 @@ final class BizCity_Remote_Zalo_Normalizer {
 			'is_group' => $is_group ? 1 : 0, 'thread_id' => (string) ( $payload['threadId'] ?? '' ),
 			'from_user_id' => (string) ( $payload['senderId'] ?? '' ), 'from_user_name' => (string) ( $payload['senderName'] ?? '' ),
 			'message_text' => $text, 'message_type' => $message_type,
+			'image_url' => $media['image_url'], 'file_url' => $media['file_url'], 'file_name' => $media['file_name'],
 			'message_time' => strtotime( (string) ( $event['timestamp'] ?? '' ) ) ?: 0,
 			'trace_id' => substr( 'rzh-' . (string) ( $event['event_id'] ?? '' ), 0, 64 ),
 			'quote_src' => self::quote( $payload['quote'] ?? null ), 'mentions_me' => $is_group && ! empty( $payload['mentionsMe'] ) ? 1 : 0,

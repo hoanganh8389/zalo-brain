@@ -1005,6 +1005,34 @@ add_action( 'admin_init', static function () {
         echo '<p class="description">Trợ lý Twin luôn mở được ở <a href="' . esc_url( home_url( '/twin/' ) ) . '" target="_blank" rel="noopener">' . esc_html( home_url( '/twin/' ) ) . '</a>, dù bạn chọn gì.</p>';
     }, 'reading' );
 } );
+// [2026-11-22 09:20 PM Johnny Chu - Chu Hoàng Anh] CG-HOME — the same switch on Channel Gateway › Tổng quan (owner asked:
+// "Bật/tắt homepage là /twin hay index mặc định của WP"). GET for anyone who can open the gateway, POST manage_options only.
+// Same option, same sanitize as Settings → Reading above; nothing else changes.
+add_action( 'rest_api_init', static function () {
+    $shape = static function () {
+        return array(
+            'mode'     => 'twin' === (string) get_option( 'bizcity_twin_home', '' ) ? 'twin' : 'classic',
+            'home_url' => home_url( '/' ),
+            'twin_url' => home_url( '/twin/' ),
+        );
+    };
+    register_rest_route( 'bizcity-channel/v1', '/site/home', array(
+        array(
+            'methods'             => 'GET',
+            'callback'            => static function () use ( $shape ) { return rest_ensure_response( $shape() ); },
+            'permission_callback' => static function () { return is_user_logged_in(); },
+        ),
+        array(
+            'methods'             => 'POST',
+            'callback'            => static function ( WP_REST_Request $r ) use ( $shape ) {
+                update_option( 'bizcity_twin_home', 'twin' === (string) $r->get_param( 'mode' ) ? 'twin' : 'classic' );
+                return rest_ensure_response( $shape() );
+            },
+            'permission_callback' => static function () { return current_user_can( 'manage_options' ); },
+            'args'                => array( 'mode' => array( 'type' => 'string', 'enum' => array( 'twin', 'classic' ), 'required' => true ) ),
+        ),
+    ) );
+} );
 // Phase 6.1 — Twinsource (standard source-management panel for all plugins).
 // See PHASE-6.1-TWINSOURCE-STANDARD.md
 // enqueue() is called explicitly by host pages (not via wp_enqueue_scripts hook)

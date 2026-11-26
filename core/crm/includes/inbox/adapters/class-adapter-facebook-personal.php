@@ -36,9 +36,15 @@ class BizCity_CRM_Adapter_FacebookPersonal extends BizCity_CRM_Adapter_ZaloPerso
 		}
 		// [2026-11-26 Johnny Chu - Chu Hoàng Anh] chạy thật: liên hệ Facebook chưa có tên hiện "Zalo 982373" (nhãn dự phòng của adapter Zalo cha). Cell nay gửi tên từ threadName khi
 		// bridge biết; chưa biết thì nhãn dự phòng phải đúng nền tảng: "Facebook <6 số cuối uid>".
+		// [2026-11-26] `thread_name` (Cell, từ bridge) là tên người đối diện: dùng khi tên người gửi rỗng; chưa có thì nhãn dự phòng.
 		if ( '' === trim( (string) ( $raw['from_user_name'] ?? '' ) ) && isset( $normalized['contact_name'] ) && 0 === strpos( (string) $normalized['contact_name'], 'Zalo ' ) ) {
-			$uid                        = (string) ( $raw['conversation_id'] ?? $raw['from_user_id'] ?? '' );
-			$normalized['contact_name'] = 'Facebook ' . substr( $uid, -6 );
+			$thread_name = trim( sanitize_text_field( (string) ( $raw['thread_name'] ?? '' ) ) );
+			if ( '' !== $thread_name ) {
+				$normalized['contact_name'] = $thread_name;
+			} else {
+				$uid                        = (string) ( $raw['conversation_id'] ?? $raw['from_user_id'] ?? '' );
+				$normalized['contact_name'] = 'Facebook ' . substr( $uid, -6 );
+			}
 		}
 		$normalized['inbox_name']  = 'Facebook cá nhân ' . (string) ( $raw['account_name'] ?? $raw['conversation_id'] ?? '' );
 		$normalized['ai_metadata'] = array_merge( (array) ( $normalized['ai_metadata'] ?? array() ), array(

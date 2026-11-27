@@ -120,21 +120,25 @@ class BizCity_Zalo_Inbound_Emitter {
 				? gmdate( 'Y-m-d H:i:s', (int) $body['message_time'] )
 				: current_time( 'mysql' );
 			$echo_channel = self::channel_of( $db_account ); // PHASE-017: tin tự gửi của nick Facebook vào đúng hộp thư Facebook
+			// [2026-11-26 Johnny Chu - Chu Hoàng Anh] Facebook: `thread_name` là tên NGƯỜI ĐỐI DIỆN của chat 1-1 (bridge), đáng tin; khác `from_user_name` (tên nhân viên, vẫn không dùng).
+			// Trước đây hội thoại mở đầu bằng tin tự gửi hiện "#36" vì liên hệ không có tên. Chỉ nick Facebook, 1-1; Zalo giữ nguyên.
+			$peer_name = ( 'facebook_personal' === $echo_channel && ! $is_group ) ? trim( sanitize_text_field( (string) ( $body['thread_name'] ?? '' ) ) ) : '';
+			$name_src  = '' !== $peer_name ? 'thread_name' : 'self_echo_unreliable';
 			$msg_id = BizCity_CRM_Facebook_Ingestor::instance()->ingest_outbound( $echo_channel, array(
 				'inbox_ref'          => $account_id,
 				'inbox_name'         => ( 'facebook_personal' === $echo_channel ? 'Facebook cá nhân ' : 'Zalo Cá nhân ' ) . (string) ( $body['account_name'] ?? $account_id ),
 				'source_id'          => $is_group ? 'group:' . $peer_id : $peer_id, // [2026-08-25 Johnny Chu] PHASE-0.39F-GROUP-INBOX — keep self-echo on the group source key.
 				// [2026-08-23 Johnny Chu] PHASE-0.39D — native self sender name belongs to the agent, never seed the peer contact name.
-				'contact_name'       => '',
+				'contact_name'       => $peer_name,
 				'content'            => (string) ( $body['message_text'] ?? '' ),
 				'content_type'       => $content_type,
 				'external_source_id' => 'zalo:self:' . $zalo_msg_id,
 				'received_at'        => $created_at,
 				'sender_type'        => 'agent',
-				'contact_name_source' => 'self_echo_unreliable',
+				'contact_name_source' => $name_src,
 				'ai_metadata'        => array(
 					'zalo_personal_origin' => 'native_zalo',
-					'contact_name_source'  => 'self_echo_unreliable',
+					'contact_name_source'  => $name_src,
 					'thread_kind'         => $is_group ? 'group' : 'personal',
 					'group_id'            => $is_group ? $peer_id : '',
 					'trace_id'             => sanitize_text_field( (string) ( $body['trace_id'] ?? '' ) ),
